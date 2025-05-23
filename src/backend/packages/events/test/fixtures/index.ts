@@ -1,120 +1,192 @@
 /**
  * @file index.ts
  * @description Barrel file that exports all test fixtures from the events package.
- * This file provides a centralized entry point for accessing test fixtures across
- * all journeys, ensuring consistent test data usage throughout the application.
+ * This file consolidates exports from all other fixture files, enabling consumers to import
+ * test data with a single import statement. It simplifies test setup by providing a unified
+ * entry point to access event test fixtures across all journeys.
  */
 
-// Export main fixtures
+// Re-export all base event fixtures
 export * from './base-events';
-export * from './care-events';
-export * from './event-versions';
-export * from './health-events';
-export * from './kafka-events';
-export * from './plan-events';
-export * from './validation-events';
 
-// Export unit test fixtures with namespaces to prevent collisions
-import * as BaseEventFixtures from '../unit/fixtures/base-events.fixtures';
-import * as CareEventFixtures from '../unit/fixtures/care-events.fixtures';
-import * as HealthEventFixtures from '../unit/fixtures/health-events.fixtures';
-import * as KafkaEventFixtures from '../unit/fixtures/kafka-events.fixtures';
-import * as PlanEventFixtures from '../unit/fixtures/plan-events.fixtures';
-import * as ValidationFixtures from '../unit/fixtures/validation.fixtures';
-import * as VersionFixtures from '../unit/fixtures/version.fixtures';
+// Re-export journey-specific event fixtures
+import * as HealthEvents from './health-events';
+import * as CareEvents from './care-events';
+import * as PlanEvents from './plan-events';
 
-// Export DTO mocks with namespaces
-import * as CareEventMocks from '../unit/dto/mocks/care-events.mock';
-import * as CommonEventMocks from '../unit/dto/mocks/common-events.mock';
-import * as EventFactory from '../unit/dto/mocks/event-factory';
-import * as HealthEventMocks from '../unit/dto/mocks/health-events.mock';
-import * as InvalidEventMocks from '../unit/dto/mocks/invalid-events.mock';
-import * as PlanEventMocks from '../unit/dto/mocks/plan-events.mock';
-import * as ValidEventMocks from '../unit/dto/mocks/valid-events.mock';
+// Re-export validation and versioning fixtures
+import * as ValidationEvents from './validation-events';
+import * as EventVersions from './event-versions';
 
-// Export Kafka mocks with namespaces
-import * as MockJourneyEvents from '../unit/kafka/mocks/mock-journey-events';
-import * as MockKafkaConsumer from '../unit/kafka/mocks/mock-kafka-consumer';
-import * as MockKafkaMessage from '../unit/kafka/mocks/mock-kafka-message';
-import * as MockKafkaProducer from '../unit/kafka/mocks/mock-kafka-producer';
-import * as MockSerializers from '../unit/kafka/mocks/mock-serializers';
+// Re-export Kafka-specific fixtures
+import * as KafkaEvents from './kafka-events';
 
-// Re-export namespaced fixtures
-export {
-  // Unit test fixtures
-  BaseEventFixtures,
-  CareEventFixtures,
-  HealthEventFixtures,
-  KafkaEventFixtures,
-  PlanEventFixtures,
-  ValidationFixtures,
-  VersionFixtures,
+/**
+ * Namespace for Health journey event fixtures
+ */
+export const Health = HealthEvents;
+
+/**
+ * Namespace for Care journey event fixtures
+ */
+export const Care = CareEvents;
+
+/**
+ * Namespace for Plan journey event fixtures
+ */
+export const Plan = PlanEvents;
+
+/**
+ * Namespace for validation test fixtures
+ */
+export const Validation = ValidationEvents;
+
+/**
+ * Namespace for event versioning test fixtures
+ */
+export const Versions = EventVersions;
+
+/**
+ * Namespace for Kafka-specific event fixtures
+ */
+export const Kafka = KafkaEvents;
+
+/**
+ * Convenience object containing all journey-specific event collections
+ */
+export const Collections = {
+  /**
+   * Complete set of Health journey events for a user
+   */
+  Health: HealthEvents.createCompleteHealthEventSet,
   
-  // DTO mocks
-  CareEventMocks,
-  CommonEventMocks,
-  EventFactory,
-  HealthEventMocks,
-  InvalidEventMocks,
-  PlanEventMocks,
-  ValidEventMocks,
+  /**
+   * Complete set of Care journey events for a user
+   */
+  Care: CareEvents.createCompleteCareEventSet,
   
-  // Kafka mocks
-  MockJourneyEvents,
-  MockKafkaConsumer,
-  MockKafkaMessage,
-  MockKafkaProducer,
-  MockSerializers,
+  /**
+   * Complete set of Plan journey events for a user
+   */
+  Plan: PlanEvents.createCompletePlanEventSet,
+  
+  /**
+   * Creates a complete set of events across all journeys for a user
+   * 
+   * @param userId - The user ID
+   * @returns An array of events from all journeys
+   */
+  createCompleteUserEventSet: (userId: string) => [
+    ...HealthEvents.createCompleteHealthEventSet(userId),
+    ...CareEvents.createCompleteCareEventSet(userId),
+    ...PlanEvents.createCompletePlanEventSet(userId)
+  ]
 };
 
-// Export journey-specific fixture collections for convenience
-export const HealthFixtures = {
-  events: HealthEventMocks,
-  fixtures: HealthEventFixtures,
-  mocks: MockJourneyEvents.healthEvents,
+/**
+ * Factory functions for creating common event scenarios
+ */
+export const Scenarios = {
+  /**
+   * Creates a set of events representing a user's first day onboarding
+   * 
+   * @param userId - The user ID
+   * @returns An array of events representing first-day onboarding
+   */
+  createFirstDayOnboardingEvents: (userId: string) => [
+    ...HealthEvents.createHealthGoalEventsCollection(userId),
+    CareEvents.createProfileCompletedEvent(userId),
+    PlanEvents.createPlanSelectedEvent(userId, 'standard-plan')
+  ],
+  
+  /**
+   * Creates a set of events representing a user achieving their first health goal
+   * 
+   * @param userId - The user ID
+   * @returns An array of events for first goal achievement
+   */
+  createFirstGoalAchievementEvents: (userId: string) => {
+    const goalId = `goal-steps-${Math.random().toString(36).substring(2, 10)}`;
+    return [
+      HealthEvents.createHealthGoalCreatedEvent(userId, 'STEPS', 10000),
+      HealthEvents.createStepsRecordedEvent(userId, 10500),
+      HealthEvents.createHealthGoalAchievedEvent(userId, goalId, 'STEPS', 10000, true)
+    ];
+  },
+  
+  /**
+   * Creates a set of events representing a user completing a care appointment
+   * 
+   * @param userId - The user ID
+   * @returns An array of events for appointment completion
+   */
+  createAppointmentCompletionEvents: (userId: string) => {
+    const appointmentId = `appointment-${Math.random().toString(36).substring(2, 10)}`;
+    return [
+      CareEvents.createAppointmentBookedEvent(userId, appointmentId),
+      CareEvents.createAppointmentCheckedInEvent(userId, appointmentId),
+      CareEvents.createAppointmentCompletedEvent(userId, appointmentId)
+    ];
+  },
+  
+  /**
+   * Creates a set of events representing a user submitting and receiving approval for a claim
+   * 
+   * @param userId - The user ID
+   * @returns An array of events for claim submission and approval
+   */
+  createClaimApprovalEvents: (userId: string) => {
+    const claimId = `claim-${Math.random().toString(36).substring(2, 10)}`;
+    return [
+      PlanEvents.createClaimSubmittedEvent(userId, claimId),
+      PlanEvents.createClaimDocumentsUploadedEvent(userId, claimId),
+      PlanEvents.createClaimApprovedEvent(userId, claimId)
+    ];
+  }
 };
 
-export const CareFixtures = {
-  events: CareEventMocks,
-  fixtures: CareEventFixtures,
-  mocks: MockJourneyEvents.careEvents,
-};
-
-export const PlanFixtures = {
-  events: PlanEventMocks,
-  fixtures: PlanEventFixtures,
-  mocks: MockJourneyEvents.planEvents,
-};
-
-// Export validation-specific fixture collections
-export const ValidationTestFixtures = {
-  valid: ValidEventMocks,
-  invalid: InvalidEventMocks,
-  fixtures: ValidationFixtures,
-};
-
-// Export Kafka-specific fixture collections
-export const KafkaTestFixtures = {
-  messages: MockKafkaMessage,
-  consumer: MockKafkaConsumer,
-  producer: MockKafkaProducer,
-  serializers: MockSerializers,
-  fixtures: KafkaEventFixtures,
-};
-
-// Export versioning-specific fixture collections
-export const VersioningTestFixtures = {
-  fixtures: VersionFixtures,
-  events: EventFactory.createVersionedEvents,
-};
-
-// Export factory functions for creating custom test fixtures
-export const createTestFixture = {
-  baseEvent: BaseEventFixtures.createBaseEvent,
-  healthEvent: HealthEventFixtures.createHealthEvent,
-  careEvent: CareEventFixtures.createCareEvent,
-  planEvent: PlanEventFixtures.createPlanEvent,
-  kafkaMessage: MockKafkaMessage.createKafkaMessage,
-  journeyEvent: EventFactory.createJourneyEvent,
-  versionedEvent: EventFactory.createVersionedEvent,
+/**
+ * Factory functions for creating events with specific characteristics for testing
+ */
+export const TestUtils = {
+  /**
+   * Creates a batch of events with timestamps spread over a specific time period
+   * 
+   * @param userId - The user ID
+   * @param startDate - The start date for the events
+   * @param endDate - The end date for the events
+   * @param count - The number of events to create
+   * @returns An array of events with timestamps spread between startDate and endDate
+   */
+  createTimePeriodEvents: (userId: string, startDate: Date, endDate: Date, count: number) => {
+    const events = [];
+    const startTime = startDate.getTime();
+    const timeRange = endDate.getTime() - startTime;
+    const timeStep = timeRange / (count - 1);
+    
+    for (let i = 0; i < count; i++) {
+      const timestamp = new Date(startTime + (i * timeStep)).toISOString();
+      events.push({
+        ...HealthEvents.createHeartRateRecordedEvent(userId, 70 + Math.floor(Math.random() * 20)),
+        timestamp
+      });
+    }
+    
+    return events;
+  },
+  
+  /**
+   * Creates a set of events with correlation IDs for testing event chains
+   * 
+   * @param userId - The user ID
+   * @returns An array of correlated events
+   */
+  createCorrelatedEventChain: (userId: string) => {
+    const correlationId = `corr-${Math.random().toString(36).substring(2, 10)}`;
+    return [
+      { ...HealthEvents.createHealthGoalCreatedEvent(userId, 'STEPS', 10000), correlationId },
+      { ...HealthEvents.createStepsRecordedEvent(userId, 10500), correlationId },
+      { ...HealthEvents.createHealthGoalAchievedEvent(userId, 'goal-123', 'STEPS', 10000, true), correlationId }
+    ];
+  }
 };

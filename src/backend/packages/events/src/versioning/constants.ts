@@ -1,160 +1,172 @@
 /**
- * Constants for the event versioning system.
- * Centralizes version-related constants, default configurations, and error message templates
- * to ensure consistent versioning behavior across the application.
+ * @file constants.ts
+ * @description Centralizes version-related constants, default configurations, and error message templates
+ * for the versioning module. Contains current and supported version identifiers, configuration defaults,
+ * and standardized error messages.
  */
 
+import { CompatibilityCheckerConfig, MigrationRegistryConfig, SchemaValidationConfig, TransformOptions, VersionDetectorConfig } from './types';
+
 /**
- * Current and supported version identifiers
+ * Current latest version of the event schema
+ * This should be updated whenever a new version is released
  */
-export const VERSION_CONSTANTS = {
-  /** The latest version of the event schema */
-  LATEST_VERSION: '1.0.0',
-  
-  /** The minimum supported version of the event schema */
-  MINIMUM_SUPPORTED_VERSION: '1.0.0',
-  
-  /** The default version to use when no version is specified */
-  DEFAULT_VERSION: '1.0.0',
-  
-  /** The version format pattern (semantic versioning: major.minor.patch) */
-  VERSION_FORMAT: /^(\d+)\.(\d+)\.(\d+)$/,
-  
-  /** The separator used in semantic versioning */
-  VERSION_SEPARATOR: '.',
-  
-  /** The version field name in event payloads */
-  VERSION_FIELD: 'version',
-  
-  /** The version header name for Kafka messages */
-  VERSION_HEADER: 'event-version',
+export const LATEST_VERSION = '1.0.0';
+
+/**
+ * Minimum supported version of the event schema
+ * Events with versions older than this will be rejected
+ */
+export const MINIMUM_SUPPORTED_VERSION = '0.5.0';
+
+/**
+ * List of all supported versions in order from oldest to newest
+ * This is used for validation and migration path discovery
+ */
+export const SUPPORTED_VERSIONS = [
+  '0.5.0',
+  '0.6.0',
+  '0.7.0',
+  '0.8.0',
+  '0.9.0',
+  '1.0.0',
+];
+
+/**
+ * Regular expression for validating semantic version format
+ * Follows the major.minor.patch format
+ */
+export const VERSION_FORMAT_REGEX = /^(\d+)\.(\d+)\.(\d+)$/;
+
+/**
+ * Error message templates for version-related errors
+ */
+export const ERROR_TEMPLATES = {
+  INVALID_VERSION_FORMAT: 'Invalid version format: {version}. Expected format: {expectedFormat}',
+  VERSION_NOT_SUPPORTED: 'Version {version} is not supported. Supported versions: {supportedVersions}',
+  VERSION_TOO_OLD: 'Version {version} is too old. Minimum supported version is {minVersion}',
+  VERSION_DETECTION_FAILED: 'Failed to detect version for event: {eventId}',
+  NO_MIGRATION_PATH: 'No migration path found from version {sourceVersion} to {targetVersion} for event type {eventType}',
+  INCOMPATIBLE_VERSIONS: 'Incompatible versions: {sourceVersion} and {targetVersion}',
+  DOWNGRADE_NOT_ALLOWED: 'Version downgrade from {sourceVersion} to {targetVersion} is not allowed',
+  TRANSFORMATION_FAILED: 'Failed to transform event from version {sourceVersion} to {targetVersion}',
+  VALIDATION_FAILED: 'Validation failed for event after transformation to version {targetVersion}',
 };
 
 /**
- * Default configuration options for versioning behaviors
+ * Default configuration for version detection
  */
-export const DEFAULT_VERSION_CONFIG = {
-  /** Whether to automatically upgrade events to the latest version */
-  AUTO_UPGRADE_EVENTS: true,
-  
-  /** Whether to allow processing of events with unsupported versions */
-  ALLOW_UNSUPPORTED_VERSIONS: false,
-  
-  /** Whether to validate events after version transformation */
-  VALIDATE_TRANSFORMED_EVENTS: true,
-  
-  /** Whether to throw an error when version detection fails */
-  THROW_ON_VERSION_DETECTION_FAILURE: true,
-  
-  /** Whether to preserve metadata when transforming events */
-  PRESERVE_METADATA_ON_TRANSFORM: true,
-  
-  /** Default strategies for version detection in order of precedence */
-  DEFAULT_DETECTION_STRATEGIES: ['explicit', 'header', 'structure', 'fallback'],
-  
-  /** Maximum number of transformation steps allowed in a single operation */
-  MAX_TRANSFORMATION_STEPS: 5,
-  
-  /** Whether to use automatic field mapping for compatible fields during migration */
-  USE_AUTO_FIELD_MAPPING: true,
+export const DEFAULT_VERSION_DETECTOR_CONFIG: VersionDetectorConfig = {
+  strategies: [
+    {
+      type: 'explicit',
+      field: 'version',
+    },
+    {
+      type: 'header',
+      headerField: 'x-event-version',
+    },
+  ],
+  defaultVersion: LATEST_VERSION,
+  throwOnUndetected: true,
 };
 
 /**
- * Standardized error message templates for versioning issues
+ * Default configuration for compatibility checking
  */
-export const VERSION_ERROR_MESSAGES = {
-  INVALID_VERSION_FORMAT: 'Invalid version format: {version}. Expected format: major.minor.patch (e.g., 1.0.0)',
-  
-  VERSION_NOT_DETECTED: 'Could not detect version for event: {eventId}',
-  
-  UNSUPPORTED_VERSION: 'Event version {version} is not supported. Minimum supported version is {minVersion}',
-  
-  VERSION_TOO_NEW: 'Event version {version} is newer than the latest supported version {latestVersion}',
-  
-  NO_MIGRATION_PATH: 'No migration path found from version {sourceVersion} to {targetVersion}',
-  
-  MIGRATION_FAILED: 'Failed to migrate event from version {sourceVersion} to {targetVersion}: {reason}',
-  
-  TRANSFORMATION_FAILED: 'Event transformation failed: {reason}',
-  
-  VALIDATION_FAILED: 'Validation failed for transformed event: {errors}',
-  
-  MAX_TRANSFORMATION_STEPS_EXCEEDED: 'Maximum transformation steps exceeded ({steps}). Possible circular migration path',
-  
-  INCOMPATIBLE_VERSIONS: 'Incompatible versions: {sourceVersion} cannot be processed by handler expecting {targetVersion}',
+export const DEFAULT_COMPATIBILITY_CHECKER_CONFIG: CompatibilityCheckerConfig = {
+  strict: false,
+  allowMajorUpgrade: false,
+  allowDowngrade: false,
 };
 
 /**
- * Constants for version comparison operations
+ * Default configuration for schema validation
  */
-export const VERSION_COMPARISON = {
-  /** Result when versions are exactly equal */
-  EQUAL: 0,
-  
-  /** Result when first version is greater than second */
-  GREATER: 1,
-  
-  /** Result when first version is less than second */
-  LESS: -1,
-  
-  /** Compatibility modes for version checking */
-  COMPATIBILITY_MODES: {
-    /** Strict mode requires exact version match */
-    STRICT: 'strict',
-    
-    /** Standard mode allows minor and patch differences within same major version */
-    STANDARD: 'standard',
-    
-    /** Relaxed mode allows any version with same or lower major version */
-    RELAXED: 'relaxed',
-  },
+export const DEFAULT_SCHEMA_VALIDATION_CONFIG: SchemaValidationConfig = {
+  strict: true,
+  throwOnInvalid: true,
 };
 
 /**
- * Constants for event schema versioning
+ * Default configuration for migration registry
  */
-export const SCHEMA_VERSION_CONSTANTS = {
-  /** Schema registry key format: {eventType}@{version} */
-  REGISTRY_KEY_FORMAT: '{eventType}@{version}',
-  
-  /** Default schema registry namespace */
-  DEFAULT_NAMESPACE: 'austa.events',
-  
-  /** Schema compatibility modes */
-  COMPATIBILITY_MODES: {
-    /** Backward compatibility ensures new schema can read old data */
-    BACKWARD: 'BACKWARD',
-    
-    /** Forward compatibility ensures old schema can read new data */
-    FORWARD: 'FORWARD',
-    
-    /** Full compatibility ensures both backward and forward compatibility */
-    FULL: 'FULL',
-    
-    /** None disables compatibility checking */
-    NONE: 'NONE',
-  },
+export const DEFAULT_MIGRATION_REGISTRY_CONFIG: MigrationRegistryConfig = {
+  strict: true,
+  validateResults: true,
+  allowDowngrade: false,
 };
 
 /**
- * Constants for journey-specific event versions
- * These can be updated as journey-specific event schemas evolve
+ * Default options for event transformation
  */
-export const JOURNEY_EVENT_VERSIONS = {
-  HEALTH: {
-    LATEST: '1.0.0',
-    MINIMUM_SUPPORTED: '1.0.0',
-  },
-  CARE: {
-    LATEST: '1.0.0',
-    MINIMUM_SUPPORTED: '1.0.0',
-  },
-  PLAN: {
-    LATEST: '1.0.0',
-    MINIMUM_SUPPORTED: '1.0.0',
-  },
-  GAMIFICATION: {
-    LATEST: '1.0.0',
-    MINIMUM_SUPPORTED: '1.0.0',
-  },
+export const DEFAULT_TRANSFORM_OPTIONS: TransformOptions = {
+  direction: 'upgrade',
+  validateResult: true,
+  strict: true,
 };
+
+/**
+ * Field names that should be preserved during transformation
+ * These fields are part of the base event structure and should not be modified
+ */
+export const PRESERVED_FIELDS = [
+  'eventId',
+  'timestamp',
+  'source',
+  'type',
+  'metadata',
+];
+
+/**
+ * Maximum number of transformation steps allowed in a single migration
+ * This prevents infinite loops in case of circular migration paths
+ */
+export const MAX_TRANSFORMATION_STEPS = 10;
+
+/**
+ * Default confidence threshold for version detection
+ * Detections with confidence below this threshold will be ignored
+ */
+export const DEFAULT_DETECTION_CONFIDENCE_THRESHOLD = 0.7;
+
+/**
+ * Version field names to check when using explicit version detection
+ * The detector will check these fields in order until a version is found
+ */
+export const VERSION_FIELD_NAMES = [
+  'version',
+  'schemaVersion',
+  'eventVersion',
+  'apiVersion',
+  'v',
+];
+
+/**
+ * Header field names to check when using header-based version detection
+ * The detector will check these headers in order until a version is found
+ */
+export const VERSION_HEADER_NAMES = [
+  'x-event-version',
+  'x-schema-version',
+  'x-api-version',
+  'event-version',
+  'schema-version',
+  'api-version',
+];
+
+/**
+ * Journey-specific version prefixes
+ * These prefixes can be used to identify journey-specific versions
+ */
+export const JOURNEY_VERSION_PREFIXES = {
+  HEALTH: 'health-',
+  CARE: 'care-',
+  PLAN: 'plan-',
+};
+
+/**
+ * Default timeout for version-related operations in milliseconds
+ * Operations that exceed this timeout will be aborted
+ */
+export const DEFAULT_OPERATION_TIMEOUT = 5000; // 5 seconds

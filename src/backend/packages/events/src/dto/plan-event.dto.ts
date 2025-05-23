@@ -1,512 +1,604 @@
-import { IsNotEmpty, IsString, IsObject, IsUUID, IsOptional, IsNumber, IsEnum, IsBoolean, IsDate, IsISO8601, ValidateNested, Min, Max, IsArray, ArrayMinSize, ArrayMaxSize, IsPositive, IsDecimal } from 'class-validator';
+import { IsNotEmpty, IsString, IsObject, IsUUID, IsOptional, IsNumber, IsEnum, IsBoolean, IsISO8601, IsArray, ValidateNested, Min, Max, IsPositive, IsDecimal, Length, Matches } from 'class-validator';
 import { Type } from 'class-transformer';
+import { ProcessEventDto } from './base-event.dto';
 
 /**
- * Enum for plan event types in the AUSTA SuperApp.
- * These event types are specific to the Plan journey and are used
- * for gamification and notification purposes.
+ * Enum for claim status values
  */
-export enum PlanEventType {
-  // Claim related events
-  CLAIM_SUBMITTED = 'CLAIM_SUBMITTED',
-  CLAIM_APPROVED = 'CLAIM_APPROVED',
-  CLAIM_REJECTED = 'CLAIM_REJECTED',
-  CLAIM_UPDATED = 'CLAIM_UPDATED',
-  CLAIM_DOCUMENT_UPLOADED = 'CLAIM_DOCUMENT_UPLOADED',
-  
-  // Benefit related events
-  BENEFIT_UTILIZED = 'BENEFIT_UTILIZED',
-  BENEFIT_REDEEMED = 'BENEFIT_REDEEMED',
-  BENEFIT_EXPIRED = 'BENEFIT_EXPIRED',
-  
-  // Plan selection/comparison events
-  PLAN_VIEWED = 'PLAN_VIEWED',
-  PLAN_COMPARED = 'PLAN_COMPARED',
-  PLAN_SELECTED = 'PLAN_SELECTED',
-  PLAN_CHANGED = 'PLAN_CHANGED',
-  
-  // Reward related events
-  REWARD_REDEEMED = 'REWARD_REDEEMED',
-  REWARD_EARNED = 'REWARD_EARNED'
+export enum ClaimStatus {
+  SUBMITTED = 'submitted',
+  IN_REVIEW = 'in_review',
+  APPROVED = 'approved',
+  REJECTED = 'rejected',
+  PENDING_INFORMATION = 'pending_information',
+  PAID = 'paid',
+  APPEALED = 'appealed'
 }
 
 /**
- * Enum for claim types in the AUSTA SuperApp.
+ * Enum for claim types
  */
 export enum ClaimType {
-  MEDICAL = 'MEDICAL',
-  DENTAL = 'DENTAL',
-  VISION = 'VISION',
-  PHARMACY = 'PHARMACY',
-  MENTAL_HEALTH = 'MENTAL_HEALTH',
-  PHYSICAL_THERAPY = 'PHYSICAL_THERAPY',
-  OTHER = 'OTHER'
+  MEDICAL = 'medical',
+  DENTAL = 'dental',
+  VISION = 'vision',
+  PHARMACY = 'pharmacy',
+  MENTAL_HEALTH = 'mental_health',
+  WELLNESS = 'wellness',
+  OTHER = 'other'
 }
 
 /**
- * Enum for benefit types in the AUSTA SuperApp.
+ * Enum for benefit types
  */
 export enum BenefitType {
-  PREVENTIVE_CARE = 'PREVENTIVE_CARE',
-  SPECIALIST_VISIT = 'SPECIALIST_VISIT',
-  EMERGENCY = 'EMERGENCY',
-  HOSPITALIZATION = 'HOSPITALIZATION',
-  PRESCRIPTION = 'PRESCRIPTION',
-  WELLNESS = 'WELLNESS',
-  TELEMEDICINE = 'TELEMEDICINE',
-  DENTAL = 'DENTAL',
-  VISION = 'VISION',
-  MENTAL_HEALTH = 'MENTAL_HEALTH',
-  OTHER = 'OTHER'
+  PREVENTIVE_CARE = 'preventive_care',
+  SPECIALIST_VISIT = 'specialist_visit',
+  EMERGENCY = 'emergency',
+  HOSPITALIZATION = 'hospitalization',
+  PRESCRIPTION = 'prescription',
+  DENTAL = 'dental',
+  VISION = 'vision',
+  MENTAL_HEALTH = 'mental_health',
+  WELLNESS = 'wellness',
+  TELEMEDICINE = 'telemedicine',
+  OTHER = 'other'
 }
 
 /**
- * Enum for currency types in the AUSTA SuperApp.
+ * Enum for plan types
  */
-export enum CurrencyType {
-  BRL = 'BRL',
-  USD = 'USD',
-  EUR = 'EUR'
+export enum PlanType {
+  HMO = 'hmo',
+  PPO = 'ppo',
+  EPO = 'epo',
+  POS = 'pos',
+  HDHP = 'hdhp',
+  CATASTROPHIC = 'catastrophic'
 }
 
 /**
- * Base DTO for all plan journey events in the AUSTA SuperApp.
- * This class extends the ProcessEventDto with plan-specific properties.
+ * DTO for currency amount with validation
  */
-export class PlanEventDto {
+export class CurrencyAmountDto {
   /**
-   * The type of the plan event.
-   * Must be one of the predefined plan event types.
+   * The numeric amount
+   * @example 150.75
    */
   @IsNotEmpty()
-  @IsEnum(PlanEventType, {
-    message: 'Event type must be a valid plan event type'
-  })
-  type: PlanEventType;
+  @IsDecimal({ decimal_digits: '0,2' })
+  @IsPositive()
+  amount: string;
 
   /**
-   * The ID of the user associated with the event.
-   * This must be a valid UUID and identify a registered user in the system.
+   * The currency code (ISO 4217)
+   * @example "BRL"
    */
   @IsNotEmpty()
-  @IsUUID(4, {
-    message: 'User ID must be a valid UUID v4'
-  })
-  userId: string;
+  @IsString()
+  @Length(3, 3)
+  @Matches(/^[A-Z]{3}$/)
+  currency: string;
+}
+
+/**
+ * DTO for document reference with validation
+ */
+export class DocumentReferenceDto {
+  /**
+   * The document ID
+   * @example "doc_12345"
+   */
+  @IsNotEmpty()
+  @IsString()
+  id: string;
 
   /**
-   * The journey associated with the event.
-   * For plan events, this should always be 'plan'.
+   * The document type
+   * @example "receipt"
+   */
+  @IsNotEmpty()
+  @IsString()
+  type: string;
+
+  /**
+   * The document URL (optional)
+   * @example "https://storage.example.com/documents/receipt_12345.pdf"
+   */
+  @IsOptional()
+  @IsString()
+  url?: string;
+}
+
+/**
+ * Base DTO for plan journey events
+ */
+export class PlanEventDto extends ProcessEventDto {
+  /**
+   * The journey identifier - always 'plan' for plan journey events
    */
   @IsNotEmpty()
   @IsString()
   journey: string = 'plan';
-
-  /**
-   * The timestamp when the event occurred.
-   * Must be a valid ISO 8601 date string.
-   */
-  @IsNotEmpty()
-  @IsISO8601()
-  timestamp: string;
-
-  /**
-   * The data associated with the event.
-   * This contains plan-specific details about the event.
-   */
-  @IsNotEmpty()
-  @IsObject()
-  data: object;
 }
 
 /**
- * DTO for claim submission events in the AUSTA SuperApp.
- * This class provides validation for claim submission data.
+ * DTO for claim submission events
  */
 export class ClaimSubmissionEventDto extends PlanEventDto {
   /**
-   * Override the type property to ensure it's always CLAIM_SUBMITTED.
+   * The data associated with the claim submission event
    */
   @IsNotEmpty()
-  @IsEnum(PlanEventType, {
-    message: 'Event type must be CLAIM_SUBMITTED'
-  })
-  type: PlanEventType.CLAIM_SUBMITTED;
-
-  /**
-   * The data associated with the claim submission event.
-   */
-  @IsNotEmpty()
+  @IsObject()
   @ValidateNested()
-  @Type(() => ClaimSubmissionData)
-  data: ClaimSubmissionData;
+  @Type(() => ClaimSubmissionDataDto)
+  data: ClaimSubmissionDataDto;
 }
 
 /**
- * Data structure for claim submission events.
+ * DTO for claim submission event data
  */
-export class ClaimSubmissionData {
+export class ClaimSubmissionDataDto {
   /**
-   * The unique identifier for the claim.
+   * The claim ID
+   * @example "claim_12345"
    */
   @IsNotEmpty()
-  @IsUUID(4, {
-    message: 'Claim ID must be a valid UUID v4'
-  })
+  @IsString()
   claimId: string;
 
   /**
-   * The type of claim being submitted.
+   * The claim type
+   * @example "medical"
    */
   @IsNotEmpty()
-  @IsEnum(ClaimType, {
-    message: 'Claim type must be a valid claim type'
-  })
+  @IsEnum(ClaimType)
   claimType: ClaimType;
 
   /**
-   * The amount being claimed.
+   * The claim amount
    */
   @IsNotEmpty()
-  @IsPositive({
-    message: 'Claim amount must be a positive number'
-  })
-  @IsDecimal({
-    decimal_digits: '2',
-    force_decimal: true
-  }, {
-    message: 'Claim amount must have exactly 2 decimal places'
-  })
-  amount: string;
+  @ValidateNested()
+  @Type(() => CurrencyAmountDto)
+  amount: CurrencyAmountDto;
 
   /**
-   * The currency of the claim amount.
-   */
-  @IsNotEmpty()
-  @IsEnum(CurrencyType, {
-    message: 'Currency must be a valid currency type'
-  })
-  currency: CurrencyType;
-
-  /**
-   * The date of service for the claim.
+   * The service date
+   * @example "2023-05-15T14:30:00Z"
    */
   @IsNotEmpty()
   @IsISO8601()
   serviceDate: string;
 
   /**
-   * Optional description of the claim.
+   * The provider ID
+   * @example "provider_789"
+   */
+  @IsNotEmpty()
+  @IsString()
+  providerId: string;
+
+  /**
+   * The provider name
+   * @example "Clínica São Paulo"
+   */
+  @IsNotEmpty()
+  @IsString()
+  providerName: string;
+
+  /**
+   * The claim description
+   * @example "Annual physical examination"
    */
   @IsOptional()
   @IsString()
   description?: string;
 
   /**
-   * Array of document IDs associated with the claim.
+   * The supporting documents
    */
   @IsOptional()
   @IsArray()
-  @ArrayMinSize(0)
-  @ArrayMaxSize(10, {
-    message: 'A maximum of 10 documents can be attached to a claim'
-  })
-  @IsUUID(4, {
-    each: true,
-    message: 'Each document ID must be a valid UUID v4'
-  })
-  documentIds?: string[];
+  @ValidateNested({ each: true })
+  @Type(() => DocumentReferenceDto)
+  documents?: DocumentReferenceDto[];
+}
+
+/**
+ * DTO for claim status update events
+ */
+export class ClaimStatusUpdateEventDto extends PlanEventDto {
+  /**
+   * The data associated with the claim status update event
+   */
+  @IsNotEmpty()
+  @IsObject()
+  @ValidateNested()
+  @Type(() => ClaimStatusUpdateDataDto)
+  data: ClaimStatusUpdateDataDto;
+}
+
+/**
+ * DTO for claim status update event data
+ */
+export class ClaimStatusUpdateDataDto {
+  /**
+   * The claim ID
+   * @example "claim_12345"
+   */
+  @IsNotEmpty()
+  @IsString()
+  claimId: string;
 
   /**
-   * The provider associated with the claim.
+   * The previous claim status
+   * @example "submitted"
+   */
+  @IsNotEmpty()
+  @IsEnum(ClaimStatus)
+  previousStatus: ClaimStatus;
+
+  /**
+   * The new claim status
+   * @example "approved"
+   */
+  @IsNotEmpty()
+  @IsEnum(ClaimStatus)
+  newStatus: ClaimStatus;
+
+  /**
+   * The status update timestamp
+   * @example "2023-05-20T10:15:00Z"
+   */
+  @IsNotEmpty()
+  @IsISO8601()
+  updateTimestamp: string;
+
+  /**
+   * The status update reason
+   * @example "All documentation verified"
    */
   @IsOptional()
   @IsString()
-  providerName?: string;
+  reason?: string;
 
   /**
-   * Whether the claim is being submitted for reimbursement.
+   * The approved amount (only for approved claims)
    */
   @IsOptional()
-  @IsBoolean()
-  isReimbursement?: boolean;
+  @ValidateNested()
+  @Type(() => CurrencyAmountDto)
+  approvedAmount?: CurrencyAmountDto;
 }
 
 /**
- * DTO for benefit utilization events in the AUSTA SuperApp.
- * This class provides validation for benefit utilization data.
+ * DTO for benefit utilization events
  */
 export class BenefitUtilizationEventDto extends PlanEventDto {
   /**
-   * Override the type property to ensure it's always BENEFIT_UTILIZED.
+   * The data associated with the benefit utilization event
    */
   @IsNotEmpty()
-  @IsEnum(PlanEventType, {
-    message: 'Event type must be BENEFIT_UTILIZED'
-  })
-  type: PlanEventType.BENEFIT_UTILIZED;
-
-  /**
-   * The data associated with the benefit utilization event.
-   */
-  @IsNotEmpty()
+  @IsObject()
   @ValidateNested()
-  @Type(() => BenefitUtilizationData)
-  data: BenefitUtilizationData;
+  @Type(() => BenefitUtilizationDataDto)
+  data: BenefitUtilizationDataDto;
 }
 
 /**
- * Data structure for benefit utilization events.
+ * DTO for benefit utilization event data
  */
-export class BenefitUtilizationData {
+export class BenefitUtilizationDataDto {
   /**
-   * The unique identifier for the benefit.
+   * The benefit ID
+   * @example "benefit_456"
    */
   @IsNotEmpty()
-  @IsUUID(4, {
-    message: 'Benefit ID must be a valid UUID v4'
-  })
+  @IsString()
   benefitId: string;
 
   /**
-   * The type of benefit being utilized.
+   * The benefit type
+   * @example "preventive_care"
    */
   @IsNotEmpty()
-  @IsEnum(BenefitType, {
-    message: 'Benefit type must be a valid benefit type'
-  })
+  @IsEnum(BenefitType)
   benefitType: BenefitType;
 
   /**
-   * The date when the benefit was utilized.
+   * The benefit name
+   * @example "Annual Preventive Check-up"
+   */
+  @IsNotEmpty()
+  @IsString()
+  benefitName: string;
+
+  /**
+   * The utilization date
+   * @example "2023-06-10T09:00:00Z"
    */
   @IsNotEmpty()
   @IsISO8601()
   utilizationDate: string;
 
   /**
-   * The amount of the benefit utilized, if applicable.
+   * The provider ID
+   * @example "provider_789"
    */
   @IsOptional()
-  @IsPositive({
-    message: 'Utilization amount must be a positive number'
-  })
-  @IsDecimal({
-    decimal_digits: '2',
-    force_decimal: true
-  }, {
-    message: 'Utilization amount must have exactly 2 decimal places'
-  })
-  amount?: string;
+  @IsString()
+  providerId?: string;
 
   /**
-   * The currency of the benefit amount, if applicable.
-   */
-  @IsOptional()
-  @IsEnum(CurrencyType, {
-    message: 'Currency must be a valid currency type'
-  })
-  currency?: CurrencyType;
-
-  /**
-   * The provider associated with the benefit utilization, if applicable.
+   * The provider name
+   * @example "Clínica São Paulo"
    */
   @IsOptional()
   @IsString()
   providerName?: string;
 
   /**
-   * Optional description of the benefit utilization.
+   * The benefit value
    */
   @IsOptional()
-  @IsString()
-  description?: string;
+  @ValidateNested()
+  @Type(() => CurrencyAmountDto)
+  value?: CurrencyAmountDto;
+
+  /**
+   * Whether this is the first time utilizing this benefit
+   * @example true
+   */
+  @IsOptional()
+  @IsBoolean()
+  isFirstUtilization?: boolean;
+
+  /**
+   * The remaining utilizations for this benefit (if applicable)
+   * @example 2
+   */
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  remainingUtilizations?: number;
 }
 
 /**
- * DTO for plan selection/comparison events in the AUSTA SuperApp.
- * This class provides validation for plan selection and comparison data.
+ * DTO for plan selection events
  */
 export class PlanSelectionEventDto extends PlanEventDto {
   /**
-   * Override the type property to ensure it's a valid plan selection event type.
+   * The data associated with the plan selection event
    */
   @IsNotEmpty()
-  @IsEnum(PlanEventType, {
-    message: 'Event type must be a valid plan selection event type'
-  })
-  type: PlanEventType.PLAN_VIEWED | PlanEventType.PLAN_COMPARED | PlanEventType.PLAN_SELECTED | PlanEventType.PLAN_CHANGED;
-
-  /**
-   * The data associated with the plan selection event.
-   */
-  @IsNotEmpty()
+  @IsObject()
   @ValidateNested()
-  @Type(() => PlanSelectionData)
-  data: PlanSelectionData;
+  @Type(() => PlanSelectionDataDto)
+  data: PlanSelectionDataDto;
 }
 
 /**
- * Data structure for plan selection events.
+ * DTO for plan selection event data
  */
-export class PlanSelectionData {
+export class PlanSelectionDataDto {
   /**
-   * The unique identifier for the plan.
+   * The selected plan ID
+   * @example "plan_789"
    */
   @IsNotEmpty()
-  @IsUUID(4, {
-    message: 'Plan ID must be a valid UUID v4'
-  })
+  @IsString()
   planId: string;
 
   /**
-   * The name of the plan.
+   * The plan type
+   * @example "ppo"
+   */
+  @IsNotEmpty()
+  @IsEnum(PlanType)
+  planType: PlanType;
+
+  /**
+   * The plan name
+   * @example "AUSTA Premium Family Plan"
    */
   @IsNotEmpty()
   @IsString()
   planName: string;
 
   /**
-   * The plan category or tier.
+   * The selection date
+   * @example "2023-07-01T00:00:00Z"
+   */
+  @IsNotEmpty()
+  @IsISO8601()
+  selectionDate: string;
+
+  /**
+   * The effective date
+   * @example "2023-08-01T00:00:00Z"
+   */
+  @IsNotEmpty()
+  @IsISO8601()
+  effectiveDate: string;
+
+  /**
+   * The previous plan ID (if switching plans)
+   * @example "plan_456"
    */
   @IsOptional()
   @IsString()
-  planCategory?: string;
-
-  /**
-   * For comparison events, the IDs of the plans being compared.
-   */
-  @IsOptional()
-  @IsArray()
-  @ArrayMinSize(1)
-  @ArrayMaxSize(5, {
-    message: 'A maximum of 5 plans can be compared at once'
-  })
-  @IsUUID(4, {
-    each: true,
-    message: 'Each plan ID must be a valid UUID v4'
-  })
-  comparedPlanIds?: string[];
-
-  /**
-   * For plan change events, the ID of the previous plan.
-   */
-  @IsOptional()
-  @IsUUID(4, {
-    message: 'Previous plan ID must be a valid UUID v4'
-  })
   previousPlanId?: string;
 
   /**
-   * The monthly premium of the plan.
-   */
-  @IsOptional()
-  @IsPositive({
-    message: 'Monthly premium must be a positive number'
-  })
-  @IsDecimal({
-    decimal_digits: '2',
-    force_decimal: true
-  }, {
-    message: 'Monthly premium must have exactly 2 decimal places'
-  })
-  monthlyPremium?: string;
-
-  /**
-   * The currency of the monthly premium.
-   */
-  @IsOptional()
-  @IsEnum(CurrencyType, {
-    message: 'Currency must be a valid currency type'
-  })
-  currency?: CurrencyType;
-}
-
-/**
- * DTO for reward redemption events in the AUSTA SuperApp.
- * This class provides validation for reward redemption data.
- */
-export class RewardRedemptionEventDto extends PlanEventDto {
-  /**
-   * Override the type property to ensure it's always REWARD_REDEEMED.
-   */
-  @IsNotEmpty()
-  @IsEnum(PlanEventType, {
-    message: 'Event type must be REWARD_REDEEMED'
-  })
-  type: PlanEventType.REWARD_REDEEMED;
-
-  /**
-   * The data associated with the reward redemption event.
+   * The monthly premium amount
    */
   @IsNotEmpty()
   @ValidateNested()
-  @Type(() => RewardRedemptionData)
-  data: RewardRedemptionData;
+  @Type(() => CurrencyAmountDto)
+  premium: CurrencyAmountDto;
+
+  /**
+   * The selected coverage level
+   * @example "family"
+   */
+  @IsNotEmpty()
+  @IsString()
+  coverageLevel: string;
+
+  /**
+   * The number of dependents covered
+   * @example 3
+   */
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  dependentCount?: number;
 }
 
 /**
- * Data structure for reward redemption events.
+ * DTO for plan comparison events
  */
-export class RewardRedemptionData {
+export class PlanComparisonEventDto extends PlanEventDto {
   /**
-   * The unique identifier for the reward.
+   * The data associated with the plan comparison event
    */
   @IsNotEmpty()
-  @IsUUID(4, {
-    message: 'Reward ID must be a valid UUID v4'
-  })
+  @IsObject()
+  @ValidateNested()
+  @Type(() => PlanComparisonDataDto)
+  data: PlanComparisonDataDto;
+}
+
+/**
+ * DTO for plan comparison event data
+ */
+export class PlanComparisonDataDto {
+  /**
+   * The IDs of the compared plans
+   * @example ["plan_123", "plan_456", "plan_789"]
+   */
+  @IsNotEmpty()
+  @IsArray()
+  @IsString({ each: true })
+  planIds: string[];
+
+  /**
+   * The comparison date
+   * @example "2023-06-15T14:30:00Z"
+   */
+  @IsNotEmpty()
+  @IsISO8601()
+  comparisonDate: string;
+
+  /**
+   * The comparison criteria
+   * @example ["premium", "deductible", "coverage"]
+   */
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  criteria?: string[];
+
+  /**
+   * The selected plan ID (if a plan was selected after comparison)
+   * @example "plan_456"
+   */
+  @IsOptional()
+  @IsString()
+  selectedPlanId?: string;
+
+  /**
+   * The comparison session duration in seconds
+   * @example 300
+   */
+  @IsOptional()
+  @IsNumber()
+  @IsPositive()
+  sessionDuration?: number;
+}
+
+/**
+ * DTO for reward redemption events
+ */
+export class RewardRedemptionEventDto extends PlanEventDto {
+  /**
+   * The data associated with the reward redemption event
+   */
+  @IsNotEmpty()
+  @IsObject()
+  @ValidateNested()
+  @Type(() => RewardRedemptionDataDto)
+  data: RewardRedemptionDataDto;
+}
+
+/**
+ * DTO for reward redemption event data
+ */
+export class RewardRedemptionDataDto {
+  /**
+   * The reward ID
+   * @example "reward_123"
+   */
+  @IsNotEmpty()
+  @IsString()
   rewardId: string;
 
   /**
-   * The name of the reward.
+   * The reward name
+   * @example "Premium Plan Discount"
    */
   @IsNotEmpty()
   @IsString()
   rewardName: string;
 
   /**
-   * The category of the reward.
-   */
-  @IsOptional()
-  @IsString()
-  rewardCategory?: string;
-
-  /**
-   * The point value of the reward.
-   */
-  @IsNotEmpty()
-  @IsNumber()
-  @IsPositive({
-    message: 'Point value must be a positive number'
-  })
-  pointValue: number;
-
-  /**
-   * The date when the reward was redeemed.
+   * The redemption date
+   * @example "2023-07-15T10:00:00Z"
    */
   @IsNotEmpty()
   @IsISO8601()
   redemptionDate: string;
 
   /**
-   * The expiration date of the reward, if applicable.
+   * The points spent
+   * @example 500
+   */
+  @IsNotEmpty()
+  @IsNumber()
+  @IsPositive()
+  pointsSpent: number;
+
+  /**
+   * The reward value
+   */
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => CurrencyAmountDto)
+  value?: CurrencyAmountDto;
+
+  /**
+   * The reward category
+   * @example "premium_discount"
+   */
+  @IsNotEmpty()
+  @IsString()
+  category: string;
+
+  /**
+   * The expiration date (if applicable)
+   * @example "2023-10-15T23:59:59Z"
    */
   @IsOptional()
   @IsISO8601()
   expirationDate?: string;
 
   /**
-   * The redemption code for the reward, if applicable.
-   */
-  @IsOptional()
-  @IsString()
-  redemptionCode?: string;
-
-  /**
-   * Whether the reward has been used.
+   * Whether the reward has been applied
+   * @example true
    */
   @IsOptional()
   @IsBoolean()
-  isUsed?: boolean;
+  isApplied?: boolean;
 }

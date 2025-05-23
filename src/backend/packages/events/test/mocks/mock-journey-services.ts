@@ -1,1351 +1,1343 @@
 /**
  * @file mock-journey-services.ts
  * @description Provides mock implementations for journey-specific services (Health, Care, Plan) 
- * that produce and consume events. This comprehensive mock allows testing of cross-journey 
- * event flows and gamification integration without requiring the actual microservices.
- * 
- * It includes mock event generation based on user actions and simulated reactions to events 
- * from other services.
+ * that produce and consume events. This comprehensive mock allows testing of cross-journey event 
+ * flows and gamification integration without requiring the actual microservices.
  */
 
 import { EventEmitter } from 'events';
-import { Subject, Observable } from 'rxjs';
-import { EventType, JourneyEvents } from '../../src/dto/event-types.enum';
-import { 
-  HealthMetricData, 
-  HealthGoalData, 
-  DeviceSyncData, 
-  HealthInsightData,
-  HealthMetricType,
-  HealthGoalType,
+import { v4 as uuidv4 } from 'uuid';
+import {
+  Events,
+  Achievements,
+  Profiles,
+} from '@austa/interfaces/gamification';
+import {
+  GoalType,
+  GoalStatus,
+  GoalPeriod,
+  MetricType,
+  MetricSource,
   DeviceType,
-  HealthInsightType
-} from '../../src/dto/health-event.dto';
+  ConnectionStatus,
+} from '@austa/interfaces/journey/health';
+import {
+  AppointmentType,
+  AppointmentStatus,
+} from '@austa/interfaces/journey/care';
+import {
+  ClaimStatus,
+  ClaimType,
+} from '@austa/interfaces/journey/plan';
 
 /**
- * Interface for a generic event payload
+ * Base interface for all mock journey services
  */
-export interface EventPayload {
-  type: string;
-  journey: string;
-  userId: string;
-  timestamp: string;
-  data: any;
-  metadata?: Record<string, any>;
+interface MockJourneyService {
+  /**
+   * Produces an event for the gamification engine
+   */
+  produceEvent(eventType: Events.EventType, userId: string, data: Record<string, any>): Promise<Events.EventProcessingResult>;
+  
+  /**
+   * Consumes an event from the gamification engine
+   */
+  consumeEvent(event: Events.GamificationEvent): Promise<void>;
+  
+  /**
+   * Subscribes to events from the mock event bus
+   */
+  subscribeToEvents(): void;
+  
+  /**
+   * Gets the current state of the mock service
+   */
+  getState(): Record<string, any>;
 }
 
 /**
- * Interface for user profile data shared across journeys
+ * Mock event bus for simulating Kafka event streaming between services
  */
-export interface UserProfile {
-  userId: string;
-  name: string;
-  email: string;
-  points: number;
-  level: number;
-  achievements: Achievement[];
-  healthMetrics: Record<string, any>[];
-  appointments: Record<string, any>[];
-  medications: Record<string, any>[];
-  claims: Record<string, any>[];
-  devices: Record<string, any>[];
-  goals: Record<string, any>[];
+export class MockEventBus extends EventEmitter {
+  private static instance: MockEventBus;
+  
+  private constructor() {
+    super();
+  }
+  
+  /**
+   * Gets the singleton instance of the mock event bus
+   */
+  public static getInstance(): MockEventBus {
+    if (!MockEventBus.instance) {
+      MockEventBus.instance = new MockEventBus();
+    }
+    return MockEventBus.instance;
+  }
+  
+  /**
+   * Publishes an event to the mock event bus
+   */
+  public publishEvent(event: Events.GamificationEvent): void {
+    this.emit('event', event);
+    this.emit(`event:${event.type}`, event);
+    this.emit(`event:${event.journey}`, event);
+    this.emit(`event:${event.userId}`, event);
+  }
+  
+  /**
+   * Subscribes to all events on the mock event bus
+   */
+  public subscribeToAllEvents(callback: (event: Events.GamificationEvent) => void): void {
+    this.on('event', callback);
+  }
+  
+  /**
+   * Subscribes to events of a specific type
+   */
+  public subscribeToEventType(eventType: Events.EventType, callback: (event: Events.GamificationEvent) => void): void {
+    this.on(`event:${eventType}`, callback);
+  }
+  
+  /**
+   * Subscribes to events from a specific journey
+   */
+  public subscribeToJourney(journey: Events.EventJourney, callback: (event: Events.GamificationEvent) => void): void {
+    this.on(`event:${journey}`, callback);
+  }
+  
+  /**
+   * Subscribes to events for a specific user
+   */
+  public subscribeToUser(userId: string, callback: (event: Events.GamificationEvent) => void): void {
+    this.on(`event:${userId}`, callback);
+  }
+  
+  /**
+   * Clears all event listeners
+   */
+  public clearAllListeners(): void {
+    this.removeAllListeners();
+  }
 }
 
 /**
- * Interface for achievement data
+ * Mock gamification engine for testing event processing
  */
-export interface Achievement {
-  id: string;
-  type: string;
-  title: string;
-  description: string;
-  journey: string;
-  unlockedAt: string;
-  tier: 'bronze' | 'silver' | 'gold';
-  points: number;
-  icon: string;
-}
-
-/**
- * Base class for all mock journey services
- */
-export abstract class BaseMockJourneyService {
-  protected eventEmitter = new EventEmitter();
-  protected eventSubject = new Subject<EventPayload>();
-  protected userProfiles: Map<string, UserProfile> = new Map();
-  protected journeyName: string;
+export class MockGamificationEngine {
+  private static instance: MockGamificationEngine;
+  private eventBus: MockEventBus;
+  private userProfiles: Map<string, Profiles.IGameProfile> = new Map();
+  private achievements: Map<string, Achievements.Achievement> = new Map();
   
-  constructor(journeyName: string) {
-    this.journeyName = journeyName;
+  private constructor() {
+    this.eventBus = MockEventBus.getInstance();
+    this.initializeAchievements();
+    this.subscribeToEvents();
   }
   
   /**
-   * Gets the event stream as an Observable
+   * Gets the singleton instance of the mock gamification engine
    */
-  public getEventStream(): Observable<EventPayload> {
-    return this.eventSubject.asObservable();
+  public static getInstance(): MockGamificationEngine {
+    if (!MockGamificationEngine.instance) {
+      MockGamificationEngine.instance = new MockGamificationEngine();
+    }
+    return MockGamificationEngine.instance;
   }
   
   /**
-   * Emits an event to the event stream
+   * Initializes predefined achievements
    */
-  protected emitEvent(event: EventPayload): void {
-    this.eventSubject.next(event);
-    this.eventEmitter.emit('event', event);
-    console.log(`[${this.journeyName}] Event emitted:`, event.type);
+  private initializeAchievements(): void {
+    // Health journey achievements
+    this.achievements.set('health-check-streak', {
+      id: 'health-check-streak',
+      name: 'health-check-streak',
+      title: 'Monitor de Saúde',
+      description: 'Registre suas métricas de saúde por dias consecutivos',
+      journey: 'health',
+      icon: 'heart-pulse',
+      levels: 3,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+    
+    this.achievements.set('steps-goal', {
+      id: 'steps-goal',
+      name: 'steps-goal',
+      title: 'Caminhante Dedicado',
+      description: 'Atinja sua meta diária de passos',
+      journey: 'health',
+      icon: 'footprints',
+      levels: 3,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+    
+    // Care journey achievements
+    this.achievements.set('appointment-keeper', {
+      id: 'appointment-keeper',
+      name: 'appointment-keeper',
+      title: 'Compromisso com a Saúde',
+      description: 'Compareça às consultas agendadas',
+      journey: 'care',
+      icon: 'calendar-check',
+      levels: 3,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+    
+    this.achievements.set('medication-adherence', {
+      id: 'medication-adherence',
+      name: 'medication-adherence',
+      title: 'Aderência ao Tratamento',
+      description: 'Tome seus medicamentos conforme prescrito',
+      journey: 'care',
+      icon: 'pill',
+      levels: 3,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+    
+    // Plan journey achievements
+    this.achievements.set('claim-master', {
+      id: 'claim-master',
+      name: 'claim-master',
+      title: 'Mestre em Reembolsos',
+      description: 'Submeta solicitações de reembolso completas',
+      journey: 'plan',
+      icon: 'receipt',
+      levels: 3,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
   }
   
   /**
-   * Handles an incoming event from another service
+   * Subscribes to events from the mock event bus
    */
-  public handleEvent(event: EventPayload): void {
-    console.log(`[${this.journeyName}] Handling event:`, event.type);
-    
-    // Update user profile based on the event
-    if (event.userId && this.userProfiles.has(event.userId)) {
-      this.updateUserProfile(event.userId, event);
-    }
-    
-    // Handle achievement notifications
-    if (event.type === EventType.GAMIFICATION_ACHIEVEMENT_UNLOCKED) {
-      this.handleAchievementNotification(event);
-    }
-    
-    // Handle journey-specific events
-    this.handleJourneySpecificEvent(event);
+  private subscribeToEvents(): void {
+    this.eventBus.subscribeToAllEvents(this.processEvent.bind(this));
   }
   
   /**
-   * Updates the user profile based on an event
+   * Processes an event from the mock event bus
    */
-  protected updateUserProfile(userId: string, event: EventPayload): void {
-    const profile = this.userProfiles.get(userId);
-    if (!profile) return;
+  private async processEvent(event: Events.GamificationEvent): Promise<Events.EventProcessingResult> {
+    console.log(`[MockGamificationEngine] Processing event: ${event.type} for user ${event.userId}`);
     
-    // Update points and level from gamification events
-    if (event.type === EventType.GAMIFICATION_POINTS_EARNED) {
-      profile.points += event.data.points;
-      console.log(`[${this.journeyName}] User ${userId} earned ${event.data.points} points. Total: ${profile.points}`);
+    // Initialize user profile if it doesn't exist
+    if (!this.userProfiles.has(event.userId)) {
+      this.userProfiles.set(event.userId, this.createInitialProfile(event.userId));
     }
     
-    if (event.type === EventType.GAMIFICATION_LEVEL_UP) {
-      profile.level = event.data.newLevel;
-      console.log(`[${this.journeyName}] User ${userId} leveled up to ${event.data.newLevel}!`);
+    const profile = this.userProfiles.get(event.userId)!;
+    let xpEarned = 0;
+    const achievementsUnlocked: Array<{ achievementId: string; achievementTitle: string; xpEarned: number }> = [];
+    
+    // Process event based on type
+    switch (event.type) {
+      // Health journey events
+      case Events.EventType.HEALTH_METRIC_RECORDED:
+        xpEarned = 5;
+        profile.metrics.healthMetricsRecorded += 1;
+        
+        // Check for health-check-streak achievement
+        if (profile.metrics.healthMetricsRecorded % 5 === 0) {
+          const achievement = this.achievements.get('health-check-streak')!;
+          achievementsUnlocked.push({
+            achievementId: achievement.id,
+            achievementTitle: achievement.title,
+            xpEarned: 20,
+          });
+          xpEarned += 20;
+        }
+        break;
+        
+      case Events.EventType.HEALTH_GOAL_ACHIEVED:
+        xpEarned = 10;
+        profile.metrics.healthGoalsAchieved += 1;
+        
+        // Check for steps-goal achievement if it's a steps goal
+        if ((event.payload as Events.HealthGoalAchievedPayload).goalType === GoalType.STEPS) {
+          const achievement = this.achievements.get('steps-goal')!;
+          achievementsUnlocked.push({
+            achievementId: achievement.id,
+            achievementTitle: achievement.title,
+            xpEarned: 15,
+          });
+          xpEarned += 15;
+        }
+        break;
+        
+      // Care journey events
+      case Events.EventType.APPOINTMENT_ATTENDED:
+        xpEarned = 15;
+        profile.metrics.appointmentsAttended += 1;
+        
+        // Check for appointment-keeper achievement
+        if (profile.metrics.appointmentsAttended % 3 === 0) {
+          const achievement = this.achievements.get('appointment-keeper')!;
+          achievementsUnlocked.push({
+            achievementId: achievement.id,
+            achievementTitle: achievement.title,
+            xpEarned: 25,
+          });
+          xpEarned += 25;
+        }
+        break;
+        
+      case Events.EventType.MEDICATION_TAKEN:
+        xpEarned = 5;
+        profile.metrics.medicationsTaken += 1;
+        
+        // Check for medication-adherence achievement
+        if (profile.metrics.medicationsTaken % 7 === 0) {
+          const achievement = this.achievements.get('medication-adherence')!;
+          achievementsUnlocked.push({
+            achievementId: achievement.id,
+            achievementTitle: achievement.title,
+            xpEarned: 20,
+          });
+          xpEarned += 20;
+        }
+        break;
+        
+      // Plan journey events
+      case Events.EventType.CLAIM_SUBMITTED:
+        xpEarned = 10;
+        profile.metrics.claimsSubmitted += 1;
+        
+        // Check for claim-master achievement
+        if (profile.metrics.claimsSubmitted % 3 === 0) {
+          const achievement = this.achievements.get('claim-master')!;
+          achievementsUnlocked.push({
+            achievementId: achievement.id,
+            achievementTitle: achievement.title,
+            xpEarned: 30,
+          });
+          xpEarned += 30;
+        }
+        break;
+        
+      default:
+        xpEarned = 1; // Default XP for unhandled events
     }
     
-    if (event.type === EventType.GAMIFICATION_ACHIEVEMENT_UNLOCKED) {
-      profile.achievements.push({
-        id: event.data.achievementId,
-        type: event.data.achievementType,
-        title: event.data.title || 'Achievement Unlocked',
-        description: event.data.description || '',
-        journey: event.data.journey || 'cross-journey',
-        unlockedAt: event.data.unlockedAt,
-        tier: event.data.tier,
-        points: event.data.points,
-        icon: event.data.icon || 'trophy'
-      });
-      console.log(`[${this.journeyName}] User ${userId} unlocked achievement: ${event.data.title || event.data.achievementType}`);
+    // Update user profile
+    profile.xp += xpEarned;
+    
+    // Check for level up
+    const oldLevel = profile.level;
+    profile.level = Math.floor(profile.xp / 100) + 1;
+    const levelUp = profile.level > oldLevel ? {
+      newLevel: profile.level,
+      previousLevel: oldLevel,
+    } : undefined;
+    
+    // Publish achievement events if any were unlocked
+    for (const achievement of achievementsUnlocked) {
+      const achievementEvent: Events.GamificationEvent = {
+        eventId: uuidv4(),
+        type: Events.EventType.ACHIEVEMENT_UNLOCKED,
+        userId: event.userId,
+        journey: Events.EventJourney.CROSS_JOURNEY,
+        payload: {
+          timestamp: new Date().toISOString(),
+          achievementId: achievement.achievementId,
+          achievementTitle: achievement.achievementTitle,
+          achievementDescription: this.achievements.get(achievement.achievementId)?.description || '',
+          xpEarned: achievement.xpEarned,
+          relatedJourney: event.journey,
+        },
+        version: { major: 1, minor: 0, patch: 0 },
+        createdAt: new Date().toISOString(),
+        source: 'gamification-engine',
+        correlationId: event.correlationId,
+      };
+      
+      this.eventBus.publishEvent(achievementEvent);
     }
     
-    this.userProfiles.set(userId, profile);
+    // Publish level up event if user leveled up
+    if (levelUp) {
+      const levelUpEvent: Events.GamificationEvent = {
+        eventId: uuidv4(),
+        type: Events.EventType.LEVEL_UP,
+        userId: event.userId,
+        journey: Events.EventJourney.CROSS_JOURNEY,
+        payload: {
+          timestamp: new Date().toISOString(),
+          newLevel: levelUp.newLevel,
+          previousLevel: levelUp.previousLevel,
+          totalXp: profile.xp,
+        },
+        version: { major: 1, minor: 0, patch: 0 },
+        createdAt: new Date().toISOString(),
+        source: 'gamification-engine',
+        correlationId: event.correlationId,
+      };
+      
+      this.eventBus.publishEvent(levelUpEvent);
+    }
+    
+    // Update the user profile in the map
+    this.userProfiles.set(event.userId, profile);
+    
+    // Return the event processing result
+    return {
+      success: true,
+      results: {
+        xpEarned,
+        achievementsUnlocked,
+        levelUp,
+      },
+    };
   }
   
   /**
-   * Handles achievement notifications
+   * Creates an initial game profile for a user
    */
-  protected handleAchievementNotification(event: EventPayload): void {
-    console.log(`[${this.journeyName}] Achievement notification:`, event.data.title || event.data.achievementType);
-    // In a real implementation, this would trigger UI notifications
-  }
-  
-  /**
-   * Handles journey-specific events - to be implemented by subclasses
-   */
-  protected abstract handleJourneySpecificEvent(event: EventPayload): void;
-  
-  /**
-   * Creates a new user profile or returns an existing one
-   */
-  public createUserProfile(userId: string, name: string, email: string): UserProfile {
-    if (this.userProfiles.has(userId)) {
-      return this.userProfiles.get(userId)!;
-    }
-    
-    const profile: UserProfile = {
+  private createInitialProfile(userId: string): Profiles.IGameProfile {
+    return {
+      id: uuidv4(),
       userId,
-      name,
-      email,
-      points: 0,
       level: 1,
-      achievements: [],
-      healthMetrics: [],
-      appointments: [],
-      medications: [],
-      claims: [],
-      devices: [],
-      goals: []
+      xp: 0,
+      streaks: [],
+      badges: [],
+      settings: {
+        notificationsEnabled: true,
+        shareAchievements: true,
+        showOnLeaderboard: true,
+      },
+      metrics: {
+        healthMetricsRecorded: 0,
+        healthGoalsAchieved: 0,
+        appointmentsAttended: 0,
+        medicationsTaken: 0,
+        claimsSubmitted: 0,
+      },
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+  }
+  
+  /**
+   * Processes a gamification event and returns the result
+   */
+  public async processGamificationEvent(dto: Events.ProcessGamificationEventDto): Promise<Events.EventProcessingResult> {
+    const event: Events.GamificationEvent = {
+      eventId: uuidv4(),
+      type: dto.type as Events.EventType,
+      userId: dto.userId,
+      journey: (dto.journey as Events.EventJourney) || this.getJourneyFromEventType(dto.type as Events.EventType),
+      payload: {
+        ...dto.data,
+        timestamp: new Date().toISOString(),
+      },
+      version: dto.version || { major: 1, minor: 0, patch: 0 },
+      createdAt: new Date().toISOString(),
+      source: dto.source || 'test',
+      correlationId: dto.correlationId || uuidv4(),
     };
     
-    this.userProfiles.set(userId, profile);
-    return profile;
+    this.eventBus.publishEvent(event);
+    return this.processEvent(event);
   }
   
   /**
-   * Gets a user profile by ID
+   * Gets the journey from an event type
    */
-  public getUserProfile(userId: string): UserProfile | undefined {
+  private getJourneyFromEventType(eventType: Events.EventType): Events.EventJourney {
+    if (eventType.startsWith('HEALTH_')) {
+      return Events.EventJourney.HEALTH;
+    } else if (eventType.startsWith('APPOINTMENT_') || eventType.startsWith('MEDICATION_') || eventType.startsWith('TELEMEDICINE_') || eventType.startsWith('TREATMENT_')) {
+      return Events.EventJourney.CARE;
+    } else if (eventType.startsWith('CLAIM_') || eventType.startsWith('BENEFIT_') || eventType.startsWith('PLAN_')) {
+      return Events.EventJourney.PLAN;
+    } else {
+      return Events.EventJourney.CROSS_JOURNEY;
+    }
+  }
+  
+  /**
+   * Gets a user's game profile
+   */
+  public getUserProfile(userId: string): Profiles.IGameProfile | undefined {
     return this.userProfiles.get(userId);
   }
   
   /**
-   * Creates a base event payload
+   * Gets all achievements
    */
-  protected createEventPayload(userId: string, type: string, data: any): EventPayload {
-    return {
-      type,
-      journey: this.journeyName,
-      userId,
-      timestamp: new Date().toISOString(),
-      data,
-      metadata: {
-        source: `mock-${this.journeyName}-service`,
-        version: '1.0.0'
-      }
-    };
+  public getAchievements(): Achievements.Achievement[] {
+    return Array.from(this.achievements.values());
+  }
+  
+  /**
+   * Resets the mock gamification engine state
+   */
+  public reset(): void {
+    this.userProfiles.clear();
+    this.achievements.clear();
+    this.initializeAchievements();
   }
 }
 
 /**
- * Mock Health Journey Service
+ * Mock Health Journey Service for testing health-related events
  */
-export class MockHealthJourneyService extends BaseMockJourneyService {
+export class MockHealthJourneyService implements MockJourneyService {
+  private eventBus: MockEventBus;
+  private gamificationEngine: MockGamificationEngine;
+  private userHealthData: Map<string, {
+    metrics: Map<string, any[]>;
+    goals: Map<string, any>;
+    devices: Map<string, any>;
+  }> = new Map();
+  
   constructor() {
-    super('health');
+    this.eventBus = MockEventBus.getInstance();
+    this.gamificationEngine = MockGamificationEngine.getInstance();
+    this.subscribeToEvents();
+  }
+  
+  /**
+   * Subscribes to events from the mock event bus
+   */
+  public subscribeToEvents(): void {
+    this.eventBus.subscribeToJourney(Events.EventJourney.HEALTH, this.consumeEvent.bind(this));
+    this.eventBus.subscribeToEventType(Events.EventType.ACHIEVEMENT_UNLOCKED, this.handleAchievementUnlocked.bind(this));
+    this.eventBus.subscribeToEventType(Events.EventType.LEVEL_UP, this.handleLevelUp.bind(this));
+  }
+  
+  /**
+   * Produces a health journey event
+   */
+  public async produceEvent(eventType: Events.EventType, userId: string, data: Record<string, any>): Promise<Events.EventProcessingResult> {
+    // Initialize user health data if it doesn't exist
+    if (!this.userHealthData.has(userId)) {
+      this.userHealthData.set(userId, {
+        metrics: new Map(),
+        goals: new Map(),
+        devices: new Map(),
+      });
+    }
+    
+    // Update user health data based on event type
+    const userHealth = this.userHealthData.get(userId)!;
+    
+    switch (eventType) {
+      case Events.EventType.HEALTH_METRIC_RECORDED:
+        const metricType = data.metricType || MetricType.STEPS;
+        if (!userHealth.metrics.has(metricType)) {
+          userHealth.metrics.set(metricType, []);
+        }
+        
+        const metric = {
+          id: uuidv4(),
+          userId,
+          type: metricType,
+          value: data.value,
+          unit: data.unit || 'steps',
+          timestamp: new Date(),
+          source: data.source || MetricSource.MANUAL_ENTRY,
+          isAbnormal: data.isWithinHealthyRange === false,
+        };
+        
+        userHealth.metrics.get(metricType)!.push(metric);
+        break;
+        
+      case Events.EventType.HEALTH_GOAL_CREATED:
+        const goal = {
+          id: data.goalId || uuidv4(),
+          recordId: userId,
+          type: data.goalType || GoalType.STEPS,
+          title: data.title || 'Daily Steps Goal',
+          description: data.description,
+          targetValue: data.targetValue,
+          unit: data.unit || 'steps',
+          currentValue: 0,
+          status: GoalStatus.ACTIVE,
+          period: data.period || GoalPeriod.DAILY,
+          startDate: new Date(),
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        };
+        
+        userHealth.goals.set(goal.id, goal);
+        break;
+        
+      case Events.EventType.HEALTH_GOAL_ACHIEVED:
+        const goalId = data.goalId;
+        if (userHealth.goals.has(goalId)) {
+          const existingGoal = userHealth.goals.get(goalId)!;
+          existingGoal.currentValue = existingGoal.targetValue;
+          existingGoal.status = GoalStatus.COMPLETED;
+          existingGoal.completedDate = new Date();
+          existingGoal.updatedAt = new Date();
+          userHealth.goals.set(goalId, existingGoal);
+        }
+        break;
+        
+      case Events.EventType.DEVICE_CONNECTED:
+        const device = {
+          id: data.deviceId || uuidv4(),
+          recordId: userId,
+          deviceType: data.deviceType || DeviceType.SMARTWATCH,
+          deviceId: data.deviceId || `device-${uuidv4()}`,
+          status: ConnectionStatus.CONNECTED,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        };
+        
+        userHealth.devices.set(device.id, device);
+        break;
+    }
+    
+    // Update user health data
+    this.userHealthData.set(userId, userHealth);
+    
+    // Process the event through the gamification engine
+    return this.gamificationEngine.processGamificationEvent({
+      type: eventType,
+      userId,
+      data,
+      journey: Events.EventJourney.HEALTH,
+    });
+  }
+  
+  /**
+   * Consumes an event from the mock event bus
+   */
+  public async consumeEvent(event: Events.GamificationEvent): Promise<void> {
+    console.log(`[MockHealthJourneyService] Consuming event: ${event.type} for user ${event.userId}`);
+    
+    // Handle specific events that affect the health journey
+    switch (event.type) {
+      case Events.EventType.APPOINTMENT_ATTENDED:
+        // For example, after an appointment, we might want to create a health goal
+        if (Math.random() > 0.7) { // 30% chance to create a goal after appointment
+          await this.produceEvent(Events.EventType.HEALTH_GOAL_CREATED, event.userId, {
+            goalType: GoalType.STEPS,
+            title: 'Increase Daily Steps',
+            targetValue: 10000,
+            unit: 'steps',
+            period: GoalPeriod.DAILY,
+          });
+        }
+        break;
+    }
+  }
+  
+  /**
+   * Handles achievement unlocked events
+   */
+  private async handleAchievementUnlocked(event: Events.GamificationEvent): Promise<void> {
+    const payload = event.payload as Events.AchievementUnlockedPayload;
+    
+    // Only handle health-related achievements
+    if (payload.relatedJourney === Events.EventJourney.HEALTH) {
+      console.log(`[MockHealthJourneyService] User ${event.userId} unlocked achievement: ${payload.achievementTitle}`);
+      
+      // Could trigger special actions in the health journey based on achievements
+    }
+  }
+  
+  /**
+   * Handles level up events
+   */
+  private async handleLevelUp(event: Events.GamificationEvent): Promise<void> {
+    const payload = event.payload as Events.LevelUpPayload;
+    console.log(`[MockHealthJourneyService] User ${event.userId} leveled up to ${payload.newLevel}`);
+    
+    // Could unlock special health features based on level
   }
   
   /**
    * Records a health metric for a user
    */
-  public recordHealthMetric(userId: string, metricData: Partial<HealthMetricData>): void {
-    const profile = this.getUserProfile(userId);
-    if (!profile) {
-      throw new Error(`User profile not found for userId: ${userId}`);
-    }
-    
-    const metric: HealthMetricData = {
-      metricType: metricData.metricType || HealthMetricType.HEART_RATE,
-      value: metricData.value || 0,
-      unit: metricData.unit || 'bpm',
-      recordedAt: metricData.recordedAt || new Date().toISOString(),
-      notes: metricData.notes,
-      deviceId: metricData.deviceId,
-      validateMetricRange: function() { return true; }
-    };
-    
-    // Add to user profile
-    profile.healthMetrics.push(metric);
-    
-    // Emit event
-    const event = this.createEventPayload(userId, EventType.HEALTH_METRIC_RECORDED, metric);
-    this.emitEvent(event);
-    
-    // Check for streak achievements
-    this.checkHealthMetricStreak(userId, metric.metricType);
+  public async recordHealthMetric(userId: string, metricType: MetricType, value: number, unit: string, source: MetricSource = MetricSource.MANUAL_ENTRY): Promise<Events.EventProcessingResult> {
+    return this.produceEvent(Events.EventType.HEALTH_METRIC_RECORDED, userId, {
+      metricType,
+      value,
+      unit,
+      source,
+      isWithinHealthyRange: this.isMetricWithinHealthyRange(metricType, value),
+    });
   }
   
   /**
    * Creates a health goal for a user
    */
-  public createHealthGoal(userId: string, goalData: Partial<HealthGoalData>): void {
-    const profile = this.getUserProfile(userId);
-    if (!profile) {
-      throw new Error(`User profile not found for userId: ${userId}`);
-    }
-    
-    const goalId = goalData.goalId || `goal-${Date.now()}`;
-    
-    const goal: HealthGoalData = {
+  public async createHealthGoal(userId: string, goalType: GoalType, targetValue: number, unit: string, period: GoalPeriod = GoalPeriod.DAILY): Promise<Events.EventProcessingResult> {
+    const goalId = uuidv4();
+    return this.produceEvent(Events.EventType.HEALTH_GOAL_CREATED, userId, {
       goalId,
-      goalType: goalData.goalType || HealthGoalType.STEPS_TARGET,
-      description: goalData.description || 'Default goal description',
-      targetValue: goalData.targetValue,
-      unit: goalData.unit,
-      progressPercentage: goalData.progressPercentage || 0,
-      isAchieved: function() { return this.progressPercentage >= 100; },
-      markAsAchieved: function() { 
-        this.progressPercentage = 100; 
-        this.achievedAt = new Date().toISOString(); 
-      }
-    };
-    
-    // Add to user profile
-    profile.goals.push(goal);
-    
-    // Emit event
-    const event = this.createEventPayload(userId, EventType.HEALTH_GOAL_CREATED, goal);
-    this.emitEvent(event);
+      goalType,
+      targetValue,
+      unit,
+      period,
+      title: `${goalType.charAt(0).toUpperCase() + goalType.slice(1)} Goal`,
+    });
   }
   
   /**
-   * Updates progress on a health goal
+   * Achieves a health goal for a user
    */
-  public updateGoalProgress(userId: string, goalId: string, progressPercentage: number): void {
-    const profile = this.getUserProfile(userId);
-    if (!profile) {
-      throw new Error(`User profile not found for userId: ${userId}`);
-    }
-    
-    const goalIndex = profile.goals.findIndex(g => g.goalId === goalId);
-    if (goalIndex === -1) {
-      throw new Error(`Goal not found with ID: ${goalId}`);
-    }
-    
-    const goal = profile.goals[goalIndex] as HealthGoalData;
-    goal.progressPercentage = progressPercentage;
-    
-    // Check if goal is achieved
-    if (progressPercentage >= 100 && !goal.achievedAt) {
-      goal.achievedAt = new Date().toISOString();
-      
-      // Emit goal achieved event
-      const event = this.createEventPayload(userId, EventType.HEALTH_GOAL_ACHIEVED, goal);
-      this.emitEvent(event);
-    }
-    
-    // Update in profile
-    profile.goals[goalIndex] = goal;
+  public async achieveHealthGoal(userId: string, goalId: string, goalType: GoalType): Promise<Events.EventProcessingResult> {
+    return this.produceEvent(Events.EventType.HEALTH_GOAL_ACHIEVED, userId, {
+      goalId,
+      goalType,
+      completionPercentage: 100,
+      isFirstTimeAchievement: true,
+    });
   }
   
   /**
-   * Syncs a device for a user
+   * Connects a device for a user
    */
-  public syncDevice(userId: string, deviceData: Partial<DeviceSyncData>): void {
-    const profile = this.getUserProfile(userId);
-    if (!profile) {
-      throw new Error(`User profile not found for userId: ${userId}`);
-    }
-    
-    const deviceId = deviceData.deviceId || `device-${Date.now()}`;
-    
-    const device: DeviceSyncData = {
+  public async connectDevice(userId: string, deviceType: DeviceType): Promise<Events.EventProcessingResult> {
+    const deviceId = uuidv4();
+    return this.produceEvent(Events.EventType.DEVICE_CONNECTED, userId, {
       deviceId,
-      deviceType: deviceData.deviceType || DeviceType.SMARTWATCH,
-      deviceName: deviceData.deviceName || 'Default Device',
-      syncedAt: deviceData.syncedAt || new Date().toISOString(),
-      syncSuccessful: deviceData.syncSuccessful !== undefined ? deviceData.syncSuccessful : true,
-      dataPointsCount: deviceData.dataPointsCount,
-      metricTypes: deviceData.metricTypes,
-      errorMessage: deviceData.errorMessage,
-      markAsFailed: function(errorMessage: string) {
-        this.syncSuccessful = false;
-        this.errorMessage = errorMessage;
-      },
-      markAsSuccessful: function(dataPointsCount: number, metricTypes: HealthMetricType[]) {
-        this.syncSuccessful = true;
-        this.dataPointsCount = dataPointsCount;
-        this.metricTypes = metricTypes;
-        this.errorMessage = undefined;
-      }
-    };
-    
-    // Add to user profile
-    const existingDeviceIndex = profile.devices.findIndex(d => d.deviceId === deviceId);
-    if (existingDeviceIndex >= 0) {
-      profile.devices[existingDeviceIndex] = device;
-    } else {
-      profile.devices.push(device);
-    }
-    
-    // Emit event
-    const event = this.createEventPayload(userId, EventType.HEALTH_DEVICE_CONNECTED, device);
-    this.emitEvent(event);
+      deviceType,
+      manufacturer: 'Mock Device Manufacturer',
+    });
   }
   
   /**
-   * Generates a health insight for a user
+   * Checks if a metric is within the healthy range
    */
-  public generateHealthInsight(userId: string, insightData: Partial<HealthInsightData>): void {
-    const profile = this.getUserProfile(userId);
-    if (!profile) {
-      throw new Error(`User profile not found for userId: ${userId}`);
+  private isMetricWithinHealthyRange(metricType: MetricType, value: number): boolean {
+    switch (metricType) {
+      case MetricType.HEART_RATE:
+        return value >= 60 && value <= 100;
+      case MetricType.BLOOD_GLUCOSE:
+        return value >= 70 && value <= 100;
+      case MetricType.STEPS:
+        return value >= 5000;
+      case MetricType.SLEEP:
+        return value >= 7 && value <= 9;
+      default:
+        return true;
     }
-    
-    const insightId = insightData.insightId || `insight-${Date.now()}`;
-    
-    const insight: HealthInsightData = {
-      insightId,
-      insightType: insightData.insightType || HealthInsightType.TREND_ANALYSIS,
-      title: insightData.title || 'Default Insight Title',
-      description: insightData.description || 'Default insight description',
-      relatedMetricTypes: insightData.relatedMetricTypes,
-      confidenceScore: insightData.confidenceScore || 75,
-      generatedAt: insightData.generatedAt || new Date().toISOString(),
-      userAcknowledged: insightData.userAcknowledged || false,
-      acknowledgeByUser: function() { this.userAcknowledged = true; },
-      isHighPriority: function() {
-        return (this.insightType === HealthInsightType.ANOMALY_DETECTION || 
-               this.insightType === HealthInsightType.HEALTH_RISK_ASSESSMENT) && 
-               this.confidenceScore > 75;
-      }
-    };
-    
-    // Emit event
-    const event = this.createEventPayload(userId, EventType.HEALTH_INSIGHT_GENERATED, insight);
-    this.emitEvent(event);
   }
   
   /**
-   * Checks for health metric streak achievements
+   * Gets the current state of the mock health journey service
    */
-  private checkHealthMetricStreak(userId: string, metricType: HealthMetricType): void {
-    // This would contain logic to check for streaks and trigger achievements
-    // For mock purposes, we'll randomly trigger streak achievements
-    if (Math.random() > 0.7) {
-      console.log(`[health] User ${userId} has a streak for ${metricType}!`);
+  public getState(): Record<string, any> {
+    const state: Record<string, any> = {};
+    
+    this.userHealthData.forEach((userData, userId) => {
+      state[userId] = {
+        metrics: {},
+        goals: {},
+        devices: {},
+      };
       
-      // This would be handled by the gamification engine in a real implementation
-      // Here we're simulating the response
-      setTimeout(() => {
-        const achievementEvent = {
-          type: EventType.GAMIFICATION_ACHIEVEMENT_UNLOCKED,
-          journey: 'gamification',
-          userId,
-          timestamp: new Date().toISOString(),
-          data: {
-            achievementId: `streak-${Date.now()}`,
-            achievementType: 'health-check-streak',
-            title: 'Monitor de Saúde',
-            description: 'Registre suas métricas de saúde por dias consecutivos',
-            journey: 'health',
-            unlockedAt: new Date().toISOString(),
-            tier: Math.random() > 0.5 ? 'silver' : 'bronze',
-            points: Math.floor(Math.random() * 50) + 10,
-            icon: 'heart-pulse'
-          },
-          metadata: {
-            source: 'mock-gamification-engine',
-            version: '1.0.0'
-          }
-        };
-        
-        this.handleEvent(achievementEvent);
-      }, 500);
-    }
-  }
-  
-  /**
-   * Handles journey-specific events
-   */
-  protected handleJourneySpecificEvent(event: EventPayload): void {
-    // Handle health-specific events
-    switch (event.type) {
-      case EventType.HEALTH_GOAL_ACHIEVED:
-        console.log(`[health] Goal achieved: ${event.data.description}`);
-        break;
-        
-      case EventType.HEALTH_INSIGHT_GENERATED:
-        if (event.data.isHighPriority && event.data.isHighPriority()) {
-          console.log(`[health] High priority insight generated: ${event.data.title}`);
-        }
-        break;
-        
-      case EventType.HEALTH_DEVICE_CONNECTED:
-        if (event.data.syncSuccessful) {
-          console.log(`[health] Device connected successfully: ${event.data.deviceName}`);
-        } else {
-          console.log(`[health] Device connection failed: ${event.data.deviceName} - ${event.data.errorMessage}`);
-        }
-        break;
-    }
+      userData.metrics.forEach((metrics, metricType) => {
+        state[userId].metrics[metricType] = metrics;
+      });
+      
+      userData.goals.forEach((goal, goalId) => {
+        state[userId].goals[goalId] = goal;
+      });
+      
+      userData.devices.forEach((device, deviceId) => {
+        state[userId].devices[deviceId] = device;
+      });
+    });
+    
+    return state;
   }
 }
 
 /**
- * Mock Care Journey Service
+ * Mock Care Journey Service for testing care-related events
  */
-export class MockCareJourneyService extends BaseMockJourneyService {
+export class MockCareJourneyService implements MockJourneyService {
+  private eventBus: MockEventBus;
+  private gamificationEngine: MockGamificationEngine;
+  private userCareData: Map<string, {
+    appointments: Map<string, any>;
+    medications: Map<string, any>;
+    telemedicineSessions: Map<string, any>;
+    treatmentPlans: Map<string, any>;
+  }> = new Map();
+  
   constructor() {
-    super('care');
+    this.eventBus = MockEventBus.getInstance();
+    this.gamificationEngine = MockGamificationEngine.getInstance();
+    this.subscribeToEvents();
+  }
+  
+  /**
+   * Subscribes to events from the mock event bus
+   */
+  public subscribeToEvents(): void {
+    this.eventBus.subscribeToJourney(Events.EventJourney.CARE, this.consumeEvent.bind(this));
+    this.eventBus.subscribeToEventType(Events.EventType.ACHIEVEMENT_UNLOCKED, this.handleAchievementUnlocked.bind(this));
+    this.eventBus.subscribeToEventType(Events.EventType.LEVEL_UP, this.handleLevelUp.bind(this));
+  }
+  
+  /**
+   * Produces a care journey event
+   */
+  public async produceEvent(eventType: Events.EventType, userId: string, data: Record<string, any>): Promise<Events.EventProcessingResult> {
+    // Initialize user care data if it doesn't exist
+    if (!this.userCareData.has(userId)) {
+      this.userCareData.set(userId, {
+        appointments: new Map(),
+        medications: new Map(),
+        telemedicineSessions: new Map(),
+        treatmentPlans: new Map(),
+      });
+    }
+    
+    // Update user care data based on event type
+    const userCare = this.userCareData.get(userId)!;
+    
+    switch (eventType) {
+      case Events.EventType.APPOINTMENT_BOOKED:
+        const appointment = {
+          id: data.appointmentId || uuidv4(),
+          userId,
+          providerId: data.providerId || uuidv4(),
+          dateTime: new Date(data.dateTime || new Date().toISOString()),
+          type: data.appointmentType || AppointmentType.IN_PERSON,
+          status: AppointmentStatus.SCHEDULED,
+          notes: data.notes || '',
+        };
+        
+        userCare.appointments.set(appointment.id, appointment);
+        break;
+        
+      case Events.EventType.APPOINTMENT_ATTENDED:
+        const appointmentId = data.appointmentId;
+        if (userCare.appointments.has(appointmentId)) {
+          const existingAppointment = userCare.appointments.get(appointmentId)!;
+          existingAppointment.status = AppointmentStatus.COMPLETED;
+          userCare.appointments.set(appointmentId, existingAppointment);
+        }
+        break;
+        
+      case Events.EventType.MEDICATION_ADDED:
+        const medication = {
+          id: data.medicationId || uuidv4(),
+          userId,
+          name: data.medicationName,
+          dosage: data.dosage || 1,
+          frequency: data.frequency || 'daily',
+          startDate: new Date(),
+          reminderEnabled: true,
+          active: true,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        };
+        
+        userCare.medications.set(medication.id, medication);
+        break;
+        
+      case Events.EventType.MEDICATION_TAKEN:
+        const medicationId = data.medicationId;
+        if (userCare.medications.has(medicationId)) {
+          // Record that medication was taken
+          const medication = userCare.medications.get(medicationId)!;
+          if (!medication.takenHistory) {
+            medication.takenHistory = [];
+          }
+          medication.takenHistory.push({
+            timestamp: new Date(),
+            takenOnTime: data.takenOnTime !== false,
+          });
+          userCare.medications.set(medicationId, medication);
+        }
+        break;
+        
+      case Events.EventType.TELEMEDICINE_SESSION_STARTED:
+        const session = {
+          id: data.sessionId || uuidv4(),
+          userId,
+          providerId: data.providerId || uuidv4(),
+          startTime: new Date(),
+          status: 'in-progress',
+        };
+        
+        userCare.telemedicineSessions.set(session.id, session);
+        break;
+        
+      case Events.EventType.TELEMEDICINE_SESSION_COMPLETED:
+        const sessionId = data.sessionId;
+        if (userCare.telemedicineSessions.has(sessionId)) {
+          const existingSession = userCare.telemedicineSessions.get(sessionId)!;
+          existingSession.status = 'completed';
+          existingSession.endTime = new Date();
+          existingSession.durationMinutes = data.durationMinutes || 15;
+          userCare.telemedicineSessions.set(sessionId, existingSession);
+        }
+        break;
+    }
+    
+    // Update user care data
+    this.userCareData.set(userId, userCare);
+    
+    // Process the event through the gamification engine
+    return this.gamificationEngine.processGamificationEvent({
+      type: eventType,
+      userId,
+      data,
+      journey: Events.EventJourney.CARE,
+    });
+  }
+  
+  /**
+   * Consumes an event from the mock event bus
+   */
+  public async consumeEvent(event: Events.GamificationEvent): Promise<void> {
+    console.log(`[MockCareJourneyService] Consuming event: ${event.type} for user ${event.userId}`);
+    
+    // Handle specific events that affect the care journey
+    switch (event.type) {
+      case Events.EventType.HEALTH_METRIC_RECORDED:
+        const payload = event.payload as Events.HealthMetricRecordedPayload;
+        
+        // If abnormal health metric is detected, potentially schedule an appointment
+        if (payload.isWithinHealthyRange === false && Math.random() > 0.7) {
+          const appointmentId = uuidv4();
+          const futureDate = new Date();
+          futureDate.setDate(futureDate.getDate() + 3); // 3 days in the future
+          
+          await this.produceEvent(Events.EventType.APPOINTMENT_BOOKED, event.userId, {
+            appointmentId,
+            appointmentType: AppointmentType.IN_PERSON,
+            providerId: uuidv4(),
+            dateTime: futureDate.toISOString(),
+            notes: `Follow-up for abnormal ${payload.metricType} reading of ${payload.value} ${payload.unit}`,
+          });
+        }
+        break;
+    }
+  }
+  
+  /**
+   * Handles achievement unlocked events
+   */
+  private async handleAchievementUnlocked(event: Events.GamificationEvent): Promise<void> {
+    const payload = event.payload as Events.AchievementUnlockedPayload;
+    
+    // Only handle care-related achievements
+    if (payload.relatedJourney === Events.EventJourney.CARE) {
+      console.log(`[MockCareJourneyService] User ${event.userId} unlocked achievement: ${payload.achievementTitle}`);
+      
+      // Could trigger special actions in the care journey based on achievements
+    }
+  }
+  
+  /**
+   * Handles level up events
+   */
+  private async handleLevelUp(event: Events.GamificationEvent): Promise<void> {
+    const payload = event.payload as Events.LevelUpPayload;
+    console.log(`[MockCareJourneyService] User ${event.userId} leveled up to ${payload.newLevel}`);
+    
+    // Could unlock special care features based on level
   }
   
   /**
    * Books an appointment for a user
    */
-  public bookAppointment(userId: string, appointmentData: any): void {
-    const profile = this.getUserProfile(userId);
-    if (!profile) {
-      throw new Error(`User profile not found for userId: ${userId}`);
-    }
-    
-    const appointment = {
-      appointmentId: appointmentData.appointmentId || `appointment-${Date.now()}`,
-      providerId: appointmentData.providerId || `provider-${Math.floor(Math.random() * 1000)}`,
-      specialtyType: appointmentData.specialtyType || 'General',
-      appointmentType: appointmentData.appointmentType || 'in_person',
-      scheduledAt: appointmentData.scheduledAt || new Date(Date.now() + 86400000).toISOString(), // Tomorrow
-      bookedAt: appointmentData.bookedAt || new Date().toISOString(),
-      status: 'scheduled'
-    };
-    
-    // Add to user profile
-    profile.appointments.push(appointment);
-    
-    // Emit event
-    const event = this.createEventPayload(userId, EventType.CARE_APPOINTMENT_BOOKED, appointment);
-    this.emitEvent(event);
-    
-    // Check for appointment booking achievements
-    this.checkAppointmentAchievements(userId);
+  public async bookAppointment(userId: string, appointmentType: AppointmentType, dateTime: string, providerId?: string): Promise<Events.EventProcessingResult> {
+    const appointmentId = uuidv4();
+    return this.produceEvent(Events.EventType.APPOINTMENT_BOOKED, userId, {
+      appointmentId,
+      appointmentType,
+      providerId: providerId || uuidv4(),
+      dateTime,
+    });
   }
   
   /**
-   * Completes an appointment for a user
+   * Marks an appointment as attended
    */
-  public completeAppointment(userId: string, appointmentId: string): void {
-    const profile = this.getUserProfile(userId);
-    if (!profile) {
-      throw new Error(`User profile not found for userId: ${userId}`);
-    }
-    
-    const appointmentIndex = profile.appointments.findIndex(a => a.appointmentId === appointmentId);
-    if (appointmentIndex === -1) {
-      throw new Error(`Appointment not found with ID: ${appointmentId}`);
-    }
-    
-    const appointment = profile.appointments[appointmentIndex];
-    appointment.status = 'completed';
-    appointment.completedAt = new Date().toISOString();
-    appointment.duration = Math.floor(Math.random() * 30) + 15; // 15-45 minutes
-    
-    // Update in profile
-    profile.appointments[appointmentIndex] = appointment;
-    
-    // Emit event
-    const event = this.createEventPayload(userId, EventType.CARE_APPOINTMENT_COMPLETED, appointment);
-    this.emitEvent(event);
-    
-    // Check for appointment completion achievements
-    this.checkAppointmentCompletionAchievements(userId);
+  public async attendAppointment(userId: string, appointmentId: string): Promise<Events.EventProcessingResult> {
+    return this.produceEvent(Events.EventType.APPOINTMENT_ATTENDED, userId, {
+      appointmentId,
+      isFirstAppointment: false,
+    });
   }
   
   /**
-   * Records medication taken by a user
+   * Adds a medication for a user
    */
-  public recordMedicationTaken(userId: string, medicationData: any): void {
-    const profile = this.getUserProfile(userId);
-    if (!profile) {
-      throw new Error(`User profile not found for userId: ${userId}`);
-    }
-    
-    const medication = {
-      medicationId: medicationData.medicationId || `medication-${Date.now()}`,
-      medicationName: medicationData.medicationName || 'Default Medication',
-      dosage: medicationData.dosage || '1 pill',
-      takenAt: medicationData.takenAt || new Date().toISOString(),
-      adherence: medicationData.adherence || 'on_time'
-    };
-    
-    // Add to user profile
-    profile.medications.push(medication);
-    
-    // Emit event
-    const event = this.createEventPayload(userId, EventType.CARE_MEDICATION_TAKEN, medication);
-    this.emitEvent(event);
-    
-    // Check for medication adherence achievements
-    this.checkMedicationAdherenceAchievements(userId);
+  public async addMedication(userId: string, medicationName: string, dosage: number, frequency: string): Promise<Events.EventProcessingResult> {
+    const medicationId = uuidv4();
+    return this.produceEvent(Events.EventType.MEDICATION_ADDED, userId, {
+      medicationId,
+      medicationName,
+      dosage,
+      frequency,
+    });
   }
   
   /**
-   * Starts a telemedicine session for a user
+   * Records a medication as taken
    */
-  public startTelemedicineSession(userId: string, sessionData: any): void {
-    const profile = this.getUserProfile(userId);
-    if (!profile) {
-      throw new Error(`User profile not found for userId: ${userId}`);
-    }
-    
-    const session = {
-      sessionId: sessionData.sessionId || `session-${Date.now()}`,
-      appointmentId: sessionData.appointmentId,
-      providerId: sessionData.providerId || `provider-${Math.floor(Math.random() * 1000)}`,
-      startedAt: sessionData.startedAt || new Date().toISOString(),
-      deviceType: sessionData.deviceType || 'mobile',
-      status: 'in_progress'
-    };
-    
-    // Emit event
-    const event = this.createEventPayload(userId, EventType.CARE_TELEMEDICINE_STARTED, session);
-    this.emitEvent(event);
+  public async takeMedication(userId: string, medicationId: string, takenOnTime: boolean = true): Promise<Events.EventProcessingResult> {
+    return this.produceEvent(Events.EventType.MEDICATION_TAKEN, userId, {
+      medicationId,
+      takenOnTime,
+    });
   }
   
   /**
-   * Completes a telemedicine session for a user
+   * Starts a telemedicine session
    */
-  public completeTelemedicineSession(userId: string, sessionId: string): void {
-    const profile = this.getUserProfile(userId);
-    if (!profile) {
-      throw new Error(`User profile not found for userId: ${userId}`);
-    }
-    
-    const session = {
+  public async startTelemedicineSession(userId: string, providerId?: string): Promise<Events.EventProcessingResult> {
+    const sessionId = uuidv4();
+    return this.produceEvent(Events.EventType.TELEMEDICINE_SESSION_STARTED, userId, {
       sessionId,
-      endedAt: new Date().toISOString(),
-      duration: Math.floor(Math.random() * 30) + 10, // 10-40 minutes
-      quality: ['excellent', 'good', 'fair'][Math.floor(Math.random() * 3)],
-      status: 'completed'
-    };
+      providerId: providerId || uuidv4(),
+      isFirstSession: false,
+    });
+  }
+  
+  /**
+   * Completes a telemedicine session
+   */
+  public async completeTelemedicineSession(userId: string, sessionId: string, durationMinutes: number = 15): Promise<Events.EventProcessingResult> {
+    return this.produceEvent(Events.EventType.TELEMEDICINE_SESSION_COMPLETED, userId, {
+      sessionId,
+      durationMinutes,
+    });
+  }
+  
+  /**
+   * Gets the current state of the mock care journey service
+   */
+  public getState(): Record<string, any> {
+    const state: Record<string, any> = {};
     
-    // Emit event
-    const event = this.createEventPayload(userId, EventType.CARE_TELEMEDICINE_COMPLETED, session);
-    this.emitEvent(event);
-  }
-  
-  /**
-   * Checks for appointment booking achievements
-   */
-  private checkAppointmentAchievements(userId: string): void {
-    // This would contain logic to check for appointment-related achievements
-    // For mock purposes, we'll randomly trigger achievements
-    if (Math.random() > 0.7) {
-      console.log(`[care] User ${userId} has booked multiple appointments!`);
+    this.userCareData.forEach((userData, userId) => {
+      state[userId] = {
+        appointments: {},
+        medications: {},
+        telemedicineSessions: {},
+        treatmentPlans: {},
+      };
       
-      // Simulate gamification engine response
-      setTimeout(() => {
-        const achievementEvent = {
-          type: EventType.GAMIFICATION_ACHIEVEMENT_UNLOCKED,
-          journey: 'gamification',
-          userId,
-          timestamp: new Date().toISOString(),
-          data: {
-            achievementId: `appointment-${Date.now()}`,
-            achievementType: 'appointment-keeper',
-            title: 'Compromisso com a Saúde',
-            description: 'Compareça às consultas agendadas',
-            journey: 'care',
-            unlockedAt: new Date().toISOString(),
-            tier: 'bronze',
-            points: Math.floor(Math.random() * 30) + 10,
-            icon: 'calendar-check'
-          },
-          metadata: {
-            source: 'mock-gamification-engine',
-            version: '1.0.0'
-          }
-        };
-        
-        this.handleEvent(achievementEvent);
-      }, 500);
-    }
-  }
-  
-  /**
-   * Checks for appointment completion achievements
-   */
-  private checkAppointmentCompletionAchievements(userId: string): void {
-    // This would contain logic to check for appointment completion achievements
-    // For mock purposes, we'll randomly trigger achievements
-    if (Math.random() > 0.6) {
-      console.log(`[care] User ${userId} has completed multiple appointments!`);
+      userData.appointments.forEach((appointment, appointmentId) => {
+        state[userId].appointments[appointmentId] = appointment;
+      });
       
-      // Simulate gamification engine response
-      setTimeout(() => {
-        const achievementEvent = {
-          type: EventType.GAMIFICATION_POINTS_EARNED,
-          journey: 'gamification',
-          userId,
-          timestamp: new Date().toISOString(),
-          data: {
-            points: Math.floor(Math.random() * 20) + 5,
-            sourceType: 'care',
-            sourceId: `appointment-completion-${Date.now()}`,
-            reason: 'Appointment completed',
-            earnedAt: new Date().toISOString()
-          },
-          metadata: {
-            source: 'mock-gamification-engine',
-            version: '1.0.0'
-          }
-        };
-        
-        this.handleEvent(achievementEvent);
-      }, 500);
-    }
-  }
-  
-  /**
-   * Checks for medication adherence achievements
-   */
-  private checkMedicationAdherenceAchievements(userId: string): void {
-    // This would contain logic to check for medication adherence achievements
-    // For mock purposes, we'll randomly trigger achievements
-    if (Math.random() > 0.7) {
-      console.log(`[care] User ${userId} has good medication adherence!`);
+      userData.medications.forEach((medication, medicationId) => {
+        state[userId].medications[medicationId] = medication;
+      });
       
-      // Simulate gamification engine response
-      setTimeout(() => {
-        const achievementEvent = {
-          type: EventType.GAMIFICATION_ACHIEVEMENT_UNLOCKED,
-          journey: 'gamification',
-          userId,
-          timestamp: new Date().toISOString(),
-          data: {
-            achievementId: `medication-${Date.now()}`,
-            achievementType: 'medication-adherence',
-            title: 'Aderência ao Tratamento',
-            description: 'Tome seus medicamentos conforme prescrito',
-            journey: 'care',
-            unlockedAt: new Date().toISOString(),
-            tier: Math.random() > 0.7 ? 'silver' : 'bronze',
-            points: Math.floor(Math.random() * 40) + 15,
-            icon: 'pill'
-          },
-          metadata: {
-            source: 'mock-gamification-engine',
-            version: '1.0.0'
-          }
-        };
-        
-        this.handleEvent(achievementEvent);
-      }, 500);
-    }
-  }
-  
-  /**
-   * Handles journey-specific events
-   */
-  protected handleJourneySpecificEvent(event: EventPayload): void {
-    // Handle care-specific events
-    switch (event.type) {
-      case EventType.CARE_APPOINTMENT_BOOKED:
-        console.log(`[care] Appointment booked for ${event.data.scheduledAt}`);
-        break;
-        
-      case EventType.CARE_APPOINTMENT_COMPLETED:
-        console.log(`[care] Appointment completed: ${event.data.appointmentId}`);
-        break;
-        
-      case EventType.CARE_MEDICATION_TAKEN:
-        console.log(`[care] Medication taken: ${event.data.medicationName}`);
-        break;
-        
-      case EventType.CARE_TELEMEDICINE_COMPLETED:
-        console.log(`[care] Telemedicine session completed: ${event.data.sessionId}`);
-        break;
-    }
+      userData.telemedicineSessions.forEach((session, sessionId) => {
+        state[userId].telemedicineSessions[sessionId] = session;
+      });
+      
+      userData.treatmentPlans.forEach((plan, planId) => {
+        state[userId].treatmentPlans[planId] = plan;
+      });
+    });
+    
+    return state;
   }
 }
 
 /**
- * Mock Plan Journey Service
+ * Mock Plan Journey Service for testing plan-related events
  */
-export class MockPlanJourneyService extends BaseMockJourneyService {
+export class MockPlanJourneyService implements MockJourneyService {
+  private eventBus: MockEventBus;
+  private gamificationEngine: MockGamificationEngine;
+  private userPlanData: Map<string, {
+    claims: Map<string, any>;
+    benefits: Map<string, any>;
+    plans: Map<string, any>;
+  }> = new Map();
+  
   constructor() {
-    super('plan');
+    this.eventBus = MockEventBus.getInstance();
+    this.gamificationEngine = MockGamificationEngine.getInstance();
+    this.subscribeToEvents();
+  }
+  
+  /**
+   * Subscribes to events from the mock event bus
+   */
+  public subscribeToEvents(): void {
+    this.eventBus.subscribeToJourney(Events.EventJourney.PLAN, this.consumeEvent.bind(this));
+    this.eventBus.subscribeToEventType(Events.EventType.ACHIEVEMENT_UNLOCKED, this.handleAchievementUnlocked.bind(this));
+    this.eventBus.subscribeToEventType(Events.EventType.LEVEL_UP, this.handleLevelUp.bind(this));
+  }
+  
+  /**
+   * Produces a plan journey event
+   */
+  public async produceEvent(eventType: Events.EventType, userId: string, data: Record<string, any>): Promise<Events.EventProcessingResult> {
+    // Initialize user plan data if it doesn't exist
+    if (!this.userPlanData.has(userId)) {
+      this.userPlanData.set(userId, {
+        claims: new Map(),
+        benefits: new Map(),
+        plans: new Map(),
+      });
+    }
+    
+    // Update user plan data based on event type
+    const userPlan = this.userPlanData.get(userId)!;
+    
+    switch (eventType) {
+      case Events.EventType.CLAIM_SUBMITTED:
+        const claim = {
+          id: data.claimId || uuidv4(),
+          userId,
+          planId: data.planId || uuidv4(),
+          type: data.claimType || 'medical',
+          amount: data.amount || 100,
+          status: ClaimStatus.SUBMITTED,
+          submittedAt: new Date(),
+          processedAt: new Date(),
+          documents: data.documents || [],
+        };
+        
+        userPlan.claims.set(claim.id, claim);
+        break;
+        
+      case Events.EventType.CLAIM_APPROVED:
+        const claimId = data.claimId;
+        if (userPlan.claims.has(claimId)) {
+          const existingClaim = userPlan.claims.get(claimId)!;
+          existingClaim.status = ClaimStatus.APPROVED;
+          existingClaim.processedAt = new Date();
+          userPlan.claims.set(claimId, existingClaim);
+        }
+        break;
+        
+      case Events.EventType.BENEFIT_UTILIZED:
+        const benefit = {
+          id: data.benefitId || uuidv4(),
+          userId,
+          type: data.benefitType || 'wellness',
+          value: data.value || 50,
+          utilizedAt: new Date(),
+        };
+        
+        userPlan.benefits.set(benefit.id, benefit);
+        break;
+        
+      case Events.EventType.PLAN_SELECTED:
+        const plan = {
+          id: data.planId || uuidv4(),
+          userId,
+          type: data.planType || 'PPO',
+          isUpgrade: data.isUpgrade || false,
+          selectedAt: new Date(),
+        };
+        
+        userPlan.plans.set(plan.id, plan);
+        break;
+    }
+    
+    // Update user plan data
+    this.userPlanData.set(userId, userPlan);
+    
+    // Process the event through the gamification engine
+    return this.gamificationEngine.processGamificationEvent({
+      type: eventType,
+      userId,
+      data,
+      journey: Events.EventJourney.PLAN,
+    });
+  }
+  
+  /**
+   * Consumes an event from the mock event bus
+   */
+  public async consumeEvent(event: Events.GamificationEvent): Promise<void> {
+    console.log(`[MockPlanJourneyService] Consuming event: ${event.type} for user ${event.userId}`);
+    
+    // Handle specific events that affect the plan journey
+    switch (event.type) {
+      case Events.EventType.APPOINTMENT_ATTENDED:
+        // After an appointment, potentially submit a claim
+        if (Math.random() > 0.5) { // 50% chance to submit a claim after appointment
+          const claimId = uuidv4();
+          await this.produceEvent(Events.EventType.CLAIM_SUBMITTED, event.userId, {
+            claimId,
+            claimType: 'medical_visit',
+            amount: 150 + Math.floor(Math.random() * 200), // Random amount between 150-350
+            documents: [{ id: uuidv4(), type: 'receipt', url: 'https://example.com/receipt.pdf' }],
+          });
+        }
+        break;
+    }
+  }
+  
+  /**
+   * Handles achievement unlocked events
+   */
+  private async handleAchievementUnlocked(event: Events.GamificationEvent): Promise<void> {
+    const payload = event.payload as Events.AchievementUnlockedPayload;
+    
+    // Only handle plan-related achievements
+    if (payload.relatedJourney === Events.EventJourney.PLAN) {
+      console.log(`[MockPlanJourneyService] User ${event.userId} unlocked achievement: ${payload.achievementTitle}`);
+      
+      // Could trigger special actions in the plan journey based on achievements
+    }
+  }
+  
+  /**
+   * Handles level up events
+   */
+  private async handleLevelUp(event: Events.GamificationEvent): Promise<void> {
+    const payload = event.payload as Events.LevelUpPayload;
+    console.log(`[MockPlanJourneyService] User ${event.userId} leveled up to ${payload.newLevel}`);
+    
+    // Could unlock special plan features based on level
   }
   
   /**
    * Submits a claim for a user
    */
-  public submitClaim(userId: string, claimData: any): void {
-    const profile = this.getUserProfile(userId);
-    if (!profile) {
-      throw new Error(`User profile not found for userId: ${userId}`);
-    }
-    
-    const claim = {
-      claimId: claimData.claimId || `claim-${Date.now()}`,
-      claimType: claimData.claimType || 'medical',
-      providerId: claimData.providerId || `provider-${Math.floor(Math.random() * 1000)}`,
-      serviceDate: claimData.serviceDate || new Date().toISOString(),
-      amount: claimData.amount || Math.floor(Math.random() * 500) + 100,
-      submittedAt: claimData.submittedAt || new Date().toISOString(),
-      status: 'submitted'
-    };
-    
-    // Add to user profile
-    profile.claims.push(claim);
-    
-    // Emit event
-    const event = this.createEventPayload(userId, EventType.PLAN_CLAIM_SUBMITTED, claim);
-    this.emitEvent(event);
-    
-    // Check for claim submission achievements
-    this.checkClaimSubmissionAchievements(userId);
-    
-    // Simulate claim processing after a delay
-    setTimeout(() => {
-      this.processClaim(userId, claim.claimId);
-    }, 2000);
+  public async submitClaim(userId: string, claimType: ClaimType, amount: number, documents: any[] = []): Promise<Events.EventProcessingResult> {
+    const claimId = uuidv4();
+    return this.produceEvent(Events.EventType.CLAIM_SUBMITTED, userId, {
+      claimId,
+      claimType,
+      amount,
+      documents,
+    });
   }
   
   /**
-   * Processes a claim for a user
+   * Approves a claim
    */
-  public processClaim(userId: string, claimId: string): void {
-    const profile = this.getUserProfile(userId);
-    if (!profile) {
-      throw new Error(`User profile not found for userId: ${userId}`);
-    }
-    
-    const claimIndex = profile.claims.findIndex(c => c.claimId === claimId);
-    if (claimIndex === -1) {
-      throw new Error(`Claim not found with ID: ${claimId}`);
-    }
-    
-    const claim = profile.claims[claimIndex];
-    const amount = claim.amount;
-    const coveredAmount = Math.floor(amount * (Math.random() * 0.3 + 0.7)); // 70-100% coverage
-    
-    claim.status = Math.random() > 0.9 ? 'denied' : 'approved';
-    claim.processedAt = new Date().toISOString();
-    claim.coveredAmount = claim.status === 'approved' ? coveredAmount : 0;
-    
-    // Update in profile
-    profile.claims[claimIndex] = claim;
-    
-    // Emit event
-    const event = this.createEventPayload(userId, EventType.PLAN_CLAIM_PROCESSED, claim);
-    this.emitEvent(event);
-  }
-  
-  /**
-   * Selects a plan for a user
-   */
-  public selectPlan(userId: string, planData: any): void {
-    const profile = this.getUserProfile(userId);
-    if (!profile) {
-      throw new Error(`User profile not found for userId: ${userId}`);
-    }
-    
-    const plan = {
-      planId: planData.planId || `plan-${Date.now()}`,
-      planType: planData.planType || 'health',
-      coverageLevel: planData.coverageLevel || 'individual',
-      premium: planData.premium || Math.floor(Math.random() * 500) + 200,
-      startDate: planData.startDate || new Date().toISOString(),
-      selectedAt: planData.selectedAt || new Date().toISOString()
-    };
-    
-    // Emit event
-    const event = this.createEventPayload(userId, EventType.PLAN_SELECTED, plan);
-    this.emitEvent(event);
+  public async approveClaim(userId: string, claimId: string): Promise<Events.EventProcessingResult> {
+    return this.produceEvent(Events.EventType.CLAIM_APPROVED, userId, {
+      claimId,
+    });
   }
   
   /**
    * Utilizes a benefit for a user
    */
-  public utilizeBenefit(userId: string, benefitData: any): void {
-    const profile = this.getUserProfile(userId);
-    if (!profile) {
-      throw new Error(`User profile not found for userId: ${userId}`);
-    }
-    
-    const benefit = {
-      benefitId: benefitData.benefitId || `benefit-${Date.now()}`,
-      benefitType: benefitData.benefitType || 'wellness',
-      providerId: benefitData.providerId,
-      utilizationDate: benefitData.utilizationDate || new Date().toISOString(),
-      savingsAmount: benefitData.savingsAmount || Math.floor(Math.random() * 200) + 50
-    };
-    
-    // Emit event
-    const event = this.createEventPayload(userId, EventType.PLAN_BENEFIT_UTILIZED, benefit);
-    this.emitEvent(event);
+  public async utilizeBenefit(userId: string, benefitType: string, value: number): Promise<Events.EventProcessingResult> {
+    const benefitId = uuidv4();
+    return this.produceEvent(Events.EventType.BENEFIT_UTILIZED, userId, {
+      benefitId,
+      benefitType,
+      value,
+    });
   }
   
   /**
-   * Redeems a reward for a user
+   * Selects a plan for a user
    */
-  public redeemReward(userId: string, rewardData: any): void {
-    const profile = this.getUserProfile(userId);
-    if (!profile) {
-      throw new Error(`User profile not found for userId: ${userId}`);
-    }
-    
-    const pointsToRedeem = rewardData.pointsRedeemed || Math.min(profile.points, 100);
-    if (pointsToRedeem > profile.points) {
-      throw new Error(`Not enough points. Required: ${pointsToRedeem}, Available: ${profile.points}`);
-    }
-    
-    const reward = {
-      rewardId: rewardData.rewardId || `reward-${Date.now()}`,
-      rewardType: rewardData.rewardType || 'gift_card',
-      pointsRedeemed: pointsToRedeem,
-      value: rewardData.value || Math.floor(pointsToRedeem / 10),
-      redeemedAt: rewardData.redeemedAt || new Date().toISOString()
-    };
-    
-    // Update points in profile
-    profile.points -= pointsToRedeem;
-    
-    // Emit event
-    const event = this.createEventPayload(userId, EventType.PLAN_REWARD_REDEEMED, reward);
-    this.emitEvent(event);
+  public async selectPlan(userId: string, planType: string, isUpgrade: boolean = false): Promise<Events.EventProcessingResult> {
+    const planId = uuidv4();
+    return this.produceEvent(Events.EventType.PLAN_SELECTED, userId, {
+      planId,
+      planType,
+      isUpgrade,
+    });
   }
   
   /**
-   * Checks for claim submission achievements
+   * Gets the current state of the mock plan journey service
    */
-  private checkClaimSubmissionAchievements(userId: string): void {
-    // This would contain logic to check for claim-related achievements
-    // For mock purposes, we'll randomly trigger achievements
-    if (Math.random() > 0.7) {
-      console.log(`[plan] User ${userId} has submitted multiple claims!`);
+  public getState(): Record<string, any> {
+    const state: Record<string, any> = {};
+    
+    this.userPlanData.forEach((userData, userId) => {
+      state[userId] = {
+        claims: {},
+        benefits: {},
+        plans: {},
+      };
       
-      // Simulate gamification engine response
-      setTimeout(() => {
-        const achievementEvent = {
-          type: EventType.GAMIFICATION_ACHIEVEMENT_UNLOCKED,
-          journey: 'gamification',
-          userId,
-          timestamp: new Date().toISOString(),
-          data: {
-            achievementId: `claim-${Date.now()}`,
-            achievementType: 'claim-master',
-            title: 'Mestre em Reembolsos',
-            description: 'Submeta solicitações de reembolso completas',
-            journey: 'plan',
-            unlockedAt: new Date().toISOString(),
-            tier: Math.random() > 0.8 ? 'silver' : 'bronze',
-            points: Math.floor(Math.random() * 35) + 15,
-            icon: 'receipt'
-          },
-          metadata: {
-            source: 'mock-gamification-engine',
-            version: '1.0.0'
-          }
-        };
-        
-        this.handleEvent(achievementEvent);
-      }, 500);
-    }
-  }
-  
-  /**
-   * Handles journey-specific events
-   */
-  protected handleJourneySpecificEvent(event: EventPayload): void {
-    // Handle plan-specific events
-    switch (event.type) {
-      case EventType.PLAN_CLAIM_SUBMITTED:
-        console.log(`[plan] Claim submitted: ${event.data.claimId} for $${event.data.amount}`);
-        break;
-        
-      case EventType.PLAN_CLAIM_PROCESSED:
-        if (event.data.status === 'approved') {
-          console.log(`[plan] Claim approved: ${event.data.claimId} for $${event.data.coveredAmount}`);
-        } else {
-          console.log(`[plan] Claim denied: ${event.data.claimId}`);
-        }
-        break;
-        
-      case EventType.PLAN_BENEFIT_UTILIZED:
-        console.log(`[plan] Benefit utilized: ${event.data.benefitType} with savings of $${event.data.savingsAmount}`);
-        break;
-        
-      case EventType.PLAN_REWARD_REDEEMED:
-        console.log(`[plan] Reward redeemed: ${event.data.rewardType} for ${event.data.pointsRedeemed} points`);
-        break;
-    }
+      userData.claims.forEach((claim, claimId) => {
+        state[userId].claims[claimId] = claim;
+      });
+      
+      userData.benefits.forEach((benefit, benefitId) => {
+        state[userId].benefits[benefitId] = benefit;
+      });
+      
+      userData.plans.forEach((plan, planId) => {
+        state[userId].plans[planId] = plan;
+      });
+    });
+    
+    return state;
   }
 }
 
 /**
- * Mock Gamification Engine Service
- * This service simulates the gamification engine that processes events from all journeys
- */
-export class MockGamificationEngineService extends BaseMockJourneyService {
-  private healthService: MockHealthJourneyService;
-  private careService: MockCareJourneyService;
-  private planService: MockPlanJourneyService;
-  
-  constructor(
-    healthService: MockHealthJourneyService,
-    careService: MockCareJourneyService,
-    planService: MockPlanJourneyService
-  ) {
-    super('gamification');
-    this.healthService = healthService;
-    this.careService = careService;
-    this.planService = planService;
-    
-    // Subscribe to events from all journey services
-    this.subscribeToJourneyEvents();
-  }
-  
-  /**
-   * Subscribes to events from all journey services
-   */
-  private subscribeToJourneyEvents(): void {
-    // Subscribe to health journey events
-    this.healthService.getEventStream().subscribe(event => {
-      this.processJourneyEvent(event);
-    });
-    
-    // Subscribe to care journey events
-    this.careService.getEventStream().subscribe(event => {
-      this.processJourneyEvent(event);
-    });
-    
-    // Subscribe to plan journey events
-    this.planService.getEventStream().subscribe(event => {
-      this.processJourneyEvent(event);
-    });
-  }
-  
-  /**
-   * Processes events from journey services
-   */
-  private processJourneyEvent(event: EventPayload): void {
-    console.log(`[gamification] Processing event: ${event.type} from ${event.journey} journey`);
-    
-    // Process different event types
-    switch (event.type) {
-      // Health journey events
-      case EventType.HEALTH_METRIC_RECORDED:
-        this.processHealthMetricRecorded(event);
-        break;
-        
-      case EventType.HEALTH_GOAL_ACHIEVED:
-        this.processHealthGoalAchieved(event);
-        break;
-        
-      // Care journey events
-      case EventType.CARE_APPOINTMENT_BOOKED:
-        this.processAppointmentBooked(event);
-        break;
-        
-      case EventType.CARE_APPOINTMENT_COMPLETED:
-        this.processAppointmentCompleted(event);
-        break;
-        
-      case EventType.CARE_MEDICATION_TAKEN:
-        this.processMedicationTaken(event);
-        break;
-        
-      // Plan journey events
-      case EventType.PLAN_CLAIM_SUBMITTED:
-        this.processClaimSubmitted(event);
-        break;
-        
-      case EventType.PLAN_CLAIM_PROCESSED:
-        this.processClaimProcessed(event);
-        break;
-        
-      case EventType.PLAN_BENEFIT_UTILIZED:
-        this.processBenefitUtilized(event);
-        break;
-    }
-  }
-  
-  /**
-   * Processes health metric recorded events
-   */
-  private processHealthMetricRecorded(event: EventPayload): void {
-    // Award points for recording health metrics
-    const points = Math.floor(Math.random() * 5) + 1;
-    
-    const pointsEvent = this.createEventPayload(event.userId, EventType.GAMIFICATION_POINTS_EARNED, {
-      points,
-      sourceType: 'health',
-      sourceId: `metric-${Date.now()}`,
-      reason: `Recorded ${event.data.metricType} metric`,
-      earnedAt: new Date().toISOString()
-    });
-    
-    // Emit points earned event
-    this.emitEvent(pointsEvent);
-    
-    // Notify all journey services
-    this.notifyAllJourneyServices(pointsEvent);
-  }
-  
-  /**
-   * Processes health goal achieved events
-   */
-  private processHealthGoalAchieved(event: EventPayload): void {
-    // Award points for achieving health goals
-    const points = Math.floor(Math.random() * 20) + 10;
-    
-    const pointsEvent = this.createEventPayload(event.userId, EventType.GAMIFICATION_POINTS_EARNED, {
-      points,
-      sourceType: 'health',
-      sourceId: `goal-${event.data.goalId}`,
-      reason: `Achieved health goal: ${event.data.description}`,
-      earnedAt: new Date().toISOString()
-    });
-    
-    // Emit points earned event
-    this.emitEvent(pointsEvent);
-    
-    // Notify all journey services
-    this.notifyAllJourneyServices(pointsEvent);
-    
-    // Check if user should level up
-    this.checkForLevelUp(event.userId, points);
-  }
-  
-  /**
-   * Processes appointment booked events
-   */
-  private processAppointmentBooked(event: EventPayload): void {
-    // Award points for booking appointments
-    const points = Math.floor(Math.random() * 8) + 3;
-    
-    const pointsEvent = this.createEventPayload(event.userId, EventType.GAMIFICATION_POINTS_EARNED, {
-      points,
-      sourceType: 'care',
-      sourceId: `appointment-${event.data.appointmentId}`,
-      reason: 'Booked a medical appointment',
-      earnedAt: new Date().toISOString()
-    });
-    
-    // Emit points earned event
-    this.emitEvent(pointsEvent);
-    
-    // Notify all journey services
-    this.notifyAllJourneyServices(pointsEvent);
-  }
-  
-  /**
-   * Processes appointment completed events
-   */
-  private processAppointmentCompleted(event: EventPayload): void {
-    // Award points for completing appointments
-    const points = Math.floor(Math.random() * 15) + 10;
-    
-    const pointsEvent = this.createEventPayload(event.userId, EventType.GAMIFICATION_POINTS_EARNED, {
-      points,
-      sourceType: 'care',
-      sourceId: `appointment-completion-${event.data.appointmentId}`,
-      reason: 'Completed a medical appointment',
-      earnedAt: new Date().toISOString()
-    });
-    
-    // Emit points earned event
-    this.emitEvent(pointsEvent);
-    
-    // Notify all journey services
-    this.notifyAllJourneyServices(pointsEvent);
-    
-    // Check if user should level up
-    this.checkForLevelUp(event.userId, points);
-  }
-  
-  /**
-   * Processes medication taken events
-   */
-  private processMedicationTaken(event: EventPayload): void {
-    // Award points for taking medications
-    const points = Math.floor(Math.random() * 5) + 2;
-    
-    const pointsEvent = this.createEventPayload(event.userId, EventType.GAMIFICATION_POINTS_EARNED, {
-      points,
-      sourceType: 'care',
-      sourceId: `medication-${event.data.medicationId}`,
-      reason: `Took medication: ${event.data.medicationName}`,
-      earnedAt: new Date().toISOString()
-    });
-    
-    // Emit points earned event
-    this.emitEvent(pointsEvent);
-    
-    // Notify all journey services
-    this.notifyAllJourneyServices(pointsEvent);
-  }
-  
-  /**
-   * Processes claim submitted events
-   */
-  private processClaimSubmitted(event: EventPayload): void {
-    // Award points for submitting claims
-    const points = Math.floor(Math.random() * 10) + 5;
-    
-    const pointsEvent = this.createEventPayload(event.userId, EventType.GAMIFICATION_POINTS_EARNED, {
-      points,
-      sourceType: 'plan',
-      sourceId: `claim-${event.data.claimId}`,
-      reason: `Submitted a ${event.data.claimType} claim`,
-      earnedAt: new Date().toISOString()
-    });
-    
-    // Emit points earned event
-    this.emitEvent(pointsEvent);
-    
-    // Notify all journey services
-    this.notifyAllJourneyServices(pointsEvent);
-  }
-  
-  /**
-   * Processes claim processed events
-   */
-  private processClaimProcessed(event: EventPayload): void {
-    if (event.data.status === 'approved') {
-      // Award points for approved claims
-      const points = Math.floor(Math.random() * 12) + 8;
-      
-      const pointsEvent = this.createEventPayload(event.userId, EventType.GAMIFICATION_POINTS_EARNED, {
-        points,
-        sourceType: 'plan',
-        sourceId: `claim-processed-${event.data.claimId}`,
-        reason: 'Claim approved',
-        earnedAt: new Date().toISOString()
-      });
-      
-      // Emit points earned event
-      this.emitEvent(pointsEvent);
-      
-      // Notify all journey services
-      this.notifyAllJourneyServices(pointsEvent);
-      
-      // Check if user should level up
-      this.checkForLevelUp(event.userId, points);
-    }
-  }
-  
-  /**
-   * Processes benefit utilized events
-   */
-  private processBenefitUtilized(event: EventPayload): void {
-    // Award points for utilizing benefits
-    const points = Math.floor(Math.random() * 15) + 5;
-    
-    const pointsEvent = this.createEventPayload(event.userId, EventType.GAMIFICATION_POINTS_EARNED, {
-      points,
-      sourceType: 'plan',
-      sourceId: `benefit-${event.data.benefitId}`,
-      reason: `Utilized ${event.data.benefitType} benefit`,
-      earnedAt: new Date().toISOString()
-    });
-    
-    // Emit points earned event
-    this.emitEvent(pointsEvent);
-    
-    // Notify all journey services
-    this.notifyAllJourneyServices(pointsEvent);
-  }
-  
-  /**
-   * Checks if a user should level up based on their points
-   */
-  private checkForLevelUp(userId: string, pointsEarned: number): void {
-    const profile = this.getUserProfile(userId);
-    if (!profile) return;
-    
-    const currentLevel = profile.level;
-    const totalPoints = profile.points + pointsEarned;
-    
-    // Simple level calculation: level = 1 + Math.floor(totalPoints / 100)
-    const newLevel = 1 + Math.floor(totalPoints / 100);
-    
-    if (newLevel > currentLevel) {
-      // User has leveled up
-      const levelUpEvent = this.createEventPayload(userId, EventType.GAMIFICATION_LEVEL_UP, {
-        previousLevel: currentLevel,
-        newLevel,
-        totalPoints,
-        leveledUpAt: new Date().toISOString()
-      });
-      
-      // Emit level up event
-      this.emitEvent(levelUpEvent);
-      
-      // Notify all journey services
-      this.notifyAllJourneyServices(levelUpEvent);
-      
-      console.log(`[gamification] User ${userId} leveled up from ${currentLevel} to ${newLevel}!`);
-    }
-  }
-  
-  /**
-   * Notifies all journey services about an event
-   */
-  private notifyAllJourneyServices(event: EventPayload): void {
-    // Notify health service
-    this.healthService.handleEvent(event);
-    
-    // Notify care service
-    this.careService.handleEvent(event);
-    
-    // Notify plan service
-    this.planService.handleEvent(event);
-  }
-  
-  /**
-   * Handles journey-specific events
-   */
-  protected handleJourneySpecificEvent(event: EventPayload): void {
-    // Handle gamification-specific events
-    switch (event.type) {
-      case EventType.GAMIFICATION_POINTS_EARNED:
-        console.log(`[gamification] User ${event.userId} earned ${event.data.points} points for: ${event.data.reason}`);
-        break;
-        
-      case EventType.GAMIFICATION_ACHIEVEMENT_UNLOCKED:
-        console.log(`[gamification] User ${event.userId} unlocked achievement: ${event.data.title || event.data.achievementType}`);
-        break;
-        
-      case EventType.GAMIFICATION_LEVEL_UP:
-        console.log(`[gamification] User ${event.userId} leveled up from ${event.data.previousLevel} to ${event.data.newLevel}!`);
-        break;
-    }
-  }
-}
-
-/**
- * Creates a test environment with all mock journey services
+ * Creates a complete mock journey environment for testing
  */
 export function createMockJourneyEnvironment() {
-  // Create journey services
-  const healthService = new MockHealthJourneyService();
-  const careService = new MockCareJourneyService();
-  const planService = new MockPlanJourneyService();
-  
-  // Create gamification engine service
-  const gamificationService = new MockGamificationEngineService(
-    healthService,
-    careService,
-    planService
-  );
+  const eventBus = MockEventBus.getInstance();
+  const gamificationEngine = MockGamificationEngine.getInstance();
+  const healthJourney = new MockHealthJourneyService();
+  const careJourney = new MockCareJourneyService();
+  const planJourney = new MockPlanJourneyService();
   
   return {
-    healthService,
-    careService,
-    planService,
-    gamificationService
+    eventBus,
+    gamificationEngine,
+    healthJourney,
+    careJourney,
+    planJourney,
+    
+    /**
+     * Resets the entire mock environment
+     */
+    reset() {
+      eventBus.clearAllListeners();
+      gamificationEngine.reset();
+      
+      // Re-subscribe services to events
+      healthJourney.subscribeToEvents();
+      careJourney.subscribeToEvents();
+      planJourney.subscribeToEvents();
+    },
+    
+    /**
+     * Simulates a complete user journey across all services
+     */
+    async simulateUserJourney(userId: string) {
+      // Health journey actions
+      await healthJourney.recordHealthMetric(userId, MetricType.STEPS, 8000, 'steps');
+      await healthJourney.createHealthGoal(userId, GoalType.STEPS, 10000, 'steps');
+      await healthJourney.connectDevice(userId, DeviceType.SMARTWATCH);
+      
+      // Care journey actions
+      const futureDate = new Date();
+      futureDate.setDate(futureDate.getDate() + 7);
+      const appointmentResult = await careJourney.bookAppointment(userId, AppointmentType.IN_PERSON, futureDate.toISOString());
+      const appointmentId = appointmentResult.results?.achievementsUnlocked?.[0]?.achievementId || '';
+      
+      const medicationResult = await careJourney.addMedication(userId, 'Test Medication', 500, 'daily');
+      const medicationId = medicationResult.results?.achievementsUnlocked?.[0]?.achievementId || '';
+      
+      await careJourney.takeMedication(userId, medicationId);
+      await careJourney.attendAppointment(userId, appointmentId);
+      
+      // Plan journey actions
+      await planJourney.selectPlan(userId, 'PPO');
+      await planJourney.submitClaim(userId, 'medical' as ClaimType, 250);
+      await planJourney.utilizeBenefit(userId, 'wellness', 100);
+      
+      // Get user profile after all actions
+      return gamificationEngine.getUserProfile(userId);
+    }
   };
 }
-
-/**
- * Example usage:
- * 
- * const { healthService, careService, planService, gamificationService } = createMockJourneyEnvironment();
- * 
- * // Create a user profile
- * const userId = 'user-123';
- * healthService.createUserProfile(userId, 'Test User', 'test@example.com');
- * careService.createUserProfile(userId, 'Test User', 'test@example.com');
- * planService.createUserProfile(userId, 'Test User', 'test@example.com');
- * 
- * // Record a health metric
- * healthService.recordHealthMetric(userId, {
- *   metricType: HealthMetricType.HEART_RATE,
- *   value: 75,
- *   unit: 'bpm'
- * });
- * 
- * // Book an appointment
- * careService.bookAppointment(userId, {
- *   specialtyType: 'Cardiologia',
- *   appointmentType: 'in_person'
- * });
- * 
- * // Submit a claim
- * planService.submitClaim(userId, {
- *   claimType: 'medical',
- *   amount: 250
- * });
- */

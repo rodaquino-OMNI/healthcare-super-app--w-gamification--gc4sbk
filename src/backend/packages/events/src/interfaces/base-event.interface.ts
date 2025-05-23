@@ -1,103 +1,226 @@
 /**
- * Base event interface that all event types must implement.
- * Provides a standardized structure for event-driven communication across all services and journeys.
- * 
- * This interface ensures consistent event structures for reliable processing within
- * the gamification engine and notification system.
+ * @file base-event.interface.ts
+ * @description Defines the core event interface that all event types must implement across the AUSTA SuperApp.
+ * This interface establishes the standardized structure for event-driven communication across all services
+ * and journeys, ensuring consistent event structures for reliable processing within the gamification engine
+ * and notification system.
  */
-export interface IBaseEvent<T = unknown> {
+
+import { JourneyType } from '@austa/interfaces/common/dto/journey.dto';
+
+/**
+ * Base event interface that all events across the AUSTA SuperApp must implement.
+ * Provides the standardized structure with required properties for consistent event processing.
+ */
+export interface BaseEvent<T = unknown> {
   /**
    * Unique identifier for the event
-   * @example "123e4567-e89b-12d3-a456-426614174000"
+   * @example "550e8400-e29b-41d4-a716-446655440000"
    */
   eventId: string;
 
   /**
-   * ISO 8601 timestamp when the event was created
-   * @example "2023-04-15T14:32:17.123Z"
+   * The type of event that occurred
+   * @example "APPOINTMENT_BOOKED", "HEALTH_GOAL_ACHIEVED", "CLAIM_SUBMITTED"
+   */
+  type: string;
+
+  /**
+   * ISO timestamp when the event occurred
+   * @example "2023-04-15T14:32:17.000Z"
    */
   timestamp: string;
 
   /**
-   * Semantic version of the event schema (major.minor.patch)
-   * Used to support the event versioning strategy and ensure backward compatibility
-   * @example "1.0.0"
+   * Version of the event schema, used for backward compatibility
+   * Follows semantic versioning pattern (major.minor.patch)
+   * @example "1.0.0", "2.3.1"
    */
   version: string;
 
   /**
-   * Identifies the service or journey that originated the event
+   * The source service or component that generated this event
    * @example "health-service", "care-service", "plan-service", "auth-service"
    */
   source: string;
 
   /**
-   * The type of event, used for routing and processing
-   * @example "health.metric.recorded", "care.appointment.booked", "plan.claim.submitted"
+   * The journey context where the event originated (optional for system events)
+   * @example "HEALTH", "CARE", "PLAN"
    */
-  type: string;
+  journey?: JourneyType;
 
   /**
-   * The event payload containing event-specific data
-   * Type parameter T allows for type-safe payload definitions
+   * The user ID associated with this event (optional for system events)
+   * @example "user_123456"
+   */
+  userId?: string;
+
+  /**
+   * Event-specific payload data
    */
   payload: T;
 
   /**
    * Optional metadata for cross-cutting concerns
-   * Includes tracing IDs, correlation IDs, and other context information
+   * Used for tracing, correlation IDs, and other system-level information
    */
   metadata?: EventMetadata;
 }
 
 /**
- * Metadata structure for events to support cross-cutting concerns
- * like distributed tracing, correlation, and debugging
+ * Interface for event metadata that contains cross-cutting concerns
+ * such as tracing, correlation IDs, and other system-level information.
  */
 export interface EventMetadata {
   /**
-   * Correlation ID for tracking related events across services
-   * @example "abc123def456"
+   * Correlation ID for tracing requests across services
+   * @example "corr-550e8400-e29b-41d4-a716-446655440000"
    */
   correlationId?: string;
 
   /**
-   * Trace ID for distributed tracing (OpenTelemetry compatible)
-   * @example "4bf92f3577b34da6a3ce929d0e0e4736"
+   * Trace ID for distributed tracing
+   * @example "trace-550e8400-e29b-41d4-a716-446655440000"
    */
   traceId?: string;
 
   /**
-   * User ID associated with this event, if applicable
-   * @example "user-123456"
+   * Span ID for distributed tracing
+   * @example "span-550e8400-e29b-41d4-a716-446655440000"
    */
-  userId?: string;
+  spanId?: string;
 
   /**
-   * Journey context for the event (health, care, plan)
-   * @example "health", "care", "plan"
+   * Priority level for event processing
+   * @example "high", "medium", "low"
    */
-  journey?: 'health' | 'care' | 'plan';
+  priority?: 'high' | 'medium' | 'low';
 
   /**
-   * Additional context information relevant to the event
-   * Can contain any serializable data
+   * Indicates if this is a retry of a previously failed event
    */
-  context?: Record<string, unknown>;
+  isRetry?: boolean;
+
+  /**
+   * Number of retry attempts if this is a retry
+   */
+  retryCount?: number;
+
+  /**
+   * Original timestamp of the event if this is a retry
+   */
+  originalTimestamp?: string;
+
+  /**
+   * Additional custom metadata properties
+   */
+  [key: string]: any;
 }
 
 /**
- * Interface for versioned events that explicitly declares compatibility information
+ * Type guard to check if an object is a valid BaseEvent
+ * @param obj The object to check
+ * @returns True if the object is a valid BaseEvent, false otherwise
  */
-export interface IVersionedEvent<T = unknown> extends IBaseEvent<T> {
+export function isBaseEvent(obj: any): obj is BaseEvent {
+  return (
+    obj &&
+    typeof obj === 'object' &&
+    typeof obj.eventId === 'string' &&
+    typeof obj.type === 'string' &&
+    typeof obj.timestamp === 'string' &&
+    typeof obj.version === 'string' &&
+    typeof obj.source === 'string' &&
+    typeof obj.payload === 'object'
+  );
+}
+
+/**
+ * Creates a new event with the required properties
+ * @param type The event type
+ * @param source The source service or component
+ * @param payload The event payload
+ * @param options Additional options for the event
+ * @returns A new BaseEvent instance
+ */
+export function createEvent<T>(
+  type: string,
+  source: string,
+  payload: T,
+  options?: {
+    userId?: string;
+    journey?: JourneyType;
+    metadata?: EventMetadata;
+    eventId?: string;
+    timestamp?: string;
+    version?: string;
+  }
+): BaseEvent<T> {
+  return {
+    eventId: options?.eventId || crypto.randomUUID(),
+    timestamp: options?.timestamp || new Date().toISOString(),
+    version: options?.version || '1.0.0',
+    type,
+    source,
+    journey: options?.journey,
+    userId: options?.userId,
+    payload,
+    metadata: options?.metadata,
+  };
+}
+
+/**
+ * Interface for event validation result
+ */
+export interface EventValidationResult {
   /**
-   * Minimum version of the consumer required to process this event
-   * @example "1.0.0"
+   * Whether the event is valid
    */
-  minConsumerVersion?: string;
+  isValid: boolean;
 
   /**
-   * Whether this event uses a deprecated schema that will be removed in future versions
+   * Error messages if validation failed
    */
-  deprecated?: boolean;
+  errors?: string[];
+}
+
+/**
+ * Validates a BaseEvent to ensure it has all required properties
+ * @param event The event to validate
+ * @returns Validation result with isValid flag and optional error messages
+ */
+export function validateEvent(event: any): EventValidationResult {
+  const errors: string[] = [];
+
+  if (!event) {
+    return { isValid: false, errors: ['Event is null or undefined'] };
+  }
+
+  if (typeof event !== 'object') {
+    return { isValid: false, errors: ['Event is not an object'] };
+  }
+
+  // Check required fields
+  if (!event.eventId) errors.push('Missing required field: eventId');
+  if (!event.type) errors.push('Missing required field: type');
+  if (!event.timestamp) errors.push('Missing required field: timestamp');
+  if (!event.version) errors.push('Missing required field: version');
+  if (!event.source) errors.push('Missing required field: source');
+  if (!event.payload) errors.push('Missing required field: payload');
+
+  // Validate field types
+  if (event.eventId && typeof event.eventId !== 'string') errors.push('eventId must be a string');
+  if (event.type && typeof event.type !== 'string') errors.push('type must be a string');
+  if (event.timestamp && typeof event.timestamp !== 'string') errors.push('timestamp must be a string');
+  if (event.version && typeof event.version !== 'string') errors.push('version must be a string');
+  if (event.source && typeof event.source !== 'string') errors.push('source must be a string');
+  if (event.payload && typeof event.payload !== 'object') errors.push('payload must be an object');
+  if (event.userId && typeof event.userId !== 'string') errors.push('userId must be a string');
+  if (event.metadata && typeof event.metadata !== 'object') errors.push('metadata must be an object');
+
+  return {
+    isValid: errors.length === 0,
+    errors: errors.length > 0 ? errors : undefined,
+  };
 }

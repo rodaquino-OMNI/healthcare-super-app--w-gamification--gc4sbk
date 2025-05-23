@@ -1,497 +1,719 @@
+import { Test, TestingModule } from '@nestjs/testing';
+import {
+  VersionDetector,
+  CompatibilityChecker,
+  EventTransformer,
+  SchemaMigrator,
+  VersioningErrors,
+  EventVersion,
+  IVersionedEvent,
+  VersionRange,
+  EventVersioningStrategy,
+} from '../../src/versioning';
+import { EventTypes } from '../../src/dto/event-types.enum';
+import { BaseEventDto } from '../../src/dto/base-event.dto';
+import { HealthMetricEventDto } from '../../src/dto/health-metric-event.dto';
+import { AppointmentEventDto } from '../../src/dto/appointment-event.dto';
+import { ClaimEventDto } from '../../src/dto/claim-event.dto';
+import { EventsModule } from '../../src/events.module';
+
 /**
- * @file event-versioning.integration.spec.ts
- * @description Integration tests for event schema versioning capabilities.
+ * Integration tests for event schema versioning capabilities.
  * 
  * This test suite verifies that the system can handle different versions of the same event type,
  * ensuring backward compatibility with older event formats while supporting newer schema features.
- * It tests version upgrade transformations and version validation logic.
  */
-
-import { Test, TestingModule } from '@nestjs/testing';
-import { EventsModule } from '../../src/events.module';
-import { KafkaService } from '../../src/kafka/kafka.service';
-import { EventVersionDto, createEventMetadata } from '../../src/dto/event-metadata.dto';
-import {
-  VersionedEventDto,
-  registerVersionMigration,
-  createVersionedEvent,
-  upgradeEventPayload,
-  getLatestVersion,
-  isVersionCompatible,
-  compareVersions,
-  canMigrate,
-  versionMigrations,
-  registerMigrationChain,
-  createVersionFromString
-} from '../../src/dto/version.dto';
-import { EventType } from '../../src/dto/event-types.enum';
-
-// Test event types
-enum TestEventType {
-  USER_CREATED = 'USER_CREATED',
-  HEALTH_METRIC_RECORDED = 'HEALTH_METRIC_RECORDED',
-  APPOINTMENT_BOOKED = 'APPOINTMENT_BOOKED'
-}
-
-// Test event payloads
-interface UserCreatedEventV1 {
-  userId: string;
-  email: string;
-  name: string;
-}
-
-interface UserCreatedEventV2 extends UserCreatedEventV1 {
-  preferredLanguage: string;
-}
-
-interface UserCreatedEventV3 extends UserCreatedEventV2 {
-  accountType: string;
-  createdAt: string;
-}
-
-interface HealthMetricEventV1 {
-  userId: string;
-  metricType: string;
-  value: number;
-  unit: string;
-  recordedAt: string;
-}
-
-interface HealthMetricEventV2 extends HealthMetricEventV1 {
-  deviceId?: string;
-  notes?: string;
-}
-
-interface AppointmentBookedEventV1 {
-  userId: string;
-  providerId: string;
-  appointmentDate: string;
-  specialtyId: string;
-}
-
-interface AppointmentBookedEventV2 extends AppointmentBookedEventV1 {
-  locationId: string;
-  notes?: string;
-}
-
-describe('Event Versioning Integration Tests', () => {
-  let module: TestingModule;
-  let kafkaService: KafkaService;
+describe('Event Versioning Integration', () => {
+  let moduleRef: TestingModule;
+  let versionDetector: VersionDetector;
+  let compatibilityChecker: CompatibilityChecker;
+  let eventTransformer: EventTransformer;
+  let schemaMigrator: SchemaMigrator;
 
   beforeAll(async () => {
-    // Clear any existing migrations before tests
-    Object.keys(versionMigrations).forEach(key => {
-      delete versionMigrations[key];
-    });
-
-    // Register test migrations
-    registerTestMigrations();
-
-    module = await Test.createTestingModule({
+    moduleRef = await Test.createTestingModule({
       imports: [EventsModule],
     }).compile();
 
-    kafkaService = module.get<KafkaService>(KafkaService);
+    versionDetector = moduleRef.get<VersionDetector>(VersionDetector);
+    compatibilityChecker = moduleRef.get<CompatibilityChecker>(CompatibilityChecker);
+    eventTransformer = moduleRef.get<EventTransformer>(EventTransformer);
+    schemaMigrator = moduleRef.get<SchemaMigrator>(SchemaMigrator);
   });
 
   afterAll(async () => {
-    await module.close();
+    await moduleRef.close();
   });
 
-  /**
-   * Registers test migrations for different event types
-   */
-  function registerTestMigrations() {
-    // USER_CREATED: v1.0.0 -> v1.1.0 (adds preferredLanguage)
-    registerVersionMigration<UserCreatedEventV2>(
-      TestEventType.USER_CREATED,
-      '1.0.0',
-      '1.1.0',
-      (oldData: UserCreatedEventV1) => {
-        return {
-          ...oldData,
-          preferredLanguage: 'pt-BR'
-        };
-      }
-    );
+  // Sample events of different versions for testing
+  const healthMetricEventV1: IVersionedEvent = {
+    eventId: '123e4567-e89b-12d3-a456-426614174000',
+    timestamp: new Date().toISOString(),
+    version: '1.0.0',
+    source: 'health-service',
+    type: EventTypes.Health.METRIC_RECORDED,
+    payload: {
+      userId: 'user123',
+      metricType: 'HEART_RATE',
+      value: 75,
+      unit: 'bpm',
+      recordedAt: new Date().toISOString(),
+    },
+    metadata: {
+      correlationId: 'corr-123',
+      journeyContext: 'health',
+    },
+  };
 
-    // USER_CREATED: v1.1.0 -> v2.0.0 (adds accountType and createdAt)
-    registerVersionMigration<UserCreatedEventV3>(
-      TestEventType.USER_CREATED,
-      '1.1.0',
-      '2.0.0',
-      (oldData: UserCreatedEventV2) => {
-        return {
-          ...oldData,
-          accountType: 'standard',
-          createdAt: new Date().toISOString()
-        };
-      }
-    );
+  const healthMetricEventV2: IVersionedEvent = {
+    eventId: '123e4567-e89b-12d3-a456-426614174001',
+    timestamp: new Date().toISOString(),
+    version: '2.0.0',
+    source: 'health-service',
+    type: EventTypes.Health.METRIC_RECORDED,
+    payload: {
+      userId: 'user123',
+      metricType: 'HEART_RATE',
+      value: 75,
+      unit: 'bpm',
+      recordedAt: new Date().toISOString(),
+      deviceId: 'device123', // Added in v2
+      confidence: 0.95, // Added in v2
+    },
+    metadata: {
+      correlationId: 'corr-123',
+      journeyContext: 'health',
+      deviceInfo: { // Added in v2
+        type: 'smartwatch',
+        manufacturer: 'Acme',
+      },
+    },
+  };
 
-    // HEALTH_METRIC_RECORDED: v1.0.0 -> v1.1.0 (adds deviceId and notes)
-    registerVersionMigration<HealthMetricEventV2>(
-      TestEventType.HEALTH_METRIC_RECORDED,
-      '1.0.0',
-      '1.1.0',
-      (oldData: HealthMetricEventV1) => {
-        return {
-          ...oldData,
-          deviceId: undefined,
-          notes: undefined
-        };
-      }
-    );
+  const appointmentEventV1: IVersionedEvent = {
+    eventId: '123e4567-e89b-12d3-a456-426614174002',
+    timestamp: new Date().toISOString(),
+    version: '1.0.0',
+    source: 'care-service',
+    type: EventTypes.Care.APPOINTMENT_BOOKED,
+    payload: {
+      userId: 'user123',
+      appointmentId: 'apt123',
+      providerId: 'provider456',
+      scheduledAt: new Date().toISOString(),
+      status: 'BOOKED',
+    },
+    metadata: {
+      correlationId: 'corr-456',
+      journeyContext: 'care',
+    },
+  };
 
-    // APPOINTMENT_BOOKED: v1.0.0 -> v2.0.0 (adds locationId and notes)
-    registerVersionMigration<AppointmentBookedEventV2>(
-      TestEventType.APPOINTMENT_BOOKED,
-      '1.0.0',
-      '2.0.0',
-      (oldData: AppointmentBookedEventV1) => {
-        return {
-          ...oldData,
-          locationId: 'default-location',
-          notes: undefined
-        };
-      }
-    );
-  }
+  const appointmentEventV1_1: IVersionedEvent = {
+    eventId: '123e4567-e89b-12d3-a456-426614174003',
+    timestamp: new Date().toISOString(),
+    version: '1.1.0',
+    source: 'care-service',
+    type: EventTypes.Care.APPOINTMENT_BOOKED,
+    payload: {
+      userId: 'user123',
+      appointmentId: 'apt123',
+      providerId: 'provider456',
+      scheduledAt: new Date().toISOString(),
+      status: 'BOOKED',
+      specialtyId: 'cardiology', // Added in v1.1
+    },
+    metadata: {
+      correlationId: 'corr-456',
+      journeyContext: 'care',
+    },
+  };
 
-  describe('Version Creation and Validation', () => {
-    it('should create a versioned event with default version 1.0.0', () => {
-      const payload: UserCreatedEventV1 = {
-        userId: '123',
-        email: 'user@example.com',
-        name: 'Test User'
-      };
+  const claimEventV1: IVersionedEvent = {
+    eventId: '123e4567-e89b-12d3-a456-426614174004',
+    timestamp: new Date().toISOString(),
+    version: '1.0.0',
+    source: 'plan-service',
+    type: EventTypes.Plan.CLAIM_SUBMITTED,
+    payload: {
+      userId: 'user123',
+      claimId: 'claim789',
+      amount: 150.0,
+      currency: 'BRL',
+      status: 'SUBMITTED',
+      type: 'MEDICAL_CONSULTATION',
+    },
+    metadata: {
+      correlationId: 'corr-789',
+      journeyContext: 'plan',
+    },
+  };
 
-      const event = createVersionedEvent(TestEventType.USER_CREATED, payload);
-
-      expect(event).toBeInstanceOf(VersionedEventDto);
-      expect(event.eventType).toBe(TestEventType.USER_CREATED);
-      expect(event.payload).toEqual(payload);
-      expect(event.getVersionString()).toBe('1.0.0');
-    });
-
-    it('should create a versioned event with custom version', () => {
-      const payload: UserCreatedEventV2 = {
-        userId: '123',
-        email: 'user@example.com',
-        name: 'Test User',
-        preferredLanguage: 'en-US'
-      };
-
-      const version = createVersionFromString('1.1.0');
-      const event = new VersionedEventDto(TestEventType.USER_CREATED, payload, version);
-
-      expect(event).toBeInstanceOf(VersionedEventDto);
-      expect(event.eventType).toBe(TestEventType.USER_CREATED);
-      expect(event.payload).toEqual(payload);
-      expect(event.getVersionString()).toBe('1.1.0');
-    });
-
-    it('should correctly compare versions', () => {
-      expect(compareVersions('1.0.0', '1.0.0')).toBe(0);
-      expect(compareVersions('1.0.0', '1.1.0')).toBe(-1);
-      expect(compareVersions('1.1.0', '1.0.0')).toBe(1);
-      expect(compareVersions('1.1.0', '1.1.1')).toBe(-1);
-      expect(compareVersions('2.0.0', '1.9.9')).toBe(1);
-    });
-
-    it('should correctly determine version compatibility', () => {
-      // Same version is always compatible
-      expect(isVersionCompatible('1.0.0', '1.0.0')).toBe(true);
-      
-      // Major version must match
-      expect(isVersionCompatible('1.0.0', '2.0.0')).toBe(false);
-      expect(isVersionCompatible('2.0.0', '1.0.0')).toBe(false);
-      
-      // Current minor version must be >= required minor version
-      expect(isVersionCompatible('1.1.0', '1.0.0')).toBe(true);
-      expect(isVersionCompatible('1.0.0', '1.1.0')).toBe(false);
-      
-      // If minor versions match, current patch must be >= required patch
-      expect(isVersionCompatible('1.1.1', '1.1.0')).toBe(true);
-      expect(isVersionCompatible('1.1.0', '1.1.1')).toBe(false);
-      
-      // Higher minor version is compatible regardless of patch
-      expect(isVersionCompatible('1.2.0', '1.1.5')).toBe(true);
-    });
-  });
-
-  describe('Version Migration', () => {
-    it('should migrate an event from v1.0.0 to v1.1.0', () => {
-      const payload: UserCreatedEventV1 = {
-        userId: '123',
-        email: 'user@example.com',
-        name: 'Test User'
-      };
-
-      const event = createVersionedEvent(TestEventType.USER_CREATED, payload);
-      const migratedEvent = event.migrateToVersion('1.1.0');
-
-      expect(migratedEvent.getVersionString()).toBe('1.1.0');
-      expect(migratedEvent.payload).toHaveProperty('preferredLanguage');
-      expect(migratedEvent.payload.preferredLanguage).toBe('pt-BR');
-    });
-
-    it('should migrate an event through multiple versions (v1.0.0 -> v2.0.0)', () => {
-      const payload: UserCreatedEventV1 = {
-        userId: '123',
-        email: 'user@example.com',
-        name: 'Test User'
-      };
-
-      const event = createVersionedEvent(TestEventType.USER_CREATED, payload);
-      const migratedEvent = event.migrateToVersion('2.0.0');
-
-      expect(migratedEvent.getVersionString()).toBe('2.0.0');
-      expect(migratedEvent.payload).toHaveProperty('preferredLanguage');
-      expect(migratedEvent.payload).toHaveProperty('accountType');
-      expect(migratedEvent.payload).toHaveProperty('createdAt');
-      expect(migratedEvent.payload.preferredLanguage).toBe('pt-BR');
-      expect(migratedEvent.payload.accountType).toBe('standard');
-    });
-
-    it('should throw an error when no migration path exists', () => {
-      const payload = { userId: '123', someField: 'value' };
-      const event = createVersionedEvent('UNKNOWN_EVENT_TYPE', payload);
-
-      expect(() => {
-        event.migrateToVersion('2.0.0');
-      }).toThrow(/No migrations registered for event type/);
-    });
-
-    it('should check if a migration path exists', () => {
-      expect(canMigrate(TestEventType.USER_CREATED, '1.0.0', '1.1.0')).toBe(true);
-      expect(canMigrate(TestEventType.USER_CREATED, '1.0.0', '2.0.0')).toBe(true);
-      expect(canMigrate(TestEventType.USER_CREATED, '1.1.0', '1.0.0')).toBe(false);
-      expect(canMigrate('UNKNOWN_EVENT_TYPE', '1.0.0', '2.0.0')).toBe(false);
-    });
-
-    it('should get the latest version for an event type', () => {
-      expect(getLatestVersion(TestEventType.USER_CREATED)).toBe('2.0.0');
-      expect(getLatestVersion(TestEventType.HEALTH_METRIC_RECORDED)).toBe('1.1.0');
-      expect(getLatestVersion(TestEventType.APPOINTMENT_BOOKED)).toBe('2.0.0');
-      expect(getLatestVersion('UNKNOWN_EVENT_TYPE')).toBe('1.0.0');
-    });
-  });
-
-  describe('Migration Chain Registration', () => {
-    it('should register and use a migration chain', () => {
-      // Clear existing migrations for this test
-      if (versionMigrations['TEST_CHAIN_EVENT']) {
-        delete versionMigrations['TEST_CHAIN_EVENT'];
-      }
-
-      // Register a chain of migrations
-      registerMigrationChain('TEST_CHAIN_EVENT', [
+  const claimEventV2: IVersionedEvent = {
+    eventId: '123e4567-e89b-12d3-a456-426614174005',
+    timestamp: new Date().toISOString(),
+    version: '2.0.0',
+    source: 'plan-service',
+    type: EventTypes.Plan.CLAIM_SUBMITTED,
+    payload: {
+      userId: 'user123',
+      claimId: 'claim789',
+      amount: 150.0,
+      currency: 'BRL',
+      status: 'SUBMITTED',
+      type: 'MEDICAL_CONSULTATION',
+      documents: [ // Added in v2
         {
-          fromVersion: '1.0.0',
-          toVersion: '1.1.0',
-          migrationFn: (oldData: any) => ({ ...oldData, field1: 'added' })
+          id: 'doc123',
+          type: 'RECEIPT',
+          url: 'https://storage.example.com/receipts/doc123.pdf',
         },
-        {
-          fromVersion: '1.1.0',
-          toVersion: '1.2.0',
-          migrationFn: (oldData: any) => ({ ...oldData, field2: 'added' })
-        },
-        {
-          fromVersion: '1.2.0',
-          toVersion: '2.0.0',
-          migrationFn: (oldData: any) => ({ ...oldData, field3: 'added' })
-        }
-      ]);
+      ],
+      providerDetails: { // Added in v2
+        id: 'provider456',
+        name: 'Dr. Silva',
+        specialty: 'Cardiologia',
+      },
+    },
+    metadata: {
+      correlationId: 'corr-789',
+      journeyContext: 'plan',
+      submittedVia: 'mobile', // Added in v2
+    },
+  };
 
-      // Create a test event
-      const payload = { originalField: 'value' };
-      const event = createVersionedEvent('TEST_CHAIN_EVENT', payload);
+  describe('Version Detection', () => {
+    it('should detect version from explicit version field', async () => {
+      const detectedVersion = await versionDetector.detectVersion(healthMetricEventV1);
+      expect(detectedVersion).toEqual(new EventVersion('1.0.0'));
+    });
 
-      // Migrate through the chain
-      const migratedEvent = event.migrateToVersion('2.0.0');
-
-      // Verify all migrations were applied
-      expect(migratedEvent.getVersionString()).toBe('2.0.0');
-      expect(migratedEvent.payload).toEqual({
-        originalField: 'value',
-        field1: 'added',
-        field2: 'added',
-        field3: 'added'
+    it('should detect version from event structure when version field is missing', async () => {
+      // Create event without explicit version field
+      const { version, ...eventWithoutVersion } = healthMetricEventV1;
+      
+      // Configure detector to use structure-based detection
+      const detectedVersion = await versionDetector.detectVersion(eventWithoutVersion, {
+        strategy: EventVersioningStrategy.STRUCTURE_BASED,
+        fallbackToDefault: true,
       });
+      
+      expect(detectedVersion.major).toBe(1);
+    });
+
+    it('should detect version from headers when available', async () => {
+      // Create event with version in headers
+      const eventWithHeaders = {
+        ...healthMetricEventV1,
+        headers: {
+          'x-event-version': '1.2.3',
+        },
+      };
+      
+      // Configure detector to use header-based detection
+      const detectedVersion = await versionDetector.detectVersion(eventWithHeaders, {
+        strategy: EventVersioningStrategy.HEADER_BASED,
+        headerName: 'x-event-version',
+      });
+      
+      expect(detectedVersion).toEqual(new EventVersion('1.2.3'));
+    });
+
+    it('should use fallback chain when primary detection method fails', async () => {
+      // Create event without explicit version field but with headers
+      const { version, ...eventBase } = healthMetricEventV1;
+      const eventWithHeaders = {
+        ...eventBase,
+        headers: {
+          'x-event-version': '1.3.0',
+        },
+      };
+      
+      // Configure detector with fallback chain
+      const detectedVersion = await versionDetector.detectVersion(eventWithHeaders, {
+        strategy: EventVersioningStrategy.EXPLICIT_FIELD,
+        fallbackStrategies: [
+          EventVersioningStrategy.HEADER_BASED,
+          EventVersioningStrategy.STRUCTURE_BASED,
+        ],
+        headerName: 'x-event-version',
+      });
+      
+      expect(detectedVersion).toEqual(new EventVersion('1.3.0'));
+    });
+
+    it('should throw error when version cannot be detected', async () => {
+      // Create event without any version information
+      const { version, ...eventBase } = healthMetricEventV1;
+      const eventWithoutVersion = {
+        ...eventBase,
+        // Remove any properties that could be used for structure-based detection
+        payload: {
+          userId: 'user123',
+        },
+      };
+      
+      await expect(versionDetector.detectVersion(eventWithoutVersion, {
+        strategy: EventVersioningStrategy.EXPLICIT_FIELD,
+        fallbackToDefault: false,
+      })).rejects.toThrow(VersioningErrors.VersionDetectionError);
     });
   });
 
-  describe('Event Payload Upgrade Utility', () => {
-    it('should upgrade an event payload directly', () => {
-      const payload: UserCreatedEventV1 = {
-        userId: '123',
-        email: 'user@example.com',
-        name: 'Test User'
-      };
+  describe('Compatibility Checking', () => {
+    it('should determine compatibility between same versions', async () => {
+      const isCompatible = await compatibilityChecker.areCompatible(
+        new EventVersion('1.0.0'),
+        new EventVersion('1.0.0')
+      );
+      expect(isCompatible).toBe(true);
+    });
 
-      const upgradedPayload = upgradeEventPayload<UserCreatedEventV3>(
-        TestEventType.USER_CREATED,
-        payload,
+    it('should determine compatibility between minor versions', async () => {
+      const isCompatible = await compatibilityChecker.areCompatible(
+        new EventVersion('1.0.0'),
+        new EventVersion('1.1.0')
+      );
+      expect(isCompatible).toBe(true);
+    });
+
+    it('should determine incompatibility between major versions', async () => {
+      const isCompatible = await compatibilityChecker.areCompatible(
+        new EventVersion('1.0.0'),
+        new EventVersion('2.0.0')
+      );
+      expect(isCompatible).toBe(false);
+    });
+
+    it('should check if consumer can process event version', async () => {
+      const consumerVersion = new EventVersion('2.0.0');
+      const eventVersion = new EventVersion('1.1.0');
+      
+      const canProcess = await compatibilityChecker.canConsumerProcessEvent(
+        consumerVersion,
+        eventVersion
+      );
+      
+      // A v2.0.0 consumer should be able to process a v1.1.0 event
+      expect(canProcess).toBe(true);
+    });
+
+    it('should check if producer can be understood by consumer', async () => {
+      const producerVersion = new EventVersion('2.0.0');
+      const consumerVersion = new EventVersion('1.0.0');
+      
+      const canUnderstand = await compatibilityChecker.canConsumerUnderstandProducer(
+        consumerVersion,
+        producerVersion
+      );
+      
+      // A v1.0.0 consumer should not be able to understand a v2.0.0 producer
+      expect(canUnderstand).toBe(false);
+    });
+
+    it('should validate version range compatibility', async () => {
+      const versionRange = new VersionRange('>=1.0.0 <2.0.0');
+      
+      expect(await compatibilityChecker.isVersionInRange(new EventVersion('1.0.0'), versionRange)).toBe(true);
+      expect(await compatibilityChecker.isVersionInRange(new EventVersion('1.5.0'), versionRange)).toBe(true);
+      expect(await compatibilityChecker.isVersionInRange(new EventVersion('2.0.0'), versionRange)).toBe(false);
+      expect(await compatibilityChecker.isVersionInRange(new EventVersion('0.9.0'), versionRange)).toBe(false);
+    });
+  });
+
+  describe('Event Transformation', () => {
+    it('should upgrade event from v1 to v2', async () => {
+      // Register transformation function for health metric events
+      await eventTransformer.registerTransformation(
+        EventTypes.Health.METRIC_RECORDED,
         '1.0.0',
+        '2.0.0',
+        (sourceEvent) => {
+          const v1Payload = sourceEvent.payload;
+          return {
+            ...sourceEvent,
+            version: '2.0.0',
+            payload: {
+              ...v1Payload,
+              deviceId: 'unknown', // Add required v2 field with default value
+              confidence: 1.0, // Add required v2 field with default value
+            },
+            metadata: {
+              ...sourceEvent.metadata,
+              deviceInfo: {
+                type: 'unknown',
+                manufacturer: 'unknown',
+              },
+            },
+          };
+        }
+      );
+
+      // Transform the event
+      const upgradedEvent = await eventTransformer.transformEvent(
+        healthMetricEventV1,
         '2.0.0'
       );
 
-      expect(upgradedPayload).toHaveProperty('preferredLanguage');
-      expect(upgradedPayload).toHaveProperty('accountType');
-      expect(upgradedPayload).toHaveProperty('createdAt');
-      expect(upgradedPayload.userId).toBe('123');
-      expect(upgradedPayload.email).toBe('user@example.com');
-      expect(upgradedPayload.name).toBe('Test User');
-      expect(upgradedPayload.preferredLanguage).toBe('pt-BR');
-      expect(upgradedPayload.accountType).toBe('standard');
+      // Verify the transformation
+      expect(upgradedEvent.version).toBe('2.0.0');
+      expect(upgradedEvent.payload).toHaveProperty('deviceId');
+      expect(upgradedEvent.payload).toHaveProperty('confidence');
+      expect(upgradedEvent.metadata).toHaveProperty('deviceInfo');
+    });
+
+    it('should downgrade event from v2 to v1', async () => {
+      // Register transformation function for health metric events (downgrade)
+      await eventTransformer.registerTransformation(
+        EventTypes.Health.METRIC_RECORDED,
+        '2.0.0',
+        '1.0.0',
+        (sourceEvent) => {
+          const v2Payload = sourceEvent.payload;
+          // eslint-disable-next-line @typescript-eslint/no-unused-vars
+          const { deviceId, confidence, ...v1Payload } = v2Payload;
+          
+          // eslint-disable-next-line @typescript-eslint/no-unused-vars
+          const { deviceInfo, ...v1Metadata } = sourceEvent.metadata || {};
+          
+          return {
+            ...sourceEvent,
+            version: '1.0.0',
+            payload: v1Payload,
+            metadata: v1Metadata,
+          };
+        }
+      );
+
+      // Transform the event
+      const downgradedEvent = await eventTransformer.transformEvent(
+        healthMetricEventV2,
+        '1.0.0'
+      );
+
+      // Verify the transformation
+      expect(downgradedEvent.version).toBe('1.0.0');
+      expect(downgradedEvent.payload).not.toHaveProperty('deviceId');
+      expect(downgradedEvent.payload).not.toHaveProperty('confidence');
+      expect(downgradedEvent.metadata).not.toHaveProperty('deviceInfo');
+    });
+
+    it('should handle transformation errors gracefully', async () => {
+      // Try to transform without registering a transformation
+      await expect(eventTransformer.transformEvent(
+        claimEventV1,
+        '3.0.0' // No transformation registered for this target version
+      )).rejects.toThrow(VersioningErrors.TransformationError);
+    });
+
+    it('should apply multiple transformations in sequence', async () => {
+      // Register transformation from v1.0.0 to v1.1.0
+      await eventTransformer.registerTransformation(
+        EventTypes.Care.APPOINTMENT_BOOKED,
+        '1.0.0',
+        '1.1.0',
+        (sourceEvent) => ({
+          ...sourceEvent,
+          version: '1.1.0',
+          payload: {
+            ...sourceEvent.payload,
+            specialtyId: 'general', // Default specialty
+          },
+        }))
+      );
+
+      // Register transformation from v1.1.0 to v2.0.0
+      await eventTransformer.registerTransformation(
+        EventTypes.Care.APPOINTMENT_BOOKED,
+        '1.1.0',
+        '2.0.0',
+        (sourceEvent) => ({
+          ...sourceEvent,
+          version: '2.0.0',
+          payload: {
+            ...sourceEvent.payload,
+            locationId: 'default-location', // Added in v2.0.0
+            virtualMeeting: false, // Added in v2.0.0
+          },
+        }))
+      );
+
+      // Transform from v1.0.0 to v2.0.0 (should apply both transformations)
+      const transformedEvent = await eventTransformer.transformEvent(
+        appointmentEventV1,
+        '2.0.0'
+      );
+
+      // Verify the transformation
+      expect(transformedEvent.version).toBe('2.0.0');
+      expect(transformedEvent.payload).toHaveProperty('specialtyId'); // Added in v1.1.0
+      expect(transformedEvent.payload).toHaveProperty('locationId'); // Added in v2.0.0
+      expect(transformedEvent.payload).toHaveProperty('virtualMeeting'); // Added in v2.0.0
     });
   });
 
-  describe('Integration with Kafka Service', () => {
-    it('should be able to send and receive versioned events', async () => {
-      // Mock the Kafka service methods
-      const sendSpy = jest.spyOn(kafkaService, 'send').mockImplementation(async () => {});
-      const subscribeSpy = jest.spyOn(kafkaService, 'subscribe').mockImplementation(() => {});
+  describe('Schema Migration', () => {
+    beforeEach(async () => {
+      // Register migration paths
+      await schemaMigrator.registerMigrationPath(
+        EventTypes.Health.METRIC_RECORDED,
+        '1.0.0',
+        '2.0.0',
+        async (event) => {
+          const v1Payload = event.payload;
+          return {
+            ...event,
+            version: '2.0.0',
+            payload: {
+              ...v1Payload,
+              deviceId: 'unknown',
+              confidence: 1.0,
+            },
+            metadata: {
+              ...event.metadata,
+              deviceInfo: {
+                type: 'unknown',
+                manufacturer: 'unknown',
+              },
+            },
+          };
+        }
+      );
 
-      // Create a versioned event
-      const payload: UserCreatedEventV1 = {
-        userId: '123',
-        email: 'user@example.com',
-        name: 'Test User'
-      };
+      await schemaMigrator.registerMigrationPath(
+        EventTypes.Plan.CLAIM_SUBMITTED,
+        '1.0.0',
+        '2.0.0',
+        async (event) => {
+          const v1Payload = event.payload;
+          return {
+            ...event,
+            version: '2.0.0',
+            payload: {
+              ...v1Payload,
+              documents: [],
+              providerDetails: {
+                id: 'unknown',
+                name: 'Unknown Provider',
+                specialty: 'Unknown',
+              },
+            },
+            metadata: {
+              ...event.metadata,
+              submittedVia: 'unknown',
+            },
+          };
+        }
+      );
+    });
 
-      const event = createVersionedEvent(TestEventType.USER_CREATED, payload);
+    it('should migrate event to target version', async () => {
+      const migratedEvent = await schemaMigrator.migrateEvent(
+        healthMetricEventV1,
+        '2.0.0'
+      );
 
-      // Add metadata
-      const metadata = createEventMetadata('test-service', {
-        correlationId: '550e8400-e29b-41d4-a716-446655440000'
-      });
+      expect(migratedEvent.version).toBe('2.0.0');
+      expect(migratedEvent.payload).toHaveProperty('deviceId');
+      expect(migratedEvent.payload).toHaveProperty('confidence');
+      expect(migratedEvent.metadata).toHaveProperty('deviceInfo');
+    });
 
-      // Send the event
-      await kafkaService.send('test-topic', event, metadata);
+    it('should discover and execute migration path automatically', async () => {
+      // Don't specify exact migration path, let the migrator discover it
+      const migratedEvent = await schemaMigrator.migrateEvent(
+        claimEventV1,
+        '2.0.0'
+      );
 
-      // Verify the event was sent with the correct structure
-      expect(sendSpy).toHaveBeenCalledWith('test-topic', event, metadata);
+      expect(migratedEvent.version).toBe('2.0.0');
+      expect(migratedEvent.payload).toHaveProperty('documents');
+      expect(migratedEvent.payload).toHaveProperty('providerDetails');
+      expect(migratedEvent.metadata).toHaveProperty('submittedVia');
+    });
 
-      // Verify the event structure is as expected
-      const sentEvent = sendSpy.mock.calls[0][1];
-      expect(sentEvent).toBeInstanceOf(VersionedEventDto);
-      expect(sentEvent.eventType).toBe(TestEventType.USER_CREATED);
-      expect(sentEvent.getVersionString()).toBe('1.0.0');
+    it('should validate migrated event against target schema', async () => {
+      // Register a validation function for v2.0.0 claim events
+      await schemaMigrator.registerSchemaValidator(
+        EventTypes.Plan.CLAIM_SUBMITTED,
+        '2.0.0',
+        async (event) => {
+          // Simple validation: ensure required fields exist
+          const requiredFields = [
+            'userId', 'claimId', 'amount', 'currency', 'status', 'type',
+            'documents', 'providerDetails'
+          ];
+          
+          const missingFields = requiredFields.filter(field => !(field in event.payload));
+          
+          if (missingFields.length > 0) {
+            throw new Error(`Missing required fields: ${missingFields.join(', ')}`);
+          }
+          
+          return true;
+        }
+      );
+
+      // Migrate and validate
+      const migratedEvent = await schemaMigrator.migrateEvent(
+        claimEventV1,
+        '2.0.0',
+        { validate: true }
+      );
+
+      expect(migratedEvent.version).toBe('2.0.0');
+      expect(migratedEvent.payload).toHaveProperty('documents');
+      expect(migratedEvent.payload).toHaveProperty('providerDetails');
+    });
+
+    it('should handle migration errors with proper error information', async () => {
+      // Register a failing migration path
+      await schemaMigrator.registerMigrationPath(
+        EventTypes.Care.APPOINTMENT_BOOKED,
+        '1.0.0',
+        '2.0.0',
+        async () => {
+          throw new Error('Simulated migration failure');
+        }
+      );
+
+      // Attempt migration that will fail
+      await expect(schemaMigrator.migrateEvent(
+        appointmentEventV1,
+        '2.0.0'
+      )).rejects.toThrow(VersioningErrors.MigrationError);
     });
   });
 
-  describe('Backward Compatibility', () => {
-    it('should handle events with different versions in the same consumer', () => {
-      // Create events with different versions
-      const v1Payload: UserCreatedEventV1 = {
-        userId: '123',
-        email: 'user@example.com',
-        name: 'Test User'
-      };
+  describe('End-to-End Versioning Scenarios', () => {
+    it('should handle event processing with version detection and transformation', async () => {
+      // 1. Detect the version of an incoming event
+      const detectedVersion = await versionDetector.detectVersion(healthMetricEventV1);
+      expect(detectedVersion.toString()).toBe('1.0.0');
 
-      const v2Payload: UserCreatedEventV2 = {
-        userId: '456',
-        email: 'user2@example.com',
-        name: 'Test User 2',
-        preferredLanguage: 'en-US'
-      };
+      // 2. Check if the current system version is compatible
+      const systemVersion = new EventVersion('2.0.0'); // System expects v2.0.0
+      const isCompatible = await compatibilityChecker.areCompatible(detectedVersion, systemVersion);
+      expect(isCompatible).toBe(false); // v1.0.0 and v2.0.0 are not directly compatible
 
-      const v1Event = createVersionedEvent(TestEventType.USER_CREATED, v1Payload);
+      // 3. Transform the event to the required version
+      // (Using the transformation registered in previous tests)
+      const transformedEvent = await eventTransformer.transformEvent(
+        healthMetricEventV1,
+        systemVersion.toString()
+      );
+      expect(transformedEvent.version).toBe('2.0.0');
+
+      // 4. Validate the transformed event
+      // This would typically use a schema validator, but we'll just check the structure
+      expect(transformedEvent.payload).toHaveProperty('deviceId');
+      expect(transformedEvent.payload).toHaveProperty('confidence');
+    });
+
+    it('should support graceful degradation for newer events in older systems', async () => {
+      // Scenario: A v2.0.0 event is received by a v1.0.0 system
       
-      const v2Version = createVersionFromString('1.1.0');
-      const v2Event = new VersionedEventDto(TestEventType.USER_CREATED, v2Payload, v2Version);
+      // 1. Detect the version of the incoming event
+      const detectedVersion = await versionDetector.detectVersion(claimEventV2);
+      expect(detectedVersion.toString()).toBe('2.0.0');
 
-      // Simulate a consumer that expects v1.1.0
-      const requiredVersion = '1.1.0';
+      // 2. Check if the current system version can process it
+      const systemVersion = new EventVersion('1.0.0'); // System is v1.0.0
+      const canProcess = await compatibilityChecker.canConsumerProcessEvent(
+        systemVersion,
+        detectedVersion
+      );
+      expect(canProcess).toBe(false); // v1.0.0 system cannot process v2.0.0 event
 
-      // Process v1 event (needs migration)
-      let processedV1: UserCreatedEventV2;
-      if (!v1Event.isCompatibleWith(requiredVersion)) {
-        const migratedEvent = v1Event.migrateToVersion(requiredVersion);
-        processedV1 = migratedEvent.payload as UserCreatedEventV2;
-      } else {
-        processedV1 = v1Event.payload as UserCreatedEventV2;
-      }
+      // 3. Downgrade the event to a compatible version
+      // (Using the transformation registered in previous tests)
+      await eventTransformer.registerTransformation(
+        EventTypes.Plan.CLAIM_SUBMITTED,
+        '2.0.0',
+        '1.0.0',
+        (sourceEvent) => {
+          const { documents, providerDetails, ...v1Payload } = sourceEvent.payload;
+          const { submittedVia, ...v1Metadata } = sourceEvent.metadata || {};
+          
+          return {
+            ...sourceEvent,
+            version: '1.0.0',
+            payload: v1Payload,
+            metadata: v1Metadata,
+          };
+        }
+      );
 
-      // Process v2 event (already compatible)
-      let processedV2: UserCreatedEventV2;
-      if (!v2Event.isCompatibleWith(requiredVersion)) {
-        const migratedEvent = v2Event.migrateToVersion(requiredVersion);
-        processedV2 = migratedEvent.payload as UserCreatedEventV2;
-      } else {
-        processedV2 = v2Event.payload as UserCreatedEventV2;
-      }
-
-      // Verify both events were processed correctly
-      expect(processedV1).toHaveProperty('preferredLanguage');
-      expect(processedV1.userId).toBe('123');
-      expect(processedV1.preferredLanguage).toBe('pt-BR');
-
-      expect(processedV2).toHaveProperty('preferredLanguage');
-      expect(processedV2.userId).toBe('456');
-      expect(processedV2.preferredLanguage).toBe('en-US');
+      const downgradedEvent = await eventTransformer.transformEvent(
+        claimEventV2,
+        systemVersion.toString()
+      );
+      
+      // 4. Verify the downgraded event is compatible with v1.0.0
+      expect(downgradedEvent.version).toBe('1.0.0');
+      expect(downgradedEvent.payload).not.toHaveProperty('documents');
+      expect(downgradedEvent.payload).not.toHaveProperty('providerDetails');
+      expect(downgradedEvent.metadata).not.toHaveProperty('submittedVia');
     });
 
-    it('should handle events with major version incompatibility', () => {
-      // Create an event with v1.0.0
-      const v1Payload: UserCreatedEventV1 = {
-        userId: '123',
-        email: 'user@example.com',
-        name: 'Test User'
+    it('should handle mixed version environments during rolling deployments', async () => {
+      // Scenario: During a rolling deployment, both v1.0.0 and v2.0.0 services exist
+      
+      // 1. Service A (v1.0.0) produces an event
+      const v1Event = healthMetricEventV1;
+      
+      // 2. Service B (v2.0.0) needs to consume this event
+      const serviceB_Version = new EventVersion('2.0.0');
+      
+      // 3. Service B detects the version and checks compatibility
+      const detectedVersion = await versionDetector.detectVersion(v1Event);
+      const needsTransformation = !(await compatibilityChecker.canConsumerProcessEvent(
+        serviceB_Version,
+        detectedVersion,
+        { strictMode: true } // Strict mode requires exact version match
+      ));
+      
+      expect(needsTransformation).toBe(true); // Transformation is needed in strict mode
+      
+      // 4. Service B transforms the event to its expected version
+      const transformedEvent = await eventTransformer.transformEvent(
+        v1Event,
+        serviceB_Version.toString()
+      );
+      
+      // 5. Service B processes the transformed event
+      expect(transformedEvent.version).toBe('2.0.0');
+      expect(transformedEvent.payload).toHaveProperty('deviceId');
+      
+      // 6. Service B (v2.0.0) produces a response event
+      const responseEvent = {
+        ...transformedEvent,
+        eventId: '123e4567-e89b-12d3-a456-426614174999',
+        type: EventTypes.Health.METRIC_PROCESSED,
+        timestamp: new Date().toISOString(),
       };
-
-      const v1Event = createVersionedEvent(TestEventType.USER_CREATED, v1Payload);
-
-      // Simulate a consumer that requires v3.0.0 (incompatible major version)
-      const requiredVersion = '3.0.0';
-
-      // Check compatibility
-      const isCompatible = v1Event.isCompatibleWith(requiredVersion);
-      expect(isCompatible).toBe(false);
-
-      // Attempt to migrate should throw an error
-      expect(() => {
-        v1Event.migrateToVersion(requiredVersion);
-      }).toThrow(/No migration path exists/);
-    });
-  });
-
-  describe('Cross-Journey Event Compatibility', () => {
-    it('should handle different event types with their own versioning', () => {
-      // Create events from different journeys
-      const healthEvent = createVersionedEvent(TestEventType.HEALTH_METRIC_RECORDED, {
-        userId: '123',
-        metricType: 'HEART_RATE',
-        value: 75,
-        unit: 'bpm',
-        recordedAt: new Date().toISOString()
-      });
-
-      const appointmentEvent = createVersionedEvent(TestEventType.APPOINTMENT_BOOKED, {
-        userId: '123',
-        providerId: 'provider-456',
-        appointmentDate: new Date().toISOString(),
-        specialtyId: 'cardiology'
-      });
-
-      // Migrate both events to their latest versions
-      const latestHealthVersion = getLatestVersion(TestEventType.HEALTH_METRIC_RECORDED);
-      const latestAppointmentVersion = getLatestVersion(TestEventType.APPOINTMENT_BOOKED);
-
-      const migratedHealthEvent = healthEvent.migrateToVersion(latestHealthVersion);
-      const migratedAppointmentEvent = appointmentEvent.migrateToVersion(latestAppointmentVersion);
-
-      // Verify migrations worked correctly
-      expect(migratedHealthEvent.getVersionString()).toBe('1.1.0');
-      expect(migratedHealthEvent.payload).toHaveProperty('deviceId');
-      expect(migratedHealthEvent.payload).toHaveProperty('notes');
-
-      expect(migratedAppointmentEvent.getVersionString()).toBe('2.0.0');
-      expect(migratedAppointmentEvent.payload).toHaveProperty('locationId');
-      expect(migratedAppointmentEvent.payload).toHaveProperty('notes');
-      expect(migratedAppointmentEvent.payload.locationId).toBe('default-location');
+      
+      // 7. Service A (v1.0.0) needs to consume this response
+      const serviceA_Version = new EventVersion('1.0.0');
+      
+      // 8. Service A detects the version and checks compatibility
+      const responseVersion = await versionDetector.detectVersion(responseEvent);
+      const responseNeedsTransformation = !(await compatibilityChecker.canConsumerProcessEvent(
+        serviceA_Version,
+        responseVersion
+      ));
+      
+      expect(responseNeedsTransformation).toBe(true); // Transformation is needed
+      
+      // 9. Service A transforms the response to its expected version
+      const downgradedResponse = await eventTransformer.transformEvent(
+        responseEvent,
+        serviceA_Version.toString()
+      );
+      
+      // 10. Service A processes the transformed response
+      expect(downgradedResponse.version).toBe('1.0.0');
+      expect(downgradedResponse.payload).not.toHaveProperty('deviceId');
     });
   });
 });

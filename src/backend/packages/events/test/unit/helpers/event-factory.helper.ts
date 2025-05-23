@@ -4,915 +4,557 @@
  * This file provides functions to create valid event objects for all journeys (Health, Care, Plan) with
  * appropriate data structures that pass validation. It supports tests by enabling the creation of
  * consistent and valid test events without duplication across test files.
- *
- * @module events/test/unit/helpers
  */
 
-import { EventType, JourneyEvents } from '../../../src/dto/event-types.enum';
-import { EventMetadataDto, EventVersionDto, EventOriginDto, createEventMetadata } from '../../../src/dto/event-metadata.dto';
-import { VersionedEventDto } from '../../../src/dto/version.dto';
-import { HealthMetricType, HealthGoalType, DeviceType, HealthInsightType } from '../../../src/dto/health-event.dto';
-
-/**
- * Interface for event factory options
- */
-export interface EventFactoryOptions {
-  /** Include metadata in the generated event */
-  includeMetadata?: boolean;
-  /** Include version information in the generated event */
-  includeVersion?: boolean;
-  /** Specific version to use (format: 'major.minor.patch') */
-  version?: string;
-  /** Service name to use in event origin */
-  serviceName?: string;
-  /** Make the event invalid by omitting required fields */
-  makeInvalid?: boolean;
-  /** Specific fields to omit when making an invalid event */
-  omitFields?: string[];
-  /** Custom data to merge with the generated event data */
-  customData?: Record<string, any>;
-  /** Custom metadata to merge with the generated metadata */
-  customMetadata?: Partial<EventMetadataDto>;
-}
+import { v4 as uuidv4 } from 'uuid';
+import { BaseEvent, EventMetadata, createEvent, validateEvent } from '../../../src/interfaces/base-event.interface';
+import {
+  JourneyType,
+  HealthEventType,
+  CareEventType,
+  PlanEventType,
+  IHealthMetricRecordedPayload,
+  IHealthGoalAchievedPayload,
+  ICareAppointmentBookedPayload,
+  ICareMedicationTakenPayload,
+  IPlanClaimSubmittedPayload,
+  IPlanBenefitUtilizedPayload
+} from '../../../src/interfaces/journey-events.interface';
+import { EventVersion } from '../../../src/interfaces/event-versioning.interface';
 
 /**
- * Default options for event factory
+ * Default event metadata for testing
  */
-const DEFAULT_OPTIONS: EventFactoryOptions = {
-  includeMetadata: true,
-  includeVersion: true,
-  version: '1.0.0',
-  serviceName: 'test-service',
-  makeInvalid: false,
-  omitFields: [],
-  customData: {},
-  customMetadata: {}
+const DEFAULT_METADATA: EventMetadata = {
+  correlationId: 'test-correlation-id',
+  priority: 'medium',
+  isRetry: false
 };
 
 /**
- * Creates a valid event metadata object for testing
- * 
- * @param options Options for metadata creation
- * @returns A valid EventMetadataDto instance
+ * Options for creating test events
  */
-export function createTestMetadata(options: Partial<EventFactoryOptions> = {}): EventMetadataDto {
-  const opts = { ...DEFAULT_OPTIONS, ...options };
+export interface TestEventOptions {
+  /**
+   * Custom event ID (defaults to a random UUID)
+   */
+  eventId?: string;
   
-  // Create origin information
-  const origin = new EventOriginDto();
-  origin.service = opts.serviceName || 'test-service';
-  origin.instance = 'test-instance';
-  origin.component = 'test-component';
+  /**
+   * Custom timestamp (defaults to current time)
+   */
+  timestamp?: string;
   
-  // Create version information if needed
-  let version: EventVersionDto | undefined;
-  if (opts.includeVersion && opts.version) {
-    version = EventVersionDto.fromString(opts.version);
-  }
+  /**
+   * Event version (defaults to '1.0.0')
+   */
+  version?: string;
   
-  // Create the metadata
-  const metadata = new EventMetadataDto({
-    correlationId: '550e8400-e29b-41d4-a716-446655440000',
-    timestamp: new Date(),
-    origin,
-    version,
-    ...opts.customMetadata
-  });
+  /**
+   * User ID (defaults to 'test-user-123')
+   */
+  userId?: string;
   
-  return metadata;
+  /**
+   * Custom metadata
+   */
+  metadata?: EventMetadata;
+  
+  /**
+   * Whether to create an invalid event for negative testing
+   */
+  invalid?: boolean;
+  
+  /**
+   * Specific property to make invalid (if invalid is true)
+   */
+  invalidProperty?: 'eventId' | 'type' | 'timestamp' | 'version' | 'source' | 'payload';
 }
 
 /**
- * Base function to create a test event with the specified type and data
+ * Creates a base test event with default values
  * 
- * @param eventType The type of event to create
- * @param data The event data
- * @param options Options for event creation
- * @returns A test event object
+ * @param type - Event type
+ * @param source - Source service
+ * @param payload - Event payload
+ * @param options - Additional options
+ * @returns A BaseEvent instance for testing
  */
 export function createTestEvent<T>(
-  eventType: EventType | string,
-  data: T,
-  options: Partial<EventFactoryOptions> = {}
-): any {
-  const opts = { ...DEFAULT_OPTIONS, ...options };
-  const eventData = { ...data, ...opts.customData };
+  type: string,
+  source: string,
+  payload: T,
+  options: TestEventOptions = {}
+): BaseEvent<T> {
+  const {
+    eventId = uuidv4(),
+    timestamp = new Date().toISOString(),
+    version = '1.0.0',
+    userId = 'test-user-123',
+    metadata = DEFAULT_METADATA,
+    invalid = false,
+    invalidProperty
+  } = options;
   
-  // Remove fields if making an invalid event
-  if (opts.makeInvalid && opts.omitFields && opts.omitFields.length > 0) {
-    for (const field of opts.omitFields) {
-      if (field.includes('.')) {
-        // Handle nested fields
-        const parts = field.split('.');
-        let current = eventData as any;
-        
-        for (let i = 0; i < parts.length - 1; i++) {
-          if (!current[parts[i]]) break;
-          current = current[parts[i]];
-        }
-        
-        const lastPart = parts[parts.length - 1];
-        if (current && current[lastPart] !== undefined) {
-          delete current[lastPart];
-        }
-      } else {
-        // Handle top-level fields
-        if (eventData && (eventData as any)[field] !== undefined) {
-          delete (eventData as any)[field];
-        }
-      }
+  // Create a valid event first
+  const event = createEvent<T>(type, source, payload, {
+    eventId,
+    timestamp,
+    version,
+    userId,
+    metadata
+  });
+  
+  // If invalid event is requested, modify it accordingly
+  if (invalid && invalidProperty) {
+    switch (invalidProperty) {
+      case 'eventId':
+        (event as any).eventId = invalid ? null : event.eventId;
+        break;
+      case 'type':
+        (event as any).type = invalid ? null : event.type;
+        break;
+      case 'timestamp':
+        (event as any).timestamp = invalid ? 'invalid-date' : event.timestamp;
+        break;
+      case 'version':
+        (event as any).version = invalid ? null : event.version;
+        break;
+      case 'source':
+        (event as any).source = invalid ? null : event.source;
+        break;
+      case 'payload':
+        (event as any).payload = invalid ? null : event.payload;
+        break;
     }
-  }
-  
-  // Create the event object
-  const event: any = {
-    type: eventType,
-    data: eventData
-  };
-  
-  // Add metadata if needed
-  if (opts.includeMetadata) {
-    event.metadata = createTestMetadata(opts);
   }
   
   return event;
 }
 
 /**
- * Creates a versioned test event with the specified type, data, and version
+ * Creates a versioned event with semantic versioning
  * 
- * @param eventType The type of event to create
- * @param data The event data
- * @param options Options for event creation
- * @returns A VersionedEventDto instance
+ * @param type - Event type
+ * @param source - Source service
+ * @param payload - Event payload
+ * @param version - Semantic version (major.minor.patch)
+ * @param options - Additional options
+ * @returns A BaseEvent instance with proper versioning
  */
 export function createVersionedTestEvent<T>(
-  eventType: EventType | string,
-  data: T,
-  options: Partial<EventFactoryOptions> = {}
-): VersionedEventDto<T> {
-  const opts = { ...DEFAULT_OPTIONS, ...options };
-  const eventData = { ...data, ...opts.customData };
-  
-  // Create version object
-  let versionObj: EventVersionDto | undefined;
-  if (opts.includeVersion && opts.version) {
-    versionObj = EventVersionDto.fromString(opts.version);
-  }
-  
-  return new VersionedEventDto<T>(eventType.toString(), eventData, versionObj);
+  type: string,
+  source: string,
+  payload: T,
+  version: EventVersion,
+  options: Omit<TestEventOptions, 'version'> = {}
+): BaseEvent<T> {
+  const versionString = `${version.major}.${version.minor}.${version.patch}`;
+  return createTestEvent(type, source, payload, { ...options, version: versionString });
 }
 
 /**
- * Creates test data for health metric recorded events
+ * Validates a test event and returns the validation result
  * 
- * @param options Options for data creation
- * @returns Health metric data object
+ * @param event - The event to validate
+ * @returns Validation result with isValid flag and optional errors
  */
-export function createHealthMetricData(options: Partial<{
-  metricType: HealthMetricType;
-  value: number;
-  unit: string;
-  recordedAt: string;
-  deviceId: string;
-  notes: string;
-}> = {}): any {
-  return {
-    metricType: options.metricType || HealthMetricType.HEART_RATE,
-    value: options.value !== undefined ? options.value : 75,
-    unit: options.unit || 'bpm',
-    recordedAt: options.recordedAt || new Date().toISOString(),
-    deviceId: options.deviceId || '550e8400-e29b-41d4-a716-446655440000',
-    notes: options.notes || 'Recorded after light exercise'
-  };
+export function validateTestEvent<T>(event: BaseEvent<T>) {
+  return validateEvent(event);
 }
 
-/**
- * Creates test data for health goal achieved events
- * 
- * @param options Options for data creation
- * @returns Health goal data object
- */
-export function createHealthGoalData(options: Partial<{
-  goalId: string;
-  goalType: HealthGoalType;
-  description: string;
-  targetValue: number;
-  unit: string;
-  achievedAt: string;
-  progressPercentage: number;
-}> = {}): any {
-  return {
-    goalId: options.goalId || '550e8400-e29b-41d4-a716-446655440000',
-    goalType: options.goalType || HealthGoalType.STEPS_TARGET,
-    description: options.description || 'Walk 10,000 steps daily',
-    targetValue: options.targetValue !== undefined ? options.targetValue : 10000,
-    unit: options.unit || 'steps',
-    achievedAt: options.achievedAt || new Date().toISOString(),
-    progressPercentage: options.progressPercentage !== undefined ? options.progressPercentage : 100
-  };
-}
+// ===== HEALTH JOURNEY TEST EVENTS =====
 
 /**
- * Creates test data for device connection events
+ * Creates a test health metric recorded event
  * 
- * @param options Options for data creation
- * @returns Device connection data object
+ * @param options - Test event options
+ * @returns A health metric recorded event for testing
  */
-export function createDeviceConnectionData(options: Partial<{
-  deviceId: string;
-  deviceType: DeviceType;
-  deviceName: string;
-  syncedAt: string;
-  syncSuccessful: boolean;
-  dataPointsCount: number;
-  metricTypes: HealthMetricType[];
-  errorMessage: string;
-}> = {}): any {
-  return {
-    deviceId: options.deviceId || '550e8400-e29b-41d4-a716-446655440000',
-    deviceType: options.deviceType || DeviceType.SMARTWATCH,
-    deviceName: options.deviceName || 'Apple Watch Series 7',
-    syncedAt: options.syncedAt || new Date().toISOString(),
-    syncSuccessful: options.syncSuccessful !== undefined ? options.syncSuccessful : true,
-    dataPointsCount: options.dataPointsCount !== undefined ? options.dataPointsCount : 150,
-    metricTypes: options.metricTypes || [HealthMetricType.HEART_RATE, HealthMetricType.STEPS],
-    errorMessage: options.syncSuccessful === false ? (options.errorMessage || 'Connection timeout') : undefined
-  };
-}
-
-/**
- * Creates test data for health insight events
- * 
- * @param options Options for data creation
- * @returns Health insight data object
- */
-export function createHealthInsightData(options: Partial<{
-  insightId: string;
-  insightType: HealthInsightType;
-  title: string;
-  description: string;
-  relatedMetricTypes: HealthMetricType[];
-  confidenceScore: number;
-  generatedAt: string;
-  userAcknowledged: boolean;
-}> = {}): any {
-  return {
-    insightId: options.insightId || '550e8400-e29b-41d4-a716-446655440000',
-    insightType: options.insightType || HealthInsightType.TREND_ANALYSIS,
-    title: options.title || 'Improving Sleep Pattern',
-    description: options.description || 'Your sleep duration has improved by 15% over the last week.',
-    relatedMetricTypes: options.relatedMetricTypes || [HealthMetricType.SLEEP],
-    confidenceScore: options.confidenceScore !== undefined ? options.confidenceScore : 85,
-    generatedAt: options.generatedAt || new Date().toISOString(),
-    userAcknowledged: options.userAcknowledged !== undefined ? options.userAcknowledged : false
-  };
-}
-
-/**
- * Creates test data for appointment booking events
- * 
- * @param options Options for data creation
- * @returns Appointment booking data object
- */
-export function createAppointmentBookingData(options: Partial<{
-  appointmentId: string;
-  providerId: string;
-  specialtyType: string;
-  appointmentType: string;
-  scheduledAt: string;
-  bookedAt: string;
-}> = {}): any {
-  return {
-    appointmentId: options.appointmentId || '550e8400-e29b-41d4-a716-446655440000',
-    providerId: options.providerId || '550e8400-e29b-41d4-a716-446655440001',
-    specialtyType: options.specialtyType || 'Cardiologia',
-    appointmentType: options.appointmentType || 'in_person',
-    scheduledAt: options.scheduledAt || new Date(Date.now() + 86400000).toISOString(), // Tomorrow
-    bookedAt: options.bookedAt || new Date().toISOString()
-  };
-}
-
-/**
- * Creates test data for appointment completion events
- * 
- * @param options Options for data creation
- * @returns Appointment completion data object
- */
-export function createAppointmentCompletionData(options: Partial<{
-  appointmentId: string;
-  providerId: string;
-  appointmentType: string;
-  scheduledAt: string;
-  completedAt: string;
-  duration: number;
-}> = {}): any {
-  return {
-    appointmentId: options.appointmentId || '550e8400-e29b-41d4-a716-446655440000',
-    providerId: options.providerId || '550e8400-e29b-41d4-a716-446655440001',
-    appointmentType: options.appointmentType || 'in_person',
-    scheduledAt: options.scheduledAt || new Date(Date.now() - 3600000).toISOString(), // 1 hour ago
-    completedAt: options.completedAt || new Date().toISOString(),
-    duration: options.duration !== undefined ? options.duration : 30 // 30 minutes
-  };
-}
-
-/**
- * Creates test data for medication taken events
- * 
- * @param options Options for data creation
- * @returns Medication taken data object
- */
-export function createMedicationTakenData(options: Partial<{
-  medicationId: string;
-  medicationName: string;
-  dosage: string;
-  takenAt: string;
-  adherence: string;
-}> = {}): any {
-  return {
-    medicationId: options.medicationId || '550e8400-e29b-41d4-a716-446655440000',
-    medicationName: options.medicationName || 'Atorvastatina',
-    dosage: options.dosage || '20mg',
-    takenAt: options.takenAt || new Date().toISOString(),
-    adherence: options.adherence || 'on_time'
-  };
-}
-
-/**
- * Creates test data for telemedicine session events
- * 
- * @param options Options for data creation
- * @returns Telemedicine session data object
- */
-export function createTelemedicineSessionData(options: Partial<{
-  sessionId: string;
-  appointmentId: string;
-  providerId: string;
-  startedAt: string;
-  endedAt: string;
-  duration: number;
-  deviceType: string;
-  quality: string;
-}> = {}): any {
-  const isCompleted = options.endedAt !== undefined;
-  
-  const baseData = {
-    sessionId: options.sessionId || '550e8400-e29b-41d4-a716-446655440000',
-    appointmentId: options.appointmentId || '550e8400-e29b-41d4-a716-446655440001',
-    providerId: options.providerId || '550e8400-e29b-41d4-a716-446655440002',
-    startedAt: options.startedAt || new Date(Date.now() - (isCompleted ? 1800000 : 0)).toISOString(), // 30 minutes ago if completed
-    deviceType: options.deviceType || 'mobile'
+export function createHealthMetricRecordedEvent(options: TestEventOptions = {}): BaseEvent<IHealthMetricRecordedPayload> {
+  const payload: IHealthMetricRecordedPayload = {
+    metric: {
+      id: 'metric-123',
+      userId: options.userId || 'test-user-123',
+      type: 'HEART_RATE',
+      value: 75,
+      unit: 'bpm',
+      timestamp: new Date().toISOString(),
+      source: 'manual'
+    },
+    metricType: 'HEART_RATE',
+    value: 75,
+    unit: 'bpm',
+    timestamp: new Date().toISOString(),
+    source: 'manual',
+    previousValue: 72,
+    change: 3,
+    isImprovement: false
   };
   
-  // Add completion data if endedAt is provided
-  if (isCompleted) {
-    return {
-      ...baseData,
-      endedAt: options.endedAt || new Date().toISOString(),
-      duration: options.duration !== undefined ? options.duration : 30, // 30 minutes
-      quality: options.quality || 'good'
-    };
-  }
+  return createTestEvent(
+    HealthEventType.METRIC_RECORDED,
+    'health-service',
+    payload,
+    { ...options, journey: JourneyType.HEALTH }
+  );
+}
+
+/**
+ * Creates a test health goal achieved event
+ * 
+ * @param options - Test event options
+ * @returns A health goal achieved event for testing
+ */
+export function createHealthGoalAchievedEvent(options: TestEventOptions = {}): BaseEvent<IHealthGoalAchievedPayload> {
+  const payload: IHealthGoalAchievedPayload = {
+    goal: {
+      id: 'goal-123',
+      userId: options.userId || 'test-user-123',
+      type: 'STEPS',
+      targetValue: 10000,
+      currentValue: 10250,
+      unit: 'steps',
+      startDate: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString(), // 7 days ago
+      endDate: new Date(Date.now() + 23 * 24 * 60 * 60 * 1000).toISOString(), // 23 days from now
+      status: 'ACHIEVED',
+      progress: 100
+    },
+    goalType: 'STEPS',
+    achievedValue: 10250,
+    targetValue: 10000,
+    daysToAchieve: 7,
+    isEarlyCompletion: true
+  };
   
-  return baseData;
+  return createTestEvent(
+    HealthEventType.GOAL_ACHIEVED,
+    'health-service',
+    payload,
+    { ...options, journey: JourneyType.HEALTH }
+  );
 }
 
 /**
- * Creates test data for claim submission events
+ * Creates a test health device connected event
  * 
- * @param options Options for data creation
- * @returns Claim submission data object
+ * @param options - Test event options
+ * @returns A health device connected event for testing
  */
-export function createClaimSubmissionData(options: Partial<{
-  claimId: string;
-  claimType: string;
-  providerId: string;
-  serviceDate: string;
-  amount: number;
-  submittedAt: string;
-}> = {}): any {
-  return {
-    claimId: options.claimId || '550e8400-e29b-41d4-a716-446655440000',
-    claimType: options.claimType || 'Consulta Médica',
-    providerId: options.providerId || '550e8400-e29b-41d4-a716-446655440001',
-    serviceDate: options.serviceDate || new Date(Date.now() - 86400000).toISOString(), // Yesterday
-    amount: options.amount !== undefined ? options.amount : 250.00,
-    submittedAt: options.submittedAt || new Date().toISOString()
+export function createHealthDeviceConnectedEvent(options: TestEventOptions = {}): BaseEvent<any> {
+  const payload = {
+    deviceConnection: {
+      id: 'device-conn-123',
+      userId: options.userId || 'test-user-123',
+      deviceId: 'device-123',
+      deviceType: 'Smartwatch',
+      connectionDate: new Date().toISOString(),
+      lastSyncDate: new Date().toISOString(),
+      status: 'CONNECTED'
+    },
+    deviceId: 'device-123',
+    deviceType: 'Smartwatch',
+    connectionDate: new Date().toISOString(),
+    isFirstConnection: true
   };
-}
-
-/**
- * Creates test data for claim processing events
- * 
- * @param options Options for data creation
- * @returns Claim processing data object
- */
-export function createClaimProcessingData(options: Partial<{
-  claimId: string;
-  status: string;
-  amount: number;
-  coveredAmount: number;
-  processedAt: string;
-}> = {}): any {
-  return {
-    claimId: options.claimId || '550e8400-e29b-41d4-a716-446655440000',
-    status: options.status || 'approved',
-    amount: options.amount !== undefined ? options.amount : 250.00,
-    coveredAmount: options.coveredAmount !== undefined ? options.coveredAmount : 200.00,
-    processedAt: options.processedAt || new Date().toISOString()
-  };
-}
-
-/**
- * Creates test data for plan selection events
- * 
- * @param options Options for data creation
- * @returns Plan selection data object
- */
-export function createPlanSelectionData(options: Partial<{
-  planId: string;
-  planType: string;
-  coverageLevel: string;
-  premium: number;
-  startDate: string;
-  selectedAt: string;
-}> = {}): any {
-  return {
-    planId: options.planId || '550e8400-e29b-41d4-a716-446655440000',
-    planType: options.planType || 'Premium',
-    coverageLevel: options.coverageLevel || 'family',
-    premium: options.premium !== undefined ? options.premium : 850.00,
-    startDate: options.startDate || new Date(Date.now() + 15 * 86400000).toISOString(), // 15 days from now
-    selectedAt: options.selectedAt || new Date().toISOString()
-  };
-}
-
-/**
- * Creates test data for benefit utilization events
- * 
- * @param options Options for data creation
- * @returns Benefit utilization data object
- */
-export function createBenefitUtilizationData(options: Partial<{
-  benefitId: string;
-  benefitType: string;
-  providerId: string;
-  utilizationDate: string;
-  savingsAmount: number;
-}> = {}): any {
-  return {
-    benefitId: options.benefitId || '550e8400-e29b-41d4-a716-446655440000',
-    benefitType: options.benefitType || 'wellness',
-    providerId: options.providerId || '550e8400-e29b-41d4-a716-446655440001',
-    utilizationDate: options.utilizationDate || new Date().toISOString(),
-    savingsAmount: options.savingsAmount !== undefined ? options.savingsAmount : 150.00
-  };
-}
-
-/**
- * Creates test data for points earned events
- * 
- * @param options Options for data creation
- * @returns Points earned data object
- */
-export function createPointsEarnedData(options: Partial<{
-  sourceType: string;
-  sourceId: string;
-  points: number;
-  reason: string;
-  earnedAt: string;
-}> = {}): any {
-  return {
-    sourceType: options.sourceType || 'health',
-    sourceId: options.sourceId || '550e8400-e29b-41d4-a716-446655440000',
-    points: options.points !== undefined ? options.points : 50,
-    reason: options.reason || 'Completed daily step goal',
-    earnedAt: options.earnedAt || new Date().toISOString()
-  };
-}
-
-/**
- * Creates test data for achievement unlocked events
- * 
- * @param options Options for data creation
- * @returns Achievement unlocked data object
- */
-export function createAchievementUnlockedData(options: Partial<{
-  achievementId: string;
-  achievementType: string;
-  tier: string;
-  points: number;
-  unlockedAt: string;
-}> = {}): any {
-  return {
-    achievementId: options.achievementId || '550e8400-e29b-41d4-a716-446655440000',
-    achievementType: options.achievementType || 'health-check-streak',
-    tier: options.tier || 'silver',
-    points: options.points !== undefined ? options.points : 100,
-    unlockedAt: options.unlockedAt || new Date().toISOString()
-  };
-}
-
-/**
- * Creates test data for level up events
- * 
- * @param options Options for data creation
- * @returns Level up data object
- */
-export function createLevelUpData(options: Partial<{
-  previousLevel: number;
-  newLevel: number;
-  totalPoints: number;
-  leveledUpAt: string;
-}> = {}): any {
-  return {
-    previousLevel: options.previousLevel !== undefined ? options.previousLevel : 2,
-    newLevel: options.newLevel !== undefined ? options.newLevel : 3,
-    totalPoints: options.totalPoints !== undefined ? options.totalPoints : 500,
-    leveledUpAt: options.leveledUpAt || new Date().toISOString()
-  };
-}
-
-/**
- * Creates test data for quest completion events
- * 
- * @param options Options for data creation
- * @returns Quest completion data object
- */
-export function createQuestCompletionData(options: Partial<{
-  questId: string;
-  questType: string;
-  difficulty: string;
-  points: number;
-  completedAt: string;
-}> = {}): any {
-  return {
-    questId: options.questId || '550e8400-e29b-41d4-a716-446655440000',
-    questType: options.questType || 'weekly_challenge',
-    difficulty: options.difficulty || 'medium',
-    points: options.points !== undefined ? options.points : 75,
-    completedAt: options.completedAt || new Date().toISOString()
-  };
-}
-
-/**
- * Creates test data for user profile completion events
- * 
- * @param options Options for data creation
- * @returns Profile completion data object
- */
-export function createProfileCompletionData(options: Partial<{
-  completionPercentage: number;
-  completedSections: string[];
-  completedAt: string;
-}> = {}): any {
-  return {
-    completionPercentage: options.completionPercentage !== undefined ? options.completionPercentage : 100,
-    completedSections: options.completedSections || ['personal', 'medical', 'insurance', 'preferences'],
-    completedAt: options.completedAt || new Date().toISOString()
-  };
-}
-
-/**
- * Creates test data for user login events
- * 
- * @param options Options for data creation
- * @returns Login data object
- */
-export function createLoginData(options: Partial<{
-  loginMethod: string;
-  deviceType: string;
-  loginAt: string;
-}> = {}): any {
-  return {
-    loginMethod: options.loginMethod || 'password',
-    deviceType: options.deviceType || 'mobile',
-    loginAt: options.loginAt || new Date().toISOString()
-  };
-}
-
-/**
- * Creates test data for user onboarding completion events
- * 
- * @param options Options for data creation
- * @returns Onboarding completion data object
- */
-export function createOnboardingCompletionData(options: Partial<{
-  completedSteps: string[];
-  selectedJourneys: string[];
-  duration: number;
-  completedAt: string;
-}> = {}): any {
-  return {
-    completedSteps: options.completedSteps || ['welcome', 'profile', 'journeys', 'notifications'],
-    selectedJourneys: options.selectedJourneys || ['health', 'care', 'plan'],
-    duration: options.duration !== undefined ? options.duration : 300, // 5 minutes
-    completedAt: options.completedAt || new Date().toISOString()
-  };
-}
-
-/**
- * Creates test data for user feedback submission events
- * 
- * @param options Options for data creation
- * @returns Feedback submission data object
- */
-export function createFeedbackSubmissionData(options: Partial<{
-  feedbackType: string;
-  rating: number;
-  comments: string;
-  submittedAt: string;
-}> = {}): any {
-  return {
-    feedbackType: options.feedbackType || 'app',
-    rating: options.rating !== undefined ? options.rating : 4,
-    comments: options.comments || 'Great app, very useful for managing my health!',
-    submittedAt: options.submittedAt || new Date().toISOString()
-  };
-}
-
-/**
- * Creates test data for a specific health event type
- * 
- * @param eventType The type of health event
- * @param options Options for data creation
- * @returns Test data for the specified event type
- */
-export function createHealthEventData(eventType: JourneyEvents.Health | string, options: Partial<EventFactoryOptions> = {}): any {
-  switch (eventType) {
-    case JourneyEvents.Health.METRIC_RECORDED:
-      return createHealthMetricData(options.customData);
-    case JourneyEvents.Health.GOAL_ACHIEVED:
-      return createHealthGoalData(options.customData);
-    case JourneyEvents.Health.DEVICE_CONNECTED:
-      return createDeviceConnectionData(options.customData);
-    case JourneyEvents.Health.INSIGHT_GENERATED:
-      return createHealthInsightData(options.customData);
-    default:
-      return {};
-  }
-}
-
-/**
- * Creates test data for a specific care event type
- * 
- * @param eventType The type of care event
- * @param options Options for data creation
- * @returns Test data for the specified event type
- */
-export function createCareEventData(eventType: JourneyEvents.Care | string, options: Partial<EventFactoryOptions> = {}): any {
-  switch (eventType) {
-    case JourneyEvents.Care.APPOINTMENT_BOOKED:
-      return createAppointmentBookingData(options.customData);
-    case JourneyEvents.Care.APPOINTMENT_COMPLETED:
-      return createAppointmentCompletionData(options.customData);
-    case JourneyEvents.Care.MEDICATION_TAKEN:
-      return createMedicationTakenData(options.customData);
-    case JourneyEvents.Care.TELEMEDICINE_STARTED:
-      return createTelemedicineSessionData({ ...options.customData, endedAt: undefined });
-    case JourneyEvents.Care.TELEMEDICINE_COMPLETED:
-      return createTelemedicineSessionData({ ...options.customData, endedAt: new Date().toISOString() });
-    default:
-      return {};
-  }
-}
-
-/**
- * Creates test data for a specific plan event type
- * 
- * @param eventType The type of plan event
- * @param options Options for data creation
- * @returns Test data for the specified event type
- */
-export function createPlanEventData(eventType: JourneyEvents.Plan | string, options: Partial<EventFactoryOptions> = {}): any {
-  switch (eventType) {
-    case JourneyEvents.Plan.CLAIM_SUBMITTED:
-      return createClaimSubmissionData(options.customData);
-    case JourneyEvents.Plan.CLAIM_PROCESSED:
-      return createClaimProcessingData(options.customData);
-    case JourneyEvents.Plan.PLAN_SELECTED:
-      return createPlanSelectionData(options.customData);
-    case JourneyEvents.Plan.BENEFIT_UTILIZED:
-      return createBenefitUtilizationData(options.customData);
-    default:
-      return {};
-  }
-}
-
-/**
- * Creates test data for a specific gamification event type
- * 
- * @param eventType The type of gamification event
- * @param options Options for data creation
- * @returns Test data for the specified event type
- */
-export function createGamificationEventData(eventType: JourneyEvents.Gamification | string, options: Partial<EventFactoryOptions> = {}): any {
-  switch (eventType) {
-    case JourneyEvents.Gamification.POINTS_EARNED:
-      return createPointsEarnedData(options.customData);
-    case JourneyEvents.Gamification.ACHIEVEMENT_UNLOCKED:
-      return createAchievementUnlockedData(options.customData);
-    case JourneyEvents.Gamification.LEVEL_UP:
-      return createLevelUpData(options.customData);
-    case JourneyEvents.Gamification.QUEST_COMPLETED:
-      return createQuestCompletionData(options.customData);
-    default:
-      return {};
-  }
-}
-
-/**
- * Creates test data for a specific user event type
- * 
- * @param eventType The type of user event
- * @param options Options for data creation
- * @returns Test data for the specified event type
- */
-export function createUserEventData(eventType: JourneyEvents.User | string, options: Partial<EventFactoryOptions> = {}): any {
-  switch (eventType) {
-    case JourneyEvents.User.PROFILE_COMPLETED:
-      return createProfileCompletionData(options.customData);
-    case JourneyEvents.User.LOGIN:
-      return createLoginData(options.customData);
-    case JourneyEvents.User.ONBOARDING_COMPLETED:
-      return createOnboardingCompletionData(options.customData);
-    case JourneyEvents.User.FEEDBACK_SUBMITTED:
-      return createFeedbackSubmissionData(options.customData);
-    default:
-      return {};
-  }
-}
-
-/**
- * Creates test data for any event type based on journey and event type
- * 
- * @param eventType The type of event
- * @param options Options for data creation
- * @returns Test data for the specified event type
- */
-export function createEventData(eventType: EventType | string, options: Partial<EventFactoryOptions> = {}): any {
-  const eventTypeStr = eventType.toString();
   
-  if (eventTypeStr.startsWith('HEALTH_')) {
-    return createHealthEventData(eventTypeStr, options);
-  } else if (eventTypeStr.startsWith('CARE_')) {
-    return createCareEventData(eventTypeStr, options);
-  } else if (eventTypeStr.startsWith('PLAN_')) {
-    return createPlanEventData(eventTypeStr, options);
-  } else if (eventTypeStr.startsWith('GAMIFICATION_')) {
-    return createGamificationEventData(eventTypeStr, options);
-  } else if (eventTypeStr.startsWith('USER_')) {
-    return createUserEventData(eventTypeStr, options);
-  }
+  return createTestEvent(
+    HealthEventType.DEVICE_CONNECTED,
+    'health-service',
+    payload,
+    { ...options, journey: JourneyType.HEALTH }
+  );
+}
+
+// ===== CARE JOURNEY TEST EVENTS =====
+
+/**
+ * Creates a test appointment booked event
+ * 
+ * @param options - Test event options
+ * @returns An appointment booked event for testing
+ */
+export function createAppointmentBookedEvent(options: TestEventOptions = {}): BaseEvent<ICareAppointmentBookedPayload> {
+  const appointmentDate = new Date();
+  appointmentDate.setDate(appointmentDate.getDate() + 3); // 3 days from now
   
-  return {};
+  const payload: ICareAppointmentBookedPayload = {
+    appointment: {
+      id: 'appointment-123',
+      userId: options.userId || 'test-user-123',
+      providerId: 'provider-123',
+      type: 'IN_PERSON',
+      status: 'SCHEDULED',
+      scheduledDate: appointmentDate.toISOString(),
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      specialty: 'Cardiologia',
+      notes: 'Regular check-up'
+    },
+    appointmentType: 'IN_PERSON',
+    providerId: 'provider-123',
+    scheduledDate: appointmentDate.toISOString(),
+    isFirstAppointment: false,
+    isUrgent: false
+  };
+  
+  return createTestEvent(
+    CareEventType.APPOINTMENT_BOOKED,
+    'care-service',
+    payload,
+    { ...options, journey: JourneyType.CARE }
+  );
 }
 
 /**
- * Creates a complete event object for any event type
+ * Creates a test medication taken event
  * 
- * @param eventType The type of event
- * @param options Options for event creation
- * @returns A complete event object
+ * @param options - Test event options
+ * @returns A medication taken event for testing
  */
-export function createEvent(eventType: EventType | string, options: Partial<EventFactoryOptions> = {}): any {
-  const data = createEventData(eventType, options);
-  return createTestEvent(eventType, data, options);
+export function createMedicationTakenEvent(options: TestEventOptions = {}): BaseEvent<ICareMedicationTakenPayload> {
+  const payload: ICareMedicationTakenPayload = {
+    medicationId: 'medication-123',
+    medicationName: 'Atorvastatina',
+    takenDate: new Date().toISOString(),
+    takenOnTime: true,
+    dosage: '20mg'
+  };
+  
+  return createTestEvent(
+    CareEventType.MEDICATION_TAKEN,
+    'care-service',
+    payload,
+    { ...options, journey: JourneyType.CARE }
+  );
 }
 
 /**
- * Creates a versioned event object for any event type
+ * Creates a test telemedicine session completed event
  * 
- * @param eventType The type of event
- * @param options Options for event creation
- * @returns A versioned event object
+ * @param options - Test event options
+ * @returns A telemedicine session completed event for testing
  */
-export function createVersionedEvent(eventType: EventType | string, options: Partial<EventFactoryOptions> = {}): VersionedEventDto<any> {
-  const data = createEventData(eventType, options);
-  return createVersionedTestEvent(eventType, data, options);
+export function createTelemedicineSessionCompletedEvent(options: TestEventOptions = {}): BaseEvent<any> {
+  const startTime = new Date(Date.now() - 30 * 60 * 1000); // 30 minutes ago
+  const endTime = new Date();
+  
+  const payload = {
+    session: {
+      id: 'session-123',
+      userId: options.userId || 'test-user-123',
+      providerId: 'provider-123',
+      appointmentId: 'appointment-123',
+      startTime: startTime.toISOString(),
+      endTime: endTime.toISOString(),
+      status: 'COMPLETED',
+      duration: 30,
+      notes: 'Successful session'
+    },
+    sessionId: 'session-123',
+    providerId: 'provider-123',
+    startTime: startTime.toISOString(),
+    endTime: endTime.toISOString(),
+    duration: 30,
+    appointmentId: 'appointment-123',
+    technicalIssues: false
+  };
+  
+  return createTestEvent(
+    CareEventType.TELEMEDICINE_SESSION_COMPLETED,
+    'care-service',
+    payload,
+    { ...options, journey: JourneyType.CARE }
+  );
+}
+
+// ===== PLAN JOURNEY TEST EVENTS =====
+
+/**
+ * Creates a test claim submitted event
+ * 
+ * @param options - Test event options
+ * @returns A claim submitted event for testing
+ */
+export function createClaimSubmittedEvent(options: TestEventOptions = {}): BaseEvent<IPlanClaimSubmittedPayload> {
+  const payload: IPlanClaimSubmittedPayload = {
+    claim: {
+      id: 'claim-123',
+      userId: options.userId || 'test-user-123',
+      type: 'Consulta Médica',
+      amount: 250.0,
+      status: 'SUBMITTED',
+      submissionDate: new Date().toISOString(),
+      description: 'Consulta com cardiologista',
+      providerName: 'Dr. Silva',
+      serviceDate: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString() // 2 days ago
+    },
+    submissionDate: new Date().toISOString(),
+    amount: 250.0,
+    claimType: 'Consulta Médica',
+    hasDocuments: true,
+    isComplete: true
+  };
+  
+  return createTestEvent(
+    PlanEventType.CLAIM_SUBMITTED,
+    'plan-service',
+    payload,
+    { ...options, journey: JourneyType.PLAN }
+  );
 }
 
 /**
- * Creates an invalid event by omitting required fields
+ * Creates a test benefit utilized event
  * 
- * @param eventType The type of event
- * @param fieldsToOmit Fields to omit to make the event invalid
- * @param options Additional options for event creation
- * @returns An invalid event object
+ * @param options - Test event options
+ * @returns A benefit utilized event for testing
  */
-export function createInvalidEvent(eventType: EventType | string, fieldsToOmit: string[], options: Partial<EventFactoryOptions> = {}): any {
-  return createEvent(eventType, {
-    ...options,
-    makeInvalid: true,
-    omitFields: fieldsToOmit
+export function createBenefitUtilizedEvent(options: TestEventOptions = {}): BaseEvent<IPlanBenefitUtilizedPayload> {
+  const payload: IPlanBenefitUtilizedPayload = {
+    benefit: {
+      id: 'benefit-123',
+      name: 'Consultas Médicas',
+      description: 'Cobertura para consultas médicas',
+      coverageLimit: 1000.0,
+      coverageUsed: 250.0,
+      coverageRemaining: 750.0,
+      usageCount: 1,
+      planId: 'plan-123'
+    },
+    utilizationDate: new Date().toISOString(),
+    serviceProvider: 'Clínica São Paulo',
+    amount: 250.0,
+    remainingCoverage: 750.0,
+    isFirstUtilization: false
+  };
+  
+  return createTestEvent(
+    PlanEventType.BENEFIT_UTILIZED,
+    'plan-service',
+    payload,
+    { ...options, journey: JourneyType.PLAN }
+  );
+}
+
+/**
+ * Creates a test reward redeemed event
+ * 
+ * @param options - Test event options
+ * @returns A reward redeemed event for testing
+ */
+export function createRewardRedeemedEvent(options: TestEventOptions = {}): BaseEvent<any> {
+  const payload = {
+    rewardId: 'reward-123',
+    rewardName: 'Desconto em Farmácia',
+    redemptionDate: new Date().toISOString(),
+    pointValue: 500,
+    monetaryValue: 50.0,
+    rewardType: 'DISCOUNT',
+    isPremiumReward: false
+  };
+  
+  return createTestEvent(
+    PlanEventType.REWARD_REDEEMED,
+    'plan-service',
+    payload,
+    { ...options, journey: JourneyType.PLAN }
+  );
+}
+
+// ===== UTILITY FUNCTIONS =====
+
+/**
+ * Creates a batch of test events for load testing
+ * 
+ * @param count - Number of events to create
+ * @param eventFactory - Factory function to create each event
+ * @returns Array of test events
+ */
+export function createTestEventBatch<T>(
+  count: number,
+  eventFactory: (options: TestEventOptions) => BaseEvent<T>
+): BaseEvent<T>[] {
+  return Array.from({ length: count }, (_, index) => {
+    return eventFactory({
+      eventId: `batch-event-${index}`,
+      userId: `test-user-${Math.floor(Math.random() * 10)}`
+    });
   });
 }
 
 /**
- * Creates a batch of events for testing
+ * Creates a test event with a specific journey type
  * 
- * @param eventTypes Array of event types to create
- * @param options Options for event creation
- * @returns Array of event objects
+ * @param journey - Journey type
+ * @param options - Test event options
+ * @returns A journey-specific test event
  */
-export function createEventBatch(eventTypes: Array<EventType | string>, options: Partial<EventFactoryOptions> = {}): any[] {
-  return eventTypes.map(eventType => createEvent(eventType, options));
-}
-
-/**
- * Creates a set of events for a specific journey
- * 
- * @param journey The journey to create events for
- * @param options Options for event creation
- * @returns Array of event objects for the specified journey
- */
-export function createJourneyEvents(journey: 'health' | 'care' | 'plan' | 'user' | 'gamification', options: Partial<EventFactoryOptions> = {}): any[] {
-  let eventTypes: string[] = [];
-  
+export function createJourneyEvent(journey: JourneyType, options: TestEventOptions = {}): BaseEvent<any> {
   switch (journey) {
-    case 'health':
-      eventTypes = Object.values(JourneyEvents.Health);
-      break;
-    case 'care':
-      eventTypes = Object.values(JourneyEvents.Care);
-      break;
-    case 'plan':
-      eventTypes = Object.values(JourneyEvents.Plan);
-      break;
-    case 'user':
-      eventTypes = Object.values(JourneyEvents.User);
-      break;
-    case 'gamification':
-      eventTypes = Object.values(JourneyEvents.Gamification);
-      break;
+    case JourneyType.HEALTH:
+      return createHealthMetricRecordedEvent(options);
+    case JourneyType.CARE:
+      return createAppointmentBookedEvent(options);
+    case JourneyType.PLAN:
+      return createClaimSubmittedEvent(options);
+    default:
+      throw new Error(`Unsupported journey type: ${journey}`);
+  }
+}
+
+/**
+ * Creates a test event with a specific event type
+ * 
+ * @param eventType - Event type
+ * @param options - Test event options
+ * @returns A specific test event based on the event type
+ */
+export function createEventByType(
+  eventType: HealthEventType | CareEventType | PlanEventType,
+  options: TestEventOptions = {}
+): BaseEvent<any> {
+  // Health journey events
+  if (Object.values(HealthEventType).includes(eventType as HealthEventType)) {
+    switch (eventType) {
+      case HealthEventType.METRIC_RECORDED:
+        return createHealthMetricRecordedEvent(options);
+      case HealthEventType.GOAL_ACHIEVED:
+        return createHealthGoalAchievedEvent(options);
+      case HealthEventType.DEVICE_CONNECTED:
+        return createHealthDeviceConnectedEvent(options);
+      default:
+        return createHealthMetricRecordedEvent(options);
+    }
   }
   
-  return createEventBatch(eventTypes, options);
-}
-
-/**
- * Creates a set of events with different versions for testing schema evolution
- * 
- * @param eventType The type of event
- * @param versions Array of versions to create
- * @param options Options for event creation
- * @returns Array of versioned event objects
- */
-export function createVersionedEventSet(eventType: EventType | string, versions: string[], options: Partial<EventFactoryOptions> = {}): VersionedEventDto<any>[] {
-  return versions.map(version => {
-    return createVersionedEvent(eventType, {
-      ...options,
-      version
-    });
-  });
-}
-
-/**
- * Creates a set of related events with the same correlation ID
- * 
- * @param eventTypes Array of event types to create
- * @param correlationId Correlation ID to use for all events
- * @param options Options for event creation
- * @returns Array of related event objects
- */
-export function createCorrelatedEvents(eventTypes: Array<EventType | string>, correlationId: string, options: Partial<EventFactoryOptions> = {}): any[] {
-  return eventTypes.map(eventType => {
-    return createEvent(eventType, {
-      ...options,
-      customMetadata: {
-        ...options.customMetadata,
-        correlationId
-      }
-    });
-  });
-}
-
-/**
- * Creates a chain of events where each event is a child of the previous one
- * 
- * @param eventTypes Array of event types to create in sequence
- * @param options Options for event creation
- * @returns Array of chained event objects
- */
-export function createEventChain(eventTypes: Array<EventType | string>, options: Partial<EventFactoryOptions> = {}): any[] {
-  const correlationId = '550e8400-e29b-41d4-a716-446655440000';
-  const events: any[] = [];
-  
-  for (let i = 0; i < eventTypes.length; i++) {
-    const eventType = eventTypes[i];
-    const parentEventId = i > 0 ? events[i - 1].metadata.eventId : undefined;
-    
-    events.push(createEvent(eventType, {
-      ...options,
-      customMetadata: {
-        ...options.customMetadata,
-        correlationId,
-        parentEventId,
-        eventId: `550e8400-e29b-41d4-a716-44665544000${i}`
-      }
-    }));
+  // Care journey events
+  if (Object.values(CareEventType).includes(eventType as CareEventType)) {
+    switch (eventType) {
+      case CareEventType.APPOINTMENT_BOOKED:
+        return createAppointmentBookedEvent(options);
+      case CareEventType.MEDICATION_TAKEN:
+        return createMedicationTakenEvent(options);
+      case CareEventType.TELEMEDICINE_SESSION_COMPLETED:
+        return createTelemedicineSessionCompletedEvent(options);
+      default:
+        return createAppointmentBookedEvent(options);
+    }
   }
   
-  return events;
+  // Plan journey events
+  if (Object.values(PlanEventType).includes(eventType as PlanEventType)) {
+    switch (eventType) {
+      case PlanEventType.CLAIM_SUBMITTED:
+        return createClaimSubmittedEvent(options);
+      case PlanEventType.BENEFIT_UTILIZED:
+        return createBenefitUtilizedEvent(options);
+      case PlanEventType.REWARD_REDEEMED:
+        return createRewardRedeemedEvent(options);
+      default:
+        return createClaimSubmittedEvent(options);
+    }
+  }
+  
+  throw new Error(`Unsupported event type: ${eventType}`);
 }

@@ -1,676 +1,605 @@
-import { EventType, JourneyEvents } from '../../../src/dto/event-types.enum';
-import { ERROR_CODES } from '../../../src/constants/errors.constants';
-import { TOPICS } from '../../../src/constants/topics.constants';
+/**
+ * @file Test fixtures for event error testing scenarios
+ * @description Provides standardized test data for event errors across different journeys.
+ * These fixtures ensure consistent test data across test files, making tests more maintainable
+ * and easier to understand while providing realistic test scenarios.
+ */
+
+import { BaseEvent, EventMetadata } from '../../../src/interfaces/base-event.interface';
+import { 
+  JourneyType, 
+  HealthEventType, 
+  CareEventType, 
+  PlanEventType 
+} from '../../../src/interfaces/journey-events.interface';
+import { 
+  EventErrorCategory, 
+  EventErrorContext, 
+  EventProcessingStage 
+} from '../../../src/errors/event-errors';
+import { RetryAttempt, DlqEntryStatus, DlqErrorType } from '../../../src/errors/dlq';
+
+// ===== SAMPLE EVENTS =====
 
 /**
- * Test fixture interface for event objects
+ * Sample base event for testing
  */
-export interface TestEvent {
-  id: string;
-  type: EventType;
-  payload: Record<string, any>;
-  metadata: {
-    userId: string;
-    timestamp: string;
-    correlationId: string;
-    source: string;
-    version: string;
-  };
-}
+export const sampleBaseEvent: BaseEvent = {
+  eventId: '123e4567-e89b-12d3-a456-426614174000',
+  type: 'TEST_EVENT',
+  timestamp: '2023-04-15T14:32:17.000Z',
+  version: '1.0.0',
+  source: 'test-service',
+  payload: { test: 'data' }
+};
 
 /**
- * Test fixture interface for error context
+ * Sample health journey event for testing
  */
-export interface ErrorContext {
-  errorCode: string;
-  errorMessage: string;
-  topic: string;
-  partition?: number;
-  offset?: number;
-  stackTrace?: string;
-  timestamp: string;
-  additionalInfo?: Record<string, any>;
-}
-
-/**
- * Test fixture interface for retry state
- */
-export interface RetryState {
-  attemptCount: number;
-  maxAttempts: number;
-  initialDelay: number;
-  maxDelay: number;
-  backoffFactor: number;
-  nextAttemptAt?: string;
-  firstAttemptAt: string;
-  lastAttemptAt?: string;
-}
-
-/**
- * Test fixture interface for DLQ message
- */
-export interface DLQMessage {
-  originalEvent: TestEvent;
-  errorContext: ErrorContext;
-  retryState: RetryState;
-  sentToDLQAt: string;
-}
-
-// ===== HEALTH JOURNEY EVENT FIXTURES =====
-
-/**
- * Sample health metric recorded event
- */
-export const healthMetricRecordedEvent: TestEvent = {
-  id: 'health-event-1',
-  type: EventType.HEALTH_METRIC_RECORDED,
+export const sampleHealthEvent: BaseEvent = {
+  eventId: '123e4567-e89b-12d3-a456-426614174001',
+  type: HealthEventType.METRIC_RECORDED,
+  timestamp: '2023-04-15T14:32:17.000Z',
+  version: '1.0.0',
+  source: 'health-service',
+  journey: JourneyType.HEALTH,
+  userId: 'user-123',
   payload: {
-    metricType: 'blood_pressure',
-    value: 120,
-    unit: 'mmHg',
-    timestamp: '2023-04-15T10:30:00Z',
-    source: 'manual'
-  },
-  metadata: {
-    userId: 'user-123',
-    timestamp: '2023-04-15T10:30:05Z',
-    correlationId: 'corr-abc-123',
-    source: 'health-service',
-    version: '1.0.0'
+    metric: {
+      id: 'metric-123',
+      userId: 'user-123',
+      type: 'HEART_RATE',
+      value: 75,
+      unit: 'bpm',
+      timestamp: '2023-04-15T14:32:17.000Z',
+      source: 'manual'
+    },
+    metricType: 'HEART_RATE',
+    value: 75,
+    unit: 'bpm',
+    timestamp: '2023-04-15T14:32:17.000Z',
+    source: 'manual',
+    previousValue: 72,
+    change: 3,
+    isImprovement: false
   }
 };
 
 /**
- * Sample health goal achieved event
+ * Sample care journey event for testing
  */
-export const healthGoalAchievedEvent: TestEvent = {
-  id: 'health-event-2',
-  type: EventType.HEALTH_GOAL_ACHIEVED,
+export const sampleCareEvent: BaseEvent = {
+  eventId: '123e4567-e89b-12d3-a456-426614174002',
+  type: CareEventType.APPOINTMENT_BOOKED,
+  timestamp: '2023-04-15T15:45:30.000Z',
+  version: '1.0.0',
+  source: 'care-service',
+  journey: JourneyType.CARE,
+  userId: 'user-123',
   payload: {
-    goalId: 'goal-456',
-    goalType: 'steps',
-    targetValue: 10000,
-    achievedValue: 10250,
-    completedAt: '2023-04-15T22:00:00Z'
-  },
-  metadata: {
-    userId: 'user-123',
-    timestamp: '2023-04-15T22:00:05Z',
-    correlationId: 'corr-def-456',
-    source: 'health-service',
-    version: '1.0.0'
-  }
-};
-
-/**
- * Sample health device connected event
- */
-export const healthDeviceConnectedEvent: TestEvent = {
-  id: 'health-event-3',
-  type: EventType.HEALTH_DEVICE_CONNECTED,
-  payload: {
-    deviceId: 'device-789',
-    deviceType: 'fitbit',
-    connectionMethod: 'oauth',
-    connectedAt: '2023-04-16T09:15:00Z'
-  },
-  metadata: {
-    userId: 'user-123',
-    timestamp: '2023-04-16T09:15:05Z',
-    correlationId: 'corr-ghi-789',
-    source: 'health-service',
-    version: '1.0.0'
-  }
-};
-
-// ===== CARE JOURNEY EVENT FIXTURES =====
-
-/**
- * Sample care appointment booked event
- */
-export const careAppointmentBookedEvent: TestEvent = {
-  id: 'care-event-1',
-  type: EventType.CARE_APPOINTMENT_BOOKED,
-  payload: {
-    appointmentId: 'appt-123',
+    appointment: {
+      id: 'appointment-123',
+      userId: 'user-123',
+      providerId: 'provider-456',
+      type: 'CONSULTATION',
+      status: 'SCHEDULED',
+      scheduledDate: '2023-04-20T10:00:00.000Z',
+      createdAt: '2023-04-15T15:45:30.000Z'
+    },
+    appointmentType: 'CONSULTATION',
     providerId: 'provider-456',
-    specialtyType: 'Cardiologia',
-    appointmentType: 'in_person',
-    scheduledAt: '2023-04-20T14:30:00Z',
-    bookedAt: '2023-04-16T10:45:00Z'
-  },
-  metadata: {
-    userId: 'user-123',
-    timestamp: '2023-04-16T10:45:05Z',
-    correlationId: 'corr-jkl-123',
-    source: 'care-service',
-    version: '1.0.0'
+    scheduledDate: '2023-04-20T10:00:00.000Z',
+    isFirstAppointment: false,
+    isUrgent: false
   }
 };
 
 /**
- * Sample care medication taken event
+ * Sample plan journey event for testing
  */
-export const careMedicationTakenEvent: TestEvent = {
-  id: 'care-event-2',
-  type: EventType.CARE_MEDICATION_TAKEN,
+export const samplePlanEvent: BaseEvent = {
+  eventId: '123e4567-e89b-12d3-a456-426614174003',
+  type: PlanEventType.CLAIM_SUBMITTED,
+  timestamp: '2023-04-15T16:20:45.000Z',
+  version: '1.0.0',
+  source: 'plan-service',
+  journey: JourneyType.PLAN,
+  userId: 'user-123',
   payload: {
-    medicationId: 'med-789',
-    medicationName: 'Atenolol',
-    dosage: '50mg',
-    takenAt: '2023-04-16T08:00:00Z',
-    adherence: 'on_time'
-  },
-  metadata: {
-    userId: 'user-123',
-    timestamp: '2023-04-16T08:00:05Z',
-    correlationId: 'corr-mno-456',
-    source: 'care-service',
-    version: '1.0.0'
-  }
-};
-
-/**
- * Sample care telemedicine completed event
- */
-export const careTelemedicineCompletedEvent: TestEvent = {
-  id: 'care-event-3',
-  type: EventType.CARE_TELEMEDICINE_COMPLETED,
-  payload: {
-    sessionId: 'session-123',
-    appointmentId: 'appt-456',
-    providerId: 'provider-789',
-    startedAt: '2023-04-16T15:00:00Z',
-    endedAt: '2023-04-16T15:30:00Z',
-    duration: 30,
-    quality: 'good'
-  },
-  metadata: {
-    userId: 'user-123',
-    timestamp: '2023-04-16T15:30:05Z',
-    correlationId: 'corr-pqr-789',
-    source: 'care-service',
-    version: '1.0.0'
-  }
-};
-
-// ===== PLAN JOURNEY EVENT FIXTURES =====
-
-/**
- * Sample plan claim submitted event
- */
-export const planClaimSubmittedEvent: TestEvent = {
-  id: 'plan-event-1',
-  type: EventType.PLAN_CLAIM_SUBMITTED,
-  payload: {
-    claimId: 'claim-123',
-    claimType: 'medical',
-    providerId: 'provider-456',
-    serviceDate: '2023-04-10T09:00:00Z',
+    claim: {
+      id: 'claim-123',
+      userId: 'user-123',
+      type: 'MEDICAL_CONSULTATION',
+      amount: 150.00,
+      status: 'SUBMITTED',
+      submissionDate: '2023-04-15T16:20:45.000Z',
+      documents: ['document-123', 'document-124']
+    },
+    submissionDate: '2023-04-15T16:20:45.000Z',
     amount: 150.00,
-    submittedAt: '2023-04-17T11:30:00Z'
-  },
-  metadata: {
-    userId: 'user-123',
-    timestamp: '2023-04-17T11:30:05Z',
-    correlationId: 'corr-stu-123',
-    source: 'plan-service',
-    version: '1.0.0'
+    claimType: 'MEDICAL_CONSULTATION',
+    hasDocuments: true,
+    isComplete: true
   }
 };
 
 /**
- * Sample plan benefit utilized event
+ * Sample event with invalid schema for testing validation errors
  */
-export const planBenefitUtilizedEvent: TestEvent = {
-  id: 'plan-event-2',
-  type: EventType.PLAN_BENEFIT_UTILIZED,
+export const invalidSchemaEvent: BaseEvent = {
+  eventId: '123e4567-e89b-12d3-a456-426614174004',
+  type: HealthEventType.METRIC_RECORDED,
+  timestamp: '2023-04-15T14:32:17.000Z',
+  version: '1.0.0',
+  source: 'health-service',
+  journey: JourneyType.HEALTH,
+  userId: 'user-123',
   payload: {
-    benefitId: 'benefit-456',
-    benefitType: 'preventive',
-    providerId: 'provider-789',
-    utilizationDate: '2023-04-17T14:00:00Z',
-    savingsAmount: 75.00
-  },
-  metadata: {
-    userId: 'user-123',
-    timestamp: '2023-04-17T14:00:05Z',
-    correlationId: 'corr-vwx-456',
-    source: 'plan-service',
-    version: '1.0.0'
+    // Missing required fields
+    metricType: 'HEART_RATE',
+    // Invalid value type
+    value: 'not-a-number',
+    unit: 'bpm'
   }
 };
 
 /**
- * Sample plan reward redeemed event
+ * Sample event with incompatible schema version for testing version errors
  */
-export const planRewardRedeemedEvent: TestEvent = {
-  id: 'plan-event-3',
-  type: EventType.PLAN_REWARD_REDEEMED,
+export const incompatibleVersionEvent: BaseEvent = {
+  eventId: '123e4567-e89b-12d3-a456-426614174005',
+  type: HealthEventType.METRIC_RECORDED,
+  timestamp: '2023-04-15T14:32:17.000Z',
+  version: '2.0.0', // Incompatible version
+  source: 'health-service',
+  journey: JourneyType.HEALTH,
+  userId: 'user-123',
   payload: {
-    rewardId: 'reward-789',
-    rewardType: 'gift_card',
-    pointsRedeemed: 1000,
-    value: 50.00,
-    redeemedAt: '2023-04-17T16:45:00Z'
-  },
-  metadata: {
-    userId: 'user-123',
-    timestamp: '2023-04-17T16:45:05Z',
-    correlationId: 'corr-yza-789',
-    source: 'plan-service',
-    version: '1.0.0'
+    // Schema for version 2.0.0 which is incompatible
+    metricData: {
+      type: 'HEART_RATE',
+      value: 75,
+      unit: 'bpm'
+    },
+    recordedAt: '2023-04-15T14:32:17.000Z'
   }
 };
 
-// ===== GAMIFICATION EVENT FIXTURES =====
+// ===== ERROR CONTEXTS =====
 
 /**
- * Sample gamification points earned event
+ * Sample error context for validation errors
  */
-export const gamificationPointsEarnedEvent: TestEvent = {
-  id: 'game-event-1',
-  type: EventType.GAMIFICATION_POINTS_EARNED,
-  payload: {
-    sourceType: 'health',
-    sourceId: 'health-event-2',
-    points: 50,
-    reason: 'Goal achievement',
-    earnedAt: '2023-04-15T22:00:10Z'
-  },
+export const validationErrorContext: EventErrorContext = {
+  eventId: '123e4567-e89b-12d3-a456-426614174004',
+  eventType: HealthEventType.METRIC_RECORDED,
+  eventSource: 'health-service',
+  processingStage: EventProcessingStage.VALIDATION,
+  journey: JourneyType.HEALTH,
+  userId: 'user-123',
   metadata: {
-    userId: 'user-123',
-    timestamp: '2023-04-15T22:00:15Z',
-    correlationId: 'corr-def-456',
-    source: 'gamification-engine',
-    version: '1.0.0'
-  }
-};
-
-/**
- * Sample gamification achievement unlocked event
- */
-export const gamificationAchievementUnlockedEvent: TestEvent = {
-  id: 'game-event-2',
-  type: EventType.GAMIFICATION_ACHIEVEMENT_UNLOCKED,
-  payload: {
-    achievementId: 'achievement-123',
-    achievementType: 'health-check-streak',
-    tier: 'silver',
-    points: 100,
-    unlockedAt: '2023-04-17T22:15:00Z'
-  },
-  metadata: {
-    userId: 'user-123',
-    timestamp: '2023-04-17T22:15:05Z',
-    correlationId: 'corr-bcd-123',
-    source: 'gamification-engine',
-    version: '1.0.0'
-  }
-};
-
-// ===== ERROR CONTEXT FIXTURES =====
-
-/**
- * Sample error context for schema validation failure
- */
-export const schemaValidationErrorContext: ErrorContext = {
-  errorCode: ERROR_CODES.SCHEMA_VALIDATION_FAILED,
-  errorMessage: 'Event failed schema validation: required property "value" is missing',
-  topic: TOPICS.HEALTH.EVENTS,
-  partition: 0,
-  offset: 12345,
-  stackTrace: 'Error: Event failed schema validation\n    at validateEvent (/app/src/validation.ts:45:11)\n    at processMessage (/app/src/consumer.ts:78:23)',
-  timestamp: '2023-04-18T09:30:00Z',
-  additionalInfo: {
     validationErrors: [
-      {
-        property: 'payload.value',
-        constraints: {
-          isRequired: 'value is required'
-        }
-      }
+      'Missing required field: metric',
+      'Invalid type for field: value, expected number but got string'
     ]
   }
 };
 
 /**
- * Sample error context for consumer processing failure
+ * Sample error context for schema version errors
  */
-export const consumerProcessingErrorContext: ErrorContext = {
-  errorCode: ERROR_CODES.CONSUMER_PROCESSING_FAILED,
-  errorMessage: 'Failed to process message: database connection error',
-  topic: TOPICS.CARE.EVENTS,
-  partition: 1,
-  offset: 67890,
-  stackTrace: 'Error: Failed to process message\n    at processEvent (/app/src/processor.ts:112:9)\n    at handleMessage (/app/src/consumer.ts:156:18)',
-  timestamp: '2023-04-18T10:45:00Z',
-  additionalInfo: {
-    databaseError: 'Connection refused'
+export const schemaVersionErrorContext: EventErrorContext = {
+  eventId: '123e4567-e89b-12d3-a456-426614174005',
+  eventType: HealthEventType.METRIC_RECORDED,
+  eventSource: 'health-service',
+  processingStage: EventProcessingStage.VALIDATION,
+  journey: JourneyType.HEALTH,
+  userId: 'user-123',
+  metadata: {
+    expectedVersion: '1.0.0',
+    actualVersion: '2.0.0',
+    migrationRequired: true
   }
 };
 
 /**
- * Sample error context for message deserialization failure
+ * Sample error context for processing errors
  */
-export const deserializationErrorContext: ErrorContext = {
-  errorCode: ERROR_CODES.MESSAGE_DESERIALIZATION_FAILED,
-  errorMessage: 'Failed to deserialize message: invalid JSON format',
-  topic: TOPICS.PLAN.EVENTS,
-  partition: 2,
-  offset: 54321,
-  stackTrace: 'SyntaxError: Unexpected token } in JSON at position 42\n    at JSON.parse (<anonymous>)\n    at deserializeMessage (/app/src/serialization.ts:28:20)',
-  timestamp: '2023-04-18T11:15:00Z',
-  additionalInfo: {
-    rawMessage: '{"id":"plan-event-4","type":"PLAN_CLAIM_PROCESSED","payload":{"claimId":"claim-456",}}'
+export const processingErrorContext: EventErrorContext = {
+  eventId: '123e4567-e89b-12d3-a456-426614174001',
+  eventType: HealthEventType.METRIC_RECORDED,
+  eventSource: 'health-service',
+  processingStage: EventProcessingStage.PROCESSING,
+  journey: JourneyType.HEALTH,
+  userId: 'user-123',
+  retryCount: 2,
+  metadata: {
+    processingStep: 'saveMetricToDatabase',
+    failureReason: 'Database connection error'
   }
 };
 
-// ===== RETRY STATE FIXTURES =====
-
 /**
- * Sample retry state for first attempt
+ * Sample error context for publishing errors
  */
-export const firstAttemptRetryState: RetryState = {
-  attemptCount: 1,
-  maxAttempts: 5,
-  initialDelay: 1000,
-  maxDelay: 30000,
-  backoffFactor: 2,
-  nextAttemptAt: '2023-04-18T09:30:01Z',
-  firstAttemptAt: '2023-04-18T09:30:00Z',
-  lastAttemptAt: '2023-04-18T09:30:00Z'
+export const publishingErrorContext: EventErrorContext = {
+  eventId: '123e4567-e89b-12d3-a456-426614174002',
+  eventType: CareEventType.APPOINTMENT_BOOKED,
+  eventSource: 'care-service',
+  processingStage: EventProcessingStage.PUBLISHING,
+  journey: JourneyType.CARE,
+  userId: 'user-123',
+  metadata: {
+    destination: 'gamification-events',
+    failureReason: 'Kafka broker unavailable'
+  }
 };
 
 /**
- * Sample retry state for middle attempt
+ * Sample error context for persistence errors
  */
-export const midAttemptRetryState: RetryState = {
-  attemptCount: 3,
-  maxAttempts: 5,
-  initialDelay: 1000,
-  maxDelay: 30000,
-  backoffFactor: 2,
-  nextAttemptAt: '2023-04-18T09:30:07Z',
-  firstAttemptAt: '2023-04-18T09:30:00Z',
-  lastAttemptAt: '2023-04-18T09:30:04Z'
+export const persistenceErrorContext: EventErrorContext = {
+  eventId: '123e4567-e89b-12d3-a456-426614174003',
+  eventType: PlanEventType.CLAIM_SUBMITTED,
+  eventSource: 'plan-service',
+  processingStage: EventProcessingStage.PERSISTENCE,
+  journey: JourneyType.PLAN,
+  userId: 'user-123',
+  metadata: {
+    storageTarget: 'claims_table',
+    failureReason: 'Unique constraint violation'
+  }
+};
+
+// ===== RETRY STATES =====
+
+/**
+ * Sample retry attempt for testing
+ */
+export const sampleRetryAttempt: RetryAttempt = {
+  timestamp: new Date('2023-04-15T14:35:17.000Z'),
+  error: 'Database connection timeout',
+  stackTrace: 'Error: Database connection timeout\n    at processHealthMetric (/src/handlers/health-metrics.ts:45:23)\n    at processEvent (/src/event-processor.ts:32:12)',
+  metadata: {
+    attemptNumber: 1,
+    delayMs: 1000
+  }
 };
 
 /**
- * Sample retry state for final attempt
+ * Sample retry attempts for testing multiple retries
  */
-export const finalAttemptRetryState: RetryState = {
-  attemptCount: 5,
-  maxAttempts: 5,
-  initialDelay: 1000,
-  maxDelay: 30000,
-  backoffFactor: 2,
-  nextAttemptAt: undefined,
-  firstAttemptAt: '2023-04-18T09:30:00Z',
-  lastAttemptAt: '2023-04-18T09:30:16Z'
+export const multipleRetryAttempts: RetryAttempt[] = [
+  {
+    timestamp: new Date('2023-04-15T14:35:17.000Z'),
+    error: 'Database connection timeout',
+    stackTrace: 'Error: Database connection timeout\n    at processHealthMetric (/src/handlers/health-metrics.ts:45:23)\n    at processEvent (/src/event-processor.ts:32:12)',
+    metadata: {
+      attemptNumber: 1,
+      delayMs: 1000
+    }
+  },
+  {
+    timestamp: new Date('2023-04-15T14:36:18.000Z'),
+    error: 'Database connection timeout',
+    stackTrace: 'Error: Database connection timeout\n    at processHealthMetric (/src/handlers/health-metrics.ts:45:23)\n    at processEvent (/src/event-processor.ts:32:12)',
+    metadata: {
+      attemptNumber: 2,
+      delayMs: 2000
+    }
+  },
+  {
+    timestamp: new Date('2023-04-15T14:38:19.000Z'),
+    error: 'Database connection timeout',
+    stackTrace: 'Error: Database connection timeout\n    at processHealthMetric (/src/handlers/health-metrics.ts:45:23)\n    at processEvent (/src/event-processor.ts:32:12)',
+    metadata: {
+      attemptNumber: 3,
+      delayMs: 4000
+    }
+  }
+];
+
+/**
+ * Sample retry metadata for health events
+ */
+export const healthRetryMetadata: EventMetadata = {
+  correlationId: 'corr-123e4567-e89b-12d3-a456-426614174000',
+  retryCount: 2,
+  isRetry: true,
+  originalTimestamp: '2023-04-15T14:32:17.000Z',
+  priority: 'high',
+  retryPolicy: 'exponentialBackoff',
+  nextRetryDelayMs: 4000
 };
 
 /**
- * Sample retry state with custom configuration
+ * Sample retry metadata for care events
  */
-export const customRetryState: RetryState = {
-  attemptCount: 2,
-  maxAttempts: 10,
-  initialDelay: 500,
-  maxDelay: 60000,
-  backoffFactor: 3,
-  nextAttemptAt: '2023-04-18T09:30:04.5Z',
-  firstAttemptAt: '2023-04-18T09:30:00Z',
-  lastAttemptAt: '2023-04-18T09:30:01.5Z'
-};
-
-// ===== DLQ MESSAGE FIXTURES =====
-
-/**
- * Sample DLQ message for schema validation error
- */
-export const schemaValidationDLQMessage: DLQMessage = {
-  originalEvent: healthMetricRecordedEvent,
-  errorContext: schemaValidationErrorContext,
-  retryState: finalAttemptRetryState,
-  sentToDLQAt: '2023-04-18T09:30:20Z'
+export const careRetryMetadata: EventMetadata = {
+  correlationId: 'corr-123e4567-e89b-12d3-a456-426614174000',
+  retryCount: 1,
+  isRetry: true,
+  originalTimestamp: '2023-04-15T15:45:30.000Z',
+  priority: 'medium',
+  retryPolicy: 'exponentialBackoff',
+  nextRetryDelayMs: 2000
 };
 
 /**
- * Sample DLQ message for consumer processing error
+ * Sample retry metadata for plan events
  */
-export const consumerProcessingDLQMessage: DLQMessage = {
-  originalEvent: careAppointmentBookedEvent,
-  errorContext: consumerProcessingErrorContext,
-  retryState: finalAttemptRetryState,
-  sentToDLQAt: '2023-04-18T10:45:20Z'
+export const planRetryMetadata: EventMetadata = {
+  correlationId: 'corr-123e4567-e89b-12d3-a456-426614174000',
+  retryCount: 3,
+  isRetry: true,
+  originalTimestamp: '2023-04-15T16:20:45.000Z',
+  priority: 'high',
+  retryPolicy: 'exponentialBackoff',
+  nextRetryDelayMs: 8000
+};
+
+// ===== DLQ FIXTURES =====
+
+/**
+ * Sample DLQ entry for health event
+ */
+export const healthDlqEntry = {
+  id: 'dlq-1681566737000-abc123',
+  eventId: '123e4567-e89b-12d3-a456-426614174001',
+  userId: 'user-123',
+  journey: JourneyType.HEALTH,
+  eventType: HealthEventType.METRIC_RECORDED,
+  payload: sampleHealthEvent.payload,
+  errorType: DlqErrorType.DATABASE,
+  errorMessage: 'Failed to save health metric: Database connection error',
+  errorStack: 'Error: Failed to save health metric: Database connection error\n    at processHealthMetric (/src/handlers/health-metrics.ts:45:23)\n    at processEvent (/src/event-processor.ts:32:12)',
+  retryAttempts: multipleRetryAttempts,
+  status: DlqEntryStatus.PENDING,
+  originalTopic: 'health-events',
+  kafkaMetadata: {
+    topic: 'health-events',
+    partition: 0,
+    offset: '1000',
+    timestamp: '2023-04-15T14:32:17.000Z',
+    headers: {
+      'correlation-id': 'corr-123e4567-e89b-12d3-a456-426614174000'
+    }
+  },
+  processingMetadata: {
+    lastProcessingStep: 'saveMetricToDatabase',
+    failureReason: 'Database connection error',
+    retryPolicy: 'exponentialBackoff',
+    maxRetries: 3
+  },
+  createdAt: new Date('2023-04-15T14:38:57.000Z'),
+  updatedAt: new Date('2023-04-15T14:38:57.000Z')
 };
 
 /**
- * Sample DLQ message for deserialization error
+ * Sample DLQ entry for care event
  */
-export const deserializationDLQMessage: DLQMessage = {
-  originalEvent: planClaimSubmittedEvent,
-  errorContext: deserializationErrorContext,
-  retryState: finalAttemptRetryState,
-  sentToDLQAt: '2023-04-18T11:15:20Z'
+export const careDlqEntry = {
+  id: 'dlq-1681571130000-def456',
+  eventId: '123e4567-e89b-12d3-a456-426614174002',
+  userId: 'user-123',
+  journey: JourneyType.CARE,
+  eventType: CareEventType.APPOINTMENT_BOOKED,
+  payload: sampleCareEvent.payload,
+  errorType: DlqErrorType.NETWORK,
+  errorMessage: 'Failed to publish appointment event: Kafka broker unavailable',
+  errorStack: 'Error: Failed to publish appointment event: Kafka broker unavailable\n    at publishEvent (/src/kafka/producer.ts:78:21)\n    at processAppointment (/src/handlers/appointments.ts:56:18)',
+  retryAttempts: [
+    {
+      timestamp: new Date('2023-04-15T15:46:30.000Z'),
+      error: 'Kafka broker unavailable',
+      stackTrace: 'Error: Kafka broker unavailable\n    at publishEvent (/src/kafka/producer.ts:78:21)',
+      metadata: { attemptNumber: 1, delayMs: 1000 }
+    }
+  ],
+  status: DlqEntryStatus.PENDING,
+  originalTopic: 'care-events',
+  kafkaMetadata: {
+    topic: 'care-events',
+    partition: 1,
+    offset: '2000',
+    timestamp: '2023-04-15T15:45:30.000Z',
+    headers: {
+      'correlation-id': 'corr-123e4567-e89b-12d3-a456-426614174000'
+    }
+  },
+  processingMetadata: {
+    lastProcessingStep: 'publishToKafka',
+    failureReason: 'Kafka broker unavailable',
+    retryPolicy: 'exponentialBackoff',
+    maxRetries: 3
+  },
+  createdAt: new Date('2023-04-15T15:47:30.000Z'),
+  updatedAt: new Date('2023-04-15T15:47:30.000Z')
+};
+
+/**
+ * Sample DLQ entry for plan event
+ */
+export const planDlqEntry = {
+  id: 'dlq-1681573245000-ghi789',
+  eventId: '123e4567-e89b-12d3-a456-426614174003',
+  userId: 'user-123',
+  journey: JourneyType.PLAN,
+  eventType: PlanEventType.CLAIM_SUBMITTED,
+  payload: samplePlanEvent.payload,
+  errorType: DlqErrorType.VALIDATION,
+  errorMessage: 'Failed to validate claim: Claim amount exceeds maximum allowed for this plan type',
+  errorStack: 'Error: Failed to validate claim: Claim amount exceeds maximum allowed for this plan type\n    at validateClaim (/src/validators/claim-validator.ts:34:15)\n    at processClaim (/src/handlers/claims.ts:28:22)',
+  retryAttempts: [],
+  status: DlqEntryStatus.PENDING,
+  originalTopic: 'plan-events',
+  kafkaMetadata: {
+    topic: 'plan-events',
+    partition: 2,
+    offset: '3000',
+    timestamp: '2023-04-15T16:20:45.000Z',
+    headers: {
+      'correlation-id': 'corr-123e4567-e89b-12d3-a456-426614174000'
+    }
+  },
+  processingMetadata: {
+    lastProcessingStep: 'validateClaim',
+    failureReason: 'Claim amount exceeds maximum allowed for this plan type',
+    validationRules: {
+      maxClaimAmount: 100.00,
+      actualAmount: 150.00
+    }
+  },
+  createdAt: new Date('2023-04-15T16:20:45.000Z'),
+  updatedAt: new Date('2023-04-15T16:20:45.000Z')
 };
 
 // ===== HELPER FUNCTIONS =====
 
 /**
- * Creates a test event with custom properties
- * 
- * @param type - The event type
- * @param payload - The event payload
- * @param metadata - Optional metadata overrides
- * @returns A test event object
+ * Creates a sample health event with custom data
+ * @param overrides Properties to override in the default health event
+ * @returns Customized health event
  */
-export function createTestEvent(type: EventType, payload: Record<string, any>, metadata?: Partial<TestEvent['metadata']>): TestEvent {
-  const defaultMetadata = {
-    userId: 'user-test',
-    timestamp: new Date().toISOString(),
-    correlationId: `corr-${Math.random().toString(36).substring(2, 9)}`,
-    source: 'test-service',
-    version: '1.0.0'
-  };
-
+export function createHealthEvent(overrides: Partial<BaseEvent> = {}): BaseEvent {
   return {
-    id: `test-event-${Math.random().toString(36).substring(2, 9)}`,
-    type,
-    payload,
-    metadata: { ...defaultMetadata, ...metadata }
-  };
-}
-
-/**
- * Creates an error context with custom properties
- * 
- * @param errorCode - The error code
- * @param errorMessage - The error message
- * @param topic - The Kafka topic
- * @param additionalInfo - Optional additional error information
- * @returns An error context object
- */
-export function createErrorContext(errorCode: string, errorMessage: string, topic: string, additionalInfo?: Record<string, any>): ErrorContext {
-  return {
-    errorCode,
-    errorMessage,
-    topic,
-    partition: Math.floor(Math.random() * 10),
-    offset: Math.floor(Math.random() * 100000),
-    timestamp: new Date().toISOString(),
-    additionalInfo
-  };
-}
-
-/**
- * Creates a retry state with custom properties
- * 
- * @param attemptCount - The current attempt count
- * @param maxAttempts - The maximum number of attempts
- * @param options - Optional retry configuration
- * @returns A retry state object
- */
-export function createRetryState(attemptCount: number, maxAttempts: number, options?: Partial<RetryState>): RetryState {
-  const now = new Date();
-  const firstAttemptAt = new Date(now.getTime() - (attemptCount * 1000)).toISOString();
-  const lastAttemptAt = attemptCount > 1 ? new Date(now.getTime() - 1000).toISOString() : firstAttemptAt;
-  
-  const initialDelay = options?.initialDelay || 1000;
-  const backoffFactor = options?.backoffFactor || 2;
-  const currentDelay = Math.min(
-    options?.maxDelay || 30000,
-    initialDelay * Math.pow(backoffFactor, attemptCount - 1)
-  );
-  
-  const nextAttemptAt = attemptCount < maxAttempts 
-    ? new Date(now.getTime() + currentDelay).toISOString() 
-    : undefined;
-  
-  return {
-    attemptCount,
-    maxAttempts,
-    initialDelay: options?.initialDelay || 1000,
-    maxDelay: options?.maxDelay || 30000,
-    backoffFactor: options?.backoffFactor || 2,
-    nextAttemptAt,
-    firstAttemptAt,
-    lastAttemptAt,
-    ...options
-  };
-}
-
-/**
- * Creates a DLQ message with custom properties
- * 
- * @param originalEvent - The original event that failed processing
- * @param errorContext - The error context
- * @param retryState - The retry state
- * @returns A DLQ message object
- */
-export function createDLQMessage(originalEvent: TestEvent, errorContext: ErrorContext, retryState: RetryState): DLQMessage {
-  return {
-    originalEvent,
-    errorContext,
-    retryState,
-    sentToDLQAt: new Date().toISOString()
-  };
-}
-
-/**
- * Creates a collection of test events for a specific journey
- * 
- * @param journey - The journey type (health, care, plan, gamification, user)
- * @param count - The number of events to create
- * @returns An array of test events
- */
-export function createJourneyEvents(journey: 'health' | 'care' | 'plan' | 'gamification' | 'user', count: number): TestEvent[] {
-  const events: TestEvent[] = [];
-  let eventTypes: EventType[] = [];
-  
-  // Select event types based on journey
-  switch (journey) {
-    case 'health':
-      eventTypes = Object.values(JourneyEvents.Health);
-      break;
-    case 'care':
-      eventTypes = Object.values(JourneyEvents.Care);
-      break;
-    case 'plan':
-      eventTypes = Object.values(JourneyEvents.Plan);
-      break;
-    case 'gamification':
-      eventTypes = Object.values(JourneyEvents.Gamification);
-      break;
-    case 'user':
-      eventTypes = Object.values(JourneyEvents.User);
-      break;
-  }
-  
-  // Create the requested number of events
-  for (let i = 0; i < count; i++) {
-    const eventType = eventTypes[i % eventTypes.length];
-    let payload: Record<string, any> = {};
-    
-    // Create appropriate payload based on event type
-    switch (eventType) {
-      // Health journey events
-      case EventType.HEALTH_METRIC_RECORDED:
-        payload = {
-          metricType: ['blood_pressure', 'weight', 'steps', 'heart_rate'][Math.floor(Math.random() * 4)],
-          value: Math.floor(Math.random() * 200),
-          unit: ['mmHg', 'kg', 'steps', 'bpm'][Math.floor(Math.random() * 4)],
-          timestamp: new Date().toISOString(),
-          source: ['manual', 'device', 'integration'][Math.floor(Math.random() * 3)]
-        };
-        break;
-      
-      case EventType.HEALTH_GOAL_ACHIEVED:
-        payload = {
-          goalId: `goal-${Math.floor(Math.random() * 1000)}`,
-          goalType: ['steps', 'weight_loss', 'sleep'][Math.floor(Math.random() * 3)],
-          targetValue: Math.floor(Math.random() * 10000),
-          achievedValue: Math.floor(Math.random() * 10000),
-          completedAt: new Date().toISOString()
-        };
-        break;
-      
-      // Care journey events
-      case EventType.CARE_APPOINTMENT_BOOKED:
-        payload = {
-          appointmentId: `appt-${Math.floor(Math.random() * 1000)}`,
-          providerId: `provider-${Math.floor(Math.random() * 1000)}`,
-          specialtyType: ['Cardiologia', 'Dermatologia', 'Ortopedia'][Math.floor(Math.random() * 3)],
-          appointmentType: ['in_person', 'telemedicine'][Math.floor(Math.random() * 2)],
-          scheduledAt: new Date(Date.now() + 86400000 * 7).toISOString(),
-          bookedAt: new Date().toISOString()
-        };
-        break;
-      
-      // Plan journey events
-      case EventType.PLAN_CLAIM_SUBMITTED:
-        payload = {
-          claimId: `claim-${Math.floor(Math.random() * 1000)}`,
-          claimType: ['medical', 'dental', 'vision', 'pharmacy'][Math.floor(Math.random() * 4)],
-          providerId: `provider-${Math.floor(Math.random() * 1000)}`,
-          serviceDate: new Date(Date.now() - 86400000 * Math.floor(Math.random() * 30)).toISOString(),
-          amount: Math.floor(Math.random() * 1000) + Math.random(),
-          submittedAt: new Date().toISOString()
-        };
-        break;
-      
-      // Gamification events
-      case EventType.GAMIFICATION_POINTS_EARNED:
-        payload = {
-          sourceType: ['health', 'care', 'plan'][Math.floor(Math.random() * 3)],
-          sourceId: `event-${Math.floor(Math.random() * 1000)}`,
-          points: Math.floor(Math.random() * 100),
-          reason: ['Goal achievement', 'Appointment attendance', 'Claim submission'][Math.floor(Math.random() * 3)],
-          earnedAt: new Date().toISOString()
-        };
-        break;
-      
-      // User events
-      case EventType.USER_LOGIN:
-        payload = {
-          loginMethod: ['password', 'sso', 'biometric'][Math.floor(Math.random() * 3)],
-          deviceType: ['mobile', 'web'][Math.floor(Math.random() * 2)],
-          loginAt: new Date().toISOString()
-        };
-        break;
-      
-      // Default payload for other event types
-      default:
-        payload = {
-          timestamp: new Date().toISOString(),
-          data: `Sample data for ${eventType}`,
-          randomValue: Math.floor(Math.random() * 1000)
-        };
+    ...sampleHealthEvent,
+    ...overrides,
+    payload: {
+      ...sampleHealthEvent.payload,
+      ...(overrides.payload || {})
     }
-    
-    events.push(createTestEvent(eventType, payload));
-  }
+  };
+}
+
+/**
+ * Creates a sample care event with custom data
+ * @param overrides Properties to override in the default care event
+ * @returns Customized care event
+ */
+export function createCareEvent(overrides: Partial<BaseEvent> = {}): BaseEvent {
+  return {
+    ...sampleCareEvent,
+    ...overrides,
+    payload: {
+      ...sampleCareEvent.payload,
+      ...(overrides.payload || {})
+    }
+  };
+}
+
+/**
+ * Creates a sample plan event with custom data
+ * @param overrides Properties to override in the default plan event
+ * @returns Customized plan event
+ */
+export function createPlanEvent(overrides: Partial<BaseEvent> = {}): BaseEvent {
+  return {
+    ...samplePlanEvent,
+    ...overrides,
+    payload: {
+      ...samplePlanEvent.payload,
+      ...(overrides.payload || {})
+    }
+  };
+}
+
+/**
+ * Creates a retry context with custom data
+ * @param event The event being retried
+ * @param retryCount Number of retry attempts so far
+ * @param error The error that caused the retry
+ * @param additionalMetadata Additional metadata for the retry context
+ * @returns Customized retry context
+ */
+export function createRetryContext(
+  event: BaseEvent,
+  retryCount: number,
+  error: Error,
+  additionalMetadata: Record<string, any> = {}
+): EventErrorContext {
+  return {
+    eventId: event.eventId,
+    eventType: event.type,
+    eventSource: event.source,
+    processingStage: EventProcessingStage.PROCESSING,
+    journey: event.journey,
+    userId: event.userId,
+    retryCount,
+    metadata: {
+      ...event.metadata,
+      error: error.message,
+      errorStack: error.stack,
+      ...additionalMetadata
+    }
+  };
+}
+
+/**
+ * Creates a DLQ entry with custom data
+ * @param event The event that failed processing
+ * @param errorType Type of error that occurred
+ * @param errorMessage Error message
+ * @param retryAttempts Array of retry attempts
+ * @param additionalMetadata Additional metadata for the DLQ entry
+ * @returns Customized DLQ entry
+ */
+export function createDlqEntry(
+  event: BaseEvent,
+  errorType: DlqErrorType,
+  errorMessage: string,
+  retryAttempts: RetryAttempt[] = [],
+  additionalMetadata: Record<string, any> = {}
+) {
+  const now = new Date();
+  const id = `dlq-${now.getTime()}-${Math.random().toString(36).substring(2, 8)}`;
   
-  return events;
+  return {
+    id,
+    eventId: event.eventId,
+    userId: event.userId,
+    journey: event.journey,
+    eventType: event.type,
+    payload: event.payload,
+    errorType,
+    errorMessage,
+    errorStack: new Error(errorMessage).stack,
+    retryAttempts,
+    status: DlqEntryStatus.PENDING,
+    originalTopic: `${event.journey?.toLowerCase() || 'unknown'}-events`,
+    kafkaMetadata: {
+      topic: `${event.journey?.toLowerCase() || 'unknown'}-events`,
+      partition: 0,
+      offset: '0',
+      timestamp: event.timestamp,
+      headers: {
+        'correlation-id': event.metadata?.correlationId || `corr-${event.eventId}`
+      }
+    },
+    processingMetadata: {
+      ...additionalMetadata
+    },
+    createdAt: now,
+    updatedAt: now
+  };
+}
+
+/**
+ * Creates an error with retry metadata
+ * @param message Error message
+ * @param retryCount Number of retry attempts so far
+ * @param category Error category for retry classification
+ * @returns Error with retry metadata
+ */
+export function createErrorWithRetryMetadata(
+  message: string,
+  retryCount: number,
+  category: EventErrorCategory
+): Error {
+  const error = new Error(message);
+  (error as any).retryCount = retryCount;
+  (error as any).category = category;
+  (error as any).isRetriable = category === EventErrorCategory.TRANSIENT || 
+                              category === EventErrorCategory.RETRIABLE;
+  return error;
 }

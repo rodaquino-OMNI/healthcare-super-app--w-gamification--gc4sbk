@@ -1,168 +1,222 @@
-import { TOPICS } from '../../../src/constants/topics.constants';
+/**
+ * @file Unit tests for Kafka topic name constants.
+ * 
+ * These tests verify that topic constants follow standardized naming patterns
+ * across the healthcare super app, ensuring consistency between producers and consumers.
+ */
 
-describe('Topics Constants', () => {
-  describe('Naming Pattern Consistency', () => {
-    it('should follow the <journey/category>.<event-type> naming pattern', () => {
-      // Check all topics follow the pattern
-      const allTopics = getAllTopicValues(TOPICS);
-      
-      // Skip the dead letter queue which has a different pattern
-      const regularTopics = allTopics.filter(topic => topic !== TOPICS.DEAD_LETTER);
-      
-      for (const topic of regularTopics) {
-        expect(topic).toMatch(/^[a-z]+\.[a-z]+$/);
-      }
+import {
+  HEALTH_EVENTS,
+  CARE_EVENTS,
+  PLAN_EVENTS,
+  USER_EVENTS,
+  GAMIFICATION_EVENTS,
+  VERSIONED_TOPICS,
+  Topics,
+  JOURNEY_TOPICS,
+  ALL_TOPICS,
+  isValidTopic,
+  getTopicForJourney,
+  getVersionedTopic
+} from '../../../src/constants/topics.constants';
+import { JourneyTypes } from '../../../src/constants/types.constants';
+
+describe('Topic Constants', () => {
+  describe('Base topic naming patterns', () => {
+    it('should define journey-specific topics with consistent naming pattern', () => {
+      // Verify journey-specific topics follow the pattern: journeyName.events
+      expect(HEALTH_EVENTS).toBe('health.events');
+      expect(CARE_EVENTS).toBe('care.events');
+      expect(PLAN_EVENTS).toBe('plan.events');
     });
-    
-    it('should use consistent journey prefixes', () => {
-      // Health journey topics
-      expect(TOPICS.HEALTH.EVENTS).toMatch(/^health\./);
-      expect(TOPICS.HEALTH.METRICS).toMatch(/^health\./);
-      expect(TOPICS.HEALTH.GOALS).toMatch(/^health\./);
-      expect(TOPICS.HEALTH.DEVICES).toMatch(/^health\./);
-      
-      // Care journey topics
-      expect(TOPICS.CARE.EVENTS).toMatch(/^care\./);
-      expect(TOPICS.CARE.APPOINTMENTS).toMatch(/^care\./);
-      expect(TOPICS.CARE.MEDICATIONS).toMatch(/^care\./);
-      expect(TOPICS.CARE.TELEMEDICINE).toMatch(/^care\./);
-      
-      // Plan journey topics
-      expect(TOPICS.PLAN.EVENTS).toMatch(/^plan\./);
-      expect(TOPICS.PLAN.CLAIMS).toMatch(/^plan\./);
-      expect(TOPICS.PLAN.BENEFITS).toMatch(/^plan\./);
-      expect(TOPICS.PLAN.SELECTION).toMatch(/^plan\./);
+
+    it('should define cross-journey topics with consistent naming pattern', () => {
+      // Verify cross-journey topics follow the same pattern
+      expect(USER_EVENTS).toBe('user.events');
+      expect(GAMIFICATION_EVENTS).toBe('game.events');
     });
-    
-    it('should use consistent cross-cutting concern prefixes', () => {
-      // User topics
-      expect(TOPICS.USER.EVENTS).toMatch(/^user\./);
-      expect(TOPICS.USER.PROFILE).toMatch(/^user\./);
-      expect(TOPICS.USER.PREFERENCES).toMatch(/^user\./);
+
+    it('should have unique topic names for each journey', () => {
+      // Create a set of all topic names to check for duplicates
+      const baseTopics = [
+        HEALTH_EVENTS,
+        CARE_EVENTS,
+        PLAN_EVENTS,
+        USER_EVENTS,
+        GAMIFICATION_EVENTS
+      ];
       
-      // Gamification topics
-      expect(TOPICS.GAMIFICATION.EVENTS).toMatch(/^game\./);
-      expect(TOPICS.GAMIFICATION.ACHIEVEMENTS).toMatch(/^game\./);
-      expect(TOPICS.GAMIFICATION.REWARDS).toMatch(/^game\./);
-      expect(TOPICS.GAMIFICATION.LEADERBOARD).toMatch(/^game\./);
-      
-      // Notification topics
-      expect(TOPICS.NOTIFICATIONS.EVENTS).toMatch(/^notification\./);
-      expect(TOPICS.NOTIFICATIONS.PUSH).toMatch(/^notification\./);
-      expect(TOPICS.NOTIFICATIONS.EMAIL).toMatch(/^notification\./);
-      expect(TOPICS.NOTIFICATIONS.SMS).toMatch(/^notification\./);
+      // Set size should equal array length if all values are unique
+      expect(new Set(baseTopics).size).toBe(baseTopics.length);
     });
   });
-  
-  describe('Cross-Journey Event Topics', () => {
-    it('should define user.events topic for user-related events', () => {
-      expect(TOPICS.USER.EVENTS).toBe('user.events');
+
+  describe('Versioned topic patterns', () => {
+    it('should define versioned topics for health journey', () => {
+      expect(VERSIONED_TOPICS.HEALTH.V1).toBe(`${HEALTH_EVENTS}.v1`);
+      expect(VERSIONED_TOPICS.HEALTH.V2).toBe(`${HEALTH_EVENTS}.v2`);
     });
-    
-    it('should define game.events topic for gamification events', () => {
-      expect(TOPICS.GAMIFICATION.EVENTS).toBe('game.events');
+
+    it('should define versioned topics for care journey', () => {
+      expect(VERSIONED_TOPICS.CARE.V1).toBe(`${CARE_EVENTS}.v1`);
+      expect(VERSIONED_TOPICS.CARE.V2).toBe(`${CARE_EVENTS}.v2`);
+    });
+
+    it('should define versioned topics for plan journey', () => {
+      expect(VERSIONED_TOPICS.PLAN.V1).toBe(`${PLAN_EVENTS}.v1`);
+      expect(VERSIONED_TOPICS.PLAN.V2).toBe(`${PLAN_EVENTS}.v2`);
+    });
+
+    it('should define versioned topics for user events', () => {
+      expect(VERSIONED_TOPICS.USER.V1).toBe(`${USER_EVENTS}.v1`);
+      expect(VERSIONED_TOPICS.USER.V2).toBe(`${USER_EVENTS}.v2`);
+    });
+
+    it('should define versioned topics for gamification events', () => {
+      expect(VERSIONED_TOPICS.GAMIFICATION.V1).toBe(`${GAMIFICATION_EVENTS}.v1`);
+      expect(VERSIONED_TOPICS.GAMIFICATION.V2).toBe(`${GAMIFICATION_EVENTS}.v2`);
+    });
+
+    it('should have unique versioned topic names', () => {
+      // Collect all versioned topics
+      const versionedTopics = [
+        ...Object.values(VERSIONED_TOPICS.HEALTH),
+        ...Object.values(VERSIONED_TOPICS.CARE),
+        ...Object.values(VERSIONED_TOPICS.PLAN),
+        ...Object.values(VERSIONED_TOPICS.USER),
+        ...Object.values(VERSIONED_TOPICS.GAMIFICATION)
+      ];
+      
+      // Set size should equal array length if all values are unique
+      expect(new Set(versionedTopics).size).toBe(versionedTopics.length);
     });
   });
-  
-  describe('Namespace Organization', () => {
-    it('should organize topics by journey for proper code completion', () => {
-      // Check journey namespaces exist
-      expect(TOPICS.HEALTH).toBeDefined();
-      expect(TOPICS.CARE).toBeDefined();
-      expect(TOPICS.PLAN).toBeDefined();
-      
-      // Check cross-cutting concern namespaces exist
-      expect(TOPICS.USER).toBeDefined();
-      expect(TOPICS.GAMIFICATION).toBeDefined();
-      expect(TOPICS.NOTIFICATIONS).toBeDefined();
+
+  describe('Namespace organization', () => {
+    it('should define all journey namespaces', () => {
+      // Verify all expected namespaces exist
+      expect(Topics.Health).toBeDefined();
+      expect(Topics.Care).toBeDefined();
+      expect(Topics.Plan).toBeDefined();
+      expect(Topics.User).toBeDefined();
+      expect(Topics.Gamification).toBeDefined();
     });
-    
-    it('should include an EVENTS topic for each journey/category', () => {
-      expect(TOPICS.HEALTH.EVENTS).toBeDefined();
-      expect(TOPICS.CARE.EVENTS).toBeDefined();
-      expect(TOPICS.PLAN.EVENTS).toBeDefined();
-      expect(TOPICS.USER.EVENTS).toBeDefined();
-      expect(TOPICS.GAMIFICATION.EVENTS).toBeDefined();
-      expect(TOPICS.NOTIFICATIONS.EVENTS).toBeDefined();
+
+    it('should provide consistent access to base topics through namespaces', () => {
+      // Verify base topics are accessible through namespaces
+      expect(Topics.Health.EVENTS).toBe(HEALTH_EVENTS);
+      expect(Topics.Care.EVENTS).toBe(CARE_EVENTS);
+      expect(Topics.Plan.EVENTS).toBe(PLAN_EVENTS);
+      expect(Topics.User.EVENTS).toBe(USER_EVENTS);
+      expect(Topics.Gamification.EVENTS).toBe(GAMIFICATION_EVENTS);
     });
-  });
-  
-  describe('Topic Coverage', () => {
-    it('should cover all health journey event types', () => {
-      expect(TOPICS.HEALTH.METRICS).toBeDefined();
-      expect(TOPICS.HEALTH.GOALS).toBeDefined();
-      expect(TOPICS.HEALTH.DEVICES).toBeDefined();
-    });
-    
-    it('should cover all care journey event types', () => {
-      expect(TOPICS.CARE.APPOINTMENTS).toBeDefined();
-      expect(TOPICS.CARE.MEDICATIONS).toBeDefined();
-      expect(TOPICS.CARE.TELEMEDICINE).toBeDefined();
-    });
-    
-    it('should cover all plan journey event types', () => {
-      expect(TOPICS.PLAN.CLAIMS).toBeDefined();
-      expect(TOPICS.PLAN.BENEFITS).toBeDefined();
-      expect(TOPICS.PLAN.SELECTION).toBeDefined();
-    });
-    
-    it('should cover all user-related event types', () => {
-      expect(TOPICS.USER.PROFILE).toBeDefined();
-      expect(TOPICS.USER.PREFERENCES).toBeDefined();
-    });
-    
-    it('should cover all gamification event types', () => {
-      expect(TOPICS.GAMIFICATION.ACHIEVEMENTS).toBeDefined();
-      expect(TOPICS.GAMIFICATION.REWARDS).toBeDefined();
-      expect(TOPICS.GAMIFICATION.LEADERBOARD).toBeDefined();
-    });
-    
-    it('should cover all notification event types', () => {
-      expect(TOPICS.NOTIFICATIONS.PUSH).toBeDefined();
-      expect(TOPICS.NOTIFICATIONS.EMAIL).toBeDefined();
-      expect(TOPICS.NOTIFICATIONS.SMS).toBeDefined();
-    });
-    
-    it('should define a dead letter queue topic', () => {
-      expect(TOPICS.DEAD_LETTER).toBeDefined();
-      expect(TOPICS.DEAD_LETTER).toBe('dead-letter');
+
+    it('should provide consistent access to versioned topics through namespaces', () => {
+      // Verify versioned topics are accessible through namespaces
+      expect(Topics.Health.VERSIONED).toBe(VERSIONED_TOPICS.HEALTH);
+      expect(Topics.Care.VERSIONED).toBe(VERSIONED_TOPICS.CARE);
+      expect(Topics.Plan.VERSIONED).toBe(VERSIONED_TOPICS.PLAN);
+      expect(Topics.User.VERSIONED).toBe(VERSIONED_TOPICS.USER);
+      expect(Topics.Gamification.VERSIONED).toBe(VERSIONED_TOPICS.GAMIFICATION);
     });
   });
-  
-  describe('Versioning Pattern', () => {
-    it('should support future versioning of topics', () => {
-      // This test is a placeholder for future versioning implementation
-      // When versioning is implemented, this test should be updated to verify
-      // that topics follow the versioning pattern
+
+  describe('Topic coverage completeness', () => {
+    it('should include all base topics in ALL_TOPICS', () => {
+      // Verify ALL_TOPICS includes all base topics
+      expect(ALL_TOPICS).toContain(HEALTH_EVENTS);
+      expect(ALL_TOPICS).toContain(CARE_EVENTS);
+      expect(ALL_TOPICS).toContain(PLAN_EVENTS);
+      expect(ALL_TOPICS).toContain(USER_EVENTS);
+      expect(ALL_TOPICS).toContain(GAMIFICATION_EVENTS);
+    });
+
+    it('should include all versioned topics in ALL_TOPICS', () => {
+      // Verify ALL_TOPICS includes all versioned topics
+      expect(ALL_TOPICS).toContain(VERSIONED_TOPICS.HEALTH.V1);
+      expect(ALL_TOPICS).toContain(VERSIONED_TOPICS.HEALTH.V2);
+      expect(ALL_TOPICS).toContain(VERSIONED_TOPICS.CARE.V1);
+      expect(ALL_TOPICS).toContain(VERSIONED_TOPICS.CARE.V2);
+      expect(ALL_TOPICS).toContain(VERSIONED_TOPICS.PLAN.V1);
+      expect(ALL_TOPICS).toContain(VERSIONED_TOPICS.PLAN.V2);
+      expect(ALL_TOPICS).toContain(VERSIONED_TOPICS.USER.V1);
+      expect(ALL_TOPICS).toContain(VERSIONED_TOPICS.USER.V2);
+      expect(ALL_TOPICS).toContain(VERSIONED_TOPICS.GAMIFICATION.V1);
+      expect(ALL_TOPICS).toContain(VERSIONED_TOPICS.GAMIFICATION.V2);
+    });
+
+    it('should map all journey types to their corresponding topics', () => {
+      // Verify JOURNEY_TOPICS maps all journey types
+      expect(JOURNEY_TOPICS[JourneyTypes.HEALTH]).toBe(HEALTH_EVENTS);
+      expect(JOURNEY_TOPICS[JourneyTypes.CARE]).toBe(CARE_EVENTS);
+      expect(JOURNEY_TOPICS[JourneyTypes.PLAN]).toBe(PLAN_EVENTS);
+      expect(JOURNEY_TOPICS[JourneyTypes.CROSS_JOURNEY]).toBe(USER_EVENTS);
+    });
+
+    it('should have the same number of entries in ALL_TOPICS as defined topics', () => {
+      // Calculate the expected number of topics
+      const expectedCount = 5 + // Base topics (health, care, plan, user, gamification)
+                           10; // Versioned topics (5 base topics × 2 versions)
       
-      // Example implementation once versioning is added:
-      // expect(TOPICS.HEALTH.EVENTS_V1).toBeDefined();
-      // expect(TOPICS.HEALTH.EVENTS_V1).toMatch(/^health\.events\.v1$/);
-      
-      // For now, just verify the current structure exists
-      expect(TOPICS).toBeDefined();
+      expect(ALL_TOPICS.length).toBe(expectedCount);
+    });
+  });
+
+  describe('Utility functions', () => {
+    describe('isValidTopic', () => {
+      it('should return true for valid base topics', () => {
+        expect(isValidTopic(HEALTH_EVENTS)).toBe(true);
+        expect(isValidTopic(CARE_EVENTS)).toBe(true);
+        expect(isValidTopic(PLAN_EVENTS)).toBe(true);
+        expect(isValidTopic(USER_EVENTS)).toBe(true);
+        expect(isValidTopic(GAMIFICATION_EVENTS)).toBe(true);
+      });
+
+      it('should return true for valid versioned topics', () => {
+        expect(isValidTopic(VERSIONED_TOPICS.HEALTH.V1)).toBe(true);
+        expect(isValidTopic(VERSIONED_TOPICS.CARE.V2)).toBe(true);
+      });
+
+      it('should return false for invalid topics', () => {
+        expect(isValidTopic('invalid.topic')).toBe(false);
+        expect(isValidTopic('')).toBe(false);
+        expect(isValidTopic('health.events.invalid')).toBe(false);
+      });
+    });
+
+    describe('getTopicForJourney', () => {
+      it('should return the correct topic for each journey type', () => {
+        expect(getTopicForJourney(JourneyTypes.HEALTH)).toBe(HEALTH_EVENTS);
+        expect(getTopicForJourney(JourneyTypes.CARE)).toBe(CARE_EVENTS);
+        expect(getTopicForJourney(JourneyTypes.PLAN)).toBe(PLAN_EVENTS);
+        expect(getTopicForJourney(JourneyTypes.CROSS_JOURNEY)).toBe(USER_EVENTS);
+      });
+
+      it('should return USER_EVENTS for unknown journey types', () => {
+        // @ts-ignore - Testing with invalid input
+        expect(getTopicForJourney('unknown')).toBe(USER_EVENTS);
+      });
+    });
+
+    describe('getVersionedTopic', () => {
+      it('should return the correct v1 topic for each journey type', () => {
+        expect(getVersionedTopic(JourneyTypes.HEALTH, 1)).toBe(VERSIONED_TOPICS.HEALTH.V1);
+        expect(getVersionedTopic(JourneyTypes.CARE, 1)).toBe(VERSIONED_TOPICS.CARE.V1);
+        expect(getVersionedTopic(JourneyTypes.PLAN, 1)).toBe(VERSIONED_TOPICS.PLAN.V1);
+        expect(getVersionedTopic(JourneyTypes.CROSS_JOURNEY, 1)).toBe(VERSIONED_TOPICS.USER.V1);
+      });
+
+      it('should return the correct v2 topic for each journey type', () => {
+        expect(getVersionedTopic(JourneyTypes.HEALTH, 2)).toBe(VERSIONED_TOPICS.HEALTH.V2);
+        expect(getVersionedTopic(JourneyTypes.CARE, 2)).toBe(VERSIONED_TOPICS.CARE.V2);
+        expect(getVersionedTopic(JourneyTypes.PLAN, 2)).toBe(VERSIONED_TOPICS.PLAN.V2);
+        expect(getVersionedTopic(JourneyTypes.CROSS_JOURNEY, 2)).toBe(VERSIONED_TOPICS.USER.V2);
+      });
+
+      it('should return the default topic for unknown journey types', () => {
+        // @ts-ignore - Testing with invalid input
+        expect(getVersionedTopic('unknown', 1)).toBe(USER_EVENTS);
+      });
     });
   });
 });
-
-/**
- * Helper function to extract all topic values from the TOPICS object,
- * including nested values.
- */
-function getAllTopicValues(topics: any): string[] {
-  const result: string[] = [];
-  
-  function extractValues(obj: any) {
-    for (const key in obj) {
-      const value = obj[key];
-      if (typeof value === 'string') {
-        result.push(value);
-      } else if (typeof value === 'object' && value !== null) {
-        extractValues(value);
-      }
-    }
-  }
-  
-  extractValues(topics);
-  return result;
-}

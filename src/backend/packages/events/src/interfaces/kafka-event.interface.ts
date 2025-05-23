@@ -1,144 +1,163 @@
 /**
- * Interface definitions for Kafka-specific event messaging.
- * Extends the base event interface with Kafka-specific properties.
+ * Defines interfaces specific to Kafka-based event messaging.
+ * These interfaces extend the base event with Kafka-specific properties
+ * to support reliable event delivery and consumption via Kafka.
  */
 
-import { BaseEvent } from './base-event.interface';
+import { IBaseEvent } from './base-event.interface';
 
 /**
- * Represents Kafka message headers which are key-value pairs
- * used for metadata in Kafka messages.
+ * Represents Kafka message headers for metadata.
+ * Headers are key-value pairs used for message routing, tracing, and other metadata.
  */
 export interface KafkaHeaders {
   [key: string]: string;
 }
 
 /**
- * Represents a Kafka-specific event with properties required for
- * reliable event delivery and consumption via Kafka.
+ * Extends the base event with Kafka-specific properties.
+ * This interface provides the necessary structure for reliable event delivery
+ * and consumption via Kafka, supporting the event-driven architecture.
  */
-export interface KafkaEvent<T = any> extends BaseEvent<T> {
+export interface KafkaEvent<T = any> extends IBaseEvent<T> {
   /**
-   * The Kafka topic this event was published to or consumed from.
+   * The Kafka topic the event was published to.
+   * Used for routing events to appropriate consumers.
    */
   topic: string;
 
   /**
-   * The Kafka partition this event was published to or consumed from.
+   * The Kafka partition the event was published to.
+   * Used for parallel processing and ordering guarantees.
    */
-  partition: number;
+  partition?: number;
 
   /**
-   * The offset of this event in the Kafka partition.
-   * Used for tracking consumption progress and enabling replay capabilities.
+   * The Kafka offset of the event within its partition.
+   * Used for tracking consumption progress and exactly-once processing.
    */
-  offset: number;
+  offset?: string;
 
   /**
-   * Optional key used for partitioning in Kafka.
-   * Messages with the same key will be sent to the same partition.
+   * The Kafka message key used for partitioning.
+   * Events with the same key are guaranteed to be processed in order.
    */
   key?: string;
 
   /**
-   * Headers containing metadata for the Kafka message.
-   * Can include correlation IDs, tracing information, etc.
+   * Kafka message headers for metadata.
+   * Used for tracing, routing, and other cross-cutting concerns.
    */
   headers?: KafkaHeaders;
 }
 
 /**
- * Configuration options for producing Kafka events.
+ * Configuration options for Kafka event production.
+ * Used when publishing events to Kafka topics.
  */
-export interface KafkaProducerOptions {
+export interface KafkaEventProducerOptions {
   /**
-   * The Kafka topic to produce the event to.
+   * The Kafka topic to publish the event to.
    */
   topic: string;
 
   /**
-   * Optional partition to produce the event to.
-   * If not specified, Kafka will determine the partition based on the key.
-   */
-  partition?: number;
-
-  /**
    * Optional key for the Kafka message.
-   * Messages with the same key will be sent to the same partition.
+   * Used for partitioning and ordering guarantees.
    */
   key?: string;
 
   /**
    * Optional headers for the Kafka message.
+   * Used for metadata and cross-cutting concerns.
    */
   headers?: KafkaHeaders;
 
   /**
-   * Optional compression type for the Kafka message.
+   * Optional partition for the Kafka message.
+   * If specified, the message will be sent to this partition.
    */
-  compression?: 'none' | 'gzip' | 'snappy' | 'lz4';
+  partition?: number;
 
   /**
-   * Optional acknowledgment level for the Kafka message.
-   * 0 = No acknowledgment
-   * 1 = Leader acknowledgment only
-   * -1 = All replicas acknowledgment
+   * Whether to wait for acknowledgment from all replicas.
+   * Default is true for reliable delivery.
    */
-  acks?: 0 | 1 | -1;
+  requireAcks?: boolean;
 }
 
 /**
- * Configuration options for consuming Kafka events.
+ * Configuration options for Kafka event consumption.
+ * Used when subscribing to Kafka topics.
  */
-export interface KafkaConsumerOptions {
+export interface KafkaEventConsumerOptions {
   /**
-   * The Kafka topic to consume events from.
+   * The Kafka topic to subscribe to.
    */
   topic: string;
 
   /**
    * The consumer group ID for this consumer.
-   * Consumers with the same group ID will share the consumption load.
+   * Used for load balancing and offset tracking.
    */
   groupId: string;
 
   /**
-   * Optional flag to indicate whether to start consuming from the beginning of the topic.
-   * If false, will start consuming from the latest offset.
+   * Whether to start consuming from the beginning of the topic.
+   * Default is false (start from latest).
    */
   fromBeginning?: boolean;
 
   /**
-   * Optional specific partition to consume from.
-   * If not specified, will consume from all partitions of the topic.
+   * Maximum number of messages to process in parallel.
+   * Default is 1 for ordered processing.
    */
-  partition?: number;
+  concurrency?: number;
 
   /**
-   * Optional auto-commit configuration.
-   * If true, offsets will be committed automatically at regular intervals.
+   * Retry configuration for failed message processing.
    */
-  autoCommit?: boolean;
+  retry?: {
+    /**
+     * Maximum number of retries before sending to dead letter queue.
+     */
+    maxRetries: number;
+
+    /**
+     * Initial retry delay in milliseconds.
+     */
+    initialRetryTime: number;
+
+    /**
+     * Factor to multiply delay by for each retry (exponential backoff).
+     */
+    backoffFactor: number;
+  };
 
   /**
-   * Optional auto-commit interval in milliseconds.
-   * Only applicable if autoCommit is true.
+   * Dead letter queue configuration for failed messages.
    */
-  autoCommitInterval?: number;
+  deadLetterQueue?: {
+    /**
+     * Topic to send failed messages to after max retries.
+     */
+    topic: string;
 
-  /**
-   * Optional session timeout in milliseconds.
-   * If the consumer doesn't send heartbeats within this timeout, it will be considered dead.
-   */
-  sessionTimeout?: number;
+    /**
+     * Whether to include error details in the dead letter message.
+     */
+    includeErrorDetails: boolean;
+  };
 }
 
 /**
- * Utility type for converting a BaseEvent to a KafkaEvent.
+ * Utility type for converting a base event to a Kafka event.
+ * Used for type-safe conversion between application events and Kafka messages.
  */
-export type ToKafkaEvent<T extends BaseEvent<any>> = KafkaEvent<T['payload']> & Omit<T, 'payload'>;
+export type ToKafkaEvent<T extends IBaseEvent> = KafkaEvent<T['payload']>;
 
 /**
- * Utility type for converting a KafkaEvent back to a BaseEvent.
+ * Utility type for extracting the payload type from a Kafka event.
+ * Used for type-safe access to event payloads.
  */
-export type FromKafkaEvent<T extends KafkaEvent<any>> = BaseEvent<T['payload']> & Omit<T, 'topic' | 'partition' | 'offset' | 'key' | 'headers'>;
+export type KafkaEventPayload<T extends KafkaEvent> = T['payload'];

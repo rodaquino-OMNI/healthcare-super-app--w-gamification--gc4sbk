@@ -1,968 +1,931 @@
 /**
  * @file kafka-events.ts
- * @description Provides specialized test fixtures for Kafka-specific event testing, including
- * message envelope structures, headers, offsets, and topics. This file contains test data for
- * verifying Kafka integration, message serialization/deserialization, and event routing.
- *
- * These fixtures enable testing of the Kafka event infrastructure without requiring a running
- * Kafka instance, ensuring reliable event processing via Kafka.
- *
- * @module events/test/fixtures
+ * @description Test fixtures for Kafka-specific event testing, including message envelope structures,
+ * headers, offsets, and topics. This file contains test data for verifying Kafka integration,
+ * message serialization/deserialization, and event routing.
  */
 
-import { EventType, JourneyEvents } from '../../src/dto/event-types.enum';
-import { EventMetadataDto, EventOriginDto, EventVersionDto } from '../../src/dto/event-metadata.dto';
-import { TOPICS } from '../../src/constants/topics.constants';
-import { ERROR_CODES } from '../../src/constants/errors.constants';
+import { KafkaEvent, KafkaHeaders } from '../../src/interfaces/kafka-event.interface';
+import { BaseEvent, EventMetadata } from '../../src/interfaces/base-event.interface';
+import { JourneyType } from '@austa/interfaces/common/dto/journey.dto';
+import {
+  JOURNEY_EVENT_TOPICS,
+  HEALTH_EVENT_TOPICS,
+  CARE_EVENT_TOPICS,
+  PLAN_EVENT_TOPICS,
+  GAMIFICATION_TOPICS,
+  NOTIFICATION_TOPICS,
+  DLQ_TOPICS,
+  CONSUMER_GROUPS,
+  KAFKA_HEADERS
+} from '../../src/kafka/kafka.constants';
+import {
+  HealthEventType,
+  CareEventType,
+  PlanEventType,
+  IHealthMetricRecordedPayload,
+  ICareAppointmentBookedPayload,
+  IPlanClaimSubmittedPayload
+} from '../../src/interfaces/journey-events.interface';
 
-/**
- * Interface representing a Kafka message header.
- */
-export interface KafkaHeader {
-  key: string;
-  value: Buffer | null;
-}
-
-/**
- * Interface representing a Kafka message.
- */
-export interface KafkaMessage {
-  topic: string;
-  partition: number;
-  offset: string;
-  timestamp: string;
-  size: number;
-  attributes: number;
-  key: Buffer | null;
-  value: Buffer | null;
-  headers: KafkaHeader[];
-}
+// ===== HELPER FUNCTIONS =====
 
 /**
- * Interface representing a Kafka message with error context.
+ * Creates a Kafka message header object with standard fields
+ * @param options Optional header values to override defaults
+ * @returns KafkaHeaders object
  */
-export interface KafkaMessageWithError extends KafkaMessage {
-  error: {
-    code: string;
-    message: string;
-    retriesAttempted: number;
-    maxRetries: number;
+export function createKafkaHeaders(options?: Partial<Record<keyof typeof KAFKA_HEADERS, string>>): KafkaHeaders {
+  const headers: KafkaHeaders = {
+    [KAFKA_HEADERS.CORRELATION_ID]: `corr-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
+    [KAFKA_HEADERS.SOURCE_SERVICE]: 'test-service',
+    [KAFKA_HEADERS.EVENT_TYPE]: 'TEST_EVENT',
+    [KAFKA_HEADERS.EVENT_VERSION]: '1.0.0',
+    [KAFKA_HEADERS.TIMESTAMP]: new Date().toISOString(),
+    [KAFKA_HEADERS.USER_ID]: 'test-user-123',
+    [KAFKA_HEADERS.JOURNEY]: JourneyType.HEALTH,
   };
-}
 
-/**
- * Interface representing a Kafka consumer group offset.
- */
-export interface KafkaConsumerGroupOffset {
-  topic: string;
-  partition: number;
-  offset: string;
-  metadata: string | null;
-  highWaterOffset: string;
-  lowWaterOffset: string;
-}
-
-/**
- * Creates a Buffer from a string or object.
- * 
- * @param value The value to convert to a Buffer
- * @returns A Buffer containing the serialized value
- */
-export function createBuffer(value: string | object): Buffer {
-  if (typeof value === 'string') {
-    return Buffer.from(value);
+  if (options) {
+    Object.entries(options).forEach(([key, value]) => {
+      headers[key] = value;
+    });
   }
-  return Buffer.from(JSON.stringify(value));
+
+  return headers;
 }
 
 /**
- * Creates a Kafka header with the given key and value.
- * 
- * @param key The header key
- * @param value The header value
- * @returns A KafkaHeader object
+ * Creates a Kafka event with the specified payload and options
+ * @param payload Event payload
+ * @param options Optional event properties to override defaults
+ * @returns KafkaEvent object
  */
-export function createKafkaHeader(key: string, value: string | object | null): KafkaHeader {
+export function createKafkaEvent<T = any>(payload: T, options?: {
+  eventId?: string;
+  type?: string;
+  source?: string;
+  topic?: string;
+  partition?: number;
+  offset?: string;
+  key?: string;
+  headers?: KafkaHeaders;
+  journey?: JourneyType;
+  userId?: string;
+  metadata?: EventMetadata;
+  version?: string;
+}): KafkaEvent<T> {
   return {
-    key,
-    value: value === null ? null : createBuffer(value),
-  };
-}
-
-/**
- * Creates a basic Kafka message with the given topic, key, and value.
- * 
- * @param topic The Kafka topic
- * @param key The message key (optional)
- * @param value The message value
- * @param options Additional options for the message
- * @returns A KafkaMessage object
- */
-export function createKafkaMessage(
-  topic: string,
-  key: string | null,
-  value: object,
-  options: {
-    partition?: number;
-    offset?: string;
-    timestamp?: string;
-    headers?: Record<string, string | object | null>;
-  } = {}
-): KafkaMessage {
-  const headers: KafkaHeader[] = [];
-  
-  // Add default headers
-  headers.push(createKafkaHeader('content-type', 'application/json'));
-  
-  // Add custom headers
-  if (options.headers) {
-    for (const [headerKey, headerValue] of Object.entries(options.headers)) {
-      headers.push(createKafkaHeader(headerKey, headerValue));
-    }
-  }
-  
-  const serializedValue = createBuffer(value);
-  
-  return {
-    topic,
-    partition: options.partition ?? 0,
-    offset: options.offset ?? '0',
-    timestamp: options.timestamp ?? new Date().toISOString(),
-    size: serializedValue.length,
-    attributes: 0,
-    key: key ? createBuffer(key) : null,
-    value: serializedValue,
-    headers,
-  };
-}
-
-/**
- * Creates a Kafka message with error context for testing error handling and retries.
- * 
- * @param message The base Kafka message
- * @param errorCode The error code
- * @param errorMessage The error message
- * @param retriesAttempted The number of retries attempted
- * @param maxRetries The maximum number of retries
- * @returns A KafkaMessageWithError object
- */
-export function createKafkaMessageWithError(
-  message: KafkaMessage,
-  errorCode: string,
-  errorMessage: string,
-  retriesAttempted: number = 0,
-  maxRetries: number = 3
-): KafkaMessageWithError {
-  return {
-    ...message,
-    error: {
-      code: errorCode,
-      message: errorMessage,
-      retriesAttempted,
-      maxRetries,
+    eventId: options?.eventId || `evt-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
+    type: options?.type || 'TEST_EVENT',
+    timestamp: new Date().toISOString(),
+    version: options?.version || '1.0.0',
+    source: options?.source || 'test-service',
+    journey: options?.journey || JourneyType.HEALTH,
+    userId: options?.userId || 'test-user-123',
+    payload,
+    metadata: options?.metadata || {
+      correlationId: `corr-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
     },
+    topic: options?.topic || JOURNEY_EVENT_TOPICS.HEALTH,
+    partition: options?.partition || 0,
+    offset: options?.offset || '0',
+    key: options?.key || 'test-key',
+    headers: options?.headers || createKafkaHeaders(),
   };
 }
 
 /**
- * Creates a Kafka consumer group offset for testing consumer group functionality.
- * 
- * @param topic The Kafka topic
- * @param partition The partition number
- * @param offset The current offset
- * @param highWaterOffset The high water mark offset
- * @param lowWaterOffset The low water mark offset
- * @param metadata Additional metadata
- * @returns A KafkaConsumerGroupOffset object
+ * Creates a serialized Kafka message for testing deserialization
+ * @param event The event to serialize
+ * @returns Serialized JSON string
  */
-export function createConsumerGroupOffset(
-  topic: string,
-  partition: number = 0,
-  offset: string = '0',
-  highWaterOffset: string = '100',
-  lowWaterOffset: string = '0',
-  metadata: string | null = null
-): KafkaConsumerGroupOffset {
-  return {
-    topic,
-    partition,
-    offset,
-    metadata,
-    highWaterOffset,
-    lowWaterOffset,
-  };
+export function serializeKafkaEvent<T>(event: KafkaEvent<T>): string {
+  return JSON.stringify(event);
 }
 
-// ===== KAFKA MESSAGE ENVELOPE FIXTURES =====
+// ===== BASE KAFKA MESSAGE FIXTURES =====
 
 /**
- * Standard Kafka message envelope for a health metric event.
+ * Basic Kafka message fixture with minimal properties
  */
-export const healthMetricKafkaMessage = createKafkaMessage(
-  TOPICS.HEALTH.METRICS,
-  'user-123',
+export const basicKafkaMessage: KafkaEvent = {
+  eventId: 'evt-basic-123456789',
+  type: 'TEST_EVENT',
+  timestamp: '2023-05-15T10:30:00.000Z',
+  version: '1.0.0',
+  source: 'test-service',
+  payload: { message: 'Test message' },
+  topic: JOURNEY_EVENT_TOPICS.HEALTH,
+  partition: 0,
+  offset: '0',
+  key: 'test-key',
+  headers: createKafkaHeaders(),
+};
+
+/**
+ * Complete Kafka message fixture with all properties
+ */
+export const completeKafkaMessage: KafkaEvent = {
+  eventId: 'evt-complete-123456789',
+  type: 'TEST_EVENT',
+  timestamp: '2023-05-15T10:30:00.000Z',
+  version: '1.0.0',
+  source: 'test-service',
+  journey: JourneyType.HEALTH,
+  userId: 'test-user-123',
+  payload: { message: 'Test message with complete properties' },
+  metadata: {
+    correlationId: 'corr-123456789',
+    traceId: 'trace-123456789',
+    spanId: 'span-123456789',
+    priority: 'high',
+    isRetry: false,
+    retryCount: 0,
+    originalTimestamp: '2023-05-15T10:30:00.000Z',
+    customProperty: 'custom-value',
+  },
+  topic: JOURNEY_EVENT_TOPICS.HEALTH,
+  partition: 0,
+  offset: '0',
+  key: 'test-key',
+  headers: createKafkaHeaders({
+    [KAFKA_HEADERS.CORRELATION_ID]: 'corr-123456789',
+    [KAFKA_HEADERS.SOURCE_SERVICE]: 'test-service',
+    [KAFKA_HEADERS.EVENT_TYPE]: 'TEST_EVENT',
+    [KAFKA_HEADERS.EVENT_VERSION]: '1.0.0',
+    [KAFKA_HEADERS.TIMESTAMP]: '2023-05-15T10:30:00.000Z',
+    [KAFKA_HEADERS.USER_ID]: 'test-user-123',
+    [KAFKA_HEADERS.JOURNEY]: JourneyType.HEALTH,
+  }),
+};
+
+/**
+ * Kafka message with invalid properties for testing validation
+ */
+export const invalidKafkaMessage: Partial<KafkaEvent> = {
+  // Missing required eventId
+  type: 'TEST_EVENT',
+  timestamp: '2023-05-15T10:30:00.000Z',
+  version: '1.0.0',
+  source: 'test-service',
+  payload: { message: 'Test message with invalid properties' },
+  topic: JOURNEY_EVENT_TOPICS.HEALTH,
+  // Invalid partition type
+  partition: 'invalid' as unknown as number,
+  offset: '0',
+  key: 'test-key',
+  headers: createKafkaHeaders(),
+};
+
+// ===== JOURNEY-SPECIFIC KAFKA EVENT FIXTURES =====
+
+// Health Journey Events
+
+/**
+ * Health metric recorded event fixture
+ */
+export const healthMetricRecordedEvent: KafkaEvent<IHealthMetricRecordedPayload> = createKafkaEvent<IHealthMetricRecordedPayload>(
   {
-    type: EventType.HEALTH_METRIC_RECORDED,
-    payload: {
-      metricType: 'HEART_RATE',
-      value: 72,
+    metric: {
+      id: 'metric-123',
+      userId: 'test-user-123',
+      type: 'HEART_RATE',
+      value: 75,
       unit: 'bpm',
-      timestamp: '2023-04-15T10:30:00Z',
-      source: 'manual',
+      timestamp: '2023-05-15T10:30:00.000Z',
+      source: 'smartwatch',
     },
-    metadata: {
-      eventId: '550e8400-e29b-41d4-a716-446655440000',
-      correlationId: '550e8400-e29b-41d4-a716-446655440001',
-      timestamp: '2023-04-15T10:30:00Z',
-      origin: {
-        service: 'health-service',
-        instance: 'health-service-pod-1234',
-        component: 'metric-processor',
-      },
-      version: {
-        major: '1',
-        minor: '0',
-        patch: '0',
-      },
-    },
+    metricType: 'HEART_RATE',
+    value: 75,
+    unit: 'bpm',
+    timestamp: '2023-05-15T10:30:00.000Z',
+    source: 'smartwatch',
+    previousValue: 72,
+    change: 3,
+    isImprovement: false,
   },
   {
-    headers: {
-      'event-type': EventType.HEALTH_METRIC_RECORDED,
-      'user-id': 'user-123',
-      'correlation-id': '550e8400-e29b-41d4-a716-446655440001',
-    },
+    type: HealthEventType.METRIC_RECORDED,
+    topic: HEALTH_EVENT_TOPICS.METRICS,
+    journey: JourneyType.HEALTH,
+    headers: createKafkaHeaders({
+      [KAFKA_HEADERS.EVENT_TYPE]: HealthEventType.METRIC_RECORDED,
+      [KAFKA_HEADERS.JOURNEY]: JourneyType.HEALTH,
+    }),
   }
 );
 
 /**
- * Standard Kafka message envelope for a care appointment event.
+ * Health goal achieved event fixture
  */
-export const careAppointmentKafkaMessage = createKafkaMessage(
-  TOPICS.CARE.APPOINTMENTS,
-  'user-456',
+export const healthGoalAchievedEvent: KafkaEvent = createKafkaEvent(
   {
-    type: EventType.CARE_APPOINTMENT_BOOKED,
-    payload: {
-      appointmentId: 'appt-789',
+    goal: {
+      id: 'goal-123',
+      userId: 'test-user-123',
+      type: 'STEPS',
+      targetValue: 10000,
+      currentValue: 10250,
+      unit: 'steps',
+      startDate: '2023-05-10T00:00:00.000Z',
+      endDate: '2023-05-15T23:59:59.999Z',
+      status: 'ACHIEVED',
+    },
+    goalType: 'STEPS',
+    achievedValue: 10250,
+    targetValue: 10000,
+    daysToAchieve: 5,
+    isEarlyCompletion: true,
+  },
+  {
+    type: HealthEventType.GOAL_ACHIEVED,
+    topic: HEALTH_EVENT_TOPICS.GOALS,
+    journey: JourneyType.HEALTH,
+    headers: createKafkaHeaders({
+      [KAFKA_HEADERS.EVENT_TYPE]: HealthEventType.GOAL_ACHIEVED,
+      [KAFKA_HEADERS.JOURNEY]: JourneyType.HEALTH,
+    }),
+  }
+);
+
+/**
+ * Health device synced event fixture
+ */
+export const healthDeviceSyncedEvent: KafkaEvent = createKafkaEvent(
+  {
+    deviceConnection: {
+      id: 'device-conn-123',
+      userId: 'test-user-123',
+      deviceId: 'device-123',
+      deviceType: 'Smartwatch',
+      connectionDate: '2023-05-01T10:30:00.000Z',
+      lastSyncDate: '2023-05-15T10:30:00.000Z',
+      status: 'CONNECTED',
+    },
+    deviceId: 'device-123',
+    deviceType: 'Smartwatch',
+    syncDate: '2023-05-15T10:30:00.000Z',
+    metricsCount: 5,
+    metricTypes: ['HEART_RATE', 'STEPS', 'SLEEP', 'CALORIES', 'DISTANCE'],
+    syncSuccessful: true,
+  },
+  {
+    type: HealthEventType.DEVICE_SYNCED,
+    topic: HEALTH_EVENT_TOPICS.DEVICES,
+    journey: JourneyType.HEALTH,
+    headers: createKafkaHeaders({
+      [KAFKA_HEADERS.EVENT_TYPE]: HealthEventType.DEVICE_SYNCED,
+      [KAFKA_HEADERS.JOURNEY]: JourneyType.HEALTH,
+    }),
+  }
+);
+
+// Care Journey Events
+
+/**
+ * Care appointment booked event fixture
+ */
+export const careAppointmentBookedEvent: KafkaEvent<ICareAppointmentBookedPayload> = createKafkaEvent<ICareAppointmentBookedPayload>(
+  {
+    appointment: {
+      id: 'appointment-123',
+      userId: 'test-user-123',
       providerId: 'provider-123',
-      specialtyType: 'Cardiologia',
-      appointmentType: 'in_person',
-      scheduledAt: '2023-05-20T14:00:00Z',
-      bookedAt: '2023-04-15T11:45:00Z',
+      type: 'CONSULTATION',
+      status: 'SCHEDULED',
+      scheduledDate: '2023-05-20T14:00:00.000Z',
+      createdAt: '2023-05-15T10:30:00.000Z',
     },
-    metadata: {
-      eventId: '550e8400-e29b-41d4-a716-446655440002',
-      correlationId: '550e8400-e29b-41d4-a716-446655440003',
-      timestamp: '2023-04-15T11:45:00Z',
-      origin: {
-        service: 'care-service',
-        instance: 'care-service-pod-5678',
-        component: 'appointment-scheduler',
-      },
-      version: {
-        major: '1',
-        minor: '0',
-        patch: '0',
-      },
-    },
+    appointmentType: 'CONSULTATION',
+    providerId: 'provider-123',
+    scheduledDate: '2023-05-20T14:00:00.000Z',
+    isFirstAppointment: false,
+    isUrgent: false,
   },
   {
-    headers: {
-      'event-type': EventType.CARE_APPOINTMENT_BOOKED,
-      'user-id': 'user-456',
-      'correlation-id': '550e8400-e29b-41d4-a716-446655440003',
-    },
+    type: CareEventType.APPOINTMENT_BOOKED,
+    topic: CARE_EVENT_TOPICS.APPOINTMENTS,
+    journey: JourneyType.CARE,
+    headers: createKafkaHeaders({
+      [KAFKA_HEADERS.EVENT_TYPE]: CareEventType.APPOINTMENT_BOOKED,
+      [KAFKA_HEADERS.JOURNEY]: JourneyType.CARE,
+    }),
   }
 );
 
 /**
- * Standard Kafka message envelope for a plan claim event.
+ * Care medication adherence streak event fixture
  */
-export const planClaimKafkaMessage = createKafkaMessage(
-  TOPICS.PLAN.CLAIMS,
-  'user-789',
+export const careMedicationAdherenceStreakEvent: KafkaEvent = createKafkaEvent(
   {
-    type: EventType.PLAN_CLAIM_SUBMITTED,
-    payload: {
-      claimId: 'claim-456',
-      claimType: 'medical',
-      providerId: 'provider-789',
-      serviceDate: '2023-04-10T09:30:00Z',
-      amount: 150.75,
-      submittedAt: '2023-04-15T13:20:00Z',
-    },
-    metadata: {
-      eventId: '550e8400-e29b-41d4-a716-446655440004',
-      correlationId: '550e8400-e29b-41d4-a716-446655440005',
-      timestamp: '2023-04-15T13:20:00Z',
-      origin: {
-        service: 'plan-service',
-        instance: 'plan-service-pod-9012',
-        component: 'claim-processor',
-      },
-      version: {
-        major: '1',
-        minor: '0',
-        patch: '0',
-      },
-    },
+    medicationId: 'medication-123',
+    medicationName: 'Medication A',
+    streakDays: 7,
+    adherencePercentage: 100,
+    startDate: '2023-05-08T00:00:00.000Z',
+    endDate: '2023-05-14T23:59:59.999Z',
   },
   {
-    headers: {
-      'event-type': EventType.PLAN_CLAIM_SUBMITTED,
-      'user-id': 'user-789',
-      'correlation-id': '550e8400-e29b-41d4-a716-446655440005',
-    },
+    type: CareEventType.MEDICATION_ADHERENCE_STREAK,
+    topic: CARE_EVENT_TOPICS.MEDICATIONS,
+    journey: JourneyType.CARE,
+    headers: createKafkaHeaders({
+      [KAFKA_HEADERS.EVENT_TYPE]: CareEventType.MEDICATION_ADHERENCE_STREAK,
+      [KAFKA_HEADERS.JOURNEY]: JourneyType.CARE,
+    }),
   }
 );
 
 /**
- * Standard Kafka message envelope for a gamification achievement event.
+ * Care telemedicine session completed event fixture
  */
-export const gamificationAchievementKafkaMessage = createKafkaMessage(
-  TOPICS.GAMIFICATION.ACHIEVEMENTS,
-  'user-123',
+export const careTelemedicineSessionCompletedEvent: KafkaEvent = createKafkaEvent(
   {
-    type: EventType.GAMIFICATION_ACHIEVEMENT_UNLOCKED,
-    payload: {
-      achievementId: 'achievement-123',
-      achievementType: 'health-check-streak',
-      tier: 'silver',
-      points: 50,
-      unlockedAt: '2023-04-15T14:30:00Z',
+    session: {
+      id: 'session-123',
+      userId: 'test-user-123',
+      providerId: 'provider-123',
+      appointmentId: 'appointment-123',
+      startTime: '2023-05-15T14:00:00.000Z',
+      endTime: '2023-05-15T14:30:00.000Z',
+      status: 'COMPLETED',
     },
-    metadata: {
-      eventId: '550e8400-e29b-41d4-a716-446655440006',
-      correlationId: '550e8400-e29b-41d4-a716-446655440001', // Same as health metric event
-      parentEventId: '550e8400-e29b-41d4-a716-446655440000', // Health metric event ID
-      timestamp: '2023-04-15T14:30:00Z',
-      origin: {
-        service: 'gamification-engine',
-        instance: 'gamification-engine-pod-3456',
-        component: 'achievement-processor',
-      },
-      version: {
-        major: '1',
-        minor: '0',
-        patch: '0',
-      },
-    },
+    sessionId: 'session-123',
+    providerId: 'provider-123',
+    startTime: '2023-05-15T14:00:00.000Z',
+    endTime: '2023-05-15T14:30:00.000Z',
+    duration: 30,
+    appointmentId: 'appointment-123',
+    technicalIssues: false,
   },
   {
-    headers: {
-      'event-type': EventType.GAMIFICATION_ACHIEVEMENT_UNLOCKED,
-      'user-id': 'user-123',
-      'correlation-id': '550e8400-e29b-41d4-a716-446655440001',
-      'parent-event-id': '550e8400-e29b-41d4-a716-446655440000',
-    },
+    type: CareEventType.TELEMEDICINE_SESSION_COMPLETED,
+    topic: CARE_EVENT_TOPICS.TELEMEDICINE,
+    journey: JourneyType.CARE,
+    headers: createKafkaHeaders({
+      [KAFKA_HEADERS.EVENT_TYPE]: CareEventType.TELEMEDICINE_SESSION_COMPLETED,
+      [KAFKA_HEADERS.JOURNEY]: JourneyType.CARE,
+    }),
   }
 );
 
-// ===== TOPIC-SPECIFIC EVENT EXAMPLES =====
+// Plan Journey Events
 
 /**
- * Collection of health journey event examples.
+ * Plan claim submitted event fixture
  */
-export const healthEvents = {
-  /**
-   * Health metric recorded event.
-   */
-  metricRecorded: healthMetricKafkaMessage,
-  
-  /**
-   * Health goal achieved event.
-   */
-  goalAchieved: createKafkaMessage(
-    TOPICS.HEALTH.GOALS,
-    'user-123',
-    {
-      type: EventType.HEALTH_GOAL_ACHIEVED,
-      payload: {
-        goalId: 'goal-123',
-        goalType: 'steps',
-        targetValue: 10000,
-        achievedValue: 10250,
-        completedAt: '2023-04-15T20:00:00Z',
-      },
-      metadata: {
-        eventId: '550e8400-e29b-41d4-a716-446655440007',
-        correlationId: '550e8400-e29b-41d4-a716-446655440008',
-        timestamp: '2023-04-15T20:00:00Z',
-        origin: {
-          service: 'health-service',
-          instance: 'health-service-pod-1234',
-          component: 'goal-tracker',
-        },
-        version: {
-          major: '1',
-          minor: '0',
-          patch: '0',
-        },
-      },
+export const planClaimSubmittedEvent: KafkaEvent<IPlanClaimSubmittedPayload> = createKafkaEvent<IPlanClaimSubmittedPayload>(
+  {
+    claim: {
+      id: 'claim-123',
+      userId: 'test-user-123',
+      type: 'MEDICAL_CONSULTATION',
+      status: 'SUBMITTED',
+      amount: 150.0,
+      submissionDate: '2023-05-15T10:30:00.000Z',
     },
-    {
-      headers: {
-        'event-type': EventType.HEALTH_GOAL_ACHIEVED,
-        'user-id': 'user-123',
-        'correlation-id': '550e8400-e29b-41d4-a716-446655440008',
-      },
-    }
-  ),
-  
-  /**
-   * Health device connected event.
-   */
-  deviceConnected: createKafkaMessage(
-    TOPICS.HEALTH.DEVICES,
-    'user-123',
-    {
-      type: EventType.HEALTH_DEVICE_CONNECTED,
-      payload: {
-        deviceId: 'device-123',
-        deviceType: 'fitbit',
-        connectionMethod: 'oauth',
-        connectedAt: '2023-04-15T09:15:00Z',
-      },
-      metadata: {
-        eventId: '550e8400-e29b-41d4-a716-446655440009',
-        correlationId: '550e8400-e29b-41d4-a716-446655440010',
-        timestamp: '2023-04-15T09:15:00Z',
-        origin: {
-          service: 'health-service',
-          instance: 'health-service-pod-1234',
-          component: 'device-manager',
-        },
-        version: {
-          major: '1',
-          minor: '0',
-          patch: '0',
-        },
-      },
-    },
-    {
-      headers: {
-        'event-type': EventType.HEALTH_DEVICE_CONNECTED,
-        'user-id': 'user-123',
-        'correlation-id': '550e8400-e29b-41d4-a716-446655440010',
-      },
-    }
-  ),
-};
+    submissionDate: '2023-05-15T10:30:00.000Z',
+    amount: 150.0,
+    claimType: 'MEDICAL_CONSULTATION',
+    hasDocuments: true,
+    isComplete: true,
+  },
+  {
+    type: PlanEventType.CLAIM_SUBMITTED,
+    topic: PLAN_EVENT_TOPICS.CLAIMS,
+    journey: JourneyType.PLAN,
+    headers: createKafkaHeaders({
+      [KAFKA_HEADERS.EVENT_TYPE]: PlanEventType.CLAIM_SUBMITTED,
+      [KAFKA_HEADERS.JOURNEY]: JourneyType.PLAN,
+    }),
+  }
+);
 
 /**
- * Collection of care journey event examples.
+ * Plan benefit utilized event fixture
  */
-export const careEvents = {
-  /**
-   * Care appointment booked event.
-   */
-  appointmentBooked: careAppointmentKafkaMessage,
-  
-  /**
-   * Care appointment completed event.
-   */
-  appointmentCompleted: createKafkaMessage(
-    TOPICS.CARE.APPOINTMENTS,
-    'user-456',
-    {
-      type: EventType.CARE_APPOINTMENT_COMPLETED,
-      payload: {
-        appointmentId: 'appt-789',
-        providerId: 'provider-123',
-        appointmentType: 'in_person',
-        scheduledAt: '2023-05-20T14:00:00Z',
-        completedAt: '2023-05-20T14:45:00Z',
-        duration: 45,
-      },
-      metadata: {
-        eventId: '550e8400-e29b-41d4-a716-446655440011',
-        correlationId: '550e8400-e29b-41d4-a716-446655440003', // Same as appointment booked
-        parentEventId: '550e8400-e29b-41d4-a716-446655440002', // Appointment booked event ID
-        timestamp: '2023-05-20T14:45:00Z',
-        origin: {
-          service: 'care-service',
-          instance: 'care-service-pod-5678',
-          component: 'appointment-manager',
-        },
-        version: {
-          major: '1',
-          minor: '0',
-          patch: '0',
-        },
-      },
+export const planBenefitUtilizedEvent: KafkaEvent = createKafkaEvent(
+  {
+    benefit: {
+      id: 'benefit-123',
+      userId: 'test-user-123',
+      type: 'MEDICAL_CONSULTATION',
+      coverageLimit: 1000.0,
+      usedAmount: 150.0,
+      remainingAmount: 850.0,
     },
-    {
-      headers: {
-        'event-type': EventType.CARE_APPOINTMENT_COMPLETED,
-        'user-id': 'user-456',
-        'correlation-id': '550e8400-e29b-41d4-a716-446655440003',
-        'parent-event-id': '550e8400-e29b-41d4-a716-446655440002',
-      },
-    }
-  ),
-  
-  /**
-   * Care medication taken event.
-   */
-  medicationTaken: createKafkaMessage(
-    TOPICS.CARE.MEDICATIONS,
-    'user-456',
-    {
-      type: EventType.CARE_MEDICATION_TAKEN,
-      payload: {
-        medicationId: 'med-123',
-        medicationName: 'Atorvastatina',
-        dosage: '20mg',
-        takenAt: '2023-04-15T08:00:00Z',
-        adherence: 'on_time',
-      },
-      metadata: {
-        eventId: '550e8400-e29b-41d4-a716-446655440012',
-        correlationId: '550e8400-e29b-41d4-a716-446655440013',
-        timestamp: '2023-04-15T08:00:00Z',
-        origin: {
-          service: 'care-service',
-          instance: 'care-service-pod-5678',
-          component: 'medication-tracker',
-        },
-        version: {
-          major: '1',
-          minor: '0',
-          patch: '0',
-        },
-      },
-    },
-    {
-      headers: {
-        'event-type': EventType.CARE_MEDICATION_TAKEN,
-        'user-id': 'user-456',
-        'correlation-id': '550e8400-e29b-41d4-a716-446655440013',
-      },
-    }
-  ),
-};
+    utilizationDate: '2023-05-15T10:30:00.000Z',
+    serviceProvider: 'Provider A',
+    amount: 150.0,
+    remainingCoverage: 850.0,
+    isFirstUtilization: false,
+  },
+  {
+    type: PlanEventType.BENEFIT_UTILIZED,
+    topic: PLAN_EVENT_TOPICS.BENEFITS,
+    journey: JourneyType.PLAN,
+    headers: createKafkaHeaders({
+      [KAFKA_HEADERS.EVENT_TYPE]: PlanEventType.BENEFIT_UTILIZED,
+      [KAFKA_HEADERS.JOURNEY]: JourneyType.PLAN,
+    }),
+  }
+);
 
 /**
- * Collection of plan journey event examples.
+ * Plan reward redeemed event fixture
  */
-export const planEvents = {
-  /**
-   * Plan claim submitted event.
-   */
-  claimSubmitted: planClaimKafkaMessage,
-  
-  /**
-   * Plan claim processed event.
-   */
-  claimProcessed: createKafkaMessage(
-    TOPICS.PLAN.CLAIMS,
-    'user-789',
-    {
-      type: EventType.PLAN_CLAIM_PROCESSED,
-      payload: {
-        claimId: 'claim-456',
-        status: 'approved',
-        amount: 150.75,
-        coveredAmount: 120.60,
-        processedAt: '2023-04-17T10:30:00Z',
-      },
-      metadata: {
-        eventId: '550e8400-e29b-41d4-a716-446655440014',
-        correlationId: '550e8400-e29b-41d4-a716-446655440005', // Same as claim submitted
-        parentEventId: '550e8400-e29b-41d4-a716-446655440004', // Claim submitted event ID
-        timestamp: '2023-04-17T10:30:00Z',
-        origin: {
-          service: 'plan-service',
-          instance: 'plan-service-pod-9012',
-          component: 'claim-processor',
-        },
-        version: {
-          major: '1',
-          minor: '0',
-          patch: '0',
-        },
-      },
-    },
-    {
-      headers: {
-        'event-type': EventType.PLAN_CLAIM_PROCESSED,
-        'user-id': 'user-789',
-        'correlation-id': '550e8400-e29b-41d4-a716-446655440005',
-        'parent-event-id': '550e8400-e29b-41d4-a716-446655440004',
-      },
-    }
-  ),
-  
-  /**
-   * Plan benefit utilized event.
-   */
-  benefitUtilized: createKafkaMessage(
-    TOPICS.PLAN.BENEFITS,
-    'user-789',
-    {
-      type: EventType.PLAN_BENEFIT_UTILIZED,
-      payload: {
-        benefitId: 'benefit-123',
-        benefitType: 'wellness',
-        providerId: 'provider-456',
-        utilizationDate: '2023-04-15T15:30:00Z',
-        savingsAmount: 50.00,
-      },
-      metadata: {
-        eventId: '550e8400-e29b-41d4-a716-446655440015',
-        correlationId: '550e8400-e29b-41d4-a716-446655440016',
-        timestamp: '2023-04-15T15:30:00Z',
-        origin: {
-          service: 'plan-service',
-          instance: 'plan-service-pod-9012',
-          component: 'benefit-tracker',
-        },
-        version: {
-          major: '1',
-          minor: '0',
-          patch: '0',
-        },
-      },
-    },
-    {
-      headers: {
-        'event-type': EventType.PLAN_BENEFIT_UTILIZED,
-        'user-id': 'user-789',
-        'correlation-id': '550e8400-e29b-41d4-a716-446655440016',
-      },
-    }
-  ),
-};
+export const planRewardRedeemedEvent: KafkaEvent = createKafkaEvent(
+  {
+    rewardId: 'reward-123',
+    rewardName: 'Discount Voucher',
+    redemptionDate: '2023-05-15T10:30:00.000Z',
+    pointValue: 500,
+    monetaryValue: 50.0,
+    rewardType: 'VOUCHER',
+    isPremiumReward: false,
+  },
+  {
+    type: PlanEventType.REWARD_REDEEMED,
+    topic: PLAN_EVENT_TOPICS.REWARDS,
+    journey: JourneyType.PLAN,
+    headers: createKafkaHeaders({
+      [KAFKA_HEADERS.EVENT_TYPE]: PlanEventType.REWARD_REDEEMED,
+      [KAFKA_HEADERS.JOURNEY]: JourneyType.PLAN,
+    }),
+  }
+);
+
+// ===== CONSUMER GROUP AND OFFSET FIXTURES =====
 
 /**
- * Collection of gamification event examples.
- */
-export const gamificationEvents = {
-  /**
-   * Gamification achievement unlocked event.
-   */
-  achievementUnlocked: gamificationAchievementKafkaMessage,
-  
-  /**
-   * Gamification points earned event.
-   */
-  pointsEarned: createKafkaMessage(
-    TOPICS.GAMIFICATION.EVENTS,
-    'user-123',
-    {
-      type: EventType.GAMIFICATION_POINTS_EARNED,
-      payload: {
-        sourceType: 'health',
-        sourceId: '550e8400-e29b-41d4-a716-446655440000', // Health metric event ID
-        points: 10,
-        reason: 'Recorded daily heart rate',
-        earnedAt: '2023-04-15T10:30:05Z',
-      },
-      metadata: {
-        eventId: '550e8400-e29b-41d4-a716-446655440017',
-        correlationId: '550e8400-e29b-41d4-a716-446655440001', // Same as health metric event
-        parentEventId: '550e8400-e29b-41d4-a716-446655440000', // Health metric event ID
-        timestamp: '2023-04-15T10:30:05Z',
-        origin: {
-          service: 'gamification-engine',
-          instance: 'gamification-engine-pod-3456',
-          component: 'point-calculator',
-        },
-        version: {
-          major: '1',
-          minor: '0',
-          patch: '0',
-        },
-      },
-    },
-    {
-      headers: {
-        'event-type': EventType.GAMIFICATION_POINTS_EARNED,
-        'user-id': 'user-123',
-        'correlation-id': '550e8400-e29b-41d4-a716-446655440001',
-        'parent-event-id': '550e8400-e29b-41d4-a716-446655440000',
-      },
-    }
-  ),
-  
-  /**
-   * Gamification level up event.
-   */
-  levelUp: createKafkaMessage(
-    TOPICS.GAMIFICATION.EVENTS,
-    'user-123',
-    {
-      type: EventType.GAMIFICATION_LEVEL_UP,
-      payload: {
-        previousLevel: 2,
-        newLevel: 3,
-        totalPoints: 1000,
-        leveledUpAt: '2023-04-15T14:35:00Z',
-      },
-      metadata: {
-        eventId: '550e8400-e29b-41d4-a716-446655440018',
-        correlationId: '550e8400-e29b-41d4-a716-446655440001', // Same as health metric event
-        parentEventId: '550e8400-e29b-41d4-a716-446655440006', // Achievement unlocked event ID
-        timestamp: '2023-04-15T14:35:00Z',
-        origin: {
-          service: 'gamification-engine',
-          instance: 'gamification-engine-pod-3456',
-          component: 'level-manager',
-        },
-        version: {
-          major: '1',
-          minor: '0',
-          patch: '0',
-        },
-      },
-    },
-    {
-      headers: {
-        'event-type': EventType.GAMIFICATION_LEVEL_UP,
-        'user-id': 'user-123',
-        'correlation-id': '550e8400-e29b-41d4-a716-446655440001',
-        'parent-event-id': '550e8400-e29b-41d4-a716-446655440006',
-      },
-    }
-  ),
-};
-
-// ===== CONSUMER GROUP OFFSET EXAMPLES =====
-
-/**
- * Collection of consumer group offset examples.
+ * Consumer group offset information fixtures
  */
 export const consumerGroupOffsets = {
   /**
-   * Health events consumer group offsets.
+   * Health service consumer group offsets
    */
-  health: [
-    createConsumerGroupOffset(TOPICS.HEALTH.EVENTS, 0, '100', '150', '0'),
-    createConsumerGroupOffset(TOPICS.HEALTH.EVENTS, 1, '95', '120', '0'),
-    createConsumerGroupOffset(TOPICS.HEALTH.EVENTS, 2, '110', '130', '0'),
-  ],
-  
+  healthService: {
+    groupId: CONSUMER_GROUPS.HEALTH_SERVICE,
+    topics: [
+      {
+        topic: JOURNEY_EVENT_TOPICS.HEALTH,
+        partitions: [
+          { partition: 0, offset: '100', lag: 0 },
+          { partition: 1, offset: '95', lag: 5 },
+          { partition: 2, offset: '110', lag: 0 },
+        ],
+      },
+      {
+        topic: HEALTH_EVENT_TOPICS.METRICS,
+        partitions: [
+          { partition: 0, offset: '500', lag: 0 },
+          { partition: 1, offset: '480', lag: 20 },
+          { partition: 2, offset: '510', lag: 0 },
+        ],
+      },
+    ],
+  },
+
   /**
-   * Care events consumer group offsets.
+   * Care service consumer group offsets
    */
-  care: [
-    createConsumerGroupOffset(TOPICS.CARE.EVENTS, 0, '80', '100', '0'),
-    createConsumerGroupOffset(TOPICS.CARE.EVENTS, 1, '75', '90', '0'),
-    createConsumerGroupOffset(TOPICS.CARE.EVENTS, 2, '85', '95', '0'),
-  ],
-  
+  careService: {
+    groupId: CONSUMER_GROUPS.CARE_SERVICE,
+    topics: [
+      {
+        topic: JOURNEY_EVENT_TOPICS.CARE,
+        partitions: [
+          { partition: 0, offset: '200', lag: 0 },
+          { partition: 1, offset: '195', lag: 5 },
+          { partition: 2, offset: '210', lag: 0 },
+        ],
+      },
+      {
+        topic: CARE_EVENT_TOPICS.APPOINTMENTS,
+        partitions: [
+          { partition: 0, offset: '150', lag: 0 },
+          { partition: 1, offset: '145', lag: 5 },
+          { partition: 2, offset: '155', lag: 0 },
+        ],
+      },
+    ],
+  },
+
   /**
-   * Plan events consumer group offsets.
+   * Plan service consumer group offsets
    */
-  plan: [
-    createConsumerGroupOffset(TOPICS.PLAN.EVENTS, 0, '60', '80', '0'),
-    createConsumerGroupOffset(TOPICS.PLAN.EVENTS, 1, '55', '70', '0'),
-    createConsumerGroupOffset(TOPICS.PLAN.EVENTS, 2, '65', '75', '0'),
-  ],
-  
+  planService: {
+    groupId: CONSUMER_GROUPS.PLAN_SERVICE,
+    topics: [
+      {
+        topic: JOURNEY_EVENT_TOPICS.PLAN,
+        partitions: [
+          { partition: 0, offset: '300', lag: 0 },
+          { partition: 1, offset: '295', lag: 5 },
+          { partition: 2, offset: '310', lag: 0 },
+        ],
+      },
+      {
+        topic: PLAN_EVENT_TOPICS.CLAIMS,
+        partitions: [
+          { partition: 0, offset: '120', lag: 0 },
+          { partition: 1, offset: '115', lag: 5 },
+          { partition: 2, offset: '125', lag: 0 },
+        ],
+      },
+    ],
+  },
+
   /**
-   * Gamification events consumer group offsets.
+   * Gamification engine consumer group offsets
    */
-  gamification: [
-    createConsumerGroupOffset(TOPICS.GAMIFICATION.EVENTS, 0, '200', '250', '0'),
-    createConsumerGroupOffset(TOPICS.GAMIFICATION.EVENTS, 1, '190', '230', '0'),
-    createConsumerGroupOffset(TOPICS.GAMIFICATION.EVENTS, 2, '210', '240', '0'),
-  ],
+  gamificationEngine: {
+    groupId: CONSUMER_GROUPS.GAMIFICATION_ENGINE,
+    topics: [
+      {
+        topic: JOURNEY_EVENT_TOPICS.HEALTH,
+        partitions: [
+          { partition: 0, offset: '100', lag: 0 },
+          { partition: 1, offset: '90', lag: 10 },
+          { partition: 2, offset: '110', lag: 0 },
+        ],
+      },
+      {
+        topic: JOURNEY_EVENT_TOPICS.CARE,
+        partitions: [
+          { partition: 0, offset: '200', lag: 0 },
+          { partition: 1, offset: '190', lag: 10 },
+          { partition: 2, offset: '210', lag: 0 },
+        ],
+      },
+      {
+        topic: JOURNEY_EVENT_TOPICS.PLAN,
+        partitions: [
+          { partition: 0, offset: '300', lag: 0 },
+          { partition: 1, offset: '290', lag: 10 },
+          { partition: 2, offset: '310', lag: 0 },
+        ],
+      },
+    ],
+  },
+
+  /**
+   * Notification service consumer group offsets
+   */
+  notificationService: {
+    groupId: CONSUMER_GROUPS.NOTIFICATION_SERVICE,
+    topics: [
+      {
+        topic: NOTIFICATION_TOPICS.REQUEST,
+        partitions: [
+          { partition: 0, offset: '400', lag: 0 },
+          { partition: 1, offset: '395', lag: 5 },
+          { partition: 2, offset: '410', lag: 0 },
+        ],
+      },
+    ],
+  },
+
+  /**
+   * Dead letter queue processor consumer group offsets
+   */
+  dlqProcessor: {
+    groupId: CONSUMER_GROUPS.DLQ_PROCESSOR,
+    topics: [
+      {
+        topic: DLQ_TOPICS.HEALTH_EVENTS,
+        partitions: [
+          { partition: 0, offset: '10', lag: 0 },
+          { partition: 1, offset: '5', lag: 0 },
+          { partition: 2, offset: '15', lag: 0 },
+        ],
+      },
+      {
+        topic: DLQ_TOPICS.CARE_EVENTS,
+        partitions: [
+          { partition: 0, offset: '8', lag: 0 },
+          { partition: 1, offset: '3', lag: 0 },
+          { partition: 2, offset: '12', lag: 0 },
+        ],
+      },
+      {
+        topic: DLQ_TOPICS.PLAN_EVENTS,
+        partitions: [
+          { partition: 0, offset: '5', lag: 0 },
+          { partition: 1, offset: '2', lag: 0 },
+          { partition: 2, offset: '7', lag: 0 },
+        ],
+      },
+    ],
+  },
 };
 
 // ===== SERIALIZED MESSAGE EXAMPLES =====
 
 /**
- * Collection of serialized message examples for testing marshaling/unmarshaling.
+ * Serialized Kafka message examples for testing deserialization
  */
 export const serializedMessages = {
   /**
-   * Serialized health metric event.
+   * Serialized health metric recorded event
    */
-  healthMetric: {
-    buffer: healthMetricKafkaMessage.value,
-    string: healthMetricKafkaMessage.value?.toString('utf8'),
-    parsed: JSON.parse(healthMetricKafkaMessage.value?.toString('utf8') || '{}'),
-  },
-  
+  healthMetricRecorded: serializeKafkaEvent(healthMetricRecordedEvent),
+
   /**
-   * Serialized care appointment event.
+   * Serialized care appointment booked event
    */
-  careAppointment: {
-    buffer: careAppointmentKafkaMessage.value,
-    string: careAppointmentKafkaMessage.value?.toString('utf8'),
-    parsed: JSON.parse(careAppointmentKafkaMessage.value?.toString('utf8') || '{}'),
-  },
-  
+  careAppointmentBooked: serializeKafkaEvent(careAppointmentBookedEvent),
+
   /**
-   * Serialized plan claim event.
+   * Serialized plan claim submitted event
    */
-  planClaim: {
-    buffer: planClaimKafkaMessage.value,
-    string: planClaimKafkaMessage.value?.toString('utf8'),
-    parsed: JSON.parse(planClaimKafkaMessage.value?.toString('utf8') || '{}'),
-  },
-  
+  planClaimSubmitted: serializeKafkaEvent(planClaimSubmittedEvent),
+
   /**
-   * Serialized gamification achievement event.
+   * Serialized invalid message (missing required fields)
    */
-  gamificationAchievement: {
-    buffer: gamificationAchievementKafkaMessage.value,
-    string: gamificationAchievementKafkaMessage.value?.toString('utf8'),
-    parsed: JSON.parse(gamificationAchievementKafkaMessage.value?.toString('utf8') || '{}'),
-  },
+  invalidMessage: JSON.stringify(invalidKafkaMessage),
+
+  /**
+   * Malformed JSON string (not valid JSON)
+   */
+  malformedJson: '{"eventId":"evt-malformed-123","type":"TEST_EVENT","timestamp":"2023-05-15T10:30:00.000Z","version":"1.0.0","source":"test-service","payload":{"message":"Malformed JSON message"},"topic":"austa.health.events","partition":0,"offset":"0","key":"test-key"',
 };
 
-// ===== DEAD LETTER QUEUE EXAMPLES =====
+// ===== DEAD LETTER QUEUE AND RETRY EXAMPLES =====
 
 /**
- * Collection of dead letter queue message examples.
+ * Dead letter queue message examples
  */
-export const deadLetterQueueMessages = {
+export const dlqMessages = {
   /**
-   * Failed health metric event due to schema validation.
+   * Health event in DLQ due to processing error
    */
-  failedHealthMetric: createKafkaMessageWithError(
-    healthMetricKafkaMessage,
-    ERROR_CODES.SCHEMA_VALIDATION_FAILED,
-    'Invalid metric value: must be a positive number',
-    3,
-    3
-  ),
-  
-  /**
-   * Failed care appointment event due to processing error.
-   */
-  failedCareAppointment: createKafkaMessageWithError(
-    careAppointmentKafkaMessage,
-    ERROR_CODES.CONSUMER_PROCESSING_FAILED,
-    'Provider not found: provider-123',
-    2,
-    3
-  ),
-  
-  /**
-   * Failed plan claim event due to deserialization error.
-   */
-  failedPlanClaim: createKafkaMessageWithError(
-    planClaimKafkaMessage,
-    ERROR_CODES.MESSAGE_DESERIALIZATION_FAILED,
-    'Invalid JSON format in message payload',
-    1,
-    3
-  ),
-};
-
-// ===== RETRY MECHANISM EXAMPLES =====
-
-/**
- * Collection of retry mechanism examples with exponential backoff.
- */
-export const retryExamples = {
-  /**
-   * Retry configuration with exponential backoff.
-   */
-  retryConfig: {
-    initialRetryMs: 100,
-    maxRetryMs: 10000,
-    factor: 2,
-    retries: 5,
-    randomizationFactor: 0.2,
-  },
-  
-  /**
-   * Retry attempts with exponential backoff intervals.
-   */
-  retryAttempts: [
-    { attempt: 1, delayMs: 100 },
-    { attempt: 2, delayMs: 200 },
-    { attempt: 3, delayMs: 400 },
-    { attempt: 4, delayMs: 800 },
-    { attempt: 5, delayMs: 1600 },
-  ],
-  
-  /**
-   * Health metric event with retry metadata.
-   */
-  healthMetricWithRetry: createKafkaMessage(
-    TOPICS.HEALTH.METRICS,
-    'user-123',
+  healthEventProcessingError: createKafkaEvent(
     {
-      type: EventType.HEALTH_METRIC_RECORDED,
-      payload: {
-        metricType: 'HEART_RATE',
-        value: 72,
+      metric: {
+        id: 'metric-123',
+        userId: 'test-user-123',
+        type: 'HEART_RATE',
+        value: 75,
         unit: 'bpm',
-        timestamp: '2023-04-15T10:30:00Z',
-        source: 'manual',
+        timestamp: '2023-05-15T10:30:00.000Z',
+        source: 'smartwatch',
       },
-      metadata: {
-        eventId: '550e8400-e29b-41d4-a716-446655440000',
-        correlationId: '550e8400-e29b-41d4-a716-446655440001',
-        timestamp: '2023-04-15T10:30:00Z',
-        origin: {
-          service: 'health-service',
-          instance: 'health-service-pod-1234',
-          component: 'metric-processor',
-        },
-        version: {
-          major: '1',
-          minor: '0',
-          patch: '0',
-        },
-        context: {
-          retry: {
-            count: 2,
-            maxRetries: 5,
-            reason: ERROR_CODES.CONSUMER_PROCESSING_FAILED,
-            originalTimestamp: '2023-04-15T10:29:50Z',
-          },
-        },
-      },
+      metricType: 'HEART_RATE',
+      value: 75,
+      unit: 'bpm',
+      timestamp: '2023-05-15T10:30:00.000Z',
     },
     {
-      headers: {
-        'event-type': EventType.HEALTH_METRIC_RECORDED,
-        'user-id': 'user-123',
-        'correlation-id': '550e8400-e29b-41d4-a716-446655440001',
-        'retry-count': '2',
-        'retry-reason': ERROR_CODES.CONSUMER_PROCESSING_FAILED,
+      type: HealthEventType.METRIC_RECORDED,
+      topic: DLQ_TOPICS.HEALTH_EVENTS,
+      journey: JourneyType.HEALTH,
+      metadata: {
+        correlationId: 'corr-123456789',
+        isRetry: true,
+        retryCount: 3,
+        originalTimestamp: '2023-05-15T10:25:00.000Z',
       },
+      headers: createKafkaHeaders({
+        [KAFKA_HEADERS.EVENT_TYPE]: HealthEventType.METRIC_RECORDED,
+        [KAFKA_HEADERS.JOURNEY]: JourneyType.HEALTH,
+        [KAFKA_HEADERS.RETRY_COUNT]: '3',
+        [KAFKA_HEADERS.ORIGINAL_TOPIC]: HEALTH_EVENT_TOPICS.METRICS,
+        [KAFKA_HEADERS.ERROR_MESSAGE]: 'Database connection error',
+        [KAFKA_HEADERS.ERROR_CODE]: 'DB_CONNECTION_ERROR',
+      }),
+    }
+  ),
+
+  /**
+   * Care event in DLQ due to validation error
+   */
+  careEventValidationError: createKafkaEvent(
+    {
+      appointment: {
+        id: 'appointment-123',
+        userId: 'test-user-123',
+        providerId: 'provider-123',
+        type: 'CONSULTATION',
+        status: 'SCHEDULED',
+        // Missing required scheduledDate
+        createdAt: '2023-05-15T10:30:00.000Z',
+      },
+      appointmentType: 'CONSULTATION',
+      providerId: 'provider-123',
+      // Missing required scheduledDate
+    },
+    {
+      type: CareEventType.APPOINTMENT_BOOKED,
+      topic: DLQ_TOPICS.CARE_EVENTS,
+      journey: JourneyType.CARE,
+      metadata: {
+        correlationId: 'corr-123456789',
+        isRetry: true,
+        retryCount: 1,
+        originalTimestamp: '2023-05-15T10:28:00.000Z',
+      },
+      headers: createKafkaHeaders({
+        [KAFKA_HEADERS.EVENT_TYPE]: CareEventType.APPOINTMENT_BOOKED,
+        [KAFKA_HEADERS.JOURNEY]: JourneyType.CARE,
+        [KAFKA_HEADERS.RETRY_COUNT]: '1',
+        [KAFKA_HEADERS.ORIGINAL_TOPIC]: CARE_EVENT_TOPICS.APPOINTMENTS,
+        [KAFKA_HEADERS.ERROR_MESSAGE]: 'Missing required field: scheduledDate',
+        [KAFKA_HEADERS.ERROR_CODE]: 'VALIDATION_ERROR',
+      }),
+    }
+  ),
+
+  /**
+   * Plan event in DLQ due to deserialization error
+   */
+  planEventDeserializationError: createKafkaEvent(
+    {
+      // Original payload was corrupted or malformed
+      _originalPayload: '{"claim":{"id":"claim-123","userId":"test-user-123","type":"MEDICAL_CONSULTATION","status":"SUBMITTED","amount":150.0,"submissionDate":"2023-05-15T10:30:00.000Z"},"submissionDate":"2023-05-15T10:30:00.000Z","amount":150.0,"claimType":"MEDICAL_CONSULTATION","hasDocuments":true,"isComplete":true',
+      errorDetails: 'Unexpected end of JSON input',
+    },
+    {
+      type: PlanEventType.CLAIM_SUBMITTED,
+      topic: DLQ_TOPICS.PLAN_EVENTS,
+      journey: JourneyType.PLAN,
+      metadata: {
+        correlationId: 'corr-123456789',
+        isRetry: false,
+        retryCount: 0,
+        originalTimestamp: '2023-05-15T10:29:00.000Z',
+      },
+      headers: createKafkaHeaders({
+        [KAFKA_HEADERS.EVENT_TYPE]: PlanEventType.CLAIM_SUBMITTED,
+        [KAFKA_HEADERS.JOURNEY]: JourneyType.PLAN,
+        [KAFKA_HEADERS.RETRY_COUNT]: '0',
+        [KAFKA_HEADERS.ORIGINAL_TOPIC]: PLAN_EVENT_TOPICS.CLAIMS,
+        [KAFKA_HEADERS.ERROR_MESSAGE]: 'Unexpected end of JSON input',
+        [KAFKA_HEADERS.ERROR_CODE]: 'DESERIALIZATION_ERROR',
+      }),
     }
   ),
 };
 
-// Export all fixtures
-export default {
-  // Message envelope fixtures
-  healthMetricKafkaMessage,
-  careAppointmentKafkaMessage,
-  planClaimKafkaMessage,
-  gamificationAchievementKafkaMessage,
-  
-  // Journey-specific event examples
-  healthEvents,
-  careEvents,
-  planEvents,
-  gamificationEvents,
-  
-  // Consumer group offset examples
-  consumerGroupOffsets,
-  
-  // Serialized message examples
-  serializedMessages,
-  
-  // Dead letter queue examples
-  deadLetterQueueMessages,
-  
-  // Retry mechanism examples
-  retryExamples,
-  
-  // Helper functions
-  createKafkaMessage,
-  createKafkaHeader,
-  createBuffer,
-  createKafkaMessageWithError,
-  createConsumerGroupOffset,
+/**
+ * Retry message examples with exponential backoff
+ */
+export const retryMessages = {
+  /**
+   * First retry attempt (initial delay)
+   */
+  firstRetry: createKafkaEvent(
+    {
+      metric: {
+        id: 'metric-123',
+        userId: 'test-user-123',
+        type: 'HEART_RATE',
+        value: 75,
+        unit: 'bpm',
+        timestamp: '2023-05-15T10:30:00.000Z',
+        source: 'smartwatch',
+      },
+      metricType: 'HEART_RATE',
+      value: 75,
+      unit: 'bpm',
+      timestamp: '2023-05-15T10:30:00.000Z',
+    },
+    {
+      type: HealthEventType.METRIC_RECORDED,
+      topic: HEALTH_EVENT_TOPICS.METRICS,
+      journey: JourneyType.HEALTH,
+      metadata: {
+        correlationId: 'corr-123456789',
+        isRetry: true,
+        retryCount: 1,
+        originalTimestamp: '2023-05-15T10:29:00.000Z',
+      },
+      headers: createKafkaHeaders({
+        [KAFKA_HEADERS.EVENT_TYPE]: HealthEventType.METRIC_RECORDED,
+        [KAFKA_HEADERS.JOURNEY]: JourneyType.HEALTH,
+        [KAFKA_HEADERS.RETRY_COUNT]: '1',
+      }),
+    }
+  ),
+
+  /**
+   * Second retry attempt (exponential backoff)
+   */
+  secondRetry: createKafkaEvent(
+    {
+      metric: {
+        id: 'metric-123',
+        userId: 'test-user-123',
+        type: 'HEART_RATE',
+        value: 75,
+        unit: 'bpm',
+        timestamp: '2023-05-15T10:30:00.000Z',
+        source: 'smartwatch',
+      },
+      metricType: 'HEART_RATE',
+      value: 75,
+      unit: 'bpm',
+      timestamp: '2023-05-15T10:30:00.000Z',
+    },
+    {
+      type: HealthEventType.METRIC_RECORDED,
+      topic: HEALTH_EVENT_TOPICS.METRICS,
+      journey: JourneyType.HEALTH,
+      metadata: {
+        correlationId: 'corr-123456789',
+        isRetry: true,
+        retryCount: 2,
+        originalTimestamp: '2023-05-15T10:28:00.000Z',
+      },
+      headers: createKafkaHeaders({
+        [KAFKA_HEADERS.EVENT_TYPE]: HealthEventType.METRIC_RECORDED,
+        [KAFKA_HEADERS.JOURNEY]: JourneyType.HEALTH,
+        [KAFKA_HEADERS.RETRY_COUNT]: '2',
+      }),
+    }
+  ),
+
+  /**
+   * Third retry attempt (max retries before DLQ)
+   */
+  thirdRetry: createKafkaEvent(
+    {
+      metric: {
+        id: 'metric-123',
+        userId: 'test-user-123',
+        type: 'HEART_RATE',
+        value: 75,
+        unit: 'bpm',
+        timestamp: '2023-05-15T10:30:00.000Z',
+        source: 'smartwatch',
+      },
+      metricType: 'HEART_RATE',
+      value: 75,
+      unit: 'bpm',
+      timestamp: '2023-05-15T10:30:00.000Z',
+    },
+    {
+      type: HealthEventType.METRIC_RECORDED,
+      topic: HEALTH_EVENT_TOPICS.METRICS,
+      journey: JourneyType.HEALTH,
+      metadata: {
+        correlationId: 'corr-123456789',
+        isRetry: true,
+        retryCount: 3,
+        originalTimestamp: '2023-05-15T10:27:00.000Z',
+      },
+      headers: createKafkaHeaders({
+        [KAFKA_HEADERS.EVENT_TYPE]: HealthEventType.METRIC_RECORDED,
+        [KAFKA_HEADERS.JOURNEY]: JourneyType.HEALTH,
+        [KAFKA_HEADERS.RETRY_COUNT]: '3',
+      }),
+    }
+  ),
+};
+
+/**
+ * Retry configuration examples for different scenarios
+ */
+export const retryConfigurations = {
+  /**
+   * Default retry configuration with exponential backoff
+   */
+  defaultRetry: {
+    maxRetries: 3,
+    initialRetryTime: 1000, // 1 second
+    backoffFactor: 2, // Exponential backoff factor
+    // Retry delays: 1s, 2s, 4s
+  },
+
+  /**
+   * Aggressive retry configuration for critical events
+   */
+  criticalEventRetry: {
+    maxRetries: 5,
+    initialRetryTime: 500, // 0.5 seconds
+    backoffFactor: 1.5, // Slower exponential growth
+    // Retry delays: 0.5s, 0.75s, 1.125s, 1.69s, 2.53s
+  },
+
+  /**
+   * Conservative retry configuration for non-critical events
+   */
+  nonCriticalEventRetry: {
+    maxRetries: 2,
+    initialRetryTime: 2000, // 2 seconds
+    backoffFactor: 3, // Faster exponential growth
+    // Retry delays: 2s, 6s
+  },
+
+  /**
+   * Long-term retry configuration for persistent issues
+   */
+  persistentIssueRetry: {
+    maxRetries: 10,
+    initialRetryTime: 5000, // 5 seconds
+    backoffFactor: 1.2, // Slow exponential growth
+    // Retry delays gradually increasing from 5s to ~31s
+  },
 };

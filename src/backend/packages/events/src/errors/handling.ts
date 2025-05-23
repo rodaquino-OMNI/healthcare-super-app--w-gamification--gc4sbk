@@ -1,204 +1,231 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { CircuitBreaker, CircuitBreakerOptions } from './circuit-breaker';
-import { EventProcessingError, EventValidationError } from './event-errors';
-import { sendToDlq } from './dlq';
-import { applyRetryPolicy } from './retry-policies';
-
-// Import interfaces from the interfaces directory
-import { IBaseEvent } from '../interfaces/base-event.interface';
+import { EventProcessingError, EventValidationError, EventSchemaError, EventTimeoutError } from './event-errors';
 import { IEventHandler } from '../interfaces/event-handler.interface';
-import { IEventResponse } from '../interfaces/event-response.interface';
-
-// Import tracing for enhanced error logging
-import { TraceContext, getCurrentTraceId } from '@austa/tracing';
-
-/**
- * @fileoverview
- * This file provides comprehensive error handling utilities for event processing.
- * 
- * It includes:
- * - Decorators for wrapping event processors with standardized error handling
- * - Circuit breaker implementation to prevent cascading failures
- * - Structured logging utilities for event processing errors
- * - Helper functions for error recovery with fallback mechanisms
- * 
- * These utilities ensure consistent error handling patterns across all event processors
- * and seamless integration with retry and DLQ systems.
- */
+import { IBaseEvent } from '../interfaces/base-event.interface';
+import { EventResponse } from '../interfaces/event-response.interface';
+import { TracingService } from '@austa/tracing';
+import { LoggerService } from '@austa/logging';
 
 /**
- * Logger instance for event error handling
+ * Error classification for event processing errors
  */
-const logger = new Logger('EventErrorHandler');
-
-/**
- * Processing stages for event handling
- * Used to track where in the pipeline an error occurred
- */
-export enum EventProcessingStage {
-  VALIDATION = 'validation',
-  DESERIALIZATION = 'deserialization',
-  PROCESSING = 'processing',
-  PERSISTENCE = 'persistence',
-  NOTIFICATION = 'notification',
-  RESPONSE = 'response'
+export enum ErrorCategory {
+  // Errors that should never be retried (invalid data, schema errors)
+  PERMANENT = 'PERMANENT',
+  // Errors that should be retried (network issues, temporary service unavailability)
+  TRANSIENT = 'TRANSIENT',
+  // Errors that might be resolved with retry, but need careful handling
+  INDETERMINATE = 'INDETERMINATE'
 }
 
 /**
- * Options for configuring error handling behavior
+ * Options for error handling in event processors
  */
 export interface ErrorHandlingOptions {
-  /**
-   * Whether to automatically send failed events to DLQ
-   */
-  sendToDlq?: boolean;
-  
-  /**
-   * Whether to apply retry policies based on error type
-   */
-  applyRetryPolicy?: boolean;
-  
-  /**
-   * Whether to use circuit breaker pattern
-   */
-  useCircuitBreaker?: boolean;
-  
-  /**
-   * Circuit breaker configuration
-   */
-  circuitBreakerOptions?: CircuitBreakerOptions;
-  
-  /**
-   * Custom error handler function
-   */
-  customErrorHandler?: (error: Error, event: IBaseEvent) => Promise<void>;
-  
-  /**
-   * Journey context for error handling
-   */
-  journeyContext?: 'health' | 'care' | 'plan' | 'gamification';
-  
-  /**
-   * Whether to include tracing information in error logs
-   */
-  includeTracing?: boolean;
-  
-  /**
-   * Processing stage where the error occurred
-   * Helps with debugging and monitoring specific parts of the pipeline
-   */
-  processingStage?: EventProcessingStage;
-  
-  /**
-   * Maximum number of retries before sending to DLQ
-   * If not specified, uses the default from retry policy
-   */
+  // Maximum number of retries before sending to DLQ
   maxRetries?: number;
+  // Whether to use circuit breaker pattern
+  useCircuitBreaker?: boolean;
+  // Circuit breaker configuration
+  circuitBreakerOptions?: CircuitBreakerOptions;
+  // Whether to enable detailed error logging
+  detailedLogging?: boolean;
+  // Custom error classifier function
+  errorClassifier?: (error: Error) => ErrorCategory;
+  // Fallback function to execute when all retries are exhausted
+  fallbackFn?: <T, R>(event: T) => Promise<R>;
 }
 
 /**
  * Default error handling options
  */
-const defaultErrorHandlingOptions: ErrorHandlingOptions = {
-  sendToDlq: true,
-  applyRetryPolicy: true,
-  useCircuitBreaker: false,
-  journeyContext: 'gamification',
-  includeTracing: true,
-  processingStage: EventProcessingStage.PROCESSING,
+export const DEFAULT_ERROR_HANDLING_OPTIONS: ErrorHandlingOptions = {
+  maxRetries: 3,
+  useCircuitBreaker: true,
+  detailedLogging: true,
+  circuitBreakerOptions: {
+    failureThreshold: 5,
+    resetTimeout: 30000, // 30 seconds
+    monitorInterval: 5000 // 5 seconds
+  }
 };
 
 /**
- * Decorator for handling errors in event processors
- * Wraps the event handler method with standardized error handling
- * 
+ * Utility for classifying errors into categories for retry decisions
+ */
+export function classifyError(error: Error): ErrorCategory {
+  // Schema and validation errors should never be retried
+  if (error instanceof EventValidationError || error instanceof EventSchemaError) {
+    return ErrorCategory.PERMANENT;
+  }
+  
+  // Timeout errors are typically transient
+  if (error instanceof EventTimeoutError) {
+    return ErrorCategory.TRANSIENT;
+  }
+  
+  // For EventProcessingError, check the error code or message for classification
+  if (error instanceof EventProcessingError) {
+    // Database connection errors, network errors are typically transient
+    if (
+      error.message.includes('connection') ||
+      error.message.includes('timeout') ||
+      error.message.includes('network') ||
+      error.message.includes('temporarily unavailable')
+    ) {
+      return ErrorCategory.TRANSIENT;
+    }
+    
+    // Data integrity errors, permission errors are typically permanent
+    if (
+      error.message.includes('permission denied') ||
+      error.message.includes('not authorized') ||
+      error.message.includes('integrity constraint') ||
+      error.message.includes('duplicate key')
+    ) {
+      return ErrorCategory.PERMANENT;
+    }
+  }
+  
+  // For unknown errors, classify as indeterminate
+  return ErrorCategory.INDETERMINATE;
+}
+
+/**
+ * Decorator for adding standardized error handling to event processor methods
  * @param options Error handling options
  */
-export function HandleEventErrors(options: ErrorHandlingOptions = {}) {
-  const mergedOptions = { ...defaultErrorHandlingOptions, ...options };
-  
+export function WithErrorHandling(options: ErrorHandlingOptions = DEFAULT_ERROR_HANDLING_OPTIONS) {
   return function (target: any, propertyKey: string, descriptor: PropertyDescriptor) {
     const originalMethod = descriptor.value;
     
-    descriptor.value = async function(...args: any[]) {
-      const event = args[0] as IBaseEvent;
-      const circuitBreaker = mergedOptions.useCircuitBreaker ? 
-        new CircuitBreaker(mergedOptions.circuitBreakerOptions) : null;
+    descriptor.value = async function (...args: any[]) {
+      const instance = this;
+      const logger: LoggerService = instance.logger || new Logger('EventErrorHandler');
+      const tracingService: TracingService = instance.tracingService;
       
-      // Create trace context for this event processing if tracing is enabled
-      let traceContext: TraceContext | undefined;
-      if (mergedOptions.includeTracing) {
-        // This would create a new trace or continue an existing one
-        // traceContext = createTraceContext(event);
+      // Extract event from arguments (assuming first arg is the event)
+      const event = args[0];
+      const eventType = event?.type || 'unknown';
+      const eventId = event?.eventId || 'unknown';
+      
+      // Create or get circuit breaker if enabled
+      let circuitBreaker: CircuitBreaker | null = null;
+      if (options.useCircuitBreaker) {
+        const circuitBreakerKey = `${target.constructor.name}.${propertyKey}`;  
+        circuitBreaker = CircuitBreaker.getInstance(
+          circuitBreakerKey,
+          options.circuitBreakerOptions || DEFAULT_ERROR_HANDLING_OPTIONS.circuitBreakerOptions
+        );
+      }
+      
+      // Create span for tracing if tracing service is available
+      let span;
+      if (tracingService) {
+        span = tracingService.startSpan(`event.process.${eventType}`, {
+          attributes: {
+            'event.id': eventId,
+            'event.type': eventType,
+            'processor.name': target.constructor.name,
+            'processor.method': propertyKey
+          }
+        });
       }
       
       try {
-        // Check if circuit is open before proceeding
-        if (circuitBreaker && circuitBreaker.isOpen()) {
+        // Check circuit breaker state before proceeding
+        if (circuitBreaker && !circuitBreaker.isAllowed()) {
+          logger.warn(
+            `Circuit breaker open for ${target.constructor.name}.${propertyKey}. Skipping processing.`,
+            {
+              eventType,
+              eventId,
+              circuitBreaker: circuitBreaker.getState()
+            }
+          );
+          
+          // If fallback function is provided, use it
+          if (options.fallbackFn) {
+            return await options.fallbackFn(event);
+          }
+          
           throw new EventProcessingError(
-            'Circuit breaker is open, rejecting request',
-            'CIRCUIT_OPEN',
-            { eventId: event.eventId, eventType: event.type },
-            false, // Not retryable when circuit is open
-            mergedOptions.processingStage
+            `Circuit breaker open for ${eventType}`,
+            'CIRCUIT_BREAKER_OPEN',
+            { eventId, eventType }
           );
         }
         
-        // Call the original method
-        const result = await originalMethod.apply(this, args);
+        // Execute the original method
+        const result = await originalMethod.apply(instance, args);
         
-        // If circuit breaker is used, record success
+        // Record success in circuit breaker
         if (circuitBreaker) {
           circuitBreaker.recordSuccess();
         }
         
+        // Finish span if tracing is enabled
+        if (span) {
+          span.end();
+        }
+        
         return result;
       } catch (error) {
-        // Record failure in circuit breaker if used
+        // Record failure in circuit breaker
         if (circuitBreaker) {
           circuitBreaker.recordFailure();
         }
         
-        // Log the error with structured context
-        logEventError(
-          error, 
-          event, 
-          mergedOptions.journeyContext,
-          mergedOptions.includeTracing,
-          mergedOptions.processingStage
-        );
+        // Classify error for retry decisions
+        const errorCategory = options.errorClassifier 
+          ? options.errorClassifier(error) 
+          : classifyError(error);
         
-        // Apply retry policy if enabled
-        if (mergedOptions.applyRetryPolicy) {
-          const shouldRetry = await applyRetryPolicy(error, event, mergedOptions.maxRetries);
-          if (shouldRetry) {
-            logger.log(`Retrying event ${event.eventId} based on retry policy`);
-            return;
+        // Log error with appropriate level and context
+        if (options.detailedLogging) {
+          logger.error(
+            `Error processing event ${eventType} (${eventId}): ${error.message}`,
+            {
+              error,
+              eventType,
+              eventId,
+              errorCategory,
+              stack: error.stack
+            }
+          );
+        } else {
+          logger.error(
+            `Error processing event ${eventType}: ${error.message}`,
+            { eventType, errorCategory }
+          );
+        }
+        
+        // Record error in tracing span
+        if (span) {
+          span.recordException(error);
+          span.setAttributes({
+            'error.category': errorCategory,
+            'error.message': error.message,
+            'error.type': error.constructor.name
+          });
+          span.end();
+        }
+        
+        // If fallback function is provided and error is permanent, use it
+        if (options.fallbackFn && errorCategory === ErrorCategory.PERMANENT) {
+          try {
+            return await options.fallbackFn(event);
+          } catch (fallbackError) {
+            logger.error(
+              `Fallback function failed for event ${eventType}: ${fallbackError.message}`,
+              { eventType, eventId, error: fallbackError }
+            );
           }
         }
         
-        // Send to DLQ if enabled and not retrying
-        if (mergedOptions.sendToDlq) {
-          await sendToDlq(event, error, mergedOptions.journeyContext);
-        }
-        
-        // Call custom error handler if provided
-        if (mergedOptions.customErrorHandler) {
-          await mergedOptions.customErrorHandler(error, event);
-        }
-        
-        // Rethrow or return error response based on handler type
-        if (isEventHandler(this)) {
-          return createErrorResponse(error, event);
-        } else {
-          throw error;
-        }
-      } finally {
-        // Clean up trace context if it was created
-        if (traceContext) {
-          // This would end the trace context
-          // endTraceContext(traceContext);
-        }
+        // Rethrow the error for upstream handling
+        throw error;
       }
     };
     
@@ -207,71 +234,106 @@ export function HandleEventErrors(options: ErrorHandlingOptions = {}) {
 }
 
 /**
- * Decorator for handling validation errors in event processors
- * Specifically focuses on validation errors before processing
- * 
- * @param options Error handling options
+ * Decorator for adding retry capabilities to event processor methods
+ * @param maxRetries Maximum number of retry attempts
+ * @param delayMs Delay between retries in milliseconds
  */
-export function HandleValidationErrors(options: ErrorHandlingOptions = {}) {
-  // Override default options to set validation-specific settings
-  const validationOptions: ErrorHandlingOptions = {
-    ...defaultErrorHandlingOptions,
-    processingStage: EventProcessingStage.VALIDATION,
-    // Validation errors typically don't retry
-    applyRetryPolicy: false,
-    ...options
-  };
-  
+export function WithRetry(maxRetries: number = 3, delayMs: number = 1000) {
   return function (target: any, propertyKey: string, descriptor: PropertyDescriptor) {
     const originalMethod = descriptor.value;
     
-    descriptor.value = async function(...args: any[]) {
-      const event = args[0] as IBaseEvent;
+    descriptor.value = async function (...args: any[]) {
+      const instance = this;
+      const logger: LoggerService = instance.logger || new Logger('EventRetryHandler');
       
-      // Create trace context for validation if tracing is enabled
-      let traceContext: TraceContext | undefined;
-      if (validationOptions.includeTracing) {
-        // This would create a new trace or continue an existing one
-        // traceContext = createTraceContext(event, 'validation');
-      }
+      // Extract event from arguments (assuming first arg is the event)
+      const event = args[0];
+      const eventType = event?.type || 'unknown';
+      const eventId = event?.eventId || 'unknown';
       
-      try {
-        // Call the original method
-        return await originalMethod.apply(this, args);
-      } catch (error) {
-        // Only handle validation errors, let other errors propagate
-        if (error instanceof EventValidationError) {
-          // Log validation error with structured context
-          logEventError(
-            error,
-            event,
-            validationOptions.journeyContext,
-            validationOptions.includeTracing,
-            EventProcessingStage.VALIDATION
+      let lastError: Error;
+      let attempt = 0;
+      
+      while (attempt <= maxRetries) {
+        try {
+          // Execute the original method
+          return await originalMethod.apply(instance, args);
+        } catch (error) {
+          lastError = error;
+          attempt++;
+          
+          // Classify error to determine if retry is appropriate
+          const errorCategory = classifyError(error);
+          
+          // Don't retry permanent errors
+          if (errorCategory === ErrorCategory.PERMANENT) {
+            logger.warn(
+              `Not retrying permanent error for event ${eventType} (${eventId}): ${error.message}`,
+              { eventType, eventId, errorCategory }
+            );
+            throw error;
+          }
+          
+          // If we've reached max retries, throw the last error
+          if (attempt > maxRetries) {
+            logger.error(
+              `Max retries (${maxRetries}) reached for event ${eventType} (${eventId}): ${error.message}`,
+              { eventType, eventId, attempts: attempt, error }
+            );
+            throw error;
+          }
+          
+          // Log retry attempt
+          logger.warn(
+            `Retrying event ${eventType} (${eventId}) after error: ${error.message}. Attempt ${attempt} of ${maxRetries}`,
+            { eventType, eventId, attempt, maxRetries, error: error.message }
           );
           
-          // Send to DLQ if enabled (validation errors typically don't retry)
-          if (validationOptions.sendToDlq) {
-            await sendToDlq(event, error, validationOptions.journeyContext);
-          }
-          
-          // Call custom error handler if provided
-          if (validationOptions.customErrorHandler) {
-            await validationOptions.customErrorHandler(error, event);
-          }
-          
-          // Return error response for validation errors
-          return createErrorResponse(error, event);
+          // Wait before retrying
+          // Use exponential backoff with jitter for better retry distribution
+          const jitter = Math.random() * 0.3 + 0.85; // Random value between 0.85 and 1.15
+          const delay = delayMs * Math.pow(2, attempt - 1) * jitter;
+          await new Promise(resolve => setTimeout(resolve, delay));
         }
+      }
+      
+      // This should never be reached due to the throw in the loop, but TypeScript needs it
+      throw lastError!;
+    };
+    
+    return descriptor;
+  };
+}
+
+/**
+ * Decorator for adding fallback behavior to event processor methods
+ * @param fallbackFn Function to execute when the original method fails
+ */
+export function WithFallback<T, R>(fallbackFn: (event: T) => Promise<R>) {
+  return function (target: any, propertyKey: string, descriptor: PropertyDescriptor) {
+    const originalMethod = descriptor.value;
+    
+    descriptor.value = async function (...args: any[]) {
+      const instance = this;
+      const logger: LoggerService = instance.logger || new Logger('EventFallbackHandler');
+      
+      // Extract event from arguments (assuming first arg is the event)
+      const event = args[0];
+      const eventType = event?.type || 'unknown';
+      const eventId = event?.eventId || 'unknown';
+      
+      try {
+        // Execute the original method
+        return await originalMethod.apply(instance, args);
+      } catch (error) {
+        // Log fallback execution
+        logger.warn(
+          `Executing fallback for event ${eventType} (${eventId}) after error: ${error.message}`,
+          { eventType, eventId, error: error.message }
+        );
         
-        // Rethrow non-validation errors
-        throw error;
-      } finally {
-        // Clean up trace context if it was created
-        if (traceContext) {
-          // This would end the trace context
-          // endTraceContext(traceContext);
-        }
+        // Execute fallback function
+        return await fallbackFn(event);
       }
     };
     
@@ -280,475 +342,301 @@ export function HandleValidationErrors(options: ErrorHandlingOptions = {}) {
 }
 
 /**
- * Utility function to log event processing errors with structured context
- * 
- * @param error The error that occurred
- * @param event The event being processed
- * @param journeyContext Optional journey context for categorization
- * @param includeTracing Whether to include tracing information
- * @param processingStage The stage where the error occurred
- */
-export function logEventError(
-  error: Error, 
-  event: IBaseEvent, 
-  journeyContext?: string,
-  includeTracing: boolean = true,
-  processingStage: EventProcessingStage = EventProcessingStage.PROCESSING
-): void {
-  // Build base error context with event information
-  const errorContext: Record<string, any> = {
-    eventId: event.eventId,
-    eventType: event.type,
-    source: event.source,
-    journey: journeyContext || 'unknown',
-    timestamp: new Date().toISOString(),
-    processingStage: processingStage,
-  };
-  
-  // Add tracing information if enabled
-  if (includeTracing) {
-    const traceId = getCurrentTraceId();
-    if (traceId) {
-      errorContext.traceId = traceId;
-    }
-  }
-  
-  // Add version information if available
-  if (event.version) {
-    errorContext.eventVersion = event.version;
-  }
-  
-  // Log based on error type with appropriate level and context
-  if (error instanceof EventProcessingError) {
-    logger.error(
-      `Event processing error: ${error.message}`,
-      {
-        ...errorContext,
-        errorCode: error.code,
-        details: error.details,
-        retryable: error.isRetryable,
-        processingStage: error.processingStage || processingStage,
-      },
-      error.stack
-    );
-  } else if (error instanceof EventValidationError) {
-    logger.warn(
-      `Event validation error: ${error.message}`,
-      {
-        ...errorContext,
-        errorCode: error.code,
-        details: error.details,
-        validationErrors: error.validationErrors,
-        processingStage: EventProcessingStage.VALIDATION,
-      }
-    );
-  } else {
-    logger.error(
-      `Unexpected error in event processing: ${error.message}`,
-      errorContext,
-      error.stack
-    );
-  }
-  
-  // Additional metric tracking for monitoring systems
-  try {
-    // This would integrate with a metrics system like Prometheus
-    // incrementErrorCounter(event.type, journeyContext, error.name);
-  } catch (metricError) {
-    // Don't let metrics tracking failure affect the main flow
-    logger.debug(`Failed to record error metric: ${metricError.message}`);
-  }
-}
-
-/**
- * Creates a standardized error response for event handlers
- * 
- * @param error The error that occurred
- * @param event The event being processed
- * @returns A standardized error response
- */
-export function createErrorResponse(error: Error, event: IBaseEvent): IEventResponse {
-  const baseResponse = {
-    success: false,
-    eventId: event.eventId,
-    timestamp: new Date().toISOString(),
-    source: event.source,
-    type: event.type,
-  };
-  
-  // Include trace ID if available
-  const traceId = getCurrentTraceId();
-  if (traceId) {
-    Object.assign(baseResponse, { traceId });
-  }
-  
-  if (error instanceof EventProcessingError || error instanceof EventValidationError) {
-    return {
-      ...baseResponse,
-      error: {
-        message: error.message,
-        code: error.code,
-        type: error instanceof EventValidationError ? 'VALIDATION_ERROR' : 'PROCESSING_ERROR',
-        details: error.details,
-        retryable: error instanceof EventProcessingError ? error.isRetryable : false,
-        processingStage: error instanceof EventProcessingError ? 
-          error.processingStage : EventProcessingStage.VALIDATION,
-      },
-    };
-  }
-  
-  // For unknown errors, provide a generic response
-  return {
-    ...baseResponse,
-    error: {
-      message: 'An unexpected error occurred during event processing',
-      code: 'UNKNOWN_ERROR',
-      type: 'SYSTEM_ERROR',
-      retryable: false,
-      processingStage: EventProcessingStage.PROCESSING,
-      details: process.env.NODE_ENV !== 'production' ? { originalMessage: error.message } : undefined,
-    },
-  };
-}
-
-/**
- * Utility to check if an object is an event handler
- * 
- * @param obj Object to check
- * @returns True if the object is an event handler
- */
-function isEventHandler(obj: any): obj is IEventHandler {
-  return obj && typeof obj.handle === 'function' && typeof obj.getEventType === 'function';
-}
-
-/**
- * Utility function to create a fallback handler for event processing
- * Used when the primary handler fails and a fallback behavior is needed
- * 
- * @param fallbackFn The fallback function to execute
- * @param options Error handling options for the fallback
- * @returns A function that executes the fallback
- */
-export function createFallbackHandler<T extends IBaseEvent>(
-  fallbackFn: (event: T, error: Error) => Promise<IEventResponse>,
-  options: ErrorHandlingOptions = {}
-) {
-  const mergedOptions = { ...defaultErrorHandlingOptions, ...options };
-  
-  return async (event: T, error: Error): Promise<IEventResponse> => {
-    // Create trace context for fallback if tracing is enabled
-    let traceContext: TraceContext | undefined;
-    if (mergedOptions.includeTracing) {
-      // This would create a new trace or continue an existing one
-      // traceContext = createTraceContext(event, 'fallback');
-    }
-    
-    try {
-      logger.log(
-        `Executing fallback handler for event ${event.eventId}`,
-        {
-          eventType: event.type,
-          source: event.source,
-          journey: mergedOptions.journeyContext,
-          originalError: error.message,
-          traceId: mergedOptions.includeTracing ? getCurrentTraceId() : undefined
-        }
-      );
-      
-      return await fallbackFn(event, error);
-    } catch (fallbackError) {
-      // Log the fallback failure with context about both errors
-      logger.error(
-        `Fallback handler failed for event ${event.eventId}: ${fallbackError.message}`,
-        { 
-          eventType: event.type,
-          source: event.source,
-          journey: mergedOptions.journeyContext,
-          originalError: error.message,
-          fallbackError: fallbackError.message,
-          traceId: mergedOptions.includeTracing ? getCurrentTraceId() : undefined
-        },
-        fallbackError.stack
-      );
-      
-      // Send to DLQ if enabled since both primary and fallback failed
-      if (mergedOptions.sendToDlq) {
-        // Create a combined error with context from both failures
-        const combinedError = new EventProcessingError(
-          'Both primary and fallback handlers failed',
-          'FALLBACK_FAILED',
-          { 
-            originalError: error.message,
-            fallbackError: fallbackError.message 
-          },
-          false, // Not retryable when fallback also fails
-          mergedOptions.processingStage
-        );
-        
-        await sendToDlq(event, combinedError, mergedOptions.journeyContext);
-      }
-      
-      // Return a generic error response when even the fallback fails
-      return {
-        success: false,
-        eventId: event.eventId,
-        timestamp: new Date().toISOString(),
-        source: event.source,
-        type: event.type,
-        traceId: mergedOptions.includeTracing ? getCurrentTraceId() : undefined,
-        error: {
-          message: 'Both primary and fallback handlers failed',
-          code: 'FALLBACK_FAILED',
-          type: 'SYSTEM_ERROR',
-          retryable: false,
-          details: process.env.NODE_ENV !== 'production' ? {
-            originalError: error.message,
-            fallbackError: fallbackError.message
-          } : undefined
-        },
-      };
-    } finally {
-      // Clean up trace context if it was created
-      if (traceContext) {
-        // This would end the trace context
-        // endTraceContext(traceContext);
-      }
-    }
-  };
-}
-
-/**
- * Class decorator for adding error handling to all methods of an event handler class
- * 
- * @param options Error handling options
- */
-export function EventErrorHandler(options: ErrorHandlingOptions = {}) {
-  return function <T extends { new (...args: any[]): {} }>(constructor: T) {
-    // Get all method names from the prototype
-    const methodNames = Object.getOwnPropertyNames(constructor.prototype)
-      .filter(name => 
-        name !== 'constructor' && 
-        typeof constructor.prototype[name] === 'function'
-      );
-    
-    // Apply error handling to each method
-    methodNames.forEach(methodName => {
-      const descriptor = Object.getOwnPropertyDescriptor(constructor.prototype, methodName);
-      if (descriptor && typeof descriptor.value === 'function') {
-        // Apply different decorators based on method name
-        let decoratedDescriptor;
-        
-        // Apply validation-specific error handling to validate* methods
-        if (methodName.startsWith('validate') || methodName === 'canHandle') {
-          decoratedDescriptor = HandleValidationErrors({
-            ...options,
-            processingStage: EventProcessingStage.VALIDATION
-          })(constructor.prototype, methodName, descriptor);
-        } 
-        // Apply standard error handling to handle* and process* methods
-        else if (methodName === 'handle' || methodName === 'process' || methodName.startsWith('handle') || methodName.startsWith('process')) {
-          decoratedDescriptor = HandleEventErrors({
-            ...options,
-            processingStage: EventProcessingStage.PROCESSING
-          })(constructor.prototype, methodName, descriptor);
-        }
-        // Apply persistence error handling to save* and persist* methods
-        else if (methodName.startsWith('save') || methodName.startsWith('persist') || methodName.startsWith('store')) {
-          decoratedDescriptor = HandleEventErrors({
-            ...options,
-            processingStage: EventProcessingStage.PERSISTENCE
-          })(constructor.prototype, methodName, descriptor);
-        }
-        // Apply standard error handling to other methods
-        else {
-          decoratedDescriptor = HandleEventErrors(options)(constructor.prototype, methodName, descriptor);
-        }
-        
-        Object.defineProperty(constructor.prototype, methodName, decoratedDescriptor);
-      }
-    });
-    
-    // Add logging for class initialization
-    const originalConstructor = constructor;
-    function newConstructor(...args: any[]) {
-      const instance = new originalConstructor(...args);
-      logger.debug(`Initialized event handler with error handling: ${constructor.name}`);
-      return instance;
-    }
-    
-    // Copy prototype so instanceof works correctly
-    newConstructor.prototype = originalConstructor.prototype;
-    
-    return newConstructor as unknown as T;
-  };
-}
-
-/**
- * Utility class for wrapping event handlers with error handling
- * Can be used when decorators are not suitable
+ * Service for handling errors in event processing
  */
 @Injectable()
 export class EventErrorHandlingService {
-  constructor(private readonly logger: Logger = new Logger('EventErrorHandlingService')) {}
+  constructor(
+    private readonly logger: LoggerService,
+    private readonly tracingService: TracingService
+  ) {}
   
   /**
-   * Wraps an event handler function with error handling
-   * 
-   * @param handlerFn The event handler function to wrap
+   * Wraps an event handler with error handling, tracing, and logging
+   * @param handler Event handler to wrap
    * @param options Error handling options
-   * @returns A wrapped function with error handling
    */
   wrapWithErrorHandling<T extends IBaseEvent, R>(
-    handlerFn: (event: T) => Promise<R>,
-    options: ErrorHandlingOptions = {}
-  ): (event: T) => Promise<R | IEventResponse> {
-    const mergedOptions = { ...defaultErrorHandlingOptions, ...options };
-    const circuitBreaker = mergedOptions.useCircuitBreaker ? 
-      new CircuitBreaker(mergedOptions.circuitBreakerOptions) : null;
+    handler: IEventHandler<T, R>,
+    options: ErrorHandlingOptions = DEFAULT_ERROR_HANDLING_OPTIONS
+  ): IEventHandler<T, EventResponse<R>> {
+    const self = this;
     
-    return async (event: T): Promise<R | IEventResponse> => {
-      // Create trace context for this event processing if tracing is enabled
-      let traceContext: TraceContext | undefined;
-      if (mergedOptions.includeTracing) {
-        // This would create a new trace or continue an existing one
-        // traceContext = createTraceContext(event);
-      }
-      
-      try {
-        // Check if circuit is open before proceeding
-        if (circuitBreaker && circuitBreaker.isOpen()) {
-          throw new EventProcessingError(
-            'Circuit breaker is open, rejecting request',
-            'CIRCUIT_OPEN',
-            { eventId: event.eventId, eventType: event.type },
-            false, // Not retryable when circuit is open
-            mergedOptions.processingStage
+    return {
+      handle: async (event: T): Promise<EventResponse<R>> => {
+        const eventType = event?.type || 'unknown';
+        const eventId = event?.eventId || 'unknown';
+        
+        // Create circuit breaker if enabled
+        let circuitBreaker: CircuitBreaker | null = null;
+        if (options.useCircuitBreaker) {
+          const circuitBreakerKey = `${handler.constructor.name}.handle`;
+          circuitBreaker = CircuitBreaker.getInstance(
+            circuitBreakerKey,
+            options.circuitBreakerOptions || DEFAULT_ERROR_HANDLING_OPTIONS.circuitBreakerOptions
           );
         }
         
-        // Call the handler function
-        const result = await handlerFn(event);
-        
-        // Record success in circuit breaker if used
-        if (circuitBreaker) {
-          circuitBreaker.recordSuccess();
-        }
-        
-        return result;
-      } catch (error) {
-        // Record failure in circuit breaker if used
-        if (circuitBreaker) {
-          circuitBreaker.recordFailure();
-        }
-        
-        // Log the error
-        logEventError(
-          error, 
-          event, 
-          mergedOptions.journeyContext,
-          mergedOptions.includeTracing,
-          mergedOptions.processingStage
-        );
-        
-        // Apply retry policy if enabled
-        if (mergedOptions.applyRetryPolicy) {
-          const shouldRetry = await applyRetryPolicy(error, event, mergedOptions.maxRetries);
-          if (shouldRetry) {
-            this.logger.log(`Retrying event ${event.eventId} based on retry policy`);
-            throw error; // Rethrow to trigger retry
+        // Create span for tracing
+        const span = this.tracingService.startSpan(`event.process.${eventType}`, {
+          attributes: {
+            'event.id': eventId,
+            'event.type': eventType,
+            'handler.name': handler.constructor.name
           }
-        }
+        });
         
-        // Send to DLQ if enabled and not retrying
-        if (mergedOptions.sendToDlq) {
-          await sendToDlq(event, error, mergedOptions.journeyContext);
+        try {
+          // Check circuit breaker state before proceeding
+          if (circuitBreaker && !circuitBreaker.isAllowed()) {
+            this.logger.warn(
+              `Circuit breaker open for ${handler.constructor.name}. Skipping processing.`,
+              {
+                eventType,
+                eventId,
+                circuitBreaker: circuitBreaker.getState()
+              }
+            );
+            
+            return {
+              success: false,
+              error: {
+                message: 'Circuit breaker open, processing skipped',
+                code: 'CIRCUIT_BREAKER_OPEN',
+                category: ErrorCategory.TRANSIENT
+              },
+              metadata: {
+                eventId,
+                eventType,
+                timestamp: new Date().toISOString()
+              }
+            };
+          }
+          
+          // Check if handler can handle this event type
+          if (handler.canHandle && !handler.canHandle(event)) {
+            return {
+              success: false,
+              error: {
+                message: `Handler ${handler.constructor.name} cannot handle event type ${eventType}`,
+                code: 'HANDLER_INCOMPATIBLE',
+                category: ErrorCategory.PERMANENT
+              },
+              metadata: {
+                eventId,
+                eventType,
+                timestamp: new Date().toISOString()
+              }
+            };
+          }
+          
+          // Execute the handler
+          const result = await handler.handle(event);
+          
+          // Record success in circuit breaker
+          if (circuitBreaker) {
+            circuitBreaker.recordSuccess();
+          }
+          
+          // End span
+          span.end();
+          
+          // Return success response
+          return {
+            success: true,
+            data: result,
+            metadata: {
+              eventId,
+              eventType,
+              timestamp: new Date().toISOString()
+            }
+          };
+        } catch (error) {
+          // Record failure in circuit breaker
+          if (circuitBreaker) {
+            circuitBreaker.recordFailure();
+          }
+          
+          // Classify error
+          const errorCategory = options.errorClassifier 
+            ? options.errorClassifier(error) 
+            : classifyError(error);
+          
+          // Log error
+          this.logger.error(
+            `Error processing event ${eventType} (${eventId}): ${error.message}`,
+            {
+              error,
+              eventType,
+              eventId,
+              errorCategory,
+              stack: error.stack
+            }
+          );
+          
+          // Record error in span
+          span.recordException(error);
+          span.setAttributes({
+            'error.category': errorCategory,
+            'error.message': error.message,
+            'error.type': error.constructor.name
+          });
+          span.end();
+          
+          // Try fallback if provided and error is permanent
+          if (options.fallbackFn && errorCategory === ErrorCategory.PERMANENT) {
+            try {
+              const fallbackResult = await options.fallbackFn(event);
+              return {
+                success: true,
+                data: fallbackResult,
+                metadata: {
+                  eventId,
+                  eventType,
+                  timestamp: new Date().toISOString(),
+                  fallback: true
+                }
+              };
+            } catch (fallbackError) {
+              this.logger.error(
+                `Fallback function failed for event ${eventType}: ${fallbackError.message}`,
+                { eventType, eventId, error: fallbackError }
+              );
+            }
+          }
+          
+          // Return error response
+          return {
+            success: false,
+            error: {
+              message: error.message,
+              code: error instanceof EventProcessingError ? error.code : 'PROCESSING_ERROR',
+              category: errorCategory,
+              details: error instanceof EventProcessingError ? error.details : undefined
+            },
+            metadata: {
+              eventId,
+              eventType,
+              timestamp: new Date().toISOString()
+            }
+          };
         }
-        
-        // Call custom error handler if provided
-        if (mergedOptions.customErrorHandler) {
-          await mergedOptions.customErrorHandler(error, event);
-        }
-        
-        // Return error response
-        return createErrorResponse(error, event);
-      } finally {
-        // Clean up trace context if it was created
-        if (traceContext) {
-          // This would end the trace context
-          // endTraceContext(traceContext);
-        }
+      },
+      
+      canHandle: (event: T): boolean => {
+        return handler.canHandle ? handler.canHandle(event) : true;
+      },
+      
+      getEventType: (): string => {
+        return handler.getEventType ? handler.getEventType() : 'unknown';
       }
     };
   }
   
   /**
-   * Executes an event handler with a fallback if it fails
-   * 
-   * @param primaryHandler The primary handler function
-   * @param fallbackHandler The fallback handler function
-   * @param event The event to process
-   * @param options Error handling options for logging and tracing
-   * @returns The result of either the primary or fallback handler
+   * Creates a safe event handler that catches all errors and returns a standardized response
+   * @param handlerFn Function that processes an event
+   * @param options Error handling options
    */
-  async executeWithFallback<T extends IBaseEvent, R>(
-    primaryHandler: (event: T) => Promise<R>,
-    fallbackHandler: (event: T, error: Error) => Promise<R>,
-    event: T,
-    options: ErrorHandlingOptions = {}
-  ): Promise<R> {
-    const mergedOptions = { ...defaultErrorHandlingOptions, ...options };
-    
-    try {
-      return await primaryHandler(event);
-    } catch (error) {
-      // Log the primary handler failure
-      this.logger.warn(
-        `Primary handler failed for event ${event.eventId}, executing fallback`,
-        { 
-          eventType: event.type, 
-          errorMessage: error.message,
-          journey: mergedOptions.journeyContext,
-          processingStage: mergedOptions.processingStage,
-          traceId: mergedOptions.includeTracing ? getCurrentTraceId() : undefined
-        }
-      );
+  createSafeEventHandler<T extends IBaseEvent, R>(
+    handlerFn: (event: T) => Promise<R>,
+    options: ErrorHandlingOptions = DEFAULT_ERROR_HANDLING_OPTIONS
+  ): (event: T) => Promise<EventResponse<R>> {
+    return async (event: T): Promise<EventResponse<R>> => {
+      const eventType = event?.type || 'unknown';
+      const eventId = event?.eventId || 'unknown';
       
-      // Execute fallback with error context
-      return await fallbackHandler(event, error);
-    }
-  }
-  
-  /**
-   * Creates a circuit breaker for an event handler
-   * 
-   * @param options Circuit breaker configuration options
-   * @returns A configured circuit breaker instance
-   */
-  createCircuitBreaker(options?: CircuitBreakerOptions): CircuitBreaker {
-    return new CircuitBreaker(options);
-  }
-  
-  /**
-   * Checks if an error is retryable based on its type and context
-   * 
-   * @param error The error to check
-   * @param event The event being processed
-   * @returns True if the error is retryable
-   */
-  isRetryableError(error: Error, event: IBaseEvent): boolean {
-    if (error instanceof EventProcessingError) {
-      return error.isRetryable;
-    }
-    
-    // Default retry logic for common error types
-    if (error.name === 'TimeoutError' || 
-        error.name === 'ConnectionError' || 
-        error.message.includes('timeout') || 
-        error.message.includes('connection')) {
-      return true;
-    }
-    
-    // Non-retryable by default for other error types
-    return false;
+      // Create span for tracing
+      const span = this.tracingService.startSpan(`event.process.${eventType}`, {
+        attributes: {
+          'event.id': eventId,
+          'event.type': eventType,
+          'handler.type': 'function'
+        }
+      });
+      
+      try {
+        // Execute the handler function
+        const result = await handlerFn(event);
+        
+        // End span
+        span.end();
+        
+        // Return success response
+        return {
+          success: true,
+          data: result,
+          metadata: {
+            eventId,
+            eventType,
+            timestamp: new Date().toISOString()
+          }
+        };
+      } catch (error) {
+        // Classify error
+        const errorCategory = options.errorClassifier 
+          ? options.errorClassifier(error) 
+          : classifyError(error);
+        
+        // Log error
+        this.logger.error(
+          `Error in function handler for event ${eventType} (${eventId}): ${error.message}`,
+          {
+            error,
+            eventType,
+            eventId,
+            errorCategory,
+            stack: error.stack
+          }
+        );
+        
+        // Record error in span
+        span.recordException(error);
+        span.setAttributes({
+          'error.category': errorCategory,
+          'error.message': error.message,
+          'error.type': error.constructor.name
+        });
+        span.end();
+        
+        // Try fallback if provided and error is permanent
+        if (options.fallbackFn && errorCategory === ErrorCategory.PERMANENT) {
+          try {
+            const fallbackResult = await options.fallbackFn(event);
+            return {
+              success: true,
+              data: fallbackResult,
+              metadata: {
+                eventId,
+                eventType,
+                timestamp: new Date().toISOString(),
+                fallback: true
+              }
+            };
+          } catch (fallbackError) {
+            this.logger.error(
+              `Fallback function failed for event ${eventType}: ${fallbackError.message}`,
+              { eventType, eventId, error: fallbackError }
+            );
+          }
+        }
+        
+        // Return error response
+        return {
+          success: false,
+          error: {
+            message: error.message,
+            code: error instanceof EventProcessingError ? error.code : 'PROCESSING_ERROR',
+            category: errorCategory,
+            details: error instanceof EventProcessingError ? error.details : undefined
+          },
+          metadata: {
+            eventId,
+            eventType,
+            timestamp: new Date().toISOString()
+          }
+        };
+      }
+    };
   }
 }

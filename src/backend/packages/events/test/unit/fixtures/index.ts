@@ -1,256 +1,93 @@
 /**
- * @file index.ts
- * @description Central barrel file that exports all event test fixtures for unit testing.
+ * @file Central barrel file that exports all event test fixtures for unit testing.
+ * 
  * This file provides a single import point for accessing mock events, validation test cases,
  * Kafka message fixtures, and versioning test data. It simplifies test setup by organizing
  * fixtures into logical categories and ensuring consistent test data across the events package.
- *
- * @module events/test/unit/fixtures
  */
 
-// Import all fixtures from individual files
-import * as baseEventFixtures from './base-events.fixtures';
-import * as healthEventFixtures from './health-events.fixtures';
-import * as careEventFixtures from './care-events.fixtures';
-import * as planEventFixtures from './plan-events.fixtures';
-import * as kafkaEventFixtures from './kafka-events.fixtures';
-import * as validationFixtures from './validation.fixtures';
-import * as versionFixtures from './version.fixtures';
+// Base event fixtures
+export * from './base-events.fixtures';
 
-// Re-export individual fixture files for direct imports
-export { baseEventFixtures };
-export { healthEventFixtures };
-export { careEventFixtures };
-export { planEventFixtures };
-export { kafkaEventFixtures };
-export { validationFixtures };
-export { versionFixtures };
+// Journey-specific event fixtures
+export * from './health-events.fixtures';
+export * from './care-events.fixtures';
+export * from './plan-events.fixtures';
 
-// Export individual fixtures and utilities from base-events.fixtures
-export const {
-  generateTestUUID,
-  baseEventFixture,
-  baseEventWithMetadataFixture,
-  malformedEventFixture,
-  invalidUserIdEventFixture,
-  invalidEventTypeFixture,
-  mismatchedJourneyEventFixture,
-  complexMetadataEventFixture,
-  healthMetricRecordedEventFixture,
-  healthGoalAchievedEventFixture,
-  healthDeviceConnectedEventFixture,
-  careAppointmentBookedEventFixture,
-  careMedicationTakenEventFixture,
-  planClaimSubmittedEventFixture,
-  planBenefitUtilizedEventFixture,
-  gamificationPointsEarnedEventFixture,
-  gamificationAchievementUnlockedEventFixture,
-  createTestEvent,
-  createHealthMetricEvent,
-  addMetadataToEvent,
-  createEventBatch,
-  createJourneyEvent,
-} = baseEventFixtures;
+// Kafka integration fixtures
+export * from './kafka-events.fixtures';
 
-// Export health event fixtures
-export const {
-  healthMetricRecordedFixtures,
-  healthGoalAchievedFixtures,
-  healthInsightGeneratedFixtures,
-  deviceSynchronizedFixtures,
-} = healthEventFixtures.healthEventFixtures;
-
-// Export care event fixtures
-export const {
-  appointmentBooked: careAppointmentBookedEvents,
-  appointmentCompleted: careAppointmentCompletedEvents,
-  medicationTaken: careMedicationTakenEvents,
-  telemedicineStarted: careTelemedicineStartedEvents,
-  telemedicineCompleted: careTelemedicineCompletedEvents,
-  carePlanCreated: careCarePlanCreatedEvents,
-  carePlanTaskCompleted: careCarePlanTaskCompletedEvents,
-  createAppointmentBookedEvent,
-  createMedicationTakenEvent,
-  createTelemedicineStartedEvent,
-  createCarePlanCreatedEvent,
-  createCarePlanTaskCompletedEvent,
-} = careEventFixtures;
-
-// Export plan event fixtures
-export const {
-  claimSubmission: planClaimSubmissionEvents,
-  claimProcessed: planClaimProcessedEvents,
-  planSelection: planPlanSelectionEvents,
-  benefitUtilization: planBenefitUtilizationEvents,
-  rewardRedemption: planRewardRedemptionEvents,
-  documentCompletion: planDocumentCompletionEvents,
-  createClaimSubmissionEvent,
-  createPlanSelectionEvent,
-  createBenefitUtilizationEvent,
-  createRewardRedemptionEvent,
-} = planEventFixtures;
-
-// Export Kafka event fixtures
-export const {
-  healthConsumerRecords,
-  careConsumerRecords,
-  planConsumerRecords,
-  healthProducerPayloads,
-  careProducerPayloads,
-  planProducerPayloads,
-  malformedMessages,
-  serializationFailures,
-  retryMechanismFixtures,
-  deadLetterQueueFixtures,
-  auditAndLoggingFixtures,
-  createConsumerRecord,
-  createProducerPayload,
-  createMalformedMessage,
-} = kafkaEventFixtures;
-
-// Export validation fixtures
-export const {
-  validEventFixtures: validationValidEventFixtures,
-  invalidEventFixtures: validationInvalidEventFixtures,
-  healthValidationFixtures,
-  careValidationFixtures,
-  planValidationFixtures,
-  gamificationValidationFixtures,
-  userValidationFixtures,
-  crossFieldValidationFixtures,
-  metadataValidationFixtures,
-} = validationFixtures;
-
-// Export version fixtures
-export const {
-  versionObjects,
-  versionStrings,
-  versionComparisonTestCases,
-  versionCompatibilityTestCases,
-  migrationPathTestCases,
-  circularMigrationTestCases,
-  migrationChainTestCases,
-  genericEvents,
-  createGenericEvent,
-  genericEventV1_0_0_to_V1_1_0,
-  genericEventV1_1_0_to_V2_0_0,
-  genericEventV2_0_0_to_V3_0_0,
-  versionEdgeCases,
-  registerGenericEventMigrations,
-  registerCircularMigrations,
-  registerMigrationChains,
-} = versionFixtures;
+// Validation and versioning fixtures
+export * from './validation.fixtures';
+export * from './version.fixtures';
 
 /**
- * Comprehensive collection of all event fixtures organized by category.
- * This object provides a structured way to access all test fixtures.
+ * Convenience namespace for organizing fixtures by journey
  */
-export const eventFixtures = {
-  /**
-   * Base event fixtures for general testing
-   */
-  base: baseEventFixtures,
+export namespace JourneyFixtures {
+  export * as Health from './health-events.fixtures';
+  export * as Care from './care-events.fixtures';
+  export * as Plan from './plan-events.fixtures';
+}
 
-  /**
-   * Journey-specific event fixtures
-   */
-  journeys: {
-    /**
-     * Health journey event fixtures
-     */
-    health: healthEventFixtures.healthEventFixtures,
+/**
+ * Convenience namespace for organizing fixtures by category
+ */
+export namespace CategoryFixtures {
+  export * as Base from './base-events.fixtures';
+  export * as Kafka from './kafka-events.fixtures';
+  export * as Validation from './validation.fixtures';
+  export * as Version from './version.fixtures';
+}
 
-    /**
-     * Care journey event fixtures
-     */
-    care: careEventFixtures.careEventFixtures,
+/**
+ * Re-export common test utilities and helpers
+ * 
+ * These utilities help with creating dynamic test fixtures and
+ * simplifying test setup for event-related tests.
+ */
+export {
+  createMockEvent,
+  createMockKafkaMessage,
+  createMockEventWithMetadata,
+  createVersionedEvent,
+} from './base-events.fixtures';
 
-    /**
-     * Plan journey event fixtures
-     */
-    plan: planEventFixtures.planEventFixtures,
-  },
-
-  /**
-   * Kafka integration fixtures
-   */
-  kafka: {
-    /**
-     * Consumer record fixtures
-     */
-    consumers: {
-      health: kafkaEventFixtures.healthConsumerRecords,
-      care: kafkaEventFixtures.careConsumerRecords,
-      plan: kafkaEventFixtures.planConsumerRecords,
-    },
-
-    /**
-     * Producer payload fixtures
-     */
-    producers: {
-      health: kafkaEventFixtures.healthProducerPayloads,
-      care: kafkaEventFixtures.careProducerPayloads,
-      plan: kafkaEventFixtures.planProducerPayloads,
-    },
-
-    /**
-     * Error handling fixtures
-     */
-    errors: {
-      malformedMessages: kafkaEventFixtures.malformedMessages,
-      serializationFailures: kafkaEventFixtures.serializationFailures,
-    },
-
-    /**
-     * Retry mechanism fixtures
-     */
-    retry: kafkaEventFixtures.retryMechanismFixtures,
-
-    /**
-     * Dead letter queue fixtures
-     */
-    dlq: kafkaEventFixtures.deadLetterQueueFixtures,
-
-    /**
-     * Audit and logging fixtures
-     */
-    audit: kafkaEventFixtures.auditAndLoggingFixtures,
-  },
-
-  /**
-   * Validation fixtures
-   */
-  validation: validationFixtures,
-
-  /**
-   * Version fixtures
-   */
-  versioning: versionFixtures,
-
-  /**
-   * Factory functions for creating test events
-   */
-  factories: {
-    createTestEvent,
-    createHealthMetricEvent,
-    addMetadataToEvent,
-    createEventBatch,
-    createJourneyEvent,
-    createAppointmentBookedEvent,
-    createMedicationTakenEvent,
-    createTelemedicineStartedEvent,
-    createCarePlanCreatedEvent,
-    createCarePlanTaskCompletedEvent,
-    createClaimSubmissionEvent,
-    createPlanSelectionEvent,
-    createBenefitUtilizationEvent,
-    createRewardRedemptionEvent,
-    createConsumerRecord,
-    createProducerPayload,
-    createMalformedMessage,
-    createGenericEvent,
-  },
-};
-
-// Default export for convenience
-export default eventFixtures;
+/**
+ * Example usage:
+ * 
+ * ```typescript
+ * // Import all fixtures
+ * import * as fixtures from '@austa/events/test/unit/fixtures';
+ * 
+ * // Import specific journey fixtures
+ * import { JourneyFixtures } from '@austa/events/test/unit/fixtures';
+ * 
+ * describe('Health Event Tests', () => {
+ *   it('should process health metric events', () => {
+ *     const event = JourneyFixtures.Health.createHealthMetricEvent();
+ *     // Test with the fixture
+ *   });
+ * });
+ * 
+ * // Import specific category fixtures
+ * import { CategoryFixtures } from '@austa/events/test/unit/fixtures';
+ * 
+ * describe('Kafka Consumer Tests', () => {
+ *   it('should deserialize kafka messages', () => {
+ *     const message = CategoryFixtures.Kafka.createConsumerRecord();
+ *     // Test with the fixture
+ *   });
+ * });
+ * 
+ * // Import utility functions directly
+ * import { createMockEvent } from '@austa/events/test/unit/fixtures';
+ * 
+ * describe('Event Handler Tests', () => {
+ *   it('should handle custom events', () => {
+ *     const event = createMockEvent({ type: 'custom-event' });
+ *     // Test with the fixture
+ *   });
+ * });
+ * ```
+ */

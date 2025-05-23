@@ -2,671 +2,1280 @@
  * @file event-validator.ts
  * @description Provides validation utilities for event payloads against defined schemas using Zod.
  * This module ensures that all events conform to their expected structure before processing,
- * preventing invalid data from propagating through the system. It includes functions for validating
- * events by type, handling versioned schemas, and generating user-friendly error messages for
- * validation failures.
+ * preventing invalid data from propagating through the system.
  */
 
 import { z } from 'zod';
-import { getSchema, hasSchema } from './schema-utils';
-import { EventVersion } from '../interfaces/event-versioning.interface';
+import { EventTypes } from '../dto/event-types.enum';
+import { IBaseEvent } from '../interfaces/base-event.interface';
+import { IEventValidator, ValidationResult } from '../interfaces/event-validation.interface';
+import { IVersionedEvent } from '../interfaces/event-versioning.interface';
+import { detectVersion } from '../versioning/version-detector';
+import { transformEvent } from '../versioning/transformer';
 
 /**
- * Cache for validation results to improve performance for repeated validations
- * @internal
+ * Cache for storing compiled Zod schemas to improve performance
+ * by avoiding schema recreation on every validation.
  */
-const validationCache = new Map<string, Map<string, ValidationResult>>();
+const schemaCache = new Map<string, z.ZodType<any>>();
 
 /**
- * Maximum size of the validation cache to prevent memory leaks
- * @internal
+ * Options for event validation
  */
-const MAX_CACHE_SIZE = 1000;
-
-/**
- * Result of a validation operation
- * @interface ValidationResult
- */
-export interface ValidationResult {
+export interface EventValidationOptions {
   /**
-   * Whether the validation was successful
+   * Whether to throw an error on validation failure (default: false)
    */
-  valid: boolean;
+  throwOnError?: boolean;
   
   /**
-   * The validated data (only present if valid is true)
+   * Whether to attempt schema version transformation if validation fails (default: true)
    */
-  data?: any;
-  
-  /**
-   * Error details (only present if valid is false)
-   */
-  errors?: ValidationError[];
-  
-  /**
-   * The schema version used for validation
-   */
-  schemaVersion?: EventVersion;
-}
-
-/**
- * Detailed validation error information
- * @interface ValidationError
- */
-export interface ValidationError {
-  /**
-   * Path to the field with the error
-   */
-  path: string[];
-  
-  /**
-   * Error message
-   */
-  message: string;
-  
-  /**
-   * Error code (if available)
-   */
-  code?: string;
-}
-
-/**
- * Options for validating an event
- * @interface ValidateEventOptions
- */
-export interface ValidateEventOptions {
-  /**
-   * Whether to use the validation cache
-   * @default true
-   */
-  useCache?: boolean;
-  
-  /**
-   * Whether to throw an error if the schema is not found
-   * @default false
-   */
-  throwOnMissingSchema?: boolean;
-  
-  /**
-   * Whether to try fallback versions if the specified version fails validation
-   * @default true
-   */
-  tryFallbackVersions?: boolean;
+  attemptVersionTransformation?: boolean;
   
   /**
    * Custom error message prefix
    */
   errorMessagePrefix?: string;
+  
+  /**
+   * Journey context for journey-specific validation
+   */
+  journeyContext?: 'health' | 'care' | 'plan' | string;
 }
 
 /**
  * Default validation options
- * @internal
  */
-const defaultValidationOptions: ValidateEventOptions = {
-  useCache: true,
-  throwOnMissingSchema: false,
-  tryFallbackVersions: true,
+const defaultValidationOptions: EventValidationOptions = {
+  throwOnError: false,
+  attemptVersionTransformation: true,
+  errorMessagePrefix: 'Event validation failed:',
+  journeyContext: undefined
 };
 
 /**
  * Validates an event against its schema
- * @param eventType The type of the event
- * @param eventData The event data to validate
- * @param version The schema version to use (optional, defaults to latest)
+ * 
+ * @param event The event to validate
  * @param options Validation options
- * @returns Validation result
- * @throws Error if throwOnMissingSchema is true and the schema is not found
+ * @returns Validation result with success status and data or error
  */
-export function validateEvent(
-  eventType: string,
-  eventData: any,
-  version?: EventVersion,
-  options?: ValidateEventOptions
-): ValidationResult {
+export function validateEvent<T extends IBaseEvent>(
+  event: unknown,
+  options: EventValidationOptions = {}
+): ValidationResult<T> {
   const opts = { ...defaultValidationOptions, ...options };
   
-  // Check cache if enabled
-  if (opts.useCache) {
-    const cacheResult = getFromValidationCache(eventType, eventData, version);
-    if (cacheResult) {
-      return cacheResult;
-    }
-  }
-  
-  // Check if schema exists
-  if (!hasSchema({ type: eventType, version })) {
-    if (opts.throwOnMissingSchema) {
-      throw new Error(`Schema not found for event type '${eventType}'${version ? ` and version '${version}'` : ''}`);
-    }
-    
-    return {
-      valid: false,
-      errors: [{
-        path: [],
-        message: `Schema not found for event type '${eventType}'${version ? ` and version '${version}'` : ''}`,
-        code: 'SCHEMA_NOT_FOUND',
-      }],
-    };
-  }
-  
-  // Get schema
-  const schema = getSchema({ type: eventType, version });
-  if (!schema) {
-    if (opts.throwOnMissingSchema) {
-      throw new Error(`Schema not found for event type '${eventType}'${version ? ` and version '${version}'` : ''}`);
-    }
-    
-    return {
-      valid: false,
-      errors: [{
-        path: [],
-        message: `Schema not found for event type '${eventType}'${version ? ` and version '${version}'` : ''}`,
-        code: 'SCHEMA_NOT_FOUND',
-      }],
-    };
-  }
-  
-  // Validate against schema
   try {
-    const validatedData = schema.parse(eventData);
+    // Basic structure validation first
+    const baseSchema = getBaseEventSchema();
+    const baseResult = baseSchema.safeParse(event);
     
-    const result: ValidationResult = {
-      valid: true,
-      data: validatedData,
-      schemaVersion: version,
-    };
-    
-    // Cache result if enabled
-    if (opts.useCache) {
-      addToValidationCache(eventType, eventData, version, result);
+    if (!baseResult.success) {
+      return createErrorResult(
+        baseResult.error,
+        `${opts.errorMessagePrefix} Invalid event structure`,
+        opts.throwOnError
+      );
     }
     
-    return result;
-  } catch (error) {
-    // If validation fails and fallback versions are enabled, try older versions
-    if (opts.tryFallbackVersions && version) {
-      const fallbackResult = tryFallbackVersions(eventType, eventData, version, opts);
-      if (fallbackResult && fallbackResult.valid) {
-        return fallbackResult;
+    const validatedBase = baseResult.data as IBaseEvent;
+    const eventType = validatedBase.type;
+    
+    // Get the appropriate schema for this event type
+    const schema = getSchemaForEventType(eventType, opts.journeyContext);
+    
+    if (!schema) {
+      return createErrorResult(
+        new Error(`No schema found for event type: ${eventType}`),
+        `${opts.errorMessagePrefix} Unknown event type: ${eventType}`,
+        opts.throwOnError
+      );
+    }
+    
+    // Validate against the full schema
+    const result = schema.safeParse(event);
+    
+    if (result.success) {
+      return {
+        success: true,
+        data: result.data as T
+      };
+    }
+    
+    // If validation failed and version transformation is enabled, try to transform
+    if (opts.attemptVersionTransformation && isVersionedEvent(event as any)) {
+      const transformedEvent = attemptVersionTransformation(event as IVersionedEvent, eventType);
+      if (transformedEvent) {
+        const transformResult = schema.safeParse(transformedEvent);
+        if (transformResult.success) {
+          return {
+            success: true,
+            data: transformResult.data as T,
+            transformed: true
+          };
+        }
       }
     }
     
-    // Format validation errors
-    const validationErrors = formatZodError(error, opts.errorMessagePrefix);
-    
-    const result: ValidationResult = {
-      valid: false,
-      errors: validationErrors,
-      schemaVersion: version,
-    };
-    
-    // Cache result if enabled
-    if (opts.useCache) {
-      addToValidationCache(eventType, eventData, version, result);
-    }
-    
-    return result;
+    // If we got here, validation failed
+    return createErrorResult(
+      result.error,
+      `${opts.errorMessagePrefix} Event validation failed for type: ${eventType}`,
+      opts.throwOnError
+    );
+  } catch (error) {
+    return createErrorResult(
+      error instanceof Error ? error : new Error(String(error)),
+      `${opts.errorMessagePrefix} Unexpected validation error`,
+      opts.throwOnError
+    );
   }
 }
 
 /**
- * Validates an event for a specific journey
- * @param journey The journey (health, care, plan)
- * @param eventType The type of the event
- * @param eventData The event data to validate
- * @param version The schema version to use (optional, defaults to latest)
+ * Validates an event payload against a specific schema
+ * 
+ * @param payload The payload to validate
+ * @param schema The Zod schema to validate against
  * @param options Validation options
- * @returns Validation result
+ * @returns Validation result with success status and data or error
  */
-export function validateJourneyEvent(
-  journey: 'health' | 'care' | 'plan',
-  eventType: string,
-  eventData: any,
-  version?: EventVersion,
-  options?: ValidateEventOptions
-): ValidationResult {
-  // Prefix event type with journey if not already prefixed
-  const prefixedEventType = eventType.startsWith(`${journey.toUpperCase()}_`) 
-    ? eventType 
-    : `${journey.toUpperCase()}_${eventType}`;
+export function validatePayload<T>(
+  payload: unknown,
+  schema: z.ZodType<T>,
+  options: EventValidationOptions = {}
+): ValidationResult<T> {
+  const opts = { ...defaultValidationOptions, ...options };
   
-  // Add journey-specific error message prefix
-  const opts = { 
-    ...options, 
-    errorMessagePrefix: options?.errorMessagePrefix || `${journey.charAt(0).toUpperCase() + journey.slice(1)} Journey: ` 
+  try {
+    const result = schema.safeParse(payload);
+    
+    if (result.success) {
+      return {
+        success: true,
+        data: result.data
+      };
+    }
+    
+    return createErrorResult(
+      result.error,
+      `${opts.errorMessagePrefix} Payload validation failed`,
+      opts.throwOnError
+    );
+  } catch (error) {
+    return createErrorResult(
+      error instanceof Error ? error : new Error(String(error)),
+      `${opts.errorMessagePrefix} Unexpected payload validation error`,
+      opts.throwOnError
+    );
+  }
+}
+
+/**
+ * Validates an event by its type
+ * 
+ * @param event The event to validate
+ * @param eventType The expected event type
+ * @param options Validation options
+ * @returns Validation result with success status and data or error
+ */
+export function validateEventByType<T extends IBaseEvent>(
+  event: unknown,
+  eventType: string,
+  options: EventValidationOptions = {}
+): ValidationResult<T> {
+  const opts = { ...defaultValidationOptions, ...options };
+  
+  try {
+    // Basic structure validation first
+    const baseSchema = getBaseEventSchema();
+    const baseResult = baseSchema.safeParse(event);
+    
+    if (!baseResult.success) {
+      return createErrorResult(
+        baseResult.error,
+        `${opts.errorMessagePrefix} Invalid event structure`,
+        opts.throwOnError
+      );
+    }
+    
+    const validatedBase = baseResult.data as IBaseEvent;
+    
+    // Check if the event type matches the expected type
+    if (validatedBase.type !== eventType) {
+      return createErrorResult(
+        new Error(`Event type mismatch: expected ${eventType}, got ${validatedBase.type}`),
+        `${opts.errorMessagePrefix} Event type mismatch: expected ${eventType}, got ${validatedBase.type}`,
+        opts.throwOnError
+      );
+    }
+    
+    // Get the appropriate schema for this event type
+    const schema = getSchemaForEventType(eventType, opts.journeyContext);
+    
+    if (!schema) {
+      return createErrorResult(
+        new Error(`No schema found for event type: ${eventType}`),
+        `${opts.errorMessagePrefix} Unknown event type: ${eventType}`,
+        opts.throwOnError
+      );
+    }
+    
+    // Validate against the full schema
+    const result = schema.safeParse(event);
+    
+    if (result.success) {
+      return {
+        success: true,
+        data: result.data as T
+      };
+    }
+    
+    // If validation failed and version transformation is enabled, try to transform
+    if (opts.attemptVersionTransformation && isVersionedEvent(event as any)) {
+      const transformedEvent = attemptVersionTransformation(event as IVersionedEvent, eventType);
+      if (transformedEvent) {
+        const transformResult = schema.safeParse(transformedEvent);
+        if (transformResult.success) {
+          return {
+            success: true,
+            data: transformResult.data as T,
+            transformed: true
+          };
+        }
+      }
+    }
+    
+    // If we got here, validation failed
+    return createErrorResult(
+      result.error,
+      `${opts.errorMessagePrefix} Event validation failed for type: ${eventType}`,
+      opts.throwOnError
+    );
+  } catch (error) {
+    return createErrorResult(
+      error instanceof Error ? error : new Error(String(error)),
+      `${opts.errorMessagePrefix} Unexpected validation error`,
+      opts.throwOnError
+    );
+  }
+}
+
+/**
+ * Creates a validation error result
+ * 
+ * @param error The error object
+ * @param message Error message
+ * @param throwError Whether to throw the error
+ * @returns Validation error result
+ */
+function createErrorResult(
+  error: Error | z.ZodError,
+  message: string,
+  throwError: boolean = false
+): ValidationResult<any> {
+  const errorResult: ValidationResult<any> = {
+    success: false,
+    error: error instanceof z.ZodError 
+      ? formatZodError(error)
+      : { message: error.message, error }
   };
   
-  return validateEvent(prefixedEventType, eventData, version, opts);
-}
-
-/**
- * Validates a health journey event
- * @param eventType The type of the event
- * @param eventData The event data to validate
- * @param version The schema version to use (optional, defaults to latest)
- * @param options Validation options
- * @returns Validation result
- */
-export function validateHealthEvent(
-  eventType: string,
-  eventData: any,
-  version?: EventVersion,
-  options?: ValidateEventOptions
-): ValidationResult {
-  return validateJourneyEvent('health', eventType, eventData, version, options);
-}
-
-/**
- * Validates a care journey event
- * @param eventType The type of the event
- * @param eventData The event data to validate
- * @param version The schema version to use (optional, defaults to latest)
- * @param options Validation options
- * @returns Validation result
- */
-export function validateCareEvent(
-  eventType: string,
-  eventData: any,
-  version?: EventVersion,
-  options?: ValidateEventOptions
-): ValidationResult {
-  return validateJourneyEvent('care', eventType, eventData, version, options);
-}
-
-/**
- * Validates a plan journey event
- * @param eventType The type of the event
- * @param eventData The event data to validate
- * @param version The schema version to use (optional, defaults to latest)
- * @param options Validation options
- * @returns Validation result
- */
-export function validatePlanEvent(
-  eventType: string,
-  eventData: any,
-  version?: EventVersion,
-  options?: ValidateEventOptions
-): ValidationResult {
-  return validateJourneyEvent('plan', eventType, eventData, version, options);
-}
-
-/**
- * Validates an event payload against a Zod schema
- * @param schema The Zod schema to validate against
- * @param data The data to validate
- * @param errorMessagePrefix Optional prefix for error messages
- * @returns Validation result
- */
-export function validateWithSchema<T>(
-  schema: z.ZodType<T>,
-  data: any,
-  errorMessagePrefix?: string
-): ValidationResult {
-  try {
-    const validatedData = schema.parse(data);
-    
-    return {
-      valid: true,
-      data: validatedData,
-    };
-  } catch (error) {
-    const validationErrors = formatZodError(error, errorMessagePrefix);
-    
-    return {
-      valid: false,
-      errors: validationErrors,
-    };
+  if (throwError) {
+    if (error instanceof z.ZodError) {
+      throw new Error(`${message}: ${formatZodError(error).message}`);
+    } else {
+      throw error;
+    }
   }
+  
+  return errorResult;
 }
 
 /**
- * Validates an event payload asynchronously against a Zod schema
- * @param schema The Zod schema to validate against
- * @param data The data to validate
- * @param errorMessagePrefix Optional prefix for error messages
- * @returns Promise resolving to a validation result
- */
-export async function validateWithSchemaAsync<T>(
-  schema: z.ZodType<T>,
-  data: any,
-  errorMessagePrefix?: string
-): Promise<ValidationResult> {
-  try {
-    const validatedData = await schema.parseAsync(data);
-    
-    return {
-      valid: true,
-      data: validatedData,
-    };
-  } catch (error) {
-    const validationErrors = formatZodError(error, errorMessagePrefix);
-    
-    return {
-      valid: false,
-      errors: validationErrors,
-    };
-  }
-}
-
-/**
- * Formats a Zod error into a standardized validation error format
+ * Formats a Zod error into a more readable format
+ * 
  * @param error The Zod error to format
- * @param errorMessagePrefix Optional prefix for error messages
- * @returns Array of validation errors
- * @internal
+ * @returns Formatted error object
  */
-function formatZodError(error: unknown, errorMessagePrefix?: string): ValidationError[] {
-  if (error instanceof z.ZodError) {
-    return error.errors.map(err => ({
-      path: err.path,
-      message: errorMessagePrefix ? `${errorMessagePrefix}${err.message}` : err.message,
-      code: err.code,
-    }));
-  }
+export function formatZodError(error: z.ZodError): { message: string; issues: z.ZodIssue[]; formattedIssues: string[] } {
+  const formattedIssues = error.issues.map(issue => {
+    const path = issue.path.join('.');
+    const pathPrefix = path ? `${path}: ` : '';
+    return `${pathPrefix}${issue.message}`;
+  });
   
-  // Handle non-Zod errors
-  return [{
-    path: [],
-    message: errorMessagePrefix 
-      ? `${errorMessagePrefix}${error instanceof Error ? error.message : String(error)}` 
-      : error instanceof Error ? error.message : String(error),
-    code: 'VALIDATION_ERROR',
-  }];
+  return {
+    message: formattedIssues.join('; '),
+    issues: error.issues,
+    formattedIssues
+  };
 }
 
 /**
- * Tries to validate against older versions of a schema
- * @param eventType The type of the event
- * @param eventData The event data to validate
- * @param currentVersion The current schema version
- * @param options Validation options
- * @returns Validation result from a successful fallback version, or undefined if all fallbacks fail
- * @internal
+ * Gets the base event schema for basic structure validation
+ * 
+ * @returns Zod schema for base event validation
  */
-function tryFallbackVersions(
-  eventType: string,
-  eventData: any,
-  currentVersion: EventVersion,
-  options: ValidateEventOptions
-): ValidationResult | undefined {
-  // Parse current version
-  const [major, minor, patch] = parseVersion(currentVersion);
+function getBaseEventSchema(): z.ZodType<IBaseEvent> {
+  const cacheKey = 'base-event-schema';
   
-  // Try patch versions first
-  for (let p = patch - 1; p >= 0; p--) {
-    const fallbackVersion = `${major}.${minor}.${p}`;
-    const result = validateEvent(
-      eventType, 
-      eventData, 
-      fallbackVersion as EventVersion, 
-      { ...options, tryFallbackVersions: false }
-    );
-    
-    if (result.valid) {
-      return result;
-    }
+  if (schemaCache.has(cacheKey)) {
+    return schemaCache.get(cacheKey) as z.ZodType<IBaseEvent>;
   }
   
-  // Try minor versions next
-  for (let m = minor - 1; m >= 0; m--) {
-    const fallbackVersion = `${major}.${m}.0`;
-    const result = validateEvent(
-      eventType, 
-      eventData, 
-      fallbackVersion as EventVersion, 
-      { ...options, tryFallbackVersions: false }
-    );
-    
-    if (result.valid) {
-      return result;
-    }
-  }
+  const schema = z.object({
+    type: z.string().min(1),
+    userId: z.string().uuid(),
+    data: z.record(z.any()),
+    journey: z.string().optional(),
+    timestamp: z.string().datetime().optional().default(() => new Date().toISOString()),
+    version: z.string().optional(),
+    source: z.string().optional(),
+    metadata: z.record(z.any()).optional()
+  });
   
-  // We don't try major versions as they typically indicate breaking changes
-  
-  return undefined;
+  schemaCache.set(cacheKey, schema);
+  return schema;
 }
 
 /**
- * Gets a validation result from the cache
- * @param eventType The type of the event
- * @param eventData The event data
- * @param version The schema version
- * @returns Cached validation result, or undefined if not in cache
- * @internal
+ * Gets the schema for a specific event type
+ * 
+ * @param eventType The event type to get the schema for
+ * @param journeyContext Optional journey context for journey-specific schemas
+ * @returns Zod schema for the event type or undefined if not found
  */
-function getFromValidationCache(
-  eventType: string,
-  eventData: any,
-  version?: EventVersion
-): ValidationResult | undefined {
-  // Create cache key
-  const dataKey = JSON.stringify(eventData);
-  const typeKey = `${eventType}${version ? `@${version}` : ''}`;
+function getSchemaForEventType(eventType: string, journeyContext?: string): z.ZodType<any> | undefined {
+  const cacheKey = journeyContext ? `${eventType}-${journeyContext}` : eventType;
   
-  // Check if type exists in cache
-  if (!validationCache.has(typeKey)) {
+  if (schemaCache.has(cacheKey)) {
+    return schemaCache.get(cacheKey);
+  }
+  
+  let schema: z.ZodType<any> | undefined;
+  
+  // Try to get a journey-specific schema first if context is provided
+  if (journeyContext) {
+    schema = getJourneySpecificSchema(eventType, journeyContext);
+    if (schema) {
+      schemaCache.set(cacheKey, schema);
+      return schema;
+    }
+  }
+  
+  // Fall back to generic event type schemas
+  switch (eventType) {
+    // Health journey events
+    case EventTypes.HEALTH_METRIC_RECORDED:
+      schema = getHealthMetricSchema();
+      break;
+    case EventTypes.HEALTH_GOAL_ACHIEVED:
+      schema = getHealthGoalSchema();
+      break;
+    case EventTypes.DEVICE_CONNECTED:
+      schema = getDeviceConnectionSchema();
+      break;
+      
+    // Care journey events
+    case EventTypes.APPOINTMENT_BOOKED:
+      schema = getAppointmentSchema();
+      break;
+    case EventTypes.MEDICATION_TAKEN:
+      schema = getMedicationSchema();
+      break;
+    case EventTypes.TELEMEDICINE_SESSION_COMPLETED:
+      schema = getTelemedicineSchema();
+      break;
+      
+    // Plan journey events
+    case EventTypes.CLAIM_SUBMITTED:
+      schema = getClaimSchema();
+      break;
+    case EventTypes.BENEFIT_UTILIZED:
+      schema = getBenefitSchema();
+      break;
+    case EventTypes.PLAN_SELECTED:
+      schema = getPlanSelectionSchema();
+      break;
+      
+    // Generic events
+    case EventTypes.USER_REGISTERED:
+    case EventTypes.USER_LOGGED_IN:
+      schema = getUserEventSchema();
+      break;
+      
+    default:
+      // For unknown event types, use a generic schema
+      schema = getGenericEventSchema();
+      break;
+  }
+  
+  if (schema) {
+    schemaCache.set(cacheKey, schema);
+  }
+  
+  return schema;
+}
+
+/**
+ * Gets a journey-specific schema for an event type
+ * 
+ * @param eventType The event type
+ * @param journeyContext The journey context
+ * @returns Journey-specific Zod schema or undefined if not found
+ */
+function getJourneySpecificSchema(eventType: string, journeyContext: string): z.ZodType<any> | undefined {
+  switch (journeyContext.toLowerCase()) {
+    case 'health':
+      return getHealthJourneySchema(eventType);
+    case 'care':
+      return getCareJourneySchema(eventType);
+    case 'plan':
+      return getPlanJourneySchema(eventType);
+    default:
+      return undefined;
+  }
+}
+
+/**
+ * Gets a health journey-specific schema for an event type
+ * 
+ * @param eventType The event type
+ * @returns Health journey-specific Zod schema or undefined if not found
+ */
+function getHealthJourneySchema(eventType: string): z.ZodType<any> | undefined {
+  const baseSchema = getBaseEventSchema();
+  
+  switch (eventType) {
+    case EventTypes.HEALTH_METRIC_RECORDED:
+      return baseSchema.extend({
+        data: z.object({
+          metricType: z.enum(['WEIGHT', 'HEART_RATE', 'BLOOD_PRESSURE', 'STEPS', 'SLEEP', 'GLUCOSE']),
+          value: z.number(),
+          unit: z.string(),
+          timestamp: z.string().datetime(),
+          source: z.enum(['MANUAL', 'DEVICE', 'INTEGRATION']).optional(),
+          deviceId: z.string().optional(),
+          notes: z.string().optional()
+        })
+      });
+      
+    case EventTypes.HEALTH_GOAL_ACHIEVED:
+      return baseSchema.extend({
+        data: z.object({
+          goalId: z.string().uuid(),
+          goalType: z.enum(['STEPS', 'WEIGHT', 'ACTIVITY', 'SLEEP', 'NUTRITION']),
+          targetValue: z.number(),
+          achievedValue: z.number(),
+          unit: z.string(),
+          achievedAt: z.string().datetime(),
+          streakCount: z.number().int().nonnegative().optional()
+        })
+      });
+      
+    case EventTypes.DEVICE_CONNECTED:
+      return baseSchema.extend({
+        data: z.object({
+          deviceId: z.string(),
+          deviceType: z.enum(['SMARTWATCH', 'SCALE', 'BLOOD_PRESSURE', 'GLUCOSE_MONITOR', 'FITNESS_TRACKER']),
+          manufacturer: z.string(),
+          model: z.string().optional(),
+          connectionMethod: z.enum(['BLUETOOTH', 'WIFI', 'MANUAL', 'API']),
+          connectedAt: z.string().datetime(),
+          permissions: z.array(z.string()).optional()
+        })
+      });
+      
+    default:
+      return undefined;
+  }
+}
+
+/**
+ * Gets a care journey-specific schema for an event type
+ * 
+ * @param eventType The event type
+ * @returns Care journey-specific Zod schema or undefined if not found
+ */
+function getCareJourneySchema(eventType: string): z.ZodType<any> | undefined {
+  const baseSchema = getBaseEventSchema();
+  
+  switch (eventType) {
+    case EventTypes.APPOINTMENT_BOOKED:
+      return baseSchema.extend({
+        data: z.object({
+          appointmentId: z.string().uuid(),
+          providerId: z.string().uuid(),
+          specialization: z.string(),
+          dateTime: z.string().datetime(),
+          duration: z.number().int().positive(),
+          location: z.object({
+            type: z.enum(['VIRTUAL', 'IN_PERSON']),
+            address: z.string().optional(),
+            coordinates: z.tuple([z.number(), z.number()]).optional()
+          }),
+          reason: z.string().optional(),
+          status: z.enum(['SCHEDULED', 'CONFIRMED', 'CANCELLED', 'COMPLETED']).default('SCHEDULED')
+        })
+      });
+      
+    case EventTypes.MEDICATION_TAKEN:
+      return baseSchema.extend({
+        data: z.object({
+          medicationId: z.string().uuid(),
+          medicationName: z.string(),
+          dosage: z.number().positive(),
+          unit: z.string(),
+          takenAt: z.string().datetime(),
+          scheduledFor: z.string().datetime().optional(),
+          adherence: z.enum(['ON_TIME', 'DELAYED', 'MISSED']).optional(),
+          notes: z.string().optional()
+        })
+      });
+      
+    case EventTypes.TELEMEDICINE_SESSION_COMPLETED:
+      return baseSchema.extend({
+        data: z.object({
+          sessionId: z.string().uuid(),
+          providerId: z.string().uuid(),
+          providerName: z.string(),
+          specialization: z.string(),
+          startTime: z.string().datetime(),
+          endTime: z.string().datetime(),
+          duration: z.number().int().positive(),
+          notes: z.string().optional(),
+          followUpRequired: z.boolean().optional(),
+          prescriptionsIssued: z.array(z.string()).optional()
+        })
+      });
+      
+    default:
+      return undefined;
+  }
+}
+
+/**
+ * Gets a plan journey-specific schema for an event type
+ * 
+ * @param eventType The event type
+ * @returns Plan journey-specific Zod schema or undefined if not found
+ */
+function getPlanJourneySchema(eventType: string): z.ZodType<any> | undefined {
+  const baseSchema = getBaseEventSchema();
+  
+  switch (eventType) {
+    case EventTypes.CLAIM_SUBMITTED:
+      return baseSchema.extend({
+        data: z.object({
+          claimId: z.string().uuid(),
+          claimType: z.enum(['MEDICAL', 'DENTAL', 'VISION', 'PHARMACY', 'OTHER']),
+          amount: z.number().positive(),
+          currency: z.string().length(3),
+          serviceDate: z.string().datetime(),
+          providerId: z.string().uuid().optional(),
+          providerName: z.string(),
+          documents: z.array(z.string()).optional(),
+          status: z.enum(['SUBMITTED', 'PROCESSING', 'APPROVED', 'REJECTED']).default('SUBMITTED')
+        })
+      });
+      
+    case EventTypes.BENEFIT_UTILIZED:
+      return baseSchema.extend({
+        data: z.object({
+          benefitId: z.string().uuid(),
+          benefitType: z.string(),
+          utilizationDate: z.string().datetime(),
+          value: z.number().positive(),
+          remainingValue: z.number().nonnegative(),
+          expiryDate: z.string().datetime().optional(),
+          provider: z.string().optional(),
+          notes: z.string().optional()
+        })
+      });
+      
+    case EventTypes.PLAN_SELECTED:
+      return baseSchema.extend({
+        data: z.object({
+          planId: z.string().uuid(),
+          planName: z.string(),
+          planType: z.enum(['HEALTH', 'DENTAL', 'VISION', 'COMPREHENSIVE']),
+          coverageLevel: z.enum(['INDIVIDUAL', 'COUPLE', 'FAMILY']),
+          startDate: z.string().datetime(),
+          endDate: z.string().datetime().optional(),
+          premium: z.number().positive(),
+          currency: z.string().length(3),
+          paymentFrequency: z.enum(['MONTHLY', 'QUARTERLY', 'ANNUALLY']),
+          selectedBenefits: z.array(z.string()).optional()
+        })
+      });
+      
+    default:
+      return undefined;
+  }
+}
+
+/**
+ * Gets a schema for health metric events
+ * 
+ * @returns Zod schema for health metric events
+ */
+function getHealthMetricSchema(): z.ZodType<any> {
+  return getBaseEventSchema().extend({
+    data: z.object({
+      metricType: z.string(),
+      value: z.number(),
+      unit: z.string(),
+      timestamp: z.string().datetime().optional()
+    })
+  });
+}
+
+/**
+ * Gets a schema for health goal events
+ * 
+ * @returns Zod schema for health goal events
+ */
+function getHealthGoalSchema(): z.ZodType<any> {
+  return getBaseEventSchema().extend({
+    data: z.object({
+      goalId: z.string(),
+      goalType: z.string(),
+      targetValue: z.number(),
+      achievedValue: z.number(),
+      unit: z.string().optional()
+    })
+  });
+}
+
+/**
+ * Gets a schema for device connection events
+ * 
+ * @returns Zod schema for device connection events
+ */
+function getDeviceConnectionSchema(): z.ZodType<any> {
+  return getBaseEventSchema().extend({
+    data: z.object({
+      deviceId: z.string(),
+      deviceType: z.string(),
+      manufacturer: z.string().optional(),
+      connectionMethod: z.string().optional()
+    })
+  });
+}
+
+/**
+ * Gets a schema for appointment events
+ * 
+ * @returns Zod schema for appointment events
+ */
+function getAppointmentSchema(): z.ZodType<any> {
+  return getBaseEventSchema().extend({
+    data: z.object({
+      appointmentId: z.string(),
+      providerId: z.string(),
+      dateTime: z.string().datetime(),
+      status: z.string().optional()
+    })
+  });
+}
+
+/**
+ * Gets a schema for medication events
+ * 
+ * @returns Zod schema for medication events
+ */
+function getMedicationSchema(): z.ZodType<any> {
+  return getBaseEventSchema().extend({
+    data: z.object({
+      medicationId: z.string(),
+      medicationName: z.string(),
+      dosage: z.number().optional(),
+      takenAt: z.string().datetime().optional()
+    })
+  });
+}
+
+/**
+ * Gets a schema for telemedicine events
+ * 
+ * @returns Zod schema for telemedicine events
+ */
+function getTelemedicineSchema(): z.ZodType<any> {
+  return getBaseEventSchema().extend({
+    data: z.object({
+      sessionId: z.string(),
+      providerId: z.string(),
+      startTime: z.string().datetime().optional(),
+      endTime: z.string().datetime().optional()
+    })
+  });
+}
+
+/**
+ * Gets a schema for claim events
+ * 
+ * @returns Zod schema for claim events
+ */
+function getClaimSchema(): z.ZodType<any> {
+  return getBaseEventSchema().extend({
+    data: z.object({
+      claimId: z.string(),
+      claimType: z.string(),
+      amount: z.number().positive(),
+      status: z.string().optional()
+    })
+  });
+}
+
+/**
+ * Gets a schema for benefit events
+ * 
+ * @returns Zod schema for benefit events
+ */
+function getBenefitSchema(): z.ZodType<any> {
+  return getBaseEventSchema().extend({
+    data: z.object({
+      benefitId: z.string(),
+      benefitType: z.string(),
+      value: z.number().optional(),
+      utilizationDate: z.string().datetime().optional()
+    })
+  });
+}
+
+/**
+ * Gets a schema for plan selection events
+ * 
+ * @returns Zod schema for plan selection events
+ */
+function getPlanSelectionSchema(): z.ZodType<any> {
+  return getBaseEventSchema().extend({
+    data: z.object({
+      planId: z.string(),
+      planName: z.string(),
+      planType: z.string(),
+      startDate: z.string().datetime().optional()
+    })
+  });
+}
+
+/**
+ * Gets a schema for user events
+ * 
+ * @returns Zod schema for user events
+ */
+function getUserEventSchema(): z.ZodType<any> {
+  return getBaseEventSchema().extend({
+    data: z.object({
+      email: z.string().email().optional(),
+      username: z.string().optional(),
+      timestamp: z.string().datetime().optional()
+    })
+  });
+}
+
+/**
+ * Gets a generic schema for unknown event types
+ * 
+ * @returns Generic Zod schema for unknown event types
+ */
+function getGenericEventSchema(): z.ZodType<any> {
+  return getBaseEventSchema();
+}
+
+/**
+ * Checks if an event is a versioned event
+ * 
+ * @param event The event to check
+ * @returns True if the event is versioned, false otherwise
+ */
+function isVersionedEvent(event: any): event is IVersionedEvent {
+  return event && typeof event === 'object' && 'version' in event && typeof event.version === 'string';
+}
+
+/**
+ * Attempts to transform a versioned event to the latest version
+ * 
+ * @param event The versioned event to transform
+ * @param eventType The event type
+ * @returns Transformed event or undefined if transformation failed
+ */
+function attemptVersionTransformation(event: IVersionedEvent, eventType: string): IVersionedEvent | undefined {
+  try {
+    const currentVersion = event.version;
+    const detectedVersion = detectVersion(event);
+    
+    if (detectedVersion && detectedVersion !== currentVersion) {
+      return transformEvent(event, detectedVersion, currentVersion);
+    }
+    
+    return undefined;
+  } catch (error) {
+    console.error(`Error transforming event of type ${eventType}:`, error);
     return undefined;
   }
-  
-  // Check if data exists in cache for this type
-  const typeCache = validationCache.get(typeKey)!;
-  return typeCache.get(dataKey);
 }
 
 /**
- * Adds a validation result to the cache
- * @param eventType The type of the event
- * @param eventData The event data
- * @param version The schema version
- * @param result The validation result
- * @internal
+ * Creates a custom Zod validator for common validation patterns
+ * 
+ * @param schema The base Zod schema to extend
+ * @param customValidators Object containing custom validators
+ * @returns Extended Zod schema with custom validators
  */
-function addToValidationCache(
-  eventType: string,
-  eventData: any,
-  version?: EventVersion,
-  result: ValidationResult
-): void {
-  // Create cache key
-  const dataKey = JSON.stringify(eventData);
-  const typeKey = `${eventType}${version ? `@${version}` : ''}`;
+export function createCustomValidator<T extends z.ZodTypeAny>(
+  schema: T,
+  customValidators: Record<string, (value: any) => boolean | { success: boolean; message?: string }>
+): T {
+  let extendedSchema = schema;
   
-  // Initialize type cache if it doesn't exist
-  if (!validationCache.has(typeKey)) {
-    validationCache.set(typeKey, new Map<string, ValidationResult>());
-  }
-  
-  // Add to cache
-  const typeCache = validationCache.get(typeKey)!;
-  typeCache.set(dataKey, result);
-  
-  // Prune cache if it gets too large
-  if (validationCache.size > MAX_CACHE_SIZE) {
-    pruneValidationCache();
-  }
-}
-
-/**
- * Prunes the validation cache to prevent memory leaks
- * Removes the oldest 20% of entries
- * @internal
- */
-function pruneValidationCache(): void {
-  const keys = Array.from(validationCache.keys());
-  const keysToRemove = Math.floor(keys.length * 0.2);
-  
-  for (let i = 0; i < keysToRemove; i++) {
-    validationCache.delete(keys[i]);
-  }
-}
-
-/**
- * Parses a version string into its components
- * @param version The version string to parse
- * @returns Array of [major, minor, patch] as numbers
- * @internal
- */
-function parseVersion(version: EventVersion): [number, number, number] {
-  const parts = version.split('.');
-  const major = parseInt(parts[0], 10) || 0;
-  const minor = parseInt(parts[1], 10) || 0;
-  const patch = parseInt(parts[2], 10) || 0;
-  
-  return [major, minor, patch];
-}
-
-/**
- * Clears the validation cache
- * Useful for testing or when schemas are updated at runtime
- */
-export function clearValidationCache(): void {
-  validationCache.clear();
-}
-
-/**
- * Creates a validation pipeline that applies multiple validators in sequence
- * @param validators Array of validation functions to apply
- * @returns A function that applies all validators and returns the first failure or the final success
- */
-export function createValidationPipeline<T>(
-  validators: Array<(data: any) => ValidationResult>
-): (data: any) => ValidationResult {
-  return (data: any): ValidationResult => {
-    let currentData = data;
-    
-    for (const validator of validators) {
-      const result = validator(currentData);
-      
-      if (!result.valid) {
-        return result;
-      }
-      
-      // Update data for next validator
-      currentData = result.data;
-    }
-    
-    return {
-      valid: true,
-      data: currentData,
-    };
-  };
-}
-
-/**
- * Creates a validator function that validates a specific field in an object
- * @param fieldName The name of the field to validate
- * @param schema The schema to validate the field against
- * @param errorMessagePrefix Optional prefix for error messages
- * @returns A validation function for the specified field
- */
-export function createFieldValidator<T>(
-  fieldName: string,
-  schema: z.ZodType<T>,
-  errorMessagePrefix?: string
-): (data: any) => ValidationResult {
-  return (data: any): ValidationResult => {
-    if (!data || typeof data !== 'object') {
-      return {
-        valid: false,
-        errors: [{
-          path: [],
-          message: `Expected an object but received ${data === null ? 'null' : typeof data}`,
-          code: 'INVALID_TYPE',
-        }],
-      };
-    }
-    
-    if (!(fieldName in data)) {
-      return {
-        valid: false,
-        errors: [{
-          path: [fieldName],
-          message: `Field '${fieldName}' is required`,
-          code: 'MISSING_FIELD',
-        }],
-      };
-    }
-    
-    const fieldValue = data[fieldName];
-    const result = validateWithSchema(schema, fieldValue, errorMessagePrefix);
-    
-    if (!result.valid) {
-      // Update error paths to include the field name
-      const updatedErrors = result.errors!.map(err => ({
-        ...err,
-        path: [fieldName, ...err.path],
-      }));
-      
-      return {
-        valid: false,
-        errors: updatedErrors,
-      };
-    }
-    
-    // Return a new object with the validated field
-    return {
-      valid: true,
-      data: {
-        ...data,
-        [fieldName]: result.data,
+  for (const [key, validator] of Object.entries(customValidators)) {
+    extendedSchema = extendedSchema.refine(
+      (data) => {
+        const result = validator(data);
+        return typeof result === 'boolean' ? result : result.success;
       },
+      (data) => {
+        const result = validator(data);
+        const message = typeof result === 'boolean' ? `Failed validation for ${key}` : result.message || `Failed validation for ${key}`;
+        return { message };
+      }
+    ) as T;
+  }
+  
+  return extendedSchema;
+}
+
+/**
+ * Creates a validator for checking if a value is within a range
+ * 
+ * @param min Minimum value (inclusive)
+ * @param max Maximum value (inclusive)
+ * @param errorMessage Custom error message
+ * @returns Validator function
+ */
+export function createRangeValidator(
+  min: number,
+  max: number,
+  errorMessage?: string
+): (value: number) => { success: boolean; message?: string } {
+  return (value: number) => {
+    const success = value >= min && value <= max;
+    return {
+      success,
+      message: success ? undefined : errorMessage || `Value must be between ${min} and ${max}`
     };
   };
 }
 
 /**
- * Creates a validator function that validates an object against a schema
- * and adds additional custom validation logic
- * @param schema The schema to validate against
- * @param customValidator A function that performs additional validation
- * @param errorMessagePrefix Optional prefix for error messages
- * @returns A validation function that applies both schema and custom validation
+ * Creates a validator for checking if a string matches a pattern
+ * 
+ * @param pattern Regular expression pattern
+ * @param errorMessage Custom error message
+ * @returns Validator function
  */
-export function createCustomValidator<T>(
-  schema: z.ZodType<T>,
-  customValidator: (data: T) => ValidationResult,
-  errorMessagePrefix?: string
-): (data: any) => ValidationResult {
-  return (data: any): ValidationResult => {
-    // First validate against schema
-    const schemaResult = validateWithSchema(schema, data, errorMessagePrefix);
-    
-    if (!schemaResult.valid) {
-      return schemaResult;
-    }
-    
-    // Then apply custom validation
-    return customValidator(schemaResult.data as T);
+export function createPatternValidator(
+  pattern: RegExp,
+  errorMessage?: string
+): (value: string) => { success: boolean; message?: string } {
+  return (value: string) => {
+    const success = pattern.test(value);
+    return {
+      success,
+      message: success ? undefined : errorMessage || `Value must match pattern ${pattern}`
+    };
   };
 }
 
 /**
- * Creates a validator that ensures a value is one of the allowed values
+ * Creates a validator for checking if a value is one of a set of allowed values
+ * 
  * @param allowedValues Array of allowed values
  * @param errorMessage Custom error message
- * @returns A validation function that checks if a value is allowed
+ * @returns Validator function
  */
-export function createEnumValidator<T extends string | number>(
+export function createEnumValidator<T>(
   allowedValues: T[],
   errorMessage?: string
-): (value: any) => ValidationResult {
-  return (value: any): ValidationResult => {
-    if (allowedValues.includes(value as T)) {
-      return {
-        valid: true,
-        data: value,
-      };
-    }
-    
+): (value: T) => { success: boolean; message?: string } {
+  return (value: T) => {
+    const success = allowedValues.includes(value);
     return {
-      valid: false,
-      errors: [{
-        path: [],
-        message: errorMessage || `Expected one of [${allowedValues.join(', ')}] but received '${value}'`,
-        code: 'INVALID_ENUM_VALUE',
-      }],
+      success,
+      message: success ? undefined : errorMessage || `Value must be one of: ${allowedValues.join(', ')}`
     };
   };
 }
+
+/**
+ * Creates a validator for checking if a date is within a range
+ * 
+ * @param minDate Minimum date (inclusive)
+ * @param maxDate Maximum date (inclusive)
+ * @param errorMessage Custom error message
+ * @returns Validator function
+ */
+export function createDateRangeValidator(
+  minDate: Date,
+  maxDate: Date,
+  errorMessage?: string
+): (value: string | Date) => { success: boolean; message?: string } {
+  return (value: string | Date) => {
+    const date = value instanceof Date ? value : new Date(value);
+    const success = !isNaN(date.getTime()) && date >= minDate && date <= maxDate;
+    return {
+      success,
+      message: success ? undefined : errorMessage || `Date must be between ${minDate.toISOString()} and ${maxDate.toISOString()}`
+    };
+  };
+}
+
+/**
+ * Creates a validator for checking if an object has required properties
+ * 
+ * @param requiredProps Array of required property names
+ * @param errorMessage Custom error message
+ * @returns Validator function
+ */
+export function createRequiredPropsValidator(
+  requiredProps: string[],
+  errorMessage?: string
+): (value: Record<string, any>) => { success: boolean; message?: string } {
+  return (value: Record<string, any>) => {
+    const missingProps = requiredProps.filter(prop => !(prop in value));
+    const success = missingProps.length === 0;
+    return {
+      success,
+      message: success ? undefined : errorMessage || `Missing required properties: ${missingProps.join(', ')}`
+    };
+  };
+}
+
+/**
+ * Creates a validator for checking if a string is a valid UUID
+ * 
+ * @param errorMessage Custom error message
+ * @returns Validator function
+ */
+export function createUuidValidator(
+  errorMessage?: string
+): (value: string) => { success: boolean; message?: string } {
+  const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+  return createPatternValidator(uuidPattern, errorMessage || 'Value must be a valid UUID');
+}
+
+/**
+ * Creates a validator for checking if a value is a valid email address
+ * 
+ * @param errorMessage Custom error message
+ * @returns Validator function
+ */
+export function createEmailValidator(
+  errorMessage?: string
+): (value: string) => { success: boolean; message?: string } {
+  // This is a simplified email regex, consider using a more comprehensive one for production
+  const emailPattern = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
+  return createPatternValidator(emailPattern, errorMessage || 'Value must be a valid email address');
+}
+
+/**
+ * Creates a validator for checking if a string is a valid ISO date
+ * 
+ * @param errorMessage Custom error message
+ * @returns Validator function
+ */
+export function createIsoDateValidator(
+  errorMessage?: string
+): (value: string) => { success: boolean; message?: string } {
+  return (value: string) => {
+    const date = new Date(value);
+    const success = !isNaN(date.getTime()) && date.toISOString() === value;
+    return {
+      success,
+      message: success ? undefined : errorMessage || 'Value must be a valid ISO date string'
+    };
+  };
+}
+
+/**
+ * Creates a validator for checking if a value is a valid phone number
+ * 
+ * @param errorMessage Custom error message
+ * @returns Validator function
+ */
+export function createPhoneValidator(
+  errorMessage?: string
+): (value: string) => { success: boolean; message?: string } {
+  // This is a simplified phone regex, consider using a more comprehensive one for production
+  const phonePattern = /^\+?[0-9]{10,15}$/;
+  return createPatternValidator(phonePattern, errorMessage || 'Value must be a valid phone number');
+}
+
+/**
+ * Creates a validator for checking if a value is a valid URL
+ * 
+ * @param errorMessage Custom error message
+ * @returns Validator function
+ */
+export function createUrlValidator(
+  errorMessage?: string
+): (value: string) => { success: boolean; message?: string } {
+  return (value: string) => {
+    try {
+      new URL(value);
+      return { success: true };
+    } catch (error) {
+      return {
+        success: false,
+        message: errorMessage || 'Value must be a valid URL'
+      };
+    }
+  };
+}
+
+/**
+ * Creates a validator for checking if a value is a valid currency code
+ * 
+ * @param errorMessage Custom error message
+ * @returns Validator function
+ */
+export function createCurrencyCodeValidator(
+  errorMessage?: string
+): (value: string) => { success: boolean; message?: string } {
+  // ISO 4217 currency codes are 3 letters
+  const currencyPattern = /^[A-Z]{3}$/;
+  return createPatternValidator(currencyPattern, errorMessage || 'Value must be a valid 3-letter currency code');
+}
+
+/**
+ * Creates a validator for checking if a value is a valid JSON string
+ * 
+ * @param errorMessage Custom error message
+ * @returns Validator function
+ */
+export function createJsonValidator(
+  errorMessage?: string
+): (value: string) => { success: boolean; message?: string } {
+  return (value: string) => {
+    try {
+      JSON.parse(value);
+      return { success: true };
+    } catch (error) {
+      return {
+        success: false,
+        message: errorMessage || 'Value must be a valid JSON string'
+      };
+    }
+  };
+}
+
+/**
+ * Creates a validator for checking if a value is a valid base64 string
+ * 
+ * @param errorMessage Custom error message
+ * @returns Validator function
+ */
+export function createBase64Validator(
+  errorMessage?: string
+): (value: string) => { success: boolean; message?: string } {
+  const base64Pattern = /^[A-Za-z0-9+/]*={0,2}$/;
+  return createPatternValidator(base64Pattern, errorMessage || 'Value must be a valid base64 string');
+}
+
+/**
+ * Creates a validator for checking if a value is a valid hex color
+ * 
+ * @param errorMessage Custom error message
+ * @returns Validator function
+ */
+export function createHexColorValidator(
+  errorMessage?: string
+): (value: string) => { success: boolean; message?: string } {
+  const hexColorPattern = /^#([A-Fa-f0-9]{3}|[A-Fa-f0-9]{6})$/;
+  return createPatternValidator(hexColorPattern, errorMessage || 'Value must be a valid hex color code');
+}
+
+/**
+ * Creates a validator for checking if a value is a valid IP address
+ * 
+ * @param errorMessage Custom error message
+ * @returns Validator function
+ */
+export function createIpAddressValidator(
+  errorMessage?: string
+): (value: string) => { success: boolean; message?: string } {
+  // This is a simplified IP regex, consider using a more comprehensive one for production
+  const ipPattern = /^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$/;
+  return (value: string) => {
+    if (!ipPattern.test(value)) {
+      return {
+        success: false,
+        message: errorMessage || 'Value must be a valid IP address'
+      };
+    }
+    
+    // Check if each octet is between 0 and 255
+    const octets = value.split('.');
+    const validOctets = octets.every(octet => {
+      const num = parseInt(octet, 10);
+      return num >= 0 && num <= 255;
+    });
+    
+    return {
+      success: validOctets,
+      message: validOctets ? undefined : errorMessage || 'Value must be a valid IP address'
+    };
+  };
+}
+
+/**
+ * Creates a validator for checking if a value is a valid credit card number
+ * 
+ * @param errorMessage Custom error message
+ * @returns Validator function
+ */
+export function createCreditCardValidator(
+  errorMessage?: string
+): (value: string) => { success: boolean; message?: string } {
+  return (value: string) => {
+    // Remove spaces and dashes
+    const sanitized = value.replace(/[\s-]/g, '');
+    
+    // Check if it contains only digits
+    if (!/^\d+$/.test(sanitized)) {
+      return {
+        success: false,
+        message: errorMessage || 'Credit card number must contain only digits, spaces, or dashes'
+      };
+    }
+    
+    // Check length (most credit cards are between 13 and 19 digits)
+    if (sanitized.length < 13 || sanitized.length > 19) {
+      return {
+        success: false,
+        message: errorMessage || 'Credit card number must be between 13 and 19 digits'
+      };
+    }
+    
+    // Luhn algorithm (checksum)
+    let sum = 0;
+    let double = false;
+    
+    for (let i = sanitized.length - 1; i >= 0; i--) {
+      let digit = parseInt(sanitized.charAt(i), 10);
+      
+      if (double) {
+        digit *= 2;
+        if (digit > 9) {
+          digit -= 9;
+        }
+      }
+      
+      sum += digit;
+      double = !double;
+    }
+    
+    const valid = sum % 10 === 0;
+    
+    return {
+      success: valid,
+      message: valid ? undefined : errorMessage || 'Invalid credit card number'
+    };
+  };
+}
+
+/**
+ * Creates a validator for checking if a value is a valid postal code
+ * 
+ * @param countryCode Country code for country-specific validation
+ * @param errorMessage Custom error message
+ * @returns Validator function
+ */
+export function createPostalCodeValidator(
+  countryCode: string = 'US',
+  errorMessage?: string
+): (value: string) => { success: boolean; message?: string } {
+  return (value: string) => {
+    let pattern: RegExp;
+    
+    switch (countryCode.toUpperCase()) {
+      case 'US':
+        pattern = /^\d{5}(-\d{4})?$/;
+        break;
+      case 'CA':
+        pattern = /^[A-Za-z]\d[A-Za-z][ -]?\d[A-Za-z]\d$/;
+        break;
+      case 'UK':
+        pattern = /^[A-Z]{1,2}[0-9][A-Z0-9]? ?[0-9][A-Z]{2}$/i;
+        break;
+      case 'BR':
+        pattern = /^\d{5}-\d{3}$/;
+        break;
+      default:
+        // Default pattern that accepts most postal code formats
+        pattern = /^[A-Za-z0-9\s-]{3,10}$/;
+        break;
+    }
+    
+    const success = pattern.test(value);
+    return {
+      success,
+      message: success ? undefined : errorMessage || `Invalid postal code for ${countryCode}`
+    };
+  };
+}
+
+// Export the main validator class that implements the IEventValidator interface
+export class EventValidator implements IEventValidator {
+  /**
+   * Validates an event against its schema
+   * 
+   * @param event The event to validate
+   * @param options Validation options
+   * @returns Validation result with success status and data or error
+   */
+  validate<T extends IBaseEvent>(event: unknown, options?: EventValidationOptions): ValidationResult<T> {
+    return validateEvent<T>(event, options);
+  }
+  
+  /**
+   * Validates an event by its type
+   * 
+   * @param event The event to validate
+   * @param eventType The expected event type
+   * @param options Validation options
+   * @returns Validation result with success status and data or error
+   */
+  validateByType<T extends IBaseEvent>(event: unknown, eventType: string, options?: EventValidationOptions): ValidationResult<T> {
+    return validateEventByType<T>(event, eventType, options);
+  }
+  
+  /**
+   * Validates an event payload against a specific schema
+   * 
+   * @param payload The payload to validate
+   * @param schema The Zod schema to validate against
+   * @param options Validation options
+   * @returns Validation result with success status and data or error
+   */
+  validatePayload<T>(payload: unknown, schema: z.ZodType<T>, options?: EventValidationOptions): ValidationResult<T> {
+    return validatePayload<T>(payload, schema, options);
+  }
+  
+  /**
+   * Formats a Zod error into a more readable format
+   * 
+   * @param error The Zod error to format
+   * @returns Formatted error object
+   */
+  formatError(error: z.ZodError): { message: string; issues: z.ZodIssue[]; formattedIssues: string[] } {
+    return formatZodError(error);
+  }
+}
+
+// Export a singleton instance of the validator
+export const eventValidator = new EventValidator();

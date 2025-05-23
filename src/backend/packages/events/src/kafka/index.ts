@@ -1,41 +1,50 @@
 /**
- * Kafka integration module for the AUSTA SuperApp.
- * 
- * This module provides a robust implementation of Kafka for event streaming
- * between microservices, with support for:
- * - Type-safe event production and consumption
- * - Schema validation
- * - Dead-letter queues
- * - Retry mechanisms with exponential backoff
- * - Distributed tracing
- * - Journey-specific event processing
- * 
- * @module kafka
+ * @file Kafka Module Barrel Export
+ * @description Centralized export point for all Kafka-related components.
+ * This file enables simplified imports via @austa/events/kafka and provides
+ * a clean, consistent API for consumers across the application.
  */
 
-// Export the Kafka module
+/**
+ * Core Module
+ * @module KafkaModule
+ */
 export { KafkaModule } from './kafka.module';
 
-// Export the Kafka service
+/**
+ * Services
+ * @module KafkaServices
+ */
 export { KafkaService } from './kafka.service';
+export { KafkaProducer } from './kafka.producer';
+export { KafkaConsumer } from './kafka.consumer';
 
-// Re-export interfaces
-export { KafkaModuleOptions } from '../interfaces/kafka-options.interface';
-export { KafkaMessage } from '../interfaces/kafka-message.interface';
+/**
+ * Interfaces
+ * @module KafkaInterfaces
+ */
+export * from './kafka.interfaces';
 
-// Re-export DTOs
-export { EventMetadataDto, EventVersionDto } from '../dto/event-metadata.dto';
+/**
+ * Types
+ * @module KafkaTypes
+ */
+export * from './kafka.types';
 
-// Re-export errors
-export {
-  KafkaError,
-  EventValidationError,
-  ProducerError,
-  ConsumerError,
-  MessageSerializationError,
-} from '../errors/kafka.errors';
+/**
+ * Constants
+ * @module KafkaConstants
+ */
+export * from './kafka.constants';
 
-// Re-export constants
-export { ERROR_CODES, ERROR_MESSAGES } from '../constants/errors.constants';
-export { TOPICS } from '../constants/topics.constants';
-export { KAFKA_MODULE_OPTIONS, EVENT_SCHEMA_REGISTRY } from '../constants/tokens.constants';
+/**
+ * Configuration
+ * @module KafkaConfig
+ */
+export * from './kafka.config';
+
+/**
+ * Error Handling
+ * @module KafkaErrors
+ */
+export * from './kafka.errors';

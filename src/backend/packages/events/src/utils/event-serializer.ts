@@ -1,525 +1,560 @@
-import { Buffer } from 'buffer';
-
-/**
- * Interfaces for event serialization and deserialization
- */
-
-/**
- * Represents a serialized event with version information
- */
-interface SerializedEvent {
-  /**
-   * The schema version of the event
-   * Format: major.minor.patch (e.g., 1.0.0)
-   */
-  version: string;
-  
-  /**
-   * The serialized event data
-   */
-  data: string;
-  
-  /**
-   * Optional metadata for the serialized event
-   */
-  meta?: Record<string, unknown>;
-}
+import { Injectable } from '@nestjs/common';
+import { Logger } from '@nestjs/common';
+import { IBaseEvent } from '../interfaces/base-event.interface';
+import { IVersionedEvent } from '../interfaces/event-versioning.interface';
+import { ValidationResult } from '../interfaces/event-validation.interface';
+import { EventVersion } from '../interfaces/event-versioning.interface';
 
 /**
  * Options for event serialization
  */
-interface SerializationOptions {
+export interface SerializationOptions {
   /**
-   * Whether to include binary data handling
+   * Whether to include binary data in the serialized output
+   * When true, binary data will be Base64 encoded
+   * When false, binary data will be omitted
    * @default true
    */
-  handleBinary?: boolean;
-  
+  includeBinaryData?: boolean;
+
   /**
-   * The journey context for the event
-   * Possible values: 'health', 'care', 'plan'
+   * Whether to include version information in the serialized output
+   * @default true
+   */
+  includeVersion?: boolean;
+
+  /**
+   * Journey context to include in the serialized output
+   * This helps with routing events to the appropriate handlers
    */
   journeyContext?: string;
-  
+
   /**
-   * Additional metadata to include in the serialized event
+   * Additional metadata to include in the serialized output
    */
   metadata?: Record<string, unknown>;
-  
-  /**
-   * Whether to pretty print the JSON output
-   * @default false
-   */
-  pretty?: boolean;
 }
 
 /**
  * Options for event deserialization
  */
-interface DeserializationOptions {
+export interface DeserializationOptions {
   /**
-   * Whether to handle binary data during deserialization
-   * @default true
-   */
-  handleBinary?: boolean;
-  
-  /**
-   * Whether to validate the event schema during deserialization
+   * Whether to validate the event structure during deserialization
    * @default true
    */
   validate?: boolean;
-  
+
   /**
-   * Whether to allow events with unknown versions
+   * Whether to decode Base64 encoded binary data
+   * @default true
+   */
+  decodeBinaryData?: boolean;
+
+  /**
+   * Target event version to deserialize to
+   * If provided, the deserializer will attempt to convert the event to this version
+   * If not provided, the original version will be preserved
+   */
+  targetVersion?: EventVersion;
+
+  /**
+   * Whether to throw an error if the event version is incompatible with the target version
    * @default false
    */
-  allowUnknownVersion?: boolean;
-  
-  /**
-   * The journey context for deserialization
-   * Possible values: 'health', 'care', 'plan'
-   */
-  journeyContext?: string;
+  strictVersioning?: boolean;
 }
 
 /**
- * Error thrown when serialization or deserialization fails
+ * Result of event deserialization
  */
-export class EventSerializationError extends Error {
+export interface DeserializationResult<T = unknown> {
   /**
-   * The original error that caused the serialization failure
+   * The deserialized event
    */
-  public readonly originalError?: Error;
-  
+  event: T;
+
   /**
-   * The event that failed to serialize or deserialize
+   * Whether the deserialization was successful
    */
-  public readonly event?: unknown;
-  
+  success: boolean;
+
   /**
-   * Additional context about the error
+   * Validation results, if validation was performed
    */
-  public readonly context?: Record<string, unknown>;
-  
-  constructor(message: string, options?: {
-    originalError?: Error;
-    event?: unknown;
-    context?: Record<string, unknown>;
-  }) {
-    super(message);
-    this.name = 'EventSerializationError';
-    this.originalError = options?.originalError;
-    this.event = options?.event;
-    this.context = options?.context;
-    
-    // Preserve the stack trace
-    if (Error.captureStackTrace) {
-      Error.captureStackTrace(this, EventSerializationError);
-    }
-  }
+  validation?: ValidationResult;
+
+  /**
+   * Original version of the event before any conversion
+   */
+  originalVersion?: EventVersion;
+
+  /**
+   * Current version of the event after conversion (if performed)
+   */
+  currentVersion?: EventVersion;
+
+  /**
+   * Any errors that occurred during deserialization
+   */
+  errors?: Error[];
 }
 
 /**
- * Detects if a value is likely to be binary data (Buffer, ArrayBuffer, etc.)
- * @param value The value to check
- * @returns True if the value appears to be binary data
+ * Binary data encoding types supported by the serializer
  */
-const isBinaryData = (value: unknown): boolean => {
-  return (
-    value instanceof Buffer ||
-    value instanceof ArrayBuffer ||
-    value instanceof Uint8Array ||
-    value instanceof Int8Array ||
-    (typeof value === 'object' &&
-      value !== null &&
-      'buffer' in value &&
-      value.buffer instanceof ArrayBuffer)
-  );
-};
+export enum BinaryEncoding {
+  BASE64 = 'base64',
+  HEX = 'hex',
+  NONE = 'none'
+}
 
 /**
- * Converts binary data to a Base64 string with type information
- * @param data The binary data to convert
- * @returns A string representation with type information
+ * Marker interface to identify binary data fields that need special handling
  */
-const binaryToBase64 = (data: unknown): string => {
-  if (data instanceof Buffer) {
-    return `__bin_buffer:${data.toString('base64')}`;
-  }
-  
-  if (data instanceof ArrayBuffer) {
-    return `__bin_arraybuffer:${Buffer.from(data).toString('base64')}`;
-  }
-  
-  if (data instanceof Uint8Array) {
-    return `__bin_uint8array:${Buffer.from(data).toString('base64')}`;
-  }
-  
-  if (data instanceof Int8Array) {
-    return `__bin_int8array:${Buffer.from(data).toString('base64')}`;
-  }
-  
-  // Default case, try to convert to buffer
-  try {
-    return `__bin_unknown:${Buffer.from(data as any).toString('base64')}`;
-  } catch (error) {
-    throw new EventSerializationError('Failed to convert binary data to Base64', {
-      originalError: error as Error,
-      event: data,
-    });
-  }
-};
+export interface BinaryData {
+  /**
+   * The binary data as a Buffer
+   */
+  data: Buffer;
+
+  /**
+   * The encoding used for the binary data
+   */
+  encoding: BinaryEncoding;
+
+  /**
+   * Optional MIME type of the binary data
+   */
+  mimeType?: string;
+}
 
 /**
- * Converts a Base64 string back to its original binary format
- * @param data The Base64 string with type information
- * @returns The original binary data
+ * Service for serializing and deserializing events
+ * Provides standardized methods for converting events to/from JSON
+ * with support for binary data, versioning, and validation
  */
-const base64ToBinary = (data: string): unknown => {
-  const [type, base64] = data.split(':', 2);
-  const buffer = Buffer.from(base64, 'base64');
-  
-  switch (type) {
-    case '__bin_buffer':
-      return buffer;
-    case '__bin_arraybuffer':
-      return buffer.buffer.slice(
-        buffer.byteOffset,
-        buffer.byteOffset + buffer.byteLength
-      );
-    case '__bin_uint8array':
-      return new Uint8Array(buffer);
-    case '__bin_int8array':
-      return new Int8Array(buffer);
-    case '__bin_unknown':
-    default:
-      return buffer;
-  }
-};
+@Injectable()
+export class EventSerializer {
+  private readonly logger = new Logger(EventSerializer.name);
 
-/**
- * Recursively processes an object to handle binary data during serialization
- * @param obj The object to process
- * @returns A new object with binary data converted to Base64 strings
- */
-const processBinaryData = (obj: unknown): unknown => {
-  if (obj === null || obj === undefined) {
-    return obj;
-  }
-  
-  if (isBinaryData(obj)) {
-    return binaryToBase64(obj);
-  }
-  
-  if (Array.isArray(obj)) {
-    return obj.map(processBinaryData);
-  }
-  
-  if (typeof obj === 'object') {
-    const result: Record<string, unknown> = {};
-    for (const [key, value] of Object.entries(obj)) {
-      result[key] = processBinaryData(value);
+  /**
+   * Serializes an event to a JSON string
+   * 
+   * @param event The event to serialize
+   * @param options Serialization options
+   * @returns The serialized event as a JSON string
+   */
+  serialize<T extends IBaseEvent>(event: T, options: SerializationOptions = {}): string {
+    try {
+      const {
+        includeBinaryData = true,
+        includeVersion = true,
+        journeyContext,
+        metadata = {}
+      } = options;
+
+      // Create a deep copy of the event to avoid modifying the original
+      const eventCopy = this.deepCopy(event);
+
+      // Process binary data if needed
+      if (includeBinaryData) {
+        this.processBinaryData(eventCopy, 'encode');
+      } else {
+        this.removeBinaryData(eventCopy);
+      }
+
+      // Add version information if needed
+      if (includeVersion && !eventCopy.version) {
+        eventCopy.version = '1.0.0';
+      }
+
+      // Add journey context if provided
+      if (journeyContext && !eventCopy.journey) {
+        eventCopy.journey = journeyContext;
+      }
+
+      // Add additional metadata
+      eventCopy.metadata = { ...eventCopy.metadata, ...metadata };
+
+      return JSON.stringify(eventCopy);
+    } catch (error) {
+      this.logger.error(`Error serializing event: ${error.message}`, error.stack);
+      throw new Error(`Failed to serialize event: ${error.message}`);
     }
-    return result;
   }
-  
-  return obj;
-};
 
-/**
- * Recursively processes an object to restore binary data during deserialization
- * @param obj The object to process
- * @returns A new object with Base64 strings converted back to binary data
- */
-const restoreBinaryData = (obj: unknown): unknown => {
-  if (obj === null || obj === undefined) {
-    return obj;
-  }
-  
-  if (typeof obj === 'string' && obj.startsWith('__bin_')) {
-    return base64ToBinary(obj);
-  }
-  
-  if (Array.isArray(obj)) {
-    return obj.map(restoreBinaryData);
-  }
-  
-  if (typeof obj === 'object') {
-    const result: Record<string, unknown> = {};
-    for (const [key, value] of Object.entries(obj)) {
-      result[key] = restoreBinaryData(value);
-    }
-    return result;
-  }
-  
-  return obj;
-};
-
-/**
- * Adds journey-specific context to an event
- * @param event The event to enhance
- * @param journeyContext The journey context to add
- * @returns The event with journey context added
- */
-const addJourneyContext = (event: unknown, journeyContext?: string): unknown => {
-  if (!journeyContext || typeof event !== 'object' || event === null) {
-    return event;
-  }
-  
-  // Clone the event to avoid modifying the original
-  const enhancedEvent = { ...event as Record<string, unknown> };
-  
-  // Add journey context if not already present
-  if (!enhancedEvent.journey) {
-    enhancedEvent.journey = journeyContext;
-  }
-  
-  // Add journey-specific metadata if not already present
-  if (!enhancedEvent.metadata) {
-    enhancedEvent.metadata = {};
-  }
-  
-  const metadata = enhancedEvent.metadata as Record<string, unknown>;
-  if (!metadata.journeyContext) {
-    metadata.journeyContext = journeyContext;
-  }
-  
-  return enhancedEvent;
-};
-
-/**
- * Serializes an event to a JSON string with version information
- * @param event The event to serialize
- * @param version The schema version of the event (default: '1.0.0')
- * @param options Serialization options
- * @returns A JSON string representing the serialized event
- */
-export const serializeEvent = (
-  event: unknown,
-  version = '1.0.0',
-  options: SerializationOptions = {}
-): string => {
-  try {
-    const {
-      handleBinary = true,
-      journeyContext,
-      metadata = {},
-      pretty = false,
-    } = options;
-    
-    // Add journey context if specified
-    const contextEnhancedEvent = journeyContext
-      ? addJourneyContext(event, journeyContext)
-      : event;
-    
-    // Process binary data if needed
-    const processedEvent = handleBinary
-      ? processBinaryData(contextEnhancedEvent)
-      : contextEnhancedEvent;
-    
-    // Create the serialized event structure
-    const serializedEvent: SerializedEvent = {
-      version,
-      data: JSON.stringify(processedEvent),
-      meta: {
-        timestamp: new Date().toISOString(),
-        ...metadata,
-      },
+  /**
+   * Deserializes a JSON string to an event object
+   * 
+   * @param jsonString The JSON string to deserialize
+   * @param options Deserialization options
+   * @returns The deserialization result containing the event and metadata
+   */
+  deserialize<T = unknown>(jsonString: string, options: DeserializationOptions = {}): DeserializationResult<T> {
+    const result: DeserializationResult<T> = {
+      event: null,
+      success: false,
+      errors: []
     };
-    
-    // Return the serialized event as a JSON string
-    return JSON.stringify(serializedEvent, null, pretty ? 2 : undefined);
-  } catch (error) {
-    throw new EventSerializationError('Failed to serialize event', {
-      originalError: error as Error,
-      event,
-      context: {
-        version,
-        options,
-      },
+
+    try {
+      const {
+        validate = true,
+        decodeBinaryData = true,
+        targetVersion,
+        strictVersioning = false
+      } = options;
+
+      // Parse the JSON string
+      const parsedEvent = JSON.parse(jsonString) as IVersionedEvent;
+
+      // Store the original version
+      if (parsedEvent.version) {
+        result.originalVersion = parsedEvent.version;
+      }
+
+      // Handle version conversion if needed
+      if (targetVersion && parsedEvent.version && targetVersion !== parsedEvent.version) {
+        try {
+          this.convertEventVersion(parsedEvent, targetVersion, strictVersioning);
+          result.currentVersion = targetVersion;
+        } catch (error) {
+          result.errors.push(error);
+          if (strictVersioning) {
+            throw error;
+          }
+          // If not strict, continue with the original version
+          result.currentVersion = parsedEvent.version;
+        }
+      } else {
+        result.currentVersion = parsedEvent.version;
+      }
+
+      // Process binary data if needed
+      if (decodeBinaryData) {
+        this.processBinaryData(parsedEvent, 'decode');
+      }
+
+      // Validate the event if needed
+      if (validate) {
+        result.validation = this.validateEvent(parsedEvent);
+        if (!result.validation.isValid) {
+          result.errors.push(new Error(`Event validation failed: ${result.validation.errors.join(', ')}`));
+          if (strictVersioning) {
+            throw new Error(`Event validation failed: ${result.validation.errors.join(', ')}`);
+          }
+        }
+      }
+
+      result.event = parsedEvent as unknown as T;
+      result.success = result.errors.length === 0;
+
+      return result;
+    } catch (error) {
+      this.logger.error(`Error deserializing event: ${error.message}`, error.stack);
+      result.errors.push(error);
+      return result;
+    }
+  }
+
+  /**
+   * Creates a deep copy of an object
+   * 
+   * @param obj The object to copy
+   * @returns A deep copy of the object
+   */
+  private deepCopy<T>(obj: T): T {
+    if (obj === null || typeof obj !== 'object') {
+      return obj;
+    }
+
+    // Handle Date objects
+    if (obj instanceof Date) {
+      return new Date(obj.getTime()) as unknown as T;
+    }
+
+    // Handle Buffer objects
+    if (Buffer.isBuffer(obj)) {
+      return Buffer.from(obj) as unknown as T;
+    }
+
+    // Handle Array objects
+    if (Array.isArray(obj)) {
+      return obj.map(item => this.deepCopy(item)) as unknown as T;
+    }
+
+    // Handle plain objects
+    const copy = {} as T;
+    Object.keys(obj).forEach(key => {
+      copy[key] = this.deepCopy(obj[key]);
+    });
+
+    return copy;
+  }
+
+  /**
+   * Processes binary data in an event
+   * Encodes or decodes binary data based on the operation
+   * 
+   * @param obj The object to process
+   * @param operation The operation to perform ('encode' or 'decode')
+   */
+  private processBinaryData(obj: any, operation: 'encode' | 'decode'): void {
+    if (obj === null || typeof obj !== 'object') {
+      return;
+    }
+
+    // Process arrays
+    if (Array.isArray(obj)) {
+      obj.forEach(item => this.processBinaryData(item, operation));
+      return;
+    }
+
+    // Check if this is a binary data object
+    if (this.isBinaryData(obj)) {
+      if (operation === 'encode') {
+        // Convert Buffer to Base64 string
+        obj.data = obj.data.toString(obj.encoding || BinaryEncoding.BASE64);
+        obj.__binary = true; // Mark as encoded binary data
+      } else if (operation === 'decode' && obj.__binary) {
+        // Convert Base64 string back to Buffer
+        obj.data = Buffer.from(obj.data, obj.encoding || BinaryEncoding.BASE64);
+        delete obj.__binary; // Remove the marker
+      }
+      return;
+    }
+
+    // Process object properties recursively
+    Object.keys(obj).forEach(key => {
+      if (obj[key] !== null && typeof obj[key] === 'object') {
+        this.processBinaryData(obj[key], operation);
+      }
     });
   }
-};
 
-/**
- * Deserializes a JSON string back to an event object
- * @param serializedEvent The JSON string to deserialize
- * @param options Deserialization options
- * @returns The deserialized event object
- */
-export const deserializeEvent = <T = unknown>(
-  serializedEvent: string,
-  options: DeserializationOptions = {}
-): T => {
-  try {
-    const {
-      handleBinary = true,
-      validate = true,
-      allowUnknownVersion = false,
-      journeyContext,
-    } = options;
-    
-    // Parse the serialized event
-    const parsedEvent = JSON.parse(serializedEvent) as SerializedEvent;
-    
-    // Validate the event structure
-    if (validate) {
-      if (!parsedEvent.version) {
-        throw new Error('Missing event version');
-      }
-      
-      if (!parsedEvent.data) {
-        throw new Error('Missing event data');
-      }
+  /**
+   * Removes binary data from an object
+   * 
+   * @param obj The object to process
+   */
+  private removeBinaryData(obj: any): void {
+    if (obj === null || typeof obj !== 'object') {
+      return;
     }
-    
-    // Check if the version is supported
-    if (!allowUnknownVersion && !isVersionSupported(parsedEvent.version)) {
-      throw new Error(`Unsupported event version: ${parsedEvent.version}`);
+
+    // Process arrays
+    if (Array.isArray(obj)) {
+      obj.forEach(item => this.removeBinaryData(item));
+      return;
     }
-    
-    // Parse the event data
-    const eventData = JSON.parse(parsedEvent.data);
-    
-    // Process binary data if needed
-    const processedEvent = handleBinary
-      ? restoreBinaryData(eventData)
-      : eventData;
-    
-    // Add journey context if specified
-    const contextEnhancedEvent = journeyContext
-      ? addJourneyContext(processedEvent, journeyContext)
-      : processedEvent;
-    
-    return contextEnhancedEvent as T;
-  } catch (error) {
-    throw new EventSerializationError('Failed to deserialize event', {
-      originalError: error as Error,
-      event: serializedEvent,
-      context: {
-        options,
-      },
+
+    // Check if this is a binary data object
+    if (this.isBinaryData(obj)) {
+      obj.data = '[BINARY_DATA_REMOVED]';
+      return;
+    }
+
+    // Process object properties recursively
+    Object.keys(obj).forEach(key => {
+      if (obj[key] !== null && typeof obj[key] === 'object') {
+        this.removeBinaryData(obj[key]);
+      }
     });
   }
-};
 
-/**
- * Checks if a given event version is supported by the current implementation
- * @param version The version to check
- * @returns True if the version is supported
- */
-export const isVersionSupported = (version: string): boolean => {
-  // Currently supported major versions
-  const supportedMajorVersions = [1];
-  
-  try {
-    // Parse the version string
-    const [major] = version.split('.').map(Number);
-    
-    // Check if the major version is supported
-    return supportedMajorVersions.includes(major);
-  } catch {
-    // If version parsing fails, consider it unsupported
-    return false;
-  }
-};
-
-/**
- * Extracts the version information from a serialized event
- * @param serializedEvent The serialized event string
- * @returns The version string or null if not found
- */
-export const extractEventVersion = (serializedEvent: string): string | null => {
-  try {
-    const parsed = JSON.parse(serializedEvent) as SerializedEvent;
-    return parsed.version || null;
-  } catch {
-    return null;
-  }
-};
-
-/**
- * Checks if a string is a serialized event
- * @param str The string to check
- * @returns True if the string appears to be a serialized event
- */
-export const isSerializedEvent = (str: string): boolean => {
-  try {
-    const parsed = JSON.parse(str) as unknown;
-    
+  /**
+   * Checks if an object is a binary data object
+   * 
+   * @param obj The object to check
+   * @returns True if the object is a binary data object, false otherwise
+   */
+  private isBinaryData(obj: any): boolean {
     return (
-      typeof parsed === 'object' &&
-      parsed !== null &&
-      'version' in parsed &&
-      'data' in parsed &&
-      typeof parsed.version === 'string' &&
-      typeof parsed.data === 'string'
+      obj &&
+      typeof obj === 'object' &&
+      (Buffer.isBuffer(obj.data) || obj.__binary) &&
+      (obj.encoding === undefined || Object.values(BinaryEncoding).includes(obj.encoding))
     );
-  } catch {
-    return false;
   }
-};
 
-/**
- * Serializes an event with binary data handling
- * This is a convenience function that sets handleBinary to true
- * @param event The event to serialize
- * @param version The schema version of the event
- * @param options Additional serialization options
- * @returns A JSON string representing the serialized event
- */
-export const serializeBinaryEvent = (
-  event: unknown,
-  version = '1.0.0',
-  options: Omit<SerializationOptions, 'handleBinary'> = {}
-): string => {
-  return serializeEvent(event, version, { ...options, handleBinary: true });
-};
+  /**
+   * Converts an event from one version to another
+   * 
+   * @param event The event to convert
+   * @param targetVersion The target version
+   * @param strict Whether to throw an error if conversion is not possible
+   */
+  private convertEventVersion(event: IVersionedEvent, targetVersion: string, strict: boolean): void {
+    // Skip if versions are the same
+    if (event.version === targetVersion) {
+      return;
+    }
 
-/**
- * Deserializes an event with binary data handling
- * This is a convenience function that sets handleBinary to true
- * @param serializedEvent The JSON string to deserialize
- * @param options Additional deserialization options
- * @returns The deserialized event object
- */
-export const deserializeBinaryEvent = <T = unknown>(
-  serializedEvent: string,
-  options: Omit<DeserializationOptions, 'handleBinary'> = {}
-): T => {
-  return deserializeEvent<T>(serializedEvent, { ...options, handleBinary: true });
-};
+    // Parse versions
+    const currentVersion = this.parseVersion(event.version);
+    const target = this.parseVersion(targetVersion);
 
-/**
- * Serializes an event for a specific journey
- * This is a convenience function that sets the journeyContext
- * @param event The event to serialize
- * @param journey The journey context ('health', 'care', or 'plan')
- * @param version The schema version of the event
- * @param options Additional serialization options
- * @returns A JSON string representing the serialized event
- */
-export const serializeJourneyEvent = (
-  event: unknown,
-  journey: 'health' | 'care' | 'plan',
-  version = '1.0.0',
-  options: Omit<SerializationOptions, 'journeyContext'> = {}
-): string => {
-  return serializeEvent(event, version, { ...options, journeyContext: journey });
-};
+    // Check if conversion is possible
+    if (currentVersion.major !== target.major && strict) {
+      throw new Error(`Cannot convert event from version ${event.version} to ${targetVersion}: Major version change`);
+    }
 
-/**
- * Deserializes an event for a specific journey
- * This is a convenience function that sets the journeyContext
- * @param serializedEvent The JSON string to deserialize
- * @param journey The journey context ('health', 'care', or 'plan')
- * @param options Additional deserialization options
- * @returns The deserialized event object
- */
-export const deserializeJourneyEvent = <T = unknown>(
-  serializedEvent: string,
-  journey: 'health' | 'care' | 'plan',
-  options: Omit<DeserializationOptions, 'journeyContext'> = {}
-): T => {
-  return deserializeEvent<T>(serializedEvent, { ...options, journeyContext: journey });
-};
+    // Apply version-specific transformations
+    // This is a simplified implementation - in a real system, you would have
+    // specific transformation logic for each version change
+    if (currentVersion.major === target.major) {
+      if (currentVersion.minor < target.minor) {
+        // Upgrade minor version
+        this.upgradeMinorVersion(event, currentVersion, target);
+      } else if (currentVersion.minor > target.minor) {
+        // Downgrade minor version
+        this.downgradeMinorVersion(event, currentVersion, target);
+      }
+
+      // Update patch version differences
+      if (currentVersion.patch !== target.patch) {
+        // Patch versions are compatible, just update the version
+        event.version = targetVersion;
+      }
+    }
+  }
+
+  /**
+   * Parses a version string into its components
+   * 
+   * @param version The version string to parse
+   * @returns The parsed version components
+   */
+  private parseVersion(version: string): { major: number; minor: number; patch: number } {
+    const parts = version.split('.');
+    return {
+      major: parseInt(parts[0], 10) || 0,
+      minor: parseInt(parts[1], 10) || 0,
+      patch: parseInt(parts[2], 10) || 0
+    };
+  }
+
+  /**
+   * Upgrades an event to a higher minor version
+   * 
+   * @param event The event to upgrade
+   * @param currentVersion The current version components
+   * @param targetVersion The target version components
+   */
+  private upgradeMinorVersion(
+    event: IVersionedEvent,
+    currentVersion: { major: number; minor: number; patch: number },
+    targetVersion: { major: number; minor: number; patch: number }
+  ): void {
+    // This is where you would implement version-specific upgrades
+    // For example, adding new fields or transforming existing ones
+    
+    // Example implementation:
+    // if (currentVersion.minor === 0 && targetVersion.minor >= 1) {
+    //   // Add new field introduced in v1.1.0
+    //   event.data.newField = 'default value';
+    // }
+
+    // Update the version
+    event.version = `${targetVersion.major}.${targetVersion.minor}.${targetVersion.patch}`;
+  }
+
+  /**
+   * Downgrades an event to a lower minor version
+   * 
+   * @param event The event to downgrade
+   * @param currentVersion The current version components
+   * @param targetVersion The target version components
+   */
+  private downgradeMinorVersion(
+    event: IVersionedEvent,
+    currentVersion: { major: number; minor: number; patch: number },
+    targetVersion: { major: number; minor: number; patch: number }
+  ): void {
+    // This is where you would implement version-specific downgrades
+    // For example, removing fields that don't exist in the target version
+    
+    // Example implementation:
+    // if (currentVersion.minor >= 1 && targetVersion.minor === 0) {
+    //   // Remove field that doesn't exist in v1.0.0
+    //   delete event.data.newField;
+    // }
+
+    // Update the version
+    event.version = `${targetVersion.major}.${targetVersion.minor}.${targetVersion.patch}`;
+  }
+
+  /**
+   * Validates an event structure
+   * 
+   * @param event The event to validate
+   * @returns The validation result
+   */
+  private validateEvent(event: any): ValidationResult {
+    const errors: string[] = [];
+
+    // Check required fields
+    if (!event.type) {
+      errors.push('Event type is required');
+    }
+
+    if (!event.userId) {
+      errors.push('User ID is required');
+    }
+
+    if (!event.data || typeof event.data !== 'object') {
+      errors.push('Event data must be a non-null object');
+    }
+
+    // Additional validation could be performed here
+    // For example, checking that the event type is valid
+    // or that the data structure matches the expected schema for the event type
+
+    return {
+      isValid: errors.length === 0,
+      errors
+    };
+  }
+
+  /**
+   * Serializes an event to a Buffer
+   * Useful for binary protocols or storage
+   * 
+   * @param event The event to serialize
+   * @param options Serialization options
+   * @returns The serialized event as a Buffer
+   */
+  serializeToBuffer<T extends IBaseEvent>(event: T, options: SerializationOptions = {}): Buffer {
+    const jsonString = this.serialize(event, options);
+    return Buffer.from(jsonString, 'utf8');
+  }
+
+  /**
+   * Deserializes a Buffer to an event object
+   * 
+   * @param buffer The Buffer to deserialize
+   * @param options Deserialization options
+   * @returns The deserialization result containing the event and metadata
+   */
+  deserializeFromBuffer<T = unknown>(buffer: Buffer, options: DeserializationOptions = {}): DeserializationResult<T> {
+    const jsonString = buffer.toString('utf8');
+    return this.deserialize<T>(jsonString, options);
+  }
+
+  /**
+   * Creates a journey-specific serialization context
+   * 
+   * @param journey The journey identifier ('health', 'care', or 'plan')
+   * @returns Serialization options with the journey context set
+   */
+  createJourneyContext(journey: 'health' | 'care' | 'plan'): SerializationOptions {
+    return {
+      journeyContext: journey,
+      metadata: {
+        journeyId: journey,
+        timestamp: new Date().toISOString()
+      }
+    };
+  }
+}

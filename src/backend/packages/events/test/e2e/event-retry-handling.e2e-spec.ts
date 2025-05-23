@@ -1,765 +1,1070 @@
-import { Test, TestingModule } from '@nestjs/testing';
-import { INestApplication } from '@nestjs/common';
-import { KafkaService } from '../../src/kafka/kafka.service';
-import { EventTypesEnum } from '../../src/dto/event-types.enum';
-import { VersionDto } from '../../src/dto/version.dto';
-import { EventMetadataDto } from '../../src/dto/event-metadata.dto';
-import { BaseEventDto } from '../../src/dto/base-event.dto';
-import { TOPICS } from '../../src/constants/topics.constants';
-import { ERROR_CODES } from '../../src/constants/errors.constants';
-import { setupTestApp, waitForEvents, cleanupTestApp } from './test-helpers';
-import {
-  MockEventBroker,
-  MockEventProcessor,
-  MockErrorHandler
-} from '../mocks';
-import {
-  healthEvents,
-  careEvents,
-  planEvents,
-  kafkaEvents,
-  validationEvents
-} from '../fixtures';
-
 /**
- * End-to-end tests for event retry mechanisms and error handling.
+ * End-to-end tests for event retry mechanisms and error handling
  * 
- * These tests validate the reliability of the event processing pipeline,
- * focusing on retry mechanisms, dead letter queues, and error recovery.
+ * This test suite validates the reliability of the event processing pipeline,
+ * focusing on retry mechanisms, dead letter queues, event audit logging,
+ * and error recovery procedures.
  */
-describe('Event Retry Handling (e2e)', () => {
-  let app: INestApplication;
+
+import { Test, TestingModule } from '@nestjs/testing';
+import { ConfigModule } from '@nestjs/config';
+import { EventsModule } from '../../src/events.module';
+import { KafkaService } from '../../src/kafka/kafka.service';
+import { KafkaProducer } from '../../src/kafka/kafka.producer';
+import { KafkaConsumer } from '../../src/kafka/kafka.consumer';
+import { DLQService } from '../../src/errors/dlq';
+import { RetryPolicyService } from '../../src/errors/retry-policies';
+import { EventAuditService } from '../../src/utils/event-tracing';
+import { IBaseEvent } from '../../src/interfaces/base-event.interface';
+import { IKafkaEvent } from '../../src/interfaces/kafka-event.interface';
+import { IEventResponse } from '../../src/interfaces/event-response.interface';
+import { EventProcessingError } from '../../src/errors/event-errors';
+import { randomUUID } from 'crypto';
+import {
+  createTestEnvironment,
+  createTestConsumer,
+  publishTestEvent,
+  waitForEvent,
+  waitForEvents,
+  createJourneyEventFactories,
+  assertEventsEqual,
+  waitForCondition,
+  retry,
+  createMockEventHandler,
+  TestEnvironment
+} from './test-helpers';
+
+describe('Event Retry Handling (E2E)', () => {
+  let testEnv: TestEnvironment;
   let kafkaService: KafkaService;
-  let mockEventBroker: MockEventBroker;
-  let mockEventProcessor: MockEventProcessor;
-  let mockErrorHandler: MockErrorHandler;
+  let kafkaProducer: KafkaProducer;
+  let dlqService: DLQService;
+  let retryPolicyService: RetryPolicyService;
+  let eventAuditService: EventAuditService;
+  let eventFactories: ReturnType<typeof createJourneyEventFactories>;
+  
+  // Test topics
+  const MAIN_TOPIC = 'test-events';
+  const RETRY_TOPIC = 'test-events-retry';
+  const DLQ_TOPIC = 'test-events-dlq';
+  const AUDIT_TOPIC = 'test-events-audit';
   
   // Setup before all tests
   beforeAll(async () => {
-    // Create test module with mocked dependencies
-    const moduleFixture: TestingModule = await Test.createTestingModule({
-      imports: [],
-      providers: [
-        KafkaService,
-        {
-          provide: 'EVENT_BROKER',
-          useFactory: () => {
-            mockEventBroker = new MockEventBroker({
-              topics: Object.values(TOPICS),
-              errorProbability: 0.3, // 30% chance of error for testing retries
-              errorTypes: ['NETWORK', 'TIMEOUT', 'VALIDATION']
-            });
-            return mockEventBroker;
-          }
-        },
-        {
-          provide: 'EVENT_PROCESSOR',
-          useFactory: () => {
-            mockEventProcessor = new MockEventProcessor({
-              journeys: ['health', 'care', 'plan'],
-              processingDelay: 50, // ms
-              errorProbability: 0.2 // 20% chance of processing error
-            });
-            return mockEventProcessor;
-          }
-        },
-        {
-          provide: 'ERROR_HANDLER',
-          useFactory: () => {
-            mockErrorHandler = new MockErrorHandler({
-              retryStrategy: 'exponential',
-              maxRetries: 5,
-              initialBackoff: 100, // ms
-              maxBackoff: 5000, // ms
-              backoffFactor: 2,
-              useJitter: true
-            });
-            return mockErrorHandler;
-          }
-        }
-      ]
-    }).compile();
-
-    // Setup test application
-    app = await setupTestApp(moduleFixture);
+    // Create test environment
+    testEnv = await createTestEnvironment({
+      useRealKafka: false, // Use mock Kafka for faster tests
+      seedDatabase: true,
+      envVars: {
+        KAFKA_RETRY_TOPIC: RETRY_TOPIC,
+        KAFKA_DLQ_TOPIC: DLQ_TOPIC,
+        KAFKA_AUDIT_TOPIC: AUDIT_TOPIC,
+        MAX_RETRY_ATTEMPTS: '3',
+        INITIAL_RETRY_DELAY: '100', // 100ms for faster tests
+        MAX_RETRY_DELAY: '1000',    // 1s for faster tests
+      },
+    });
     
-    // Get service instances
-    kafkaService = moduleFixture.get<KafkaService>(KafkaService);
+    // Get required services
+    kafkaService = testEnv.kafkaService;
+    kafkaProducer = testEnv.kafkaProducer;
+    dlqService = testEnv.moduleRef.get<DLQService>(DLQService);
+    retryPolicyService = testEnv.moduleRef.get<RetryPolicyService>(RetryPolicyService);
+    eventAuditService = testEnv.moduleRef.get<EventAuditService>(EventAuditService);
     
-    // Reset mocks before tests
-    mockEventBroker.reset();
-    mockEventProcessor.reset();
-    mockErrorHandler.reset();
+    // Create event factories
+    eventFactories = createJourneyEventFactories();
   });
-
+  
   // Cleanup after all tests
   afterAll(async () => {
-    await cleanupTestApp(app);
+    await testEnv.cleanup();
   });
-
-  // Reset mocks between tests
-  beforeEach(() => {
-    mockEventBroker.reset();
-    mockEventProcessor.reset();
-    mockErrorHandler.reset();
-  });
-
-  /**
-   * Tests for dead letter queue functionality
-   */
-  describe('Dead Letter Queue', () => {
-    it('should move messages to dead letter queue after max retries', async () => {
-      // Arrange: Create a health event that will consistently fail validation
-      const invalidEvent = validationEvents.invalidHealthMetric;
-      
-      // Force consistent failure for this test
-      mockEventBroker.setErrorProbability(1.0); // 100% error rate
-      mockErrorHandler.setMaxRetries(3); // Limit to 3 retries for faster test
-      
-      // Act: Publish the invalid event
-      await kafkaService.publish(TOPICS.HEALTH.EVENTS, invalidEvent);
-      
-      // Wait for retries and DLQ processing
-      await waitForEvents(500); // Wait longer for retries
-      
-      // Assert: Verify the message was moved to DLQ after retries
-      expect(mockErrorHandler.getDeadLetterCount()).toBe(1);
-      
-      // Verify retry count matches configuration
-      const deadLetterEvents = mockErrorHandler.getDeadLetterEvents();
-      expect(deadLetterEvents[0].retryCount).toBe(3); // Max retries reached
-      
-      // Verify error context is preserved
-      expect(deadLetterEvents[0].error).toBeDefined();
-      expect(deadLetterEvents[0].error.code).toBe(ERROR_CODES.VALIDATION.INVALID_PAYLOAD);
+  
+  describe('Dead Letter Queue Functionality', () => {
+    let mainConsumer: KafkaConsumer;
+    let dlqConsumer: KafkaConsumer;
+    
+    beforeEach(async () => {
+      // Create consumers for main and DLQ topics
+      mainConsumer = await createTestConsumer(kafkaService, MAIN_TOPIC);
+      dlqConsumer = await createTestConsumer(kafkaService, DLQ_TOPIC);
     });
-
-    it('should preserve original event data in dead letter queue', async () => {
-      // Arrange: Create a valid event but force processing failure
-      const originalEvent = healthEvents.healthMetricHeartRate;
-      
-      // Configure mocks for this test
-      mockEventProcessor.setErrorProbability(1.0); // 100% processing error
-      mockErrorHandler.setMaxRetries(2); // Limit retries for faster test
-      
-      // Act: Publish the event
-      await kafkaService.publish(TOPICS.HEALTH.EVENTS, originalEvent);
-      
-      // Wait for retries and DLQ processing
-      await waitForEvents(400);
-      
-      // Assert: Verify original event data is preserved in DLQ
-      const deadLetterEvents = mockErrorHandler.getDeadLetterEvents();
-      expect(deadLetterEvents.length).toBe(1);
-      
-      // Check that original event data is preserved
-      const dlqEvent = deadLetterEvents[0].originalEvent;
-      expect(dlqEvent.userId).toBe(originalEvent.userId);
-      expect(dlqEvent.type).toBe(originalEvent.type);
-      expect(dlqEvent.journey).toBe(originalEvent.journey);
-      expect(dlqEvent.payload).toEqual(originalEvent.payload);
+    
+    afterEach(async () => {
+      // Disconnect consumers
+      await mainConsumer.disconnect();
+      await dlqConsumer.disconnect();
     });
-
-    it('should include detailed error context in dead letter events', async () => {
-      // Arrange: Create an event with validation issues
-      const invalidEvent = validationEvents.invalidCareAppointment;
+    
+    it('should move events to DLQ after maximum retry attempts', async () => {
+      // Create a test event
+      const testEvent = eventFactories.health.metricRecorded({
+        eventId: randomUUID(),
+      });
       
-      // Configure mocks
-      mockEventBroker.setErrorProbability(0.5); // 50% chance of broker error
-      mockEventProcessor.setErrorProbability(0.5); // 50% chance of processing error
-      mockErrorHandler.setMaxRetries(3);
-      
-      // Act: Publish the invalid event
-      await kafkaService.publish(TOPICS.CARE.EVENTS, invalidEvent);
-      
-      // Wait for processing and potential DLQ
-      await waitForEvents(500);
-      
-      // Assert: If event reached DLQ, verify error context
-      if (mockErrorHandler.getDeadLetterCount() > 0) {
-        const deadLetterEvents = mockErrorHandler.getDeadLetterEvents();
-        const dlqEvent = deadLetterEvents[0];
-        
-        // Verify error details
-        expect(dlqEvent.error).toBeDefined();
-        expect(dlqEvent.error.code).toBeDefined();
-        expect(dlqEvent.error.message).toBeDefined();
-        expect(dlqEvent.error.timestamp).toBeDefined();
-        
-        // Verify stack trace for debugging
-        expect(dlqEvent.error.stack).toBeDefined();
-        
-        // Verify context information
-        expect(dlqEvent.error.context).toBeDefined();
-        expect(dlqEvent.error.context.topic).toBe(TOPICS.CARE.EVENTS);
-        expect(dlqEvent.error.context.eventType).toBe(invalidEvent.type);
-      } else {
-        // If event didn't reach DLQ (random chance), skip this test
-        console.log('Event did not reach DLQ in this test run - skipping assertions');
-      }
-    });
-  });
-
-  /**
-   * Tests for retry mechanisms with exponential backoff
-   */
-  describe('Retry Mechanisms', () => {
-    it('should retry failed events with exponential backoff', async () => {
-      // Arrange: Create a valid event
-      const validEvent = healthEvents.healthGoalAchieved;
-      
-      // Configure mocks to fail initially but succeed on retry
-      mockEventBroker.setErrorProbability(0.7); // 70% initial failure rate
-      mockEventBroker.setErrorProbabilityDecay(0.5); // 50% reduction in error probability per retry
-      mockErrorHandler.setMaxRetries(5);
-      mockErrorHandler.setBackoffStrategy('exponential');
-      mockErrorHandler.setInitialBackoff(50); // Start with 50ms
-      mockErrorHandler.setBackoffFactor(2); // Double each time
-      
-      // Act: Publish the event
-      const startTime = Date.now();
-      await kafkaService.publish(TOPICS.HEALTH.EVENTS, validEvent);
-      
-      // Wait for processing with retries
-      await waitForEvents(1000);
-      const endTime = Date.now();
-      
-      // Assert: Verify retry pattern
-      const retryAttempts = mockErrorHandler.getRetryAttempts();
-      
-      // Skip test if no retries occurred (random chance)
-      if (retryAttempts.length === 0) {
-        console.log('No retries occurred in this test run - skipping assertions');
-        return;
-      }
-      
-      // Verify increasing delays between retries (exponential backoff)
-      for (let i = 1; i < retryAttempts.length; i++) {
-        const previousDelay = retryAttempts[i-1].delay;
-        const currentDelay = retryAttempts[i].delay;
-        
-        // Each retry should have longer delay than previous (with some jitter allowance)
-        expect(currentDelay).toBeGreaterThan(previousDelay * 1.5); // Allow for some jitter
-      }
-      
-      // Verify event was eventually processed
-      expect(mockEventProcessor.getProcessedCount()).toBe(1);
-    });
-
-    it('should use jitter to prevent retry storms', async () => {
-      // Arrange: Create multiple events of the same type
-      const events = [
-        planEvents.claimSubmitted,
-        planEvents.claimSubmitted, // Same event type
-        planEvents.claimSubmitted  // Same event type
-      ];
-      
-      // Configure mocks to fail initially but succeed on retry
-      mockEventBroker.setErrorProbability(0.8); // High failure rate
-      mockErrorHandler.setMaxRetries(4);
-      mockErrorHandler.setUseJitter(true); // Enable jitter
-      mockErrorHandler.setJitterFactor(0.3); // 30% jitter
-      
-      // Act: Publish multiple events
-      for (const event of events) {
-        await kafkaService.publish(TOPICS.PLAN.EVENTS, event);
-      }
-      
-      // Wait for processing with retries
-      await waitForEvents(800);
-      
-      // Assert: Get retry timestamps for each event
-      const retryTimestamps = mockErrorHandler.getRetryTimestamps();
-      
-      // Skip test if not enough retries occurred
-      if (Object.keys(retryTimestamps).length < 2) {
-        console.log('Not enough retries occurred for jitter test - skipping assertions');
-        return;
-      }
-      
-      // Check that retry timestamps for different events at the same retry attempt
-      // are not exactly the same (jitter should cause variation)
-      const eventIds = Object.keys(retryTimestamps);
-      const firstEventRetries = retryTimestamps[eventIds[0]];
-      const secondEventRetries = retryTimestamps[eventIds[1]];
-      
-      // Compare retry timestamps at the same attempt number
-      const commonAttempts = Math.min(firstEventRetries.length, secondEventRetries.length);
-      let jitterDetected = false;
-      
-      for (let i = 0; i < commonAttempts; i++) {
-        if (firstEventRetries[i] !== secondEventRetries[i]) {
-          jitterDetected = true;
-          break;
+      // Create a failing event handler that always throws an error
+      const failingHandler = createMockEventHandler<IBaseEvent>(
+        testEvent.type,
+        async () => {
+          throw new EventProcessingError(
+            'Simulated processing error',
+            testEvent,
+            { retryable: true }
+          );
         }
-      }
-      
-      expect(jitterDetected).toBe(true);
-    });
-
-    it('should respect maximum retry limits', async () => {
-      // Arrange: Create an event that will always fail
-      const alwaysFailingEvent = {
-        ...healthEvents.healthMetricBloodPressure,
-        payload: { ...healthEvents.healthMetricBloodPressure.payload, forceFailure: true }
-      };
-      
-      // Configure mocks
-      mockEventProcessor.setErrorProbability(1.0); // Always fail processing
-      mockErrorHandler.setMaxRetries(4); // Set max retry limit
-      
-      // Act: Publish the event
-      await kafkaService.publish(TOPICS.HEALTH.EVENTS, alwaysFailingEvent);
-      
-      // Wait for processing and retries
-      await waitForEvents(700);
-      
-      // Assert: Verify retry count does not exceed max
-      const retryAttempts = mockErrorHandler.getRetryAttempts();
-      const eventRetries = retryAttempts.filter(r => r.eventId === alwaysFailingEvent.id);
-      
-      // Should have exactly maxRetries attempts
-      expect(eventRetries.length).toBeLessThanOrEqual(4);
-      
-      // Verify event ended up in DLQ after max retries
-      expect(mockErrorHandler.getDeadLetterCount()).toBe(1);
-    });
-  });
-
-  /**
-   * Tests for event audit and logging
-   */
-  describe('Event Audit and Logging', () => {
-    it('should log all retry attempts with context', async () => {
-      // Arrange: Create an event that will fail initially
-      const eventWithRetries = careEvents.appointmentBooked;
-      
-      // Configure mocks
-      mockEventBroker.setErrorProbability(0.7); // High initial failure rate
-      mockEventBroker.setErrorProbabilityDecay(0.4); // Improve chances on retry
-      mockErrorHandler.setMaxRetries(3);
-      
-      // Act: Publish the event
-      await kafkaService.publish(TOPICS.CARE.EVENTS, eventWithRetries);
-      
-      // Wait for processing and retries
-      await waitForEvents(500);
-      
-      // Assert: Verify audit logs contain retry information
-      const auditLogs = mockErrorHandler.getAuditLogs();
-      
-      // Find logs related to this event
-      const eventLogs = auditLogs.filter(log => log.eventId === eventWithRetries.id);
-      
-      // Should have logs for the event
-      expect(eventLogs.length).toBeGreaterThan(0);
-      
-      // Check retry logs if retries occurred
-      const retryLogs = eventLogs.filter(log => log.action === 'RETRY');
-      if (retryLogs.length > 0) {
-        // Verify retry logs contain necessary context
-        expect(retryLogs[0].context).toBeDefined();
-        expect(retryLogs[0].context.attempt).toBeDefined();
-        expect(retryLogs[0].context.maxRetries).toBeDefined();
-        expect(retryLogs[0].context.delay).toBeDefined();
-        expect(retryLogs[0].context.error).toBeDefined();
-      }
-    });
-
-    it('should track event lifecycle across retry attempts', async () => {
-      // Arrange: Create an event for lifecycle tracking
-      const lifecycleEvent = planEvents.benefitUtilized;
-      
-      // Configure mocks
-      mockEventBroker.setErrorProbability(0.6); // Moderate failure rate
-      mockEventBroker.setErrorProbabilityDecay(0.5); // Improve on retry
-      mockErrorHandler.setMaxRetries(3);
-      
-      // Act: Publish the event
-      await kafkaService.publish(TOPICS.PLAN.EVENTS, lifecycleEvent);
-      
-      // Wait for processing and retries
-      await waitForEvents(500);
-      
-      // Assert: Verify lifecycle tracking
-      const lifecycle = mockErrorHandler.getEventLifecycle(lifecycleEvent.id);
-      
-      // Should have lifecycle entries
-      expect(lifecycle).toBeDefined();
-      expect(lifecycle.length).toBeGreaterThan(0);
-      
-      // First entry should be PUBLISH
-      expect(lifecycle[0].action).toBe('PUBLISH');
-      
-      // Last entry should be either SUCCESS or DEAD_LETTER
-      const lastAction = lifecycle[lifecycle.length - 1].action;
-      expect(['SUCCESS', 'DEAD_LETTER']).toContain(lastAction);
-      
-      // Verify timestamps are in ascending order
-      for (let i = 1; i < lifecycle.length; i++) {
-        expect(lifecycle[i].timestamp).toBeGreaterThanOrEqual(lifecycle[i-1].timestamp);
-      }
-    });
-
-    it('should record detailed error information for failed attempts', async () => {
-      // Arrange: Create an event that will fail validation
-      const invalidEvent = validationEvents.invalidPlanClaim;
-      
-      // Configure mocks
-      mockEventProcessor.setErrorProbability(0.8); // High processing error rate
-      mockErrorHandler.setMaxRetries(2);
-      
-      // Act: Publish the invalid event
-      await kafkaService.publish(TOPICS.PLAN.EVENTS, invalidEvent);
-      
-      // Wait for processing and retries
-      await waitForEvents(400);
-      
-      // Assert: Verify error details in audit logs
-      const auditLogs = mockErrorHandler.getAuditLogs();
-      const errorLogs = auditLogs.filter(
-        log => log.eventId === invalidEvent.id && log.action === 'ERROR'
       );
       
-      // Skip if no errors were logged (random chance)
-      if (errorLogs.length === 0) {
-        console.log('No error logs found for this test run - skipping assertions');
-        return;
-      }
+      // Register the failing handler
+      mainConsumer.registerHandler(failingHandler);
       
-      // Verify error details
-      const errorLog = errorLogs[0];
-      expect(errorLog.error).toBeDefined();
-      expect(errorLog.error.code).toBeDefined();
-      expect(errorLog.error.message).toBeDefined();
-      expect(errorLog.error.timestamp).toBeDefined();
+      // Publish the test event
+      await publishTestEvent(kafkaProducer, MAIN_TOPIC, testEvent);
       
-      // Verify error contains validation details if it's a validation error
-      if (errorLog.error.code === ERROR_CODES.VALIDATION.INVALID_PAYLOAD) {
-        expect(errorLog.error.details).toBeDefined();
-        expect(Array.isArray(errorLog.error.details.validationErrors)).toBe(true);
-      }
+      // Wait for the event to appear in the DLQ after retries
+      const dlqEvent = await waitForEvent<IBaseEvent>(
+        dlqConsumer,
+        (event) => event.eventId === testEvent.eventId,
+        10000 // Allow time for retries
+      );
+      
+      // Verify the event was moved to DLQ
+      expect(dlqEvent).not.toBeNull();
+      expect(dlqEvent?.eventId).toBe(testEvent.eventId);
+      
+      // Verify the event has retry metadata
+      expect(dlqEvent?.metadata?.retries).toBeDefined();
+      expect(dlqEvent?.metadata?.retries?.attempts).toBeGreaterThanOrEqual(3); // MAX_RETRY_ATTEMPTS
+      expect(dlqEvent?.metadata?.retries?.errors).toHaveLength(dlqEvent?.metadata?.retries?.attempts || 0);
+      expect(dlqEvent?.metadata?.retries?.lastError).toContain('Simulated processing error');
     });
-  });
-
-  /**
-   * Tests for automatic recovery after failures
-   */
-  describe('Automatic Recovery', () => {
-    it('should successfully process event after transient failures', async () => {
-      // Arrange: Create a valid event
-      const validEvent = healthEvents.deviceSynchronized;
+    
+    it('should immediately move non-retryable events to DLQ', async () => {
+      // Create a test event
+      const testEvent = eventFactories.health.metricRecorded({
+        eventId: randomUUID(),
+      });
       
-      // Configure mocks to fail initially but succeed after retries
-      mockEventBroker.setErrorProbability(0.8); // High initial failure
-      mockEventBroker.setErrorProbabilityDecay(0.5); // 50% reduction per retry
-      mockErrorHandler.setMaxRetries(5);
-      
-      // Act: Publish the event
-      await kafkaService.publish(TOPICS.HEALTH.EVENTS, validEvent);
-      
-      // Wait for processing with retries
-      await waitForEvents(800);
-      
-      // Assert: Verify event was eventually processed successfully
-      const processedEvents = mockEventProcessor.getProcessedEvents();
-      const wasProcessed = processedEvents.some(e => e.id === validEvent.id);
-      
-      // Event should be processed despite initial failures
-      expect(wasProcessed).toBe(true);
-      
-      // Verify retry attempts occurred
-      const retryAttempts = mockErrorHandler.getRetryAttempts();
-      const eventRetries = retryAttempts.filter(r => r.eventId === validEvent.id);
-      
-      // Should have at least one retry before success
-      expect(eventRetries.length).toBeGreaterThan(0);
-    });
-
-    it('should recover from broker outages', async () => {
-      // Arrange: Create a valid event
-      const validEvent = careEvents.medicationTaken;
-      
-      // Configure mocks to simulate broker outage
-      mockEventBroker.simulateOutage(true); // Start with broker unavailable
-      
-      // Act: Publish the event (should fail initially)
-      const publishPromise = kafkaService.publish(TOPICS.CARE.EVENTS, validEvent);
-      
-      // Simulate broker recovery after a delay
-      setTimeout(() => {
-        mockEventBroker.simulateOutage(false); // Broker becomes available
-      }, 200);
-      
-      // Wait for publish to complete (with retries)
-      await publishPromise.catch(() => {}); // Ignore potential rejection
-      await waitForEvents(500);
-      
-      // Assert: Verify event was published after recovery
-      const publishedEvents = mockEventBroker.getPublishedEvents();
-      const wasPublished = publishedEvents.some(e => e.id === validEvent.id);
-      
-      // Event should be published despite initial broker outage
-      expect(wasPublished).toBe(true);
-    });
-
-    it('should maintain processing order after recovery', async () => {
-      // Arrange: Create a sequence of related events
-      const event1 = { ...careEvents.appointmentBooked, sequenceNum: 1 };
-      const event2 = { ...careEvents.appointmentCheckedIn, sequenceNum: 2 };
-      const event3 = { ...careEvents.appointmentCompleted, sequenceNum: 3 };
-      
-      // Configure mocks
-      mockEventBroker.setErrorProbability(0.6); // Moderate failure rate
-      mockEventBroker.setPreserveOrder(true); // Ensure order preservation
-      mockErrorHandler.setMaxRetries(4);
-      
-      // Act: Publish events in sequence
-      await kafkaService.publish(TOPICS.CARE.EVENTS, event1);
-      await kafkaService.publish(TOPICS.CARE.EVENTS, event2);
-      await kafkaService.publish(TOPICS.CARE.EVENTS, event3);
-      
-      // Wait for processing with potential retries
-      await waitForEvents(800);
-      
-      // Assert: Verify processing order matches sequence numbers
-      const processedEvents = mockEventProcessor.getProcessedEvents();
-      
-      // Filter events from this test by checking for sequenceNum property
-      const sequencedEvents = processedEvents
-        .filter(e => e.sequenceNum !== undefined)
-        .sort((a, b) => {
-          // Sort by processing timestamp
-          return a.processedAt - b.processedAt;
-        });
-      
-      // Skip if not enough events were processed
-      if (sequencedEvents.length < 2) {
-        console.log('Not enough events processed for order test - skipping assertions');
-        return;
-      }
-      
-      // Verify events were processed in sequence order despite retries
-      for (let i = 1; i < sequencedEvents.length; i++) {
-        expect(sequencedEvents[i].sequenceNum).toBeGreaterThan(sequencedEvents[i-1].sequenceNum);
-      }
-    });
-  });
-
-  /**
-   * Tests for event schema versioning and compatibility
-   */
-  describe('Event Schema Versioning', () => {
-    it('should handle different versions of the same event type', async () => {
-      // Arrange: Create events with different schema versions
-      const oldVersionEvent = {
-        ...healthEvents.healthMetricHeartRate,
-        schemaVersion: '1.0.0',
-        // Old schema format
-        payload: {
-          value: 75,
-          unit: 'bpm'
+      // Create a failing event handler that throws a non-retryable error
+      const failingHandler = createMockEventHandler<IBaseEvent>(
+        testEvent.type,
+        async () => {
+          throw new EventProcessingError(
+            'Non-retryable error',
+            testEvent,
+            { retryable: false }
+          );
         }
-      };
+      );
       
-      const newVersionEvent = {
-        ...healthEvents.healthMetricHeartRate,
-        schemaVersion: '2.0.0',
-        // New schema with additional fields
+      // Register the failing handler
+      mainConsumer.registerHandler(failingHandler);
+      
+      // Publish the test event
+      await publishTestEvent(kafkaProducer, MAIN_TOPIC, testEvent);
+      
+      // Wait for the event to appear in the DLQ immediately (no retries)
+      const dlqEvent = await waitForEvent<IBaseEvent>(
+        dlqConsumer,
+        (event) => event.eventId === testEvent.eventId,
+        5000
+      );
+      
+      // Verify the event was moved to DLQ
+      expect(dlqEvent).not.toBeNull();
+      expect(dlqEvent?.eventId).toBe(testEvent.eventId);
+      
+      // Verify the event has no retry attempts
+      expect(dlqEvent?.metadata?.retries?.attempts).toBe(1);
+      expect(dlqEvent?.metadata?.retries?.errors).toHaveLength(1);
+      expect(dlqEvent?.metadata?.retries?.lastError).toContain('Non-retryable error');
+    });
+    
+    it('should include original event data and error context in DLQ events', async () => {
+      // Create a test event with specific payload
+      const testEvent = eventFactories.care.appointmentBooked({
+        eventId: randomUUID(),
         payload: {
+          userId: 'test-user-id',
+          appointmentId: 'test-appointment-id',
+          providerId: 'test-provider-id',
+          specialtyId: 'test-specialty-id',
+          scheduledAt: new Date().toISOString(),
+          bookedAt: new Date().toISOString(),
+        },
+      });
+      
+      // Create a failing event handler with detailed error
+      const failingHandler = createMockEventHandler<IBaseEvent>(
+        testEvent.type,
+        async () => {
+          throw new EventProcessingError(
+            'Validation error in appointment data',
+            testEvent,
+            { 
+              retryable: false,
+              context: {
+                field: 'scheduledAt',
+                reason: 'Appointment time is in the past',
+                severity: 'ERROR'
+              }
+            }
+          );
+        }
+      );
+      
+      // Register the failing handler
+      mainConsumer.registerHandler(failingHandler);
+      
+      // Publish the test event
+      await publishTestEvent(kafkaProducer, MAIN_TOPIC, testEvent);
+      
+      // Wait for the event to appear in the DLQ
+      const dlqEvent = await waitForEvent<IBaseEvent>(
+        dlqConsumer,
+        (event) => event.eventId === testEvent.eventId,
+        5000
+      );
+      
+      // Verify the event was moved to DLQ with all original data
+      expect(dlqEvent).not.toBeNull();
+      expect(dlqEvent?.eventId).toBe(testEvent.eventId);
+      expect(dlqEvent?.type).toBe(testEvent.type);
+      expect(dlqEvent?.journey).toBe(testEvent.journey);
+      expect(dlqEvent?.payload).toEqual(testEvent.payload);
+      
+      // Verify error context is included
+      expect(dlqEvent?.metadata?.error?.message).toContain('Validation error in appointment data');
+      expect(dlqEvent?.metadata?.error?.context?.field).toBe('scheduledAt');
+      expect(dlqEvent?.metadata?.error?.context?.reason).toBe('Appointment time is in the past');
+      expect(dlqEvent?.metadata?.error?.context?.severity).toBe('ERROR');
+    });
+  });
+  
+  describe('Retry Mechanisms with Exponential Backoff', () => {
+    let mainConsumer: KafkaConsumer;
+    let retryConsumer: KafkaConsumer;
+    
+    beforeEach(async () => {
+      // Create consumers for main and retry topics
+      mainConsumer = await createTestConsumer(kafkaService, MAIN_TOPIC);
+      retryConsumer = await createTestConsumer(kafkaService, RETRY_TOPIC);
+    });
+    
+    afterEach(async () => {
+      // Disconnect consumers
+      await mainConsumer.disconnect();
+      await retryConsumer.disconnect();
+    });
+    
+    it('should retry failed events with increasing delays', async () => {
+      // Create a test event
+      const testEvent = eventFactories.health.metricRecorded({
+        eventId: randomUUID(),
+      });
+      
+      // Create a failing event handler
+      const failingHandler = createMockEventHandler<IBaseEvent>(
+        testEvent.type,
+        async () => {
+          throw new EventProcessingError(
+            'Temporary processing error',
+            testEvent,
+            { retryable: true }
+          );
+        }
+      );
+      
+      // Register the failing handler
+      mainConsumer.registerHandler(failingHandler);
+      
+      // Publish the test event
+      await publishTestEvent(kafkaProducer, MAIN_TOPIC, testEvent);
+      
+      // Wait for retry events
+      const retryEvents = await waitForEvents<IBaseEvent>(
+        retryConsumer,
+        (event) => event.eventId === testEvent.eventId,
+        3, // Expect 3 retry attempts
+        10000 // Allow time for retries with backoff
+      );
+      
+      // Verify retry attempts
+      expect(retryEvents.length).toBeGreaterThanOrEqual(1);
+      
+      // Verify increasing retry delays
+      if (retryEvents.length >= 2) {
+        const retryDelays: number[] = [];
+        
+        for (let i = 0; i < retryEvents.length; i++) {
+          const retryEvent = retryEvents[i];
+          expect(retryEvent.metadata?.retries?.attempts).toBe(i + 1);
+          
+          if (i > 0) {
+            const prevTimestamp = new Date(retryEvents[i-1].timestamp).getTime();
+            const currTimestamp = new Date(retryEvent.timestamp).getTime();
+            const delay = currTimestamp - prevTimestamp;
+            retryDelays.push(delay);
+          }
+        }
+        
+        // Verify exponential backoff (each delay should be greater than the previous)
+        for (let i = 1; i < retryDelays.length; i++) {
+          expect(retryDelays[i]).toBeGreaterThanOrEqual(retryDelays[i-1]);
+        }
+      }
+    });
+    
+    it('should apply journey-specific retry policies', async () => {
+      // Create test events for different journeys
+      const healthEvent = eventFactories.health.metricRecorded({
+        eventId: randomUUID(),
+      });
+      
+      const careEvent = eventFactories.care.appointmentBooked({
+        eventId: randomUUID(),
+      });
+      
+      // Create failing handlers for each journey
+      const healthHandler = createMockEventHandler<IBaseEvent>(
+        healthEvent.type,
+        async () => {
+          throw new EventProcessingError(
+            'Health journey error',
+            healthEvent,
+            { retryable: true }
+          );
+        }
+      );
+      
+      const careHandler = createMockEventHandler<IBaseEvent>(
+        careEvent.type,
+        async () => {
+          throw new EventProcessingError(
+            'Care journey error',
+            careEvent,
+            { retryable: true }
+          );
+        }
+      );
+      
+      // Register the handlers
+      mainConsumer.registerHandler(healthHandler);
+      mainConsumer.registerHandler(careHandler);
+      
+      // Publish the test events
+      await publishTestEvent(kafkaProducer, MAIN_TOPIC, healthEvent);
+      await publishTestEvent(kafkaProducer, MAIN_TOPIC, careEvent);
+      
+      // Wait for retry events
+      const healthRetryEvents = await waitForEvents<IBaseEvent>(
+        retryConsumer,
+        (event) => event.eventId === healthEvent.eventId,
+        2,
+        10000
+      );
+      
+      const careRetryEvents = await waitForEvents<IBaseEvent>(
+        retryConsumer,
+        (event) => event.eventId === careEvent.eventId,
+        2,
+        10000
+      );
+      
+      // Verify journey-specific retry metadata
+      expect(healthRetryEvents[0].metadata?.retries?.policy).toBe('health');
+      expect(careRetryEvents[0].metadata?.retries?.policy).toBe('care');
+      
+      // Different journeys may have different retry configurations
+      // This is a simplified test - in a real system, you might have different
+      // max attempts or backoff strategies for different journeys
+    });
+    
+    it('should respect maximum retry attempts configuration', async () => {
+      // Create a test event
+      const testEvent = eventFactories.plan.claimSubmitted({
+        eventId: randomUUID(),
+      });
+      
+      // Create a failing event handler
+      const failingHandler = createMockEventHandler<IBaseEvent>(
+        testEvent.type,
+        async () => {
+          throw new EventProcessingError(
+            'Persistent error',
+            testEvent,
+            { retryable: true }
+          );
+        }
+      );
+      
+      // Register the failing handler
+      mainConsumer.registerHandler(failingHandler);
+      
+      // Publish the test event
+      await publishTestEvent(kafkaProducer, MAIN_TOPIC, testEvent);
+      
+      // Wait for retry events
+      const retryEvents = await waitForEvents<IBaseEvent>(
+        retryConsumer,
+        (event) => event.eventId === testEvent.eventId,
+        3, // MAX_RETRY_ATTEMPTS
+        10000
+      );
+      
+      // Verify retry attempts
+      expect(retryEvents.length).toBeLessThanOrEqual(3); // Should not exceed MAX_RETRY_ATTEMPTS
+      
+      // The last retry event should have the maximum attempt count
+      if (retryEvents.length > 0) {
+        const lastRetryEvent = retryEvents[retryEvents.length - 1];
+        expect(lastRetryEvent.metadata?.retries?.attempts).toBeLessThanOrEqual(3);
+      }
+    });
+  });
+  
+  describe('Event Audit and Logging', () => {
+    let mainConsumer: KafkaConsumer;
+    let auditConsumer: KafkaConsumer;
+    
+    beforeEach(async () => {
+      // Create consumers for main and audit topics
+      mainConsumer = await createTestConsumer(kafkaService, MAIN_TOPIC);
+      auditConsumer = await createTestConsumer(kafkaService, AUDIT_TOPIC);
+    });
+    
+    afterEach(async () => {
+      // Disconnect consumers
+      await mainConsumer.disconnect();
+      await auditConsumer.disconnect();
+    });
+    
+    it('should log all event processing attempts to the audit topic', async () => {
+      // Create a test event
+      const testEvent = eventFactories.health.metricRecorded({
+        eventId: randomUUID(),
+      });
+      
+      // Create a successful event handler
+      const successHandler = createMockEventHandler<IBaseEvent>(
+        testEvent.type,
+        async (event) => {
+          return { success: true, event };
+        }
+      );
+      
+      // Register the handler
+      mainConsumer.registerHandler(successHandler);
+      
+      // Publish the test event
+      await publishTestEvent(kafkaProducer, MAIN_TOPIC, testEvent);
+      
+      // Wait for audit event
+      const auditEvent = await waitForEvent<any>(
+        auditConsumer,
+        (event) => event.eventId === testEvent.eventId && event.type === 'audit.event.processed',
+        5000
+      );
+      
+      // Verify audit event
+      expect(auditEvent).not.toBeNull();
+      expect(auditEvent?.originalEvent?.eventId).toBe(testEvent.eventId);
+      expect(auditEvent?.originalEvent?.type).toBe(testEvent.type);
+      expect(auditEvent?.status).toBe('SUCCESS');
+      expect(auditEvent?.processingTime).toBeGreaterThan(0);
+      expect(auditEvent?.timestamp).toBeDefined();
+    });
+    
+    it('should log failed event processing attempts with error details', async () => {
+      // Create a test event
+      const testEvent = eventFactories.care.medicationTaken({
+        eventId: randomUUID(),
+      });
+      
+      // Create a failing event handler
+      const failingHandler = createMockEventHandler<IBaseEvent>(
+        testEvent.type,
+        async () => {
+          throw new EventProcessingError(
+            'Medication validation failed',
+            testEvent,
+            { 
+              retryable: true,
+              context: {
+                field: 'dosage',
+                reason: 'Invalid dosage format',
+              }
+            }
+          );
+        }
+      );
+      
+      // Register the handler
+      mainConsumer.registerHandler(failingHandler);
+      
+      // Publish the test event
+      await publishTestEvent(kafkaProducer, MAIN_TOPIC, testEvent);
+      
+      // Wait for audit event
+      const auditEvent = await waitForEvent<any>(
+        auditConsumer,
+        (event) => 
+          event.eventId !== testEvent.eventId && // Audit event has its own ID
+          event.originalEvent?.eventId === testEvent.eventId && 
+          event.type === 'audit.event.failed',
+        5000
+      );
+      
+      // Verify audit event
+      expect(auditEvent).not.toBeNull();
+      expect(auditEvent?.originalEvent?.eventId).toBe(testEvent.eventId);
+      expect(auditEvent?.originalEvent?.type).toBe(testEvent.type);
+      expect(auditEvent?.status).toBe('FAILED');
+      expect(auditEvent?.error?.message).toContain('Medication validation failed');
+      expect(auditEvent?.error?.context?.field).toBe('dosage');
+      expect(auditEvent?.error?.context?.reason).toBe('Invalid dosage format');
+      expect(auditEvent?.processingTime).toBeGreaterThan(0);
+      expect(auditEvent?.timestamp).toBeDefined();
+      expect(auditEvent?.retryScheduled).toBe(true);
+    });
+    
+    it('should log retry attempts with attempt count and delay information', async () => {
+      // Create a test event
+      const testEvent = eventFactories.plan.benefitUtilized({
+        eventId: randomUUID(),
+      });
+      
+      // Create a failing event handler
+      const failingHandler = createMockEventHandler<IBaseEvent>(
+        testEvent.type,
+        async () => {
+          throw new EventProcessingError(
+            'Temporary benefit processing error',
+            testEvent,
+            { retryable: true }
+          );
+        }
+      );
+      
+      // Register the handler
+      mainConsumer.registerHandler(failingHandler);
+      
+      // Publish the test event
+      await publishTestEvent(kafkaProducer, MAIN_TOPIC, testEvent);
+      
+      // Wait for retry audit events
+      const auditEvents = await waitForEvents<any>(
+        auditConsumer,
+        (event) => 
+          event.originalEvent?.eventId === testEvent.eventId && 
+          (event.type === 'audit.event.failed' || event.type === 'audit.event.retry'),
+        3, // Expect initial failure + retry attempts
+        10000
+      );
+      
+      // Verify audit events
+      expect(auditEvents.length).toBeGreaterThanOrEqual(2); // At least initial failure + first retry
+      
+      // First event should be the initial failure
+      expect(auditEvents[0].type).toBe('audit.event.failed');
+      expect(auditEvents[0].retryScheduled).toBe(true);
+      
+      // Subsequent events should be retries
+      for (let i = 1; i < auditEvents.length; i++) {
+        const retryAudit = auditEvents[i];
+        expect(retryAudit.type).toBe('audit.event.retry');
+        expect(retryAudit.retryAttempt).toBe(i);
+        expect(retryAudit.originalEvent.eventId).toBe(testEvent.eventId);
+        expect(retryAudit.originalEvent.type).toBe(testEvent.type);
+        
+        if (i < auditEvents.length - 1) {
+          expect(retryAudit.retryScheduled).toBe(true);
+          expect(retryAudit.nextRetryDelay).toBeGreaterThan(0);
+        }
+      }
+    });
+  });
+  
+  describe('Automatic Recovery After Failures', () => {
+    let mainConsumer: KafkaConsumer;
+    let retryConsumer: KafkaConsumer;
+    let dlqConsumer: KafkaConsumer;
+    
+    beforeEach(async () => {
+      // Create consumers for all topics
+      mainConsumer = await createTestConsumer(kafkaService, MAIN_TOPIC);
+      retryConsumer = await createTestConsumer(kafkaService, RETRY_TOPIC);
+      dlqConsumer = await createTestConsumer(kafkaService, DLQ_TOPIC);
+    });
+    
+    afterEach(async () => {
+      // Disconnect consumers
+      await mainConsumer.disconnect();
+      await retryConsumer.disconnect();
+      await dlqConsumer.disconnect();
+    });
+    
+    it('should successfully process an event after transient failures', async () => {
+      // Create a test event
+      const testEvent = eventFactories.health.goalAchieved({
+        eventId: randomUUID(),
+      });
+      
+      // Create a handler that fails twice then succeeds
+      let attemptCount = 0;
+      const recoveringHandler = createMockEventHandler<IBaseEvent>(
+        testEvent.type,
+        async (event) => {
+          attemptCount++;
+          
+          if (attemptCount <= 2) {
+            throw new EventProcessingError(
+              `Transient error (attempt ${attemptCount})`,
+              event,
+              { retryable: true }
+            );
+          }
+          
+          // Success on third attempt
+          return { success: true, event };
+        }
+      );
+      
+      // Register the handler
+      mainConsumer.registerHandler(recoveringHandler);
+      retryConsumer.registerHandler(recoveringHandler); // Also handle retries
+      
+      // Publish the test event
+      await publishTestEvent(kafkaProducer, MAIN_TOPIC, testEvent);
+      
+      // Wait for the handler to be called enough times
+      await waitForCondition(
+        () => attemptCount >= 3,
+        10000 // Allow time for retries
+      );
+      
+      // Verify the handler was called multiple times
+      expect(attemptCount).toBeGreaterThanOrEqual(3);
+      expect(recoveringHandler.handle).toHaveBeenCalledTimes(attemptCount);
+      
+      // Verify the event was not sent to DLQ
+      const dlqEvent = await waitForEvent<IBaseEvent>(
+        dlqConsumer,
+        (event) => event.eventId === testEvent.eventId,
+        2000 // Short timeout as we don't expect this event
+      );
+      
+      expect(dlqEvent).toBeNull(); // Should not be in DLQ
+    });
+    
+    it('should recover from broker outages and process backlogged events', async () => {
+      // This test simulates a broker outage by disconnecting and reconnecting the consumer
+      
+      // Create test events
+      const testEvents = [
+        eventFactories.health.metricRecorded({ eventId: randomUUID() }),
+        eventFactories.health.metricRecorded({ eventId: randomUUID() }),
+        eventFactories.health.metricRecorded({ eventId: randomUUID() }),
+      ];
+      
+      // Create a handler that tracks processed events
+      const processedEvents: string[] = [];
+      const trackingHandler = createMockEventHandler<IBaseEvent>(
+        testEvents[0].type,
+        async (event) => {
+          processedEvents.push(event.eventId);
+          return { success: true, event };
+        }
+      );
+      
+      // Register the handler
+      mainConsumer.registerHandler(trackingHandler);
+      
+      // Simulate broker outage by disconnecting the consumer
+      await mainConsumer.disconnect();
+      
+      // Publish events during the "outage"
+      for (const event of testEvents) {
+        await publishTestEvent(kafkaProducer, MAIN_TOPIC, event);
+      }
+      
+      // Wait a moment to ensure events are published
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
+      // Reconnect the consumer (recovery)
+      await mainConsumer.connect();
+      
+      // Wait for all events to be processed
+      await waitForCondition(
+        () => processedEvents.length === testEvents.length,
+        10000
+      );
+      
+      // Verify all events were processed
+      expect(processedEvents).toHaveLength(testEvents.length);
+      for (const event of testEvents) {
+        expect(processedEvents).toContain(event.eventId);
+      }
+    });
+    
+    it('should handle service restarts during event processing', async () => {
+      // This test simulates a service restart by recreating the consumer
+      
+      // Create a test event
+      const testEvent = eventFactories.care.appointmentBooked({
+        eventId: randomUUID(),
+      });
+      
+      // Create a handler that tracks processed events
+      const processedEvents: string[] = [];
+      const trackingHandler = createMockEventHandler<IBaseEvent>(
+        testEvent.type,
+        async (event) => {
+          processedEvents.push(event.eventId);
+          return { success: true, event };
+        }
+      );
+      
+      // Register the handler
+      mainConsumer.registerHandler(trackingHandler);
+      
+      // Publish the test event
+      await publishTestEvent(kafkaProducer, MAIN_TOPIC, testEvent);
+      
+      // Simulate service restart by disconnecting and recreating the consumer
+      await mainConsumer.disconnect();
+      
+      // Create a new consumer with the same group ID to simulate restart
+      const newConsumer = await createTestConsumer(
+        kafkaService,
+        MAIN_TOPIC,
+        mainConsumer.getGroupId() // Use same group ID for offset continuity
+      );
+      
+      // Register the same handler
+      newConsumer.registerHandler(trackingHandler);
+      
+      // Wait for the event to be processed
+      await waitForCondition(
+        () => processedEvents.includes(testEvent.eventId),
+        10000
+      );
+      
+      // Verify the event was processed
+      expect(processedEvents).toContain(testEvent.eventId);
+      
+      // Clean up
+      await newConsumer.disconnect();
+    });
+  });
+  
+  describe('Event Schema Versioning and Compatibility', () => {
+    let mainConsumer: KafkaConsumer;
+    
+    beforeEach(async () => {
+      // Create consumer for main topic
+      mainConsumer = await createTestConsumer(kafkaService, MAIN_TOPIC);
+    });
+    
+    afterEach(async () => {
+      // Disconnect consumer
+      await mainConsumer.disconnect();
+    });
+    
+    it('should handle events with different schema versions', async () => {
+      // Create events with different versions
+      const v1Event = eventFactories.health.metricRecorded({
+        eventId: randomUUID(),
+        version: '1.0.0',
+        // v1 schema
+        payload: {
+          userId: 'test-user-id',
+          metricType: 'HEART_RATE',
           value: 75,
           unit: 'bpm',
           recordedAt: new Date().toISOString(),
           source: 'manual',
-          confidence: 0.95
-        }
-      };
+        },
+      });
       
-      // Configure mocks
-      mockEventProcessor.setVersionCompatibility(true); // Enable version handling
-      
-      // Act: Publish both versions
-      await kafkaService.publish(TOPICS.HEALTH.EVENTS, oldVersionEvent);
-      await kafkaService.publish(TOPICS.HEALTH.EVENTS, newVersionEvent);
-      
-      // Wait for processing
-      await waitForEvents(300);
-      
-      // Assert: Verify both versions were processed
-      const processedEvents = mockEventProcessor.getProcessedEvents();
-      const oldVersionProcessed = processedEvents.some(e => 
-        e.id === oldVersionEvent.id && e.schemaVersion === '1.0.0'
-      );
-      const newVersionProcessed = processedEvents.some(e => 
-        e.id === newVersionEvent.id && e.schemaVersion === '2.0.0'
-      );
-      
-      // Both versions should be processed successfully
-      expect(oldVersionProcessed).toBe(true);
-      expect(newVersionProcessed).toBe(true);
-    });
-
-    it('should apply schema migrations for backward compatibility', async () => {
-      // Arrange: Create an event with old schema version
-      const oldSchemaEvent = {
-        ...planEvents.claimSubmitted,
-        schemaVersion: '1.0.0',
-        // Old schema format missing required fields in newer versions
+      const v2Event = eventFactories.health.metricRecorded({
+        eventId: randomUUID(),
+        version: '2.0.0',
+        // v2 schema with additional fields
         payload: {
-          claimId: 'CLM-12345',
-          amount: 150.00,
-          currency: 'BRL',
-          serviceDate: '2023-05-15'
-          // Missing: providerNPI, serviceType, attachments
+          userId: 'test-user-id',
+          metricType: 'HEART_RATE',
+          value: 80,
+          unit: 'bpm',
+          recordedAt: new Date().toISOString(),
+          source: 'manual',
+          deviceId: 'test-device-id', // New in v2
+          accuracy: 0.95, // New in v2
+        },
+      });
+      
+      // Create a handler that can process both versions
+      const processedEvents: IBaseEvent[] = [];
+      const versionCompatibleHandler = createMockEventHandler<IBaseEvent>(
+        v1Event.type,
+        async (event) => {
+          processedEvents.push(event);
+          return { success: true, event };
         }
-      };
+      );
       
-      // Configure mocks
-      mockEventProcessor.setVersionCompatibility(true); // Enable version handling
-      mockEventProcessor.setApplyMigrations(true); // Enable schema migrations
+      // Register the handler
+      mainConsumer.registerHandler(versionCompatibleHandler);
       
-      // Act: Publish old schema event
-      await kafkaService.publish(TOPICS.PLAN.EVENTS, oldSchemaEvent);
+      // Publish both events
+      await publishTestEvent(kafkaProducer, MAIN_TOPIC, v1Event);
+      await publishTestEvent(kafkaProducer, MAIN_TOPIC, v2Event);
       
-      // Wait for processing
-      await waitForEvents(300);
+      // Wait for both events to be processed
+      await waitForCondition(
+        () => processedEvents.length === 2,
+        10000
+      );
       
-      // Assert: Verify event was processed with migration applied
-      const processedEvents = mockEventProcessor.getProcessedEvents();
-      const migratedEvent = processedEvents.find(e => e.id === oldSchemaEvent.id);
+      // Verify both events were processed
+      expect(processedEvents).toHaveLength(2);
       
-      // Event should be processed
-      expect(migratedEvent).toBeDefined();
+      // Find the processed events by ID
+      const processedV1 = processedEvents.find(e => e.eventId === v1Event.eventId);
+      const processedV2 = processedEvents.find(e => e.eventId === v2Event.eventId);
       
-      // Migration should have added default values for missing fields
-      expect(migratedEvent.payload.providerNPI).toBeDefined();
-      expect(migratedEvent.payload.serviceType).toBeDefined();
-      expect(migratedEvent.payload.attachments).toBeDefined();
+      // Verify event versions were preserved
+      expect(processedV1?.version).toBe('1.0.0');
+      expect(processedV2?.version).toBe('2.0.0');
       
-      // Original fields should be preserved
-      expect(migratedEvent.payload.claimId).toBe(oldSchemaEvent.payload.claimId);
-      expect(migratedEvent.payload.amount).toBe(oldSchemaEvent.payload.amount);
+      // Verify payloads were preserved
+      expect(processedV1?.payload).toEqual(v1Event.payload);
+      expect(processedV2?.payload).toEqual(v2Event.payload);
+    });
+    
+    it('should transform events to the latest schema version when needed', async () => {
+      // Create an old version event
+      const oldVersionEvent = eventFactories.care.medicationTaken({
+        eventId: randomUUID(),
+        version: '1.0.0',
+        // Old schema
+        payload: {
+          userId: 'test-user-id',
+          medicationId: 'test-medication-id',
+          takenAt: new Date().toISOString(),
+          // Missing scheduledAt and dosage fields that are in newer versions
+        },
+      });
+      
+      // Create a handler that expects the latest schema version
+      const processedEvents: IBaseEvent[] = [];
+      const latestVersionHandler = createMockEventHandler<IBaseEvent>(
+        oldVersionEvent.type,
+        async (event) => {
+          // This handler expects the latest schema with all fields
+          // The event should be transformed before reaching here
+          processedEvents.push(event);
+          
+          // Verify the event has been transformed to include required fields
+          if (!event.payload.scheduledAt || !event.payload.dosage) {
+            throw new Error('Event not transformed to latest schema');
+          }
+          
+          return { success: true, event };
+        }
+      );
+      
+      // Register the handler
+      mainConsumer.registerHandler(latestVersionHandler);
+      
+      // Publish the old version event
+      await publishTestEvent(kafkaProducer, MAIN_TOPIC, oldVersionEvent);
+      
+      // Wait for the event to be processed
+      await waitForCondition(
+        () => processedEvents.length === 1,
+        10000
+      );
+      
+      // Verify the event was processed
+      expect(processedEvents).toHaveLength(1);
+      
+      // Verify the event was transformed
+      const processedEvent = processedEvents[0];
+      expect(processedEvent.eventId).toBe(oldVersionEvent.eventId);
+      expect(processedEvent.payload.userId).toBe(oldVersionEvent.payload.userId);
+      expect(processedEvent.payload.medicationId).toBe(oldVersionEvent.payload.medicationId);
+      expect(processedEvent.payload.takenAt).toBe(oldVersionEvent.payload.takenAt);
+      
+      // These fields should have been added during transformation
+      expect(processedEvent.payload.scheduledAt).toBeDefined();
+      expect(processedEvent.payload.dosage).toBeDefined();
+      
+      // The version should be updated to indicate transformation
+      expect(processedEvent.metadata?.originalVersion).toBe('1.0.0');
+      expect(processedEvent.version).not.toBe('1.0.0');
     });
   });
-
-  /**
-   * Tests for message order preservation during retries
-   */
-  describe('Message Order Preservation', () => {
-    it('should preserve message order for related events despite retries', async () => {
-      // Arrange: Create a series of related events with a correlation ID
-      const correlationId = 'test-correlation-123';
-      const relatedEvents = [
-        {
-          ...careEvents.appointmentBooked,
-          metadata: { correlationId, sequence: 1 }
-        },
-        {
-          ...careEvents.appointmentCheckedIn,
-          metadata: { correlationId, sequence: 2 }
-        },
-        {
-          ...careEvents.appointmentCompleted,
-          metadata: { correlationId, sequence: 3 }
-        }
-      ];
-      
-      // Configure mocks
-      mockEventBroker.setErrorProbability(0.5); // 50% chance of failure
-      mockEventBroker.setPreserveOrder(true); // Enable order preservation
-      mockErrorHandler.setMaxRetries(3);
-      
-      // Act: Publish related events in sequence
-      for (const event of relatedEvents) {
-        await kafkaService.publish(TOPICS.CARE.EVENTS, event);
-      }
-      
-      // Wait for processing with retries
-      await waitForEvents(600);
-      
-      // Assert: Verify events were processed in correct order
-      const processedEvents = mockEventProcessor.getProcessedEvents()
-        .filter(e => e.metadata?.correlationId === correlationId)
-        .sort((a, b) => a.processedAt - b.processedAt);
-      
-      // Skip if not enough events were processed
-      if (processedEvents.length < 2) {
-        console.log('Not enough correlated events processed - skipping assertions');
-        return;
-      }
-      
-      // Verify sequence order was preserved
-      for (let i = 1; i < processedEvents.length; i++) {
-        expect(processedEvents[i].metadata.sequence).toBeGreaterThan(
-          processedEvents[i-1].metadata.sequence
-        );
-      }
+  
+  describe('Message Order Preservation During Retries', () => {
+    let mainConsumer: KafkaConsumer;
+    let retryConsumer: KafkaConsumer;
+    
+    beforeEach(async () => {
+      // Create consumers for main and retry topics
+      mainConsumer = await createTestConsumer(kafkaService, MAIN_TOPIC);
+      retryConsumer = await createTestConsumer(kafkaService, RETRY_TOPIC);
     });
-
-    it('should handle partition-based ordering with retries', async () => {
-      // Arrange: Create events for different users (different partitions)
-      const user1Events = [
-        {
-          ...healthEvents.healthMetricWeight,
-          userId: 'user-1',
-          metadata: { sequence: 1 }
-        },
-        {
-          ...healthEvents.healthMetricWeight,
-          userId: 'user-1',
-          metadata: { sequence: 2 }
-        }
+    
+    afterEach(async () => {
+      // Disconnect consumers
+      await mainConsumer.disconnect();
+      await retryConsumer.disconnect();
+    });
+    
+    it('should preserve message order for related events during retries', async () => {
+      // Create a sequence of related events with the same correlation ID
+      const correlationId = randomUUID();
+      const sequenceEvents = [
+        eventFactories.care.appointmentBooked({
+          eventId: randomUUID(),
+          metadata: { correlationId, sequence: 1 },
+        }),
+        eventFactories.care.appointmentBooked({
+          eventId: randomUUID(),
+          metadata: { correlationId, sequence: 2 },
+          type: 'care.appointment.checked-in', // Different event type in same sequence
+        }),
+        eventFactories.care.appointmentBooked({
+          eventId: randomUUID(),
+          metadata: { correlationId, sequence: 3 },
+          type: 'care.appointment.completed', // Different event type in same sequence
+        }),
       ];
       
-      const user2Events = [
-        {
-          ...healthEvents.healthMetricWeight,
-          userId: 'user-2',
-          metadata: { sequence: 1 }
-        },
-        {
-          ...healthEvents.healthMetricWeight,
-          userId: 'user-2',
-          metadata: { sequence: 2 }
+      // Create a handler that fails for the first event but succeeds for others
+      const processedEvents: IBaseEvent[] = [];
+      const orderingHandler = createMockEventHandler<IBaseEvent>(
+        'care.appointment.*', // Handle all appointment events
+        async (event) => {
+          // Fail only for the first event on first attempt
+          if (
+            event.metadata?.sequence === 1 && 
+            !event.metadata?.retries?.attempts
+          ) {
+            throw new EventProcessingError(
+              'First event processing error',
+              event,
+              { retryable: true }
+            );
+          }
+          
+          // Record the processing order
+          processedEvents.push(event);
+          return { success: true, event };
         }
-      ];
+      );
       
-      // Configure mocks
-      mockEventBroker.setErrorProbability(0.6); // Moderate failure rate
-      mockEventBroker.setPartitionKey('userId'); // Partition by userId
-      mockEventBroker.setPreservePartitionOrder(true); // Preserve order within partitions
-      mockErrorHandler.setMaxRetries(3);
+      // Register the handler for both main and retry topics
+      mainConsumer.registerHandler(orderingHandler);
+      retryConsumer.registerHandler(orderingHandler);
       
-      // Act: Publish events for both users, interleaved
-      await kafkaService.publish(TOPICS.HEALTH.EVENTS, user1Events[0]);
-      await kafkaService.publish(TOPICS.HEALTH.EVENTS, user2Events[0]);
-      await kafkaService.publish(TOPICS.HEALTH.EVENTS, user1Events[1]);
-      await kafkaService.publish(TOPICS.HEALTH.EVENTS, user2Events[1]);
-      
-      // Wait for processing with retries
-      await waitForEvents(700);
-      
-      // Assert: Verify order within each user's events
-      const processedEvents = mockEventProcessor.getProcessedEvents();
-      
-      // Group by userId
-      const user1Processed = processedEvents
-        .filter(e => e.userId === 'user-1')
-        .sort((a, b) => a.processedAt - b.processedAt);
-      
-      const user2Processed = processedEvents
-        .filter(e => e.userId === 'user-2')
-        .sort((a, b) => a.processedAt - b.processedAt);
-      
-      // Skip if not enough events were processed
-      if (user1Processed.length < 2 || user2Processed.length < 2) {
-        console.log('Not enough events processed for partition test - skipping assertions');
-        return;
+      // Publish all events in sequence
+      for (const event of sequenceEvents) {
+        await publishTestEvent(kafkaProducer, MAIN_TOPIC, event);
       }
       
-      // Verify sequence order within each user's events
-      expect(user1Processed[0].metadata.sequence).toBeLessThan(user1Processed[1].metadata.sequence);
-      expect(user2Processed[0].metadata.sequence).toBeLessThan(user2Processed[1].metadata.sequence);
+      // Wait for all events to be processed
+      await waitForCondition(
+        () => processedEvents.length === sequenceEvents.length,
+        10000
+      );
+      
+      // Verify all events were processed
+      expect(processedEvents).toHaveLength(sequenceEvents.length);
+      
+      // Verify the events were processed in the correct order
+      // (by sequence number, regardless of retry status)
+      const sequences = processedEvents.map(e => e.metadata?.sequence);
+      expect(sequences).toEqual([1, 2, 3]);
+    });
+    
+    it('should handle concurrent processing of unrelated events during retries', async () => {
+      // Create unrelated events from different users/contexts
+      const events = [
+        eventFactories.health.metricRecorded({
+          eventId: randomUUID(),
+          payload: { userId: 'user-1', metricType: 'HEART_RATE', value: 75 },
+        }),
+        eventFactories.health.metricRecorded({
+          eventId: randomUUID(),
+          payload: { userId: 'user-2', metricType: 'HEART_RATE', value: 80 },
+        }),
+        eventFactories.health.metricRecorded({
+          eventId: randomUUID(),
+          payload: { userId: 'user-3', metricType: 'HEART_RATE', value: 85 },
+        }),
+      ];
+      
+      // Create a handler that fails for specific users
+      const processedEvents: Record<string, IBaseEvent[]> = {
+        'user-1': [],
+        'user-2': [],
+        'user-3': [],
+      };
+      
+      const concurrentHandler = createMockEventHandler<IBaseEvent>(
+        events[0].type,
+        async (event) => {
+          const userId = event.payload.userId;
+          
+          // Fail for user-2 on first attempt
+          if (
+            userId === 'user-2' && 
+            !event.metadata?.retries?.attempts
+          ) {
+            throw new EventProcessingError(
+              'User-2 processing error',
+              event,
+              { retryable: true }
+            );
+          }
+          
+          // Record the processing
+          processedEvents[userId].push(event);
+          return { success: true, event };
+        }
+      );
+      
+      // Register the handler for both main and retry topics
+      mainConsumer.registerHandler(concurrentHandler);
+      retryConsumer.registerHandler(concurrentHandler);
+      
+      // Publish all events
+      for (const event of events) {
+        await publishTestEvent(kafkaProducer, MAIN_TOPIC, event);
+      }
+      
+      // Wait for all events to be processed
+      await waitForCondition(
+        () => 
+          processedEvents['user-1'].length === 1 &&
+          processedEvents['user-2'].length === 1 &&
+          processedEvents['user-3'].length === 1,
+        10000
+      );
+      
+      // Verify all events were processed
+      expect(processedEvents['user-1']).toHaveLength(1);
+      expect(processedEvents['user-2']).toHaveLength(1);
+      expect(processedEvents['user-3']).toHaveLength(1);
+      
+      // Verify user-2 event has retry metadata
+      expect(processedEvents['user-2'][0].metadata?.retries?.attempts).toBeGreaterThanOrEqual(1);
+      
+      // Verify other users' events don't have retry metadata
+      expect(processedEvents['user-1'][0].metadata?.retries?.attempts).toBeUndefined();
+      expect(processedEvents['user-3'][0].metadata?.retries?.attempts).toBeUndefined();
     });
   });
 });

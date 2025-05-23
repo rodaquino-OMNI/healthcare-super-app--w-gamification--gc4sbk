@@ -1,337 +1,441 @@
-import { describe, it, expect, jest } from '@jest/globals';
+/**
+ * @file errors.spec.ts
+ * @description Unit tests for versioning error classes
+ */
+
+import { BaseError, ErrorType, JourneyType } from '@austa/errors';
 import {
   VersioningError,
   VersionDetectionError,
   IncompatibleVersionError,
-  MigrationError,
-  TransformationError,
-  VersionNotSupportedError,
-  SchemaValidationError
+  VersionMigrationError,
+  VersionTransformationError,
+  VERSIONING_ERROR_CODES
 } from '../../../src/versioning/errors';
 
-describe('Versioning Error Classes', () => {
+describe('Versioning Errors', () => {
   describe('VersioningError', () => {
-    it('should be an instance of Error', () => {
-      const error = new VersioningError('Test error message');
-      expect(error).toBeInstanceOf(Error);
+    it('should extend BaseError', () => {
+      const error = new VersioningError(
+        'Test error',
+        VERSIONING_ERROR_CODES.DETECTION_FAILED
+      );
+      
+      expect(error).toBeInstanceOf(BaseError);
+      expect(error).toBeInstanceOf(VersioningError);
     });
 
-    it('should have the correct name', () => {
-      const error = new VersioningError('Test error message');
-      expect(error.name).toBe('VersioningError');
-    });
-
-    it('should contain the provided message', () => {
-      const message = 'Test error message';
-      const error = new VersioningError(message);
-      expect(error.message).toBe(message);
-    });
-
-    it('should capture stack trace', () => {
-      const error = new VersioningError('Test error message');
-      expect(error.stack).toBeDefined();
-    });
-
-    it('should include context data when provided', () => {
-      const context = { eventType: 'test-event', version: '1.0.0' };
-      const error = new VersioningError('Test error message', context);
-      expect(error.context).toEqual(context);
-    });
-
-    it('should have undefined context when not provided', () => {
-      const error = new VersioningError('Test error message');
-      expect(error.context).toBeUndefined();
-    });
-
-    it('should include cause when provided', () => {
+    it('should set correct error properties', () => {
+      const message = 'Custom error message';
+      const code = VERSIONING_ERROR_CODES.DETECTION_FAILED;
+      const details = { eventId: '123' };
+      const journey = JourneyType.HEALTH;
       const cause = new Error('Original error');
-      const error = new VersioningError('Test error message', undefined, cause);
+
+      const error = new VersioningError(message, code, details, journey, cause);
+
+      expect(error.message).toBe(message);
+      expect(error.code).toBe(code);
+      expect(error.type).toBe(ErrorType.TECHNICAL);
+      expect(error.details).toEqual(details);
       expect(error.cause).toBe(cause);
+      expect(error.context.journey).toBe(journey);
+      expect(error.context.component).toBe('event-versioning');
+      expect(error.context.isTransient).toBe(false);
+    });
+
+    it('should serialize to JSON correctly', () => {
+      const message = 'Test error';
+      const code = VERSIONING_ERROR_CODES.DETECTION_FAILED;
+      const details = { eventId: '123' };
+      const journey = JourneyType.HEALTH;
+
+      const error = new VersioningError(message, code, details, journey);
+      const json = error.toJSON();
+
+      expect(json).toHaveProperty('error');
+      expect(json.error).toHaveProperty('type', ErrorType.TECHNICAL);
+      expect(json.error).toHaveProperty('code', code);
+      expect(json.error).toHaveProperty('message', message);
+      expect(json.error).toHaveProperty('details', details);
+      expect(json.error).toHaveProperty('journey', journey);
+      expect(json.error).toHaveProperty('timestamp');
     });
   });
 
   describe('VersionDetectionError', () => {
     it('should extend VersioningError', () => {
-      const error = new VersionDetectionError('Failed to detect version');
+      const error = new VersionDetectionError();
+      
       expect(error).toBeInstanceOf(VersioningError);
+      expect(error).toBeInstanceOf(VersionDetectionError);
     });
 
-    it('should have the correct name', () => {
-      const error = new VersionDetectionError('Failed to detect version');
-      expect(error.name).toBe('VersionDetectionError');
+    it('should use default message if not provided', () => {
+      const error = new VersionDetectionError();
+      
+      expect(error.message).toBe('Failed to detect event version');
+      expect(error.code).toBe(VERSIONING_ERROR_CODES.DETECTION_FAILED);
     });
 
-    it('should include event data in context', () => {
-      const eventData = { type: 'user-registered', payload: {} };
-      const error = new VersionDetectionError('Failed to detect version', { eventData });
-      expect(error.context).toHaveProperty('eventData', eventData);
+    it('should accept custom message and details', () => {
+      const message = 'Custom detection error';
+      const details = { eventType: 'HealthMetricRecorded' };
+      const journey = JourneyType.HEALTH;
+
+      const error = new VersionDetectionError(message, details, journey);
+      
+      expect(error.message).toBe(message);
+      expect(error.details).toEqual(details);
+      expect(error.context.journey).toBe(journey);
     });
 
-    it('should include detection strategy in context when provided', () => {
-      const strategy = 'explicit-field';
-      const error = new VersionDetectionError('Failed to detect version', { strategy });
-      expect(error.context).toHaveProperty('strategy', strategy);
+    it('should create missingVersion error correctly', () => {
+      const eventId = 'event-123';
+      const journey = JourneyType.CARE;
+
+      const error = VersionDetectionError.missingVersion(eventId, journey);
+      
+      expect(error).toBeInstanceOf(VersionDetectionError);
+      expect(error.message).toBe('Missing version information in the event');
+      expect(error.code).toBe(VERSIONING_ERROR_CODES.DETECTION_FAILED);
+      expect(error.details).toEqual({ eventId });
+      expect(error.context.journey).toBe(journey);
+    });
+
+    it('should create invalidFormat error correctly', () => {
+      const version = '1.x';
+      const expectedFormat = 'major.minor.patch';
+      const journey = JourneyType.PLAN;
+
+      const error = VersionDetectionError.invalidFormat(version, expectedFormat, journey);
+      
+      expect(error).toBeInstanceOf(VersionDetectionError);
+      expect(error.message).toBe('Invalid version format');
+      expect(error.code).toBe(VERSIONING_ERROR_CODES.DETECTION_FAILED);
+      expect(error.details).toEqual({ version, expectedFormat });
+      expect(error.context.journey).toBe(journey);
     });
   });
 
   describe('IncompatibleVersionError', () => {
     it('should extend VersioningError', () => {
-      const error = new IncompatibleVersionError('Incompatible version');
+      const error = new IncompatibleVersionError();
+      
       expect(error).toBeInstanceOf(VersioningError);
+      expect(error).toBeInstanceOf(IncompatibleVersionError);
     });
 
-    it('should have the correct name', () => {
-      const error = new IncompatibleVersionError('Incompatible version');
-      expect(error.name).toBe('IncompatibleVersionError');
+    it('should use default message if not provided', () => {
+      const error = new IncompatibleVersionError();
+      
+      expect(error.message).toBe('Event version is not compatible with the expected version');
+      expect(error.code).toBe(VERSIONING_ERROR_CODES.INCOMPATIBLE_VERSION);
     });
 
-    it('should include source and target versions in context', () => {
-      const sourceVersion = '1.0.0';
-      const targetVersion = '2.0.0';
-      const error = new IncompatibleVersionError(
-        'Incompatible version',
-        { sourceVersion, targetVersion }
-      );
-      expect(error.context).toHaveProperty('sourceVersion', sourceVersion);
-      expect(error.context).toHaveProperty('targetVersion', targetVersion);
+    it('should accept custom message and details', () => {
+      const message = 'Custom incompatibility error';
+      const details = { actualVersion: '1.0.0', expectedVersion: '2.0.0' };
+      const journey = JourneyType.HEALTH;
+
+      const error = new IncompatibleVersionError(message, details, journey);
+      
+      expect(error.message).toBe(message);
+      expect(error.details).toEqual(details);
+      expect(error.context.journey).toBe(journey);
     });
 
-    it('should include compatibility mode in context when provided', () => {
-      const mode = 'strict';
-      const error = new IncompatibleVersionError('Incompatible version', { mode });
-      expect(error.context).toHaveProperty('mode', mode);
-    });
-  });
-
-  describe('MigrationError', () => {
-    it('should extend VersioningError', () => {
-      const error = new MigrationError('Migration failed');
-      expect(error).toBeInstanceOf(VersioningError);
-    });
-
-    it('should have the correct name', () => {
-      const error = new MigrationError('Migration failed');
-      expect(error.name).toBe('MigrationError');
-    });
-
-    it('should include source and target versions in context', () => {
-      const sourceVersion = '1.0.0';
-      const targetVersion = '2.0.0';
-      const error = new MigrationError(
-        'Migration failed',
-        { sourceVersion, targetVersion }
-      );
-      expect(error.context).toHaveProperty('sourceVersion', sourceVersion);
-      expect(error.context).toHaveProperty('targetVersion', targetVersion);
-    });
-
-    it('should include migration path in context when provided', () => {
-      const migrationPath = ['1.0.0', '1.5.0', '2.0.0'];
-      const error = new MigrationError('Migration failed', { migrationPath });
-      expect(error.context).toHaveProperty('migrationPath', migrationPath);
-    });
-
-    it('should include step information in context when provided', () => {
-      const currentStep = 2;
-      const totalSteps = 3;
-      const error = new MigrationError(
-        'Migration failed',
-        { currentStep, totalSteps }
-      );
-      expect(error.context).toHaveProperty('currentStep', currentStep);
-      expect(error.context).toHaveProperty('totalSteps', totalSteps);
-    });
-  });
-
-  describe('TransformationError', () => {
-    it('should extend VersioningError', () => {
-      const error = new TransformationError('Transformation failed');
-      expect(error).toBeInstanceOf(VersioningError);
-    });
-
-    it('should have the correct name', () => {
-      const error = new TransformationError('Transformation failed');
-      expect(error.name).toBe('TransformationError');
-    });
-
-    it('should include source and target versions in context', () => {
-      const sourceVersion = '1.0.0';
-      const targetVersion = '2.0.0';
-      const error = new TransformationError(
-        'Transformation failed',
-        { sourceVersion, targetVersion }
-      );
-      expect(error.context).toHaveProperty('sourceVersion', sourceVersion);
-      expect(error.context).toHaveProperty('targetVersion', targetVersion);
-    });
-
-    it('should include field information in context when provided', () => {
-      const field = 'user.address';
-      const error = new TransformationError('Transformation failed', { field });
-      expect(error.context).toHaveProperty('field', field);
-    });
-
-    it('should include transformation direction in context when provided', () => {
-      const direction = 'upgrade';
-      const error = new TransformationError('Transformation failed', { direction });
-      expect(error.context).toHaveProperty('direction', direction);
-    });
-  });
-
-  describe('VersionNotSupportedError', () => {
-    it('should extend VersioningError', () => {
-      const error = new VersionNotSupportedError('Version not supported');
-      expect(error).toBeInstanceOf(VersioningError);
-    });
-
-    it('should have the correct name', () => {
-      const error = new VersionNotSupportedError('Version not supported');
-      expect(error.name).toBe('VersionNotSupportedError');
-    });
-
-    it('should include version in context', () => {
-      const version = '0.5.0';
-      const error = new VersionNotSupportedError(
-        'Version not supported',
-        { version }
-      );
-      expect(error.context).toHaveProperty('version', version);
-    });
-
-    it('should include supported version range in context when provided', () => {
-      const minVersion = '1.0.0';
-      const maxVersion = '2.0.0';
-      const error = new VersionNotSupportedError(
-        'Version not supported',
-        { minVersion, maxVersion }
-      );
-      expect(error.context).toHaveProperty('minVersion', minVersion);
-      expect(error.context).toHaveProperty('maxVersion', maxVersion);
-    });
-  });
-
-  describe('SchemaValidationError', () => {
-    it('should extend VersioningError', () => {
-      const error = new SchemaValidationError('Schema validation failed');
-      expect(error).toBeInstanceOf(VersioningError);
-    });
-
-    it('should have the correct name', () => {
-      const error = new SchemaValidationError('Schema validation failed');
-      expect(error.name).toBe('SchemaValidationError');
-    });
-
-    it('should include version in context', () => {
+    it('should create unsupportedVersion error correctly', () => {
       const version = '1.0.0';
-      const error = new SchemaValidationError(
-        'Schema validation failed',
-        { version }
-      );
-      expect(error.context).toHaveProperty('version', version);
+      const supportedVersions = ['2.0.0', '3.0.0'];
+      const journey = JourneyType.GAMIFICATION;
+
+      const error = IncompatibleVersionError.unsupportedVersion(version, supportedVersions, journey);
+      
+      expect(error).toBeInstanceOf(IncompatibleVersionError);
+      expect(error.message).toBe('Event version is not supported');
+      expect(error.code).toBe(VERSIONING_ERROR_CODES.INCOMPATIBLE_VERSION);
+      expect(error.details).toEqual({ version, supportedVersions });
+      expect(error.context.journey).toBe(journey);
     });
 
-    it('should include validation errors in context when provided', () => {
+    it('should create versionMismatch error correctly', () => {
+      const actualVersion = '1.0.0';
+      const expectedVersion = '2.0.0';
+      const eventType = 'HealthMetricRecorded';
+      const journey = JourneyType.HEALTH;
+
+      const error = IncompatibleVersionError.versionMismatch(
+        actualVersion,
+        expectedVersion,
+        eventType,
+        journey
+      );
+      
+      expect(error).toBeInstanceOf(IncompatibleVersionError);
+      expect(error.message).toBe(
+        `Event version mismatch: expected ${expectedVersion} but got ${actualVersion} for event type ${eventType}`
+      );
+      expect(error.code).toBe(VERSIONING_ERROR_CODES.INCOMPATIBLE_VERSION);
+      expect(error.details).toEqual({ actualVersion, expectedVersion, eventType });
+      expect(error.context.journey).toBe(journey);
+    });
+  });
+
+  describe('VersionMigrationError', () => {
+    it('should extend VersioningError', () => {
+      const error = new VersionMigrationError();
+      
+      expect(error).toBeInstanceOf(VersioningError);
+      expect(error).toBeInstanceOf(VersionMigrationError);
+    });
+
+    it('should use default message if not provided', () => {
+      const error = new VersionMigrationError();
+      
+      expect(error.message).toBe('Failed to migrate event between versions');
+      expect(error.code).toBe(VERSIONING_ERROR_CODES.MIGRATION_FAILED);
+    });
+
+    it('should accept custom message and details', () => {
+      const message = 'Custom migration error';
+      const details = { fromVersion: '1.0.0', toVersion: '2.0.0' };
+      const journey = JourneyType.CARE;
+
+      const error = new VersionMigrationError(message, details, journey);
+      
+      expect(error.message).toBe(message);
+      expect(error.details).toEqual(details);
+      expect(error.context.journey).toBe(journey);
+    });
+
+    it('should create noMigrationPath error correctly', () => {
+      const fromVersion = '1.0.0';
+      const toVersion = '3.0.0';
+      const eventType = 'AppointmentBooked';
+      const journey = JourneyType.CARE;
+
+      const error = VersionMigrationError.noMigrationPath(
+        fromVersion,
+        toVersion,
+        eventType,
+        journey
+      );
+      
+      expect(error).toBeInstanceOf(VersionMigrationError);
+      expect(error.message).toBe(
+        `No migration path found from version ${fromVersion} to ${toVersion} for event type ${eventType}`
+      );
+      expect(error.code).toBe(VERSIONING_ERROR_CODES.MIGRATION_FAILED);
+      expect(error.details).toEqual({ fromVersion, toVersion, eventType });
+      expect(error.context.journey).toBe(journey);
+    });
+
+    it('should create validationFailed error correctly', () => {
+      const fromVersion = '1.0.0';
+      const toVersion = '2.0.0';
       const validationErrors = [
-        { path: 'user.name', message: 'Required field missing' },
-        { path: 'user.email', message: 'Invalid email format' }
+        { field: 'timestamp', message: 'Invalid date format' },
+        { field: 'userId', message: 'Required field missing' }
       ];
-      const error = new SchemaValidationError(
-        'Schema validation failed',
-        { validationErrors }
+      const journey = JourneyType.PLAN;
+
+      const error = VersionMigrationError.validationFailed(
+        fromVersion,
+        toVersion,
+        validationErrors,
+        journey
       );
-      expect(error.context).toHaveProperty('validationErrors', validationErrors);
+      
+      expect(error).toBeInstanceOf(VersionMigrationError);
+      expect(error.message).toBe(
+        `Validation failed after migrating from version ${fromVersion} to ${toVersion}`
+      );
+      expect(error.code).toBe(VERSIONING_ERROR_CODES.MIGRATION_FAILED);
+      expect(error.details).toEqual({ fromVersion, toVersion, validationErrors });
+      expect(error.context.journey).toBe(journey);
+    });
+
+    it('should create downgradeNotAllowed error correctly', () => {
+      const fromVersion = '2.0.0';
+      const toVersion = '1.0.0';
+      const eventType = 'ClaimSubmitted';
+      const journey = JourneyType.PLAN;
+
+      const error = VersionMigrationError.downgradeNotAllowed(
+        fromVersion,
+        toVersion,
+        eventType,
+        journey
+      );
+      
+      expect(error).toBeInstanceOf(VersionMigrationError);
+      expect(error.message).toBe('Version downgrade is not allowed');
+      expect(error.code).toBe(VERSIONING_ERROR_CODES.MIGRATION_FAILED);
+      expect(error.details).toEqual({ fromVersion, toVersion, eventType });
+      expect(error.context.journey).toBe(journey);
     });
   });
 
-  describe('Error serialization and deserialization', () => {
-    it('should properly serialize error to JSON', () => {
-      const context = { eventType: 'test-event', version: '1.0.0' };
-      const error = new VersioningError('Test error message', context);
-      const serialized = error.toJSON();
+  describe('VersionTransformationError', () => {
+    it('should extend VersioningError', () => {
+      const error = new VersionTransformationError();
       
-      expect(serialized).toHaveProperty('name', 'VersioningError');
-      expect(serialized).toHaveProperty('message', 'Test error message');
-      expect(serialized).toHaveProperty('context', context);
+      expect(error).toBeInstanceOf(VersioningError);
+      expect(error).toBeInstanceOf(VersionTransformationError);
     });
 
-    it('should include stack trace in serialized error when includeStack is true', () => {
-      const error = new VersioningError('Test error message');
-      const serialized = error.toJSON(true);
+    it('should use default message if not provided', () => {
+      const error = new VersionTransformationError();
       
-      expect(serialized).toHaveProperty('stack');
-      expect(typeof serialized.stack).toBe('string');
+      expect(error.message).toBe('Failed to transform event between versions');
+      expect(error.code).toBe(VERSIONING_ERROR_CODES.TRANSFORMATION_FAILED);
     });
 
-    it('should not include stack trace in serialized error by default', () => {
-      const error = new VersioningError('Test error message');
-      const serialized = error.toJSON();
+    it('should accept custom message and details', () => {
+      const message = 'Custom transformation error';
+      const details = { field: 'metadata', reason: 'Invalid format' };
+      const journey = JourneyType.GAMIFICATION;
+
+      const error = new VersionTransformationError(message, details, journey);
       
-      expect(serialized).not.toHaveProperty('stack');
+      expect(error.message).toBe(message);
+      expect(error.details).toEqual(details);
+      expect(error.context.journey).toBe(journey);
     });
 
-    it('should recreate error from serialized data', () => {
-      const context = { eventType: 'test-event', version: '1.0.0' };
-      const originalError = new VersioningError('Test error message', context);
-      const serialized = originalError.toJSON(true);
+    it('should create fieldTransformationFailed error correctly', () => {
+      const field = 'bloodPressure';
+      const fromVersion = '1.0.0';
+      const toVersion = '2.0.0';
+      const journey = JourneyType.HEALTH;
+      const cause = new Error('Invalid format');
+
+      const error = VersionTransformationError.fieldTransformationFailed(
+        field,
+        fromVersion,
+        toVersion,
+        journey,
+        cause
+      );
       
-      // Assuming there's a static fromJSON method
-      const recreatedError = VersioningError.fromJSON(serialized);
-      
-      expect(recreatedError).toBeInstanceOf(VersioningError);
-      expect(recreatedError.name).toBe('VersioningError');
-      expect(recreatedError.message).toBe('Test error message');
-      expect(recreatedError.context).toEqual(context);
+      expect(error).toBeInstanceOf(VersionTransformationError);
+      expect(error.message).toBe(
+        `Failed to transform field '${field}' from version ${fromVersion} to ${toVersion}`
+      );
+      expect(error.code).toBe(VERSIONING_ERROR_CODES.TRANSFORMATION_FAILED);
+      expect(error.details).toEqual({ field, fromVersion, toVersion });
+      expect(error.context.journey).toBe(journey);
+      expect(error.cause).toBe(cause);
     });
 
-    it('should recreate specific error types from serialized data', () => {
-      const context = { sourceVersion: '1.0.0', targetVersion: '2.0.0' };
-      const originalError = new IncompatibleVersionError('Incompatible version', context);
-      const serialized = originalError.toJSON();
+    it('should create schemaTransformationFailed error correctly', () => {
+      const schemaName = 'HealthMetric';
+      const fromVersion = '1.0.0';
+      const toVersion = '2.0.0';
+      const journey = JourneyType.HEALTH;
+      const cause = new Error('Schema validation failed');
+
+      const error = VersionTransformationError.schemaTransformationFailed(
+        schemaName,
+        fromVersion,
+        toVersion,
+        journey,
+        cause
+      );
       
-      // Assuming there's a static fromJSON method in the base class
-      const recreatedError = VersioningError.fromJSON(serialized);
+      expect(error).toBeInstanceOf(VersionTransformationError);
+      expect(error.message).toBe(
+        `Failed to transform schema '${schemaName}' from version ${fromVersion} to ${toVersion}`
+      );
+      expect(error.code).toBe(VERSIONING_ERROR_CODES.TRANSFORMATION_FAILED);
+      expect(error.details).toEqual({ schemaName, fromVersion, toVersion });
+      expect(error.context.journey).toBe(journey);
+      expect(error.cause).toBe(cause);
+    });
+
+    it('should create missingTransformer error correctly', () => {
+      const fromVersion = '1.0.0';
+      const toVersion = '2.0.0';
+      const eventType = 'DeviceConnected';
+      const journey = JourneyType.HEALTH;
+
+      const error = VersionTransformationError.missingTransformer(
+        fromVersion,
+        toVersion,
+        eventType,
+        journey
+      );
       
-      expect(recreatedError).toBeInstanceOf(IncompatibleVersionError);
-      expect(recreatedError.name).toBe('IncompatibleVersionError');
-      expect(recreatedError.context).toEqual(context);
+      expect(error).toBeInstanceOf(VersionTransformationError);
+      expect(error.message).toBe(
+        `No transformer found for converting from version ${fromVersion} to ${toVersion} for event type ${eventType}`
+      );
+      expect(error.code).toBe(VERSIONING_ERROR_CODES.TRANSFORMATION_FAILED);
+      expect(error.details).toEqual({ fromVersion, toVersion, eventType });
+      expect(error.context.journey).toBe(journey);
     });
   });
 
-  describe('Integration with global error handling', () => {
-    it('should be compatible with global error classification system', () => {
-      // Assuming there's a global error classifier
-      const mockClassifier = {
-        classify: jest.fn().mockReturnValue('versioning')
-      };
-      
-      const error = new VersioningError('Test error message');
-      const classification = mockClassifier.classify(error);
-      
-      expect(classification).toBe('versioning');
-      expect(mockClassifier.classify).toHaveBeenCalledWith(error);
-    });
-
-    it('should provide journey context when available', () => {
-      const journeyContext = { journey: 'health', userId: '123' };
-      const error = new VersioningError('Test error message', { journeyContext });
-      
-      expect(error.context).toHaveProperty('journeyContext', journeyContext);
-    });
-
-    it('should support error aggregation', () => {
-      const childErrors = [
-        new SchemaValidationError('Field validation failed', { field: 'name' }),
-        new SchemaValidationError('Field validation failed', { field: 'email' })
-      ];
-      
-      const aggregateError = new MigrationError(
-        'Multiple validation errors',
-        { childErrors }
+  describe('Error integration with global error framework', () => {
+    it('should convert to HTTP exception correctly', () => {
+      const error = new VersioningError(
+        'Test error',
+        VERSIONING_ERROR_CODES.DETECTION_FAILED
       );
       
-      expect(aggregateError.context).toHaveProperty('childErrors');
-      expect(aggregateError.context.childErrors).toHaveLength(2);
-      expect(aggregateError.context.childErrors[0]).toBeInstanceOf(SchemaValidationError);
+      const httpException = error.toHttpException();
+      expect(httpException).toBeDefined();
+      
+      const response = httpException.getResponse() as { error: any };
+      expect(response).toHaveProperty('error');
+      expect(response.error).toHaveProperty('type', ErrorType.TECHNICAL);
+      expect(response.error).toHaveProperty('code', VERSIONING_ERROR_CODES.DETECTION_FAILED);
+      expect(response.error).toHaveProperty('message', 'Test error');
+    });
+
+    it('should provide detailed JSON for logging', () => {
+      const message = 'Test error';
+      const code = VERSIONING_ERROR_CODES.DETECTION_FAILED;
+      const details = { eventId: '123' };
+      const journey = JourneyType.HEALTH;
+      const cause = new Error('Original error');
+
+      const error = new VersioningError(message, code, details, journey, cause);
+      const detailedJson = error.toDetailedJSON();
+
+      expect(detailedJson).toHaveProperty('name', 'VersioningError');
+      expect(detailedJson).toHaveProperty('message', message);
+      expect(detailedJson).toHaveProperty('type', ErrorType.TECHNICAL);
+      expect(detailedJson).toHaveProperty('code', code);
+      expect(detailedJson).toHaveProperty('details', details);
+      expect(detailedJson).toHaveProperty('context');
+      expect(detailedJson.context).toHaveProperty('journey', journey);
+      expect(detailedJson.context).toHaveProperty('component', 'event-versioning');
+      expect(detailedJson).toHaveProperty('cause');
+      expect(detailedJson.cause).toHaveProperty('name', 'Error');
+      expect(detailedJson.cause).toHaveProperty('message', 'Original error');
+    });
+  });
+
+  describe('Error codes', () => {
+    it('should have all required error codes', () => {
+      expect(VERSIONING_ERROR_CODES).toHaveProperty('DETECTION_FAILED');
+      expect(VERSIONING_ERROR_CODES).toHaveProperty('INCOMPATIBLE_VERSION');
+      expect(VERSIONING_ERROR_CODES).toHaveProperty('MIGRATION_FAILED');
+      expect(VERSIONING_ERROR_CODES).toHaveProperty('TRANSFORMATION_FAILED');
+      expect(VERSIONING_ERROR_CODES).toHaveProperty('UNSUPPORTED_VERSION');
+      expect(VERSIONING_ERROR_CODES).toHaveProperty('MISSING_VERSION');
+      expect(VERSIONING_ERROR_CODES).toHaveProperty('INVALID_VERSION_FORMAT');
+      expect(VERSIONING_ERROR_CODES).toHaveProperty('DOWNGRADE_NOT_ALLOWED');
+    });
+
+    it('should use the correct prefix for all error codes', () => {
+      const prefix = 'EVENT_VERSION_';
+      
+      Object.values(VERSIONING_ERROR_CODES).forEach(code => {
+        expect(code.startsWith(prefix)).toBe(true);
+      });
     });
   });
 });

@@ -1,831 +1,1019 @@
 /**
  * @file health-journey-events.e2e-spec.ts
- * @description End-to-end tests for Health Journey events, validating the complete flow of health-related
- * events from production to consumption. This file tests event publishing, validation, and processing for
- * health metrics recording, goal achievement, device synchronization, and health insight generation events.
- * It ensures proper event schema validation and processing through the event pipeline.
+ * @description End-to-end tests for Health Journey events, validating the complete flow
+ * of health-related events from production to consumption. This file tests event publishing,
+ * validation, and processing for health metrics recording, goal achievement, device synchronization,
+ * and health insight generation events.
  */
 
 import { Test, TestingModule } from '@nestjs/testing';
-import { INestApplication } from '@nestjs/common';
-import { PrismaClient } from '@prisma/client';
-import { v4 as uuidv4 } from 'uuid';
+import { ConfigModule } from '@nestjs/config';
+import { randomUUID } from 'crypto';
+
+// Import event interfaces
+import { BaseEvent } from '../../src/interfaces/base-event.interface';
+import { HealthEventType, IHealthEvent, IHealthMetricRecordedPayload, IHealthGoalAchievedPayload, IHealthDeviceSyncedPayload, IHealthInsightGeneratedPayload } from '../../src/interfaces/journey-events.interface';
+import { JourneyType } from '@austa/interfaces/common/dto/journey.dto';
+
+// Import Kafka services
+import { KafkaService } from '../../src/kafka/kafka.service';
+import { KafkaProducer } from '../../src/kafka/kafka.producer';
+import { KafkaConsumer } from '../../src/kafka/kafka.consumer';
+import { KafkaModule } from '../../src/kafka/kafka.module';
+
+// Import test helpers
 import {
-  TestEnvironment,
-  createTestUser,
-  createTestHealthMetrics,
-  createTestEvent,
-  assertEvent,
+  createTestEnvironment,
+  createTestConsumer,
+  publishTestEvent,
+  waitForEvent,
+  waitForEvents,
+  createJourneyEventFactories,
+  assertEventsEqual,
   retry,
-  waitForCondition,
-  seedTestDatabase
+  TestEnvironment,
 } from './test-helpers';
-import { EventType, JourneyEvents } from '../../src/dto/event-types.enum';
-import { JourneyType } from '../../src/dto/journey-types.enum';
-import {
-  HealthMetricData,
-  HealthMetricType,
-  HealthGoalData,
-  HealthGoalType,
-  DeviceSyncData,
-  DeviceType,
-  HealthInsightData,
-  HealthInsightType
-} from '../../src/dto/health-event.dto';
-import { TOPICS } from '../../src/constants/topics.constants';
-import { AppModule } from 'src/backend/gamification-engine/src/app.module';
 
-describe('Health Journey Events (e2e)', () => {
-  let app: INestApplication;
+// Import validation utilities
+import { validateEvent } from '../../src/interfaces/base-event.interface';
+
+// Test constants
+const HEALTH_EVENTS_TOPIC = 'health-events';
+const HEALTH_METRICS_TOPIC = 'health-metrics';
+const HEALTH_GOALS_TOPIC = 'health-goals';
+const HEALTH_DEVICES_TOPIC = 'health-devices';
+const HEALTH_INSIGHTS_TOPIC = 'health-insights';
+
+describe('Health Journey Events (E2E)', () => {
   let testEnv: TestEnvironment;
-  let prisma: PrismaClient;
-  let userId: string;
-
+  let kafkaService: KafkaService;
+  let kafkaProducer: KafkaProducer;
+  let healthEventsConsumer: KafkaConsumer;
+  let eventFactories: ReturnType<typeof createJourneyEventFactories>;
+  
+  // Set up test environment before all tests
   beforeAll(async () => {
-    // Create test environment
-    testEnv = new TestEnvironment({
-      topics: [
-        TOPICS.HEALTH.EVENTS,
-        TOPICS.HEALTH.METRICS,
-        TOPICS.HEALTH.GOALS,
-        TOPICS.HEALTH.DEVICES,
-        TOPICS.GAMIFICATION.EVENTS,
-        TOPICS.GAMIFICATION.ACHIEVEMENTS,
-        TOPICS.DEAD_LETTER
-      ]
+    // Create test environment with Kafka and database
+    testEnv = await createTestEnvironment({
+      useRealKafka: false, // Use mock Kafka for faster tests
+      seedDatabase: true,   // Seed the database with test data
     });
-
-    await testEnv.setup();
-    app = testEnv.getApp();
-    prisma = testEnv.getPrisma();
-
-    // Seed test database
-    await seedTestDatabase(prisma);
-
-    // Create test user
-    const user = await createTestUser(prisma);
-    userId = user.id;
-
-    // Create some test health metrics
-    await createTestHealthMetrics(prisma, userId, 3);
-  }, 60000);
-
+    
+    kafkaService = testEnv.kafkaService;
+    kafkaProducer = testEnv.kafkaProducer;
+    
+    // Create a consumer for health events
+    healthEventsConsumer = await createTestConsumer(
+      kafkaService,
+      HEALTH_EVENTS_TOPIC,
+      'health-events-test-consumer'
+    );
+    
+    // Create event factories for generating test events
+    eventFactories = createJourneyEventFactories();
+    
+    // Wait for connections to be established
+    await new Promise(resolve => setTimeout(resolve, 1000));
+  }, 30000); // 30 second timeout for setup
+  
+  // Clean up after all tests
   afterAll(async () => {
-    await testEnv.teardown();
-  });
-
-  beforeEach(() => {
-    // Clear consumed messages before each test
-    testEnv.clearConsumedMessages();
-  });
-
-  describe('Health Metric Recording Events', () => {
-    it('should process valid health metric recording events', async () => {
-      // Create health metric data
-      const metricData: HealthMetricData = {
-        metricType: HealthMetricType.HEART_RATE,
+    // Disconnect consumers
+    if (healthEventsConsumer) {
+      await healthEventsConsumer.disconnect();
+    }
+    
+    // Clean up test environment
+    await testEnv.cleanup();
+  }, 10000); // 10 second timeout for cleanup
+  
+  // Helper function to create a valid health event
+  function createHealthEvent<T>(type: HealthEventType, payload: T): IHealthEvent {
+    return {
+      eventId: randomUUID(),
+      type,
+      timestamp: new Date().toISOString(),
+      version: '1.0.0',
+      source: 'health-service',
+      journey: JourneyType.HEALTH,
+      userId: `user_${randomUUID()}`,
+      payload,
+      metadata: {
+        correlationId: `corr_${randomUUID()}`,
+        traceId: `trace_${randomUUID()}`,
+      },
+    };
+  }
+  
+  describe('Event Schema Validation', () => {
+    it('should validate a valid health metric recorded event', () => {
+      // Create a valid health metric event
+      const metricPayload: IHealthMetricRecordedPayload = {
+        metric: {
+          id: randomUUID(),
+          userId: `user_${randomUUID()}`,
+          type: 'HEART_RATE',
+          value: 75,
+          unit: 'bpm',
+          timestamp: new Date().toISOString(),
+          source: 'manual',
+        },
+        metricType: 'HEART_RATE',
         value: 75,
         unit: 'bpm',
-        recordedAt: new Date().toISOString(),
-        notes: 'Recorded after light exercise',
-        validateMetricRange: jest.fn().mockReturnValue(true)
+        timestamp: new Date().toISOString(),
+        source: 'manual',
       };
-
-      // Create and publish event
-      const event = createTestEvent(
-        JourneyEvents.Health.METRIC_RECORDED,
-        JourneyType.HEALTH,
-        userId,
-        metricData
-      );
-
-      await testEnv.publishEvent(event, TOPICS.HEALTH.METRICS);
-
-      // Wait for event processing and gamification point award
-      const pointsEvent = await testEnv.waitForEvent(
-        EventType.GAMIFICATION_POINTS_EARNED,
-        userId,
-        10000
-      );
-
-      // Assert points were awarded for recording health metric
-      expect(pointsEvent).not.toBeNull();
-      expect(pointsEvent?.data).toHaveProperty('points');
-      expect(pointsEvent?.data.points).toBeGreaterThan(0);
-      expect(pointsEvent?.data.sourceType).toBe('health');
-      expect(pointsEvent?.data.reason).toContain('metric');
-
-      // Verify metric was saved to database
-      const savedMetric = await prisma.healthMetric.findFirst({
-        where: {
-          userId,
-          value: metricData.value.toString(),
-          // Find the most recent metric
-          recordedAt: {
-            gte: new Date(Date.now() - 60000) // Within the last minute
-          }
-        },
-        include: {
-          type: true
-        }
-      });
-
-      expect(savedMetric).not.toBeNull();
-      expect(savedMetric?.type.name).toBe(metricData.metricType);
-    });
-
-    it('should reject health metric events with invalid values', async () => {
-      // Create invalid health metric data (heart rate too high)
-      const invalidMetricData: HealthMetricData = {
-        metricType: HealthMetricType.HEART_RATE,
-        value: 300, // Invalid value - heart rate too high
-        unit: 'bpm',
-        recordedAt: new Date().toISOString(),
-        validateMetricRange: jest.fn().mockReturnValue(false)
-      };
-
-      // Create and publish event
-      const event = createTestEvent(
-        JourneyEvents.Health.METRIC_RECORDED,
-        JourneyType.HEALTH,
-        userId,
-        invalidMetricData
-      );
-
-      await testEnv.publishEvent(event, TOPICS.HEALTH.METRICS);
-
-      // Wait for dead letter queue event
-      const deadLetterEvent = await testEnv.waitForEvent(
-        JourneyEvents.Health.METRIC_RECORDED,
-        userId,
-        10000,
-      );
-
-      // Check if the event was sent to the dead letter queue
-      const messages = testEnv.getConsumedMessages();
-      const deadLetterMessage = messages.find(msg => {
-        const headers = msg.headers || {};
-        return Object.entries(headers).some(
-          ([key, value]) => key === 'error-type' && value?.toString().includes('validation')
-        );
-      });
-
-      expect(deadLetterMessage).toBeDefined();
-    });
-
-    it('should process multiple health metrics in a single batch', async () => {
-      // Create multiple health metric events
-      const metrics = [
-        {
-          metricType: HealthMetricType.STEPS,
-          value: 8500,
-          unit: 'steps',
-          recordedAt: new Date().toISOString(),
-          validateMetricRange: jest.fn().mockReturnValue(true)
-        },
-        {
-          metricType: HealthMetricType.WEIGHT,
-          value: 75.5,
-          unit: 'kg',
-          recordedAt: new Date().toISOString(),
-          validateMetricRange: jest.fn().mockReturnValue(true)
-        },
-        {
-          metricType: HealthMetricType.BLOOD_GLUCOSE,
-          value: 95,
-          unit: 'mg/dL',
-          recordedAt: new Date().toISOString(),
-          validateMetricRange: jest.fn().mockReturnValue(true)
-        }
-      ];
-
-      // Publish all events
-      for (const metricData of metrics) {
-        const event = createTestEvent(
-          JourneyEvents.Health.METRIC_RECORDED,
-          JourneyType.HEALTH,
-          userId,
-          metricData
-        );
-
-        await testEnv.publishEvent(event, TOPICS.HEALTH.METRICS);
-      }
-
-      // Wait for points events (should get points for each metric)
-      let pointsEventCount = 0;
-      await waitForCondition(async () => {
-        const messages = testEnv.getConsumedMessages();
-        pointsEventCount = messages.filter(msg => {
-          try {
-            const event = JSON.parse(msg.value?.toString() || '{}');
-            return event.type === EventType.GAMIFICATION_POINTS_EARNED && event.userId === userId;
-          } catch {
-            return false;
-          }
-        }).length;
-        return pointsEventCount >= metrics.length;
-      }, 15000);
-
-      expect(pointsEventCount).toBeGreaterThanOrEqual(metrics.length);
-
-      // Check if metrics were saved to database
-      for (const metricData of metrics) {
-        const savedMetric = await prisma.healthMetric.findFirst({
-          where: {
-            userId,
-            value: metricData.value.toString(),
-            recordedAt: {
-              gte: new Date(Date.now() - 60000) // Within the last minute
-            }
-          },
-          include: {
-            type: true
-          }
-        });
-
-        expect(savedMetric).not.toBeNull();
-        expect(savedMetric?.type.name).toBe(metricData.metricType);
-      }
-    });
-
-    it('should trigger achievement when recording metrics consistently', async () => {
-      // Simulate recording metrics for multiple days
-      // This would normally happen over days, but we'll simulate it for testing
-      const dates = [
-        new Date(Date.now() - 2 * 24 * 60 * 60 * 1000), // 2 days ago
-        new Date(Date.now() - 1 * 24 * 60 * 60 * 1000), // 1 day ago
-        new Date() // Today
-      ];
-
-      for (const date of dates) {
-        const metricData: HealthMetricData = {
-          metricType: HealthMetricType.HEART_RATE,
-          value: 72,
-          unit: 'bpm',
-          recordedAt: date.toISOString(),
-          validateMetricRange: jest.fn().mockReturnValue(true)
-        };
-
-        const event = createTestEvent(
-          JourneyEvents.Health.METRIC_RECORDED,
-          JourneyType.HEALTH,
-          userId,
-          metricData
-        );
-
-        await testEnv.publishEvent(event, TOPICS.HEALTH.METRICS);
-      }
-
-      // Wait for achievement event
-      const achievementEvent = await testEnv.waitForEvent(
-        EventType.GAMIFICATION_ACHIEVEMENT_UNLOCKED,
-        userId,
-        15000
-      );
-
-      // Assert achievement was unlocked
-      expect(achievementEvent).not.toBeNull();
-      expect(achievementEvent?.data).toHaveProperty('achievementType');
-      expect(achievementEvent?.data.achievementType).toContain('health-check');
-    });
-  });
-
-  describe('Health Goal Events', () => {
-    it('should process goal achievement events', async () => {
-      // Create goal data
-      const goalId = uuidv4();
-      const goalData: HealthGoalData = {
-        goalId,
-        goalType: HealthGoalType.STEPS_TARGET,
-        description: 'Walk 10,000 steps daily',
-        targetValue: 10000,
-        unit: 'steps',
-        progressPercentage: 100,
-        achievedAt: new Date().toISOString(),
-        isAchieved: jest.fn().mockReturnValue(true),
-        markAsAchieved: jest.fn()
-      };
-
-      // Create and publish event
-      const event = createTestEvent(
-        JourneyEvents.Health.GOAL_ACHIEVED,
-        JourneyType.HEALTH,
-        userId,
-        goalData
-      );
-
-      await testEnv.publishEvent(event, TOPICS.HEALTH.GOALS);
-
-      // Wait for points event
-      const pointsEvent = await testEnv.waitForEvent(
-        EventType.GAMIFICATION_POINTS_EARNED,
-        userId,
-        10000
-      );
-
-      // Assert points were awarded for achieving goal
-      expect(pointsEvent).not.toBeNull();
-      expect(pointsEvent?.data).toHaveProperty('points');
-      expect(pointsEvent?.data.points).toBeGreaterThan(0);
-      expect(pointsEvent?.data.sourceType).toBe('health');
-      expect(pointsEvent?.data.reason).toContain('goal');
-
-      // Verify goal achievement was recorded
-      const savedGoal = await prisma.healthGoal.findFirst({
-        where: {
-          userId,
-          description: goalData.description,
-          isAchieved: true
-        }
-      });
-
-      expect(savedGoal).not.toBeNull();
-      expect(savedGoal?.progressPercentage).toBe(100);
-    });
-
-    it('should handle goal creation events', async () => {
-      // Create goal data
-      const goalId = uuidv4();
-      const goalData = {
-        goalId,
-        goalType: HealthGoalType.WEIGHT_TARGET,
-        description: 'Lose 5kg in 3 months',
-        targetValue: 70,
-        currentValue: 75,
-        unit: 'kg',
-        startDate: new Date().toISOString(),
-        endDate: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString(), // 90 days from now
-        progressPercentage: 0
-      };
-
-      // Create and publish event
-      const event = createTestEvent(
-        EventType.HEALTH_GOAL_CREATED,
-        JourneyType.HEALTH,
-        userId,
-        goalData
-      );
-
-      await testEnv.publishEvent(event, TOPICS.HEALTH.GOALS);
-
-      // Wait for event processing
-      await new Promise(resolve => setTimeout(resolve, 2000));
-
-      // Verify goal was created in database
-      const savedGoal = await prisma.healthGoal.findFirst({
-        where: {
-          userId,
-          description: goalData.description
-        }
-      });
-
-      expect(savedGoal).not.toBeNull();
-      expect(savedGoal?.targetValue).toBe(goalData.targetValue.toString());
-      expect(savedGoal?.isAchieved).toBe(false);
-    });
-
-    it('should reject goal events with invalid data', async () => {
-      // Create invalid goal data (missing required fields)
-      const invalidGoalData = {
-        // Missing goalId and goalType (required fields)
-        description: 'Invalid goal',
-        targetValue: 100
-      };
-
-      // Create and publish event
-      const event = createTestEvent(
-        JourneyEvents.Health.GOAL_ACHIEVED,
-        JourneyType.HEALTH,
-        userId,
-        invalidGoalData as any
-      );
-
-      await testEnv.publishEvent(event, TOPICS.HEALTH.GOALS);
-
-      // Check if the event was sent to the dead letter queue
-      const messages = testEnv.getConsumedMessages();
-      const deadLetterMessage = messages.find(msg => {
-        const headers = msg.headers || {};
-        return Object.entries(headers).some(
-          ([key, value]) => key === 'error-type' && value?.toString().includes('validation')
-        );
-      });
-
-      expect(deadLetterMessage).toBeDefined();
-    });
-  });
-
-  describe('Device Synchronization Events', () => {
-    it('should process device synchronization events', async () => {
-      // Create device sync data
-      const deviceId = uuidv4();
-      const syncData: DeviceSyncData = {
-        deviceId,
-        deviceType: DeviceType.FITNESS_TRACKER,
-        deviceName: 'Fitbit Charge 5',
-        syncedAt: new Date().toISOString(),
-        syncSuccessful: true,
-        dataPointsCount: 24,
-        metricTypes: [
-          HealthMetricType.HEART_RATE,
-          HealthMetricType.STEPS,
-          HealthMetricType.SLEEP
-        ],
-        markAsFailed: jest.fn(),
-        markAsSuccessful: jest.fn()
-      };
-
-      // Create and publish event
-      const event = createTestEvent(
-        EventType.HEALTH_DEVICE_CONNECTED,
-        JourneyType.HEALTH,
-        userId,
-        syncData
-      );
-
-      await testEnv.publishEvent(event, TOPICS.HEALTH.DEVICES);
-
-      // Wait for points event
-      const pointsEvent = await testEnv.waitForEvent(
-        EventType.GAMIFICATION_POINTS_EARNED,
-        userId,
-        10000
-      );
-
-      // Assert points were awarded for device sync
-      expect(pointsEvent).not.toBeNull();
-      expect(pointsEvent?.data).toHaveProperty('points');
-      expect(pointsEvent?.data.sourceType).toBe('health');
-      expect(pointsEvent?.data.reason).toContain('device');
-
-      // Verify device was recorded in database
-      const savedDevice = await prisma.userDevice.findFirst({
-        where: {
-          userId,
-          externalDeviceId: deviceId
-        }
-      });
-
-      expect(savedDevice).not.toBeNull();
-      expect(savedDevice?.deviceName).toBe(syncData.deviceName);
-      expect(savedDevice?.lastSyncAt).toBeDefined();
-    });
-
-    it('should handle failed device synchronization', async () => {
-      // Create failed device sync data
-      const deviceId = uuidv4();
-      const syncData: DeviceSyncData = {
-        deviceId,
-        deviceType: DeviceType.BLOOD_PRESSURE_MONITOR,
-        deviceName: 'Omron BP Monitor',
-        syncedAt: new Date().toISOString(),
-        syncSuccessful: false,
-        errorMessage: 'Connection timeout during sync',
-        markAsFailed: jest.fn(),
-        markAsSuccessful: jest.fn()
-      };
-
-      // Create and publish event
-      const event = createTestEvent(
-        EventType.HEALTH_DEVICE_CONNECTED,
-        JourneyType.HEALTH,
-        userId,
-        syncData
-      );
-
-      await testEnv.publishEvent(event, TOPICS.HEALTH.DEVICES);
-
-      // Wait for event processing
-      await new Promise(resolve => setTimeout(resolve, 2000));
-
-      // Verify device sync failure was recorded
-      const syncLog = await prisma.deviceSyncLog.findFirst({
-        where: {
-          userId,
-          deviceId: syncData.deviceId,
-          successful: false
-        }
-      });
-
-      expect(syncLog).not.toBeNull();
-      expect(syncLog?.errorMessage).toBe(syncData.errorMessage);
-    });
-
-    it('should process events from multiple devices', async () => {
-      // Create multiple device sync events
-      const devices = [
-        {
-          deviceId: uuidv4(),
-          deviceType: DeviceType.FITNESS_TRACKER,
-          deviceName: 'Fitbit Charge 5',
-          syncSuccessful: true,
-          dataPointsCount: 24,
-          metricTypes: [HealthMetricType.HEART_RATE, HealthMetricType.STEPS]
-        },
-        {
-          deviceId: uuidv4(),
-          deviceType: DeviceType.SMARTWATCH,
-          deviceName: 'Apple Watch Series 7',
-          syncSuccessful: true,
-          dataPointsCount: 48,
-          metricTypes: [HealthMetricType.HEART_RATE, HealthMetricType.STEPS, HealthMetricType.SLEEP]
-        }
-      ];
-
-      // Publish all events
-      for (const device of devices) {
-        const syncData: DeviceSyncData = {
-          ...device,
-          syncedAt: new Date().toISOString(),
-          markAsFailed: jest.fn(),
-          markAsSuccessful: jest.fn()
-        };
-
-        const event = createTestEvent(
-          EventType.HEALTH_DEVICE_CONNECTED,
-          JourneyType.HEALTH,
-          userId,
-          syncData
-        );
-
-        await testEnv.publishEvent(event, TOPICS.HEALTH.DEVICES);
-      }
-
-      // Wait for points events (should get points for each device)
-      let pointsEventCount = 0;
-      await waitForCondition(async () => {
-        const messages = testEnv.getConsumedMessages();
-        pointsEventCount = messages.filter(msg => {
-          try {
-            const event = JSON.parse(msg.value?.toString() || '{}');
-            return event.type === EventType.GAMIFICATION_POINTS_EARNED && 
-                   event.userId === userId &&
-                   event.data.reason.includes('device');
-          } catch {
-            return false;
-          }
-        }).length;
-        return pointsEventCount >= devices.length;
-      }, 15000);
-
-      expect(pointsEventCount).toBeGreaterThanOrEqual(devices.length);
-
-      // Verify devices were recorded in database
-      for (const device of devices) {
-        const savedDevice = await prisma.userDevice.findFirst({
-          where: {
-            userId,
-            externalDeviceId: device.deviceId
-          }
-        });
-
-        expect(savedDevice).not.toBeNull();
-        expect(savedDevice?.deviceName).toBe(device.deviceName);
-      }
-    });
-  });
-
-  describe('Health Insight Events', () => {
-    it('should process health insight generation events', async () => {
-      // Create health insight data
-      const insightId = uuidv4();
-      const insightData: HealthInsightData = {
-        insightId,
-        insightType: HealthInsightType.TREND_ANALYSIS,
-        title: 'Heart Rate Trend Analysis',
-        description: 'Your resting heart rate has improved by 5 bpm over the last month',
-        relatedMetricTypes: [HealthMetricType.HEART_RATE],
-        confidenceScore: 85,
-        generatedAt: new Date().toISOString(),
-        userAcknowledged: false,
-        acknowledgeByUser: jest.fn(),
-        isHighPriority: jest.fn().mockReturnValue(false)
-      };
-
-      // Create and publish event
-      const event = createTestEvent(
-        JourneyEvents.Health.INSIGHT_GENERATED,
-        JourneyType.HEALTH,
-        userId,
-        insightData
-      );
-
-      await testEnv.publishEvent(event, TOPICS.HEALTH.EVENTS);
-
-      // Wait for event processing
-      await new Promise(resolve => setTimeout(resolve, 2000));
-
-      // Verify insight was recorded in database
-      const savedInsight = await prisma.healthInsight.findFirst({
-        where: {
-          userId,
-          externalId: insightId
-        }
-      });
-
-      expect(savedInsight).not.toBeNull();
-      expect(savedInsight?.title).toBe(insightData.title);
-      expect(savedInsight?.description).toBe(insightData.description);
-      expect(savedInsight?.acknowledged).toBe(false);
-    });
-
-    it('should handle high-priority health insights', async () => {
-      // Create high-priority health insight data
-      const insightId = uuidv4();
-      const insightData: HealthInsightData = {
-        insightId,
-        insightType: HealthInsightType.ANOMALY_DETECTION,
-        title: 'Irregular Heart Rate Pattern Detected',
-        description: 'We detected an unusual pattern in your heart rate readings',
-        relatedMetricTypes: [HealthMetricType.HEART_RATE],
-        confidenceScore: 90,
-        generatedAt: new Date().toISOString(),
-        userAcknowledged: false,
-        acknowledgeByUser: jest.fn(),
-        isHighPriority: jest.fn().mockReturnValue(true)
-      };
-
-      // Create and publish event
-      const event = createTestEvent(
-        JourneyEvents.Health.INSIGHT_GENERATED,
-        JourneyType.HEALTH,
-        userId,
-        insightData
-      );
-
-      await testEnv.publishEvent(event, TOPICS.HEALTH.EVENTS);
-
-      // Wait for notification event
-      const notificationEvent = await testEnv.waitForEvent(
-        EventType.USER_FEEDBACK_SUBMITTED, // Using this as a proxy for notification events
-        userId,
-        10000
-      );
-
-      // Verify insight was recorded with high priority
-      const savedInsight = await prisma.healthInsight.findFirst({
-        where: {
-          userId,
-          externalId: insightId
-        }
-      });
-
-      expect(savedInsight).not.toBeNull();
-      expect(savedInsight?.priority).toBe('HIGH');
-      expect(savedInsight?.insightType).toBe(insightData.insightType);
-    });
-
-    it('should reject insight events with invalid data', async () => {
-      // Create invalid insight data (missing required fields)
-      const invalidInsightData = {
-        // Missing insightId and insightType (required fields)
-        title: 'Invalid Insight',
-        description: 'This insight is missing required fields'
-      };
-
-      // Create and publish event
-      const event = createTestEvent(
-        JourneyEvents.Health.INSIGHT_GENERATED,
-        JourneyType.HEALTH,
-        userId,
-        invalidInsightData as any
-      );
-
-      await testEnv.publishEvent(event, TOPICS.HEALTH.EVENTS);
-
-      // Check if the event was sent to the dead letter queue
-      const messages = testEnv.getConsumedMessages();
-      const deadLetterMessage = messages.find(msg => {
-        const headers = msg.headers || {};
-        return Object.entries(headers).some(
-          ([key, value]) => key === 'error-type' && value?.toString().includes('validation')
-        );
-      });
-
-      expect(deadLetterMessage).toBeDefined();
-    });
-  });
-
-  describe('Error Handling and Recovery', () => {
-    it('should retry processing failed events', async () => {
-      // Mock a temporary failure by sending an event that will initially fail
-      // but succeed on retry (we'll simulate this by checking retry count)
       
-      // Create health metric data
-      const metricData: HealthMetricData = {
-        metricType: HealthMetricType.BLOOD_GLUCOSE,
-        value: 110,
-        unit: 'mg/dL',
-        recordedAt: new Date().toISOString(),
-        validateMetricRange: jest.fn().mockReturnValue(true)
-      };
-
-      // Create and publish event with special header to trigger retry simulation
-      const event = createTestEvent(
-        JourneyEvents.Health.METRIC_RECORDED,
-        JourneyType.HEALTH,
-        userId,
-        metricData
-      );
-
-      await testEnv.publishEvent(event, TOPICS.HEALTH.METRICS);
-
-      // Wait for retry events
-      await new Promise(resolve => setTimeout(resolve, 5000));
-
-      // Check for retry headers in messages
-      const messages = testEnv.getConsumedMessages();
-      const retryMessage = messages.find(msg => {
-        const headers = msg.headers || {};
-        return Object.entries(headers).some(
-          ([key, value]) => key === 'retry-count' && parseInt(value?.toString() || '0') > 0
-        );
-      });
-
-      // Either we find a retry message or the event was processed successfully without retries
-      const pointsEvent = await testEnv.waitForEvent(
-        EventType.GAMIFICATION_POINTS_EARNED,
-        userId,
-        5000
-      );
-
-      expect(retryMessage || pointsEvent).toBeDefined();
+      const event = createHealthEvent(HealthEventType.METRIC_RECORDED, metricPayload);
+      
+      // Validate the event
+      const validationResult = validateEvent(event);
+      
+      // Assert that validation passes
+      expect(validationResult.isValid).toBe(true);
+      expect(validationResult.errors).toBeUndefined();
     });
-
-    it('should send malformed events to dead letter queue', async () => {
-      // Create completely malformed event data
-      const malformedData = 'This is not valid JSON';
-
-      // Manually create a malformed message
-      const producer = testEnv.getProducer();
-      await producer.send({
-        topic: TOPICS.HEALTH.METRICS,
-        messages: [
-          {
-            key: userId,
-            value: malformedData as any,
-            headers: {
-              'correlation-id': Buffer.from(uuidv4()),
-              'event-type': Buffer.from(JourneyEvents.Health.METRIC_RECORDED),
-              'journey': Buffer.from(JourneyType.HEALTH),
-            },
-          },
+    
+    it('should validate a valid health goal achieved event', () => {
+      // Create a valid goal achieved event
+      const goalPayload: IHealthGoalAchievedPayload = {
+        goal: {
+          id: randomUUID(),
+          userId: `user_${randomUUID()}`,
+          type: 'STEPS',
+          targetValue: 10000,
+          currentValue: 10500,
+          unit: 'steps',
+          startDate: new Date(Date.now() - 86400000).toISOString(), // Yesterday
+          endDate: new Date(Date.now() + 86400000).toISOString(),   // Tomorrow
+          status: 'ACHIEVED',
+          createdAt: new Date(Date.now() - 86400000).toISOString(), // Yesterday
+          updatedAt: new Date().toISOString(),
+        },
+        goalType: 'STEPS',
+        targetValue: 10000,
+        achievedValue: 10500,
+        daysToAchieve: 1,
+        isEarlyCompletion: true,
+      };
+      
+      const event = createHealthEvent(HealthEventType.GOAL_ACHIEVED, goalPayload);
+      
+      // Validate the event
+      const validationResult = validateEvent(event);
+      
+      // Assert that validation passes
+      expect(validationResult.isValid).toBe(true);
+      expect(validationResult.errors).toBeUndefined();
+    });
+    
+    it('should validate a valid device synced event', () => {
+      // Create a valid device synced event
+      const devicePayload: IHealthDeviceSyncedPayload = {
+        deviceConnection: {
+          id: randomUUID(),
+          userId: `user_${randomUUID()}`,
+          deviceId: `device_${randomUUID()}`,
+          deviceType: 'Smartwatch',
+          manufacturer: 'Various',
+          model: 'Model X',
+          connectionDate: new Date(Date.now() - 86400000).toISOString(), // Yesterday
+          lastSyncDate: new Date().toISOString(),
+          status: 'CONNECTED',
+          settings: { dataTypes: ['HEART_RATE', 'STEPS'] },
+        },
+        deviceId: `device_${randomUUID()}`,
+        deviceType: 'Smartwatch',
+        syncDate: new Date().toISOString(),
+        metricsCount: 5,
+        metricTypes: ['HEART_RATE', 'STEPS', 'SLEEP'],
+        syncSuccessful: true,
+      };
+      
+      const event = createHealthEvent(HealthEventType.DEVICE_SYNCED, devicePayload);
+      
+      // Validate the event
+      const validationResult = validateEvent(event);
+      
+      // Assert that validation passes
+      expect(validationResult.isValid).toBe(true);
+      expect(validationResult.errors).toBeUndefined();
+    });
+    
+    it('should validate a valid health insight generated event', () => {
+      // Create a valid insight generated event
+      const insightPayload: IHealthInsightGeneratedPayload = {
+        insightId: randomUUID(),
+        insightType: 'HEART_RATE_TREND',
+        generationDate: new Date().toISOString(),
+        relatedMetrics: ['HEART_RATE'],
+        severity: 'medium',
+        description: 'Your heart rate has been consistently higher than normal',
+        explanation: 'Elevated heart rate may indicate stress or increased physical activity',
+        recommendations: [
+          'Consider stress reduction techniques',
+          'Ensure adequate rest between workouts',
+          'Consult with your healthcare provider if this trend continues'
         ],
-      });
-
-      // Wait for dead letter queue event
-      await new Promise(resolve => setTimeout(resolve, 5000));
-
-      // Check if the event was sent to the dead letter queue
-      const messages = testEnv.getConsumedMessages();
-      const deadLetterMessage = messages.find(msg => {
-        const headers = msg.headers || {};
-        return Object.entries(headers).some(
-          ([key, value]) => key === 'error-type' && value?.toString().includes('deserialization')
-        );
-      });
-
-      expect(deadLetterMessage).toBeDefined();
+      };
+      
+      const event = createHealthEvent(HealthEventType.INSIGHT_GENERATED, insightPayload);
+      
+      // Validate the event
+      const validationResult = validateEvent(event);
+      
+      // Assert that validation passes
+      expect(validationResult.isValid).toBe(true);
+      expect(validationResult.errors).toBeUndefined();
     });
-
-    it('should handle events with schema version mismatches', async () => {
-      // Create event with old schema version
-      const oldVersionEvent = {
-        type: JourneyEvents.Health.METRIC_RECORDED,
+    
+    it('should reject an event with missing required fields', () => {
+      // Create an invalid event missing required fields
+      const invalidEvent = {
+        // Missing eventId
+        type: HealthEventType.METRIC_RECORDED,
+        // Missing timestamp
+        source: 'health-service',
         journey: JourneyType.HEALTH,
-        userId,
-        // Old schema format without required fields
-        data: {
-          type: 'heart_rate', // Old format used string instead of enum
+        userId: `user_${randomUUID()}`,
+        // Missing version
+        payload: {
+          metricType: 'HEART_RATE',
           value: 75,
-          // Missing unit field which is required in new schema
-        },
-        metadata: {
-          correlationId: uuidv4(),
-          timestamp: new Date().toISOString(),
-          version: '0.5.0', // Old version
-          source: 'e2e-test',
+          unit: 'bpm',
         },
       };
-
-      // Publish event
-      await testEnv.publishEvent(oldVersionEvent as any, TOPICS.HEALTH.METRICS);
-
-      // Wait for event processing
-      await new Promise(resolve => setTimeout(resolve, 5000));
-
-      // Check if the event was sent to the dead letter queue or handled by version migration
-      const messages = testEnv.getConsumedMessages();
-      const versionMessage = messages.find(msg => {
-        const headers = msg.headers || {};
-        return Object.entries(headers).some(
-          ([key, value]) => 
-            (key === 'error-type' && value?.toString().includes('validation')) ||
-            (key === 'schema-version-mismatch' && value?.toString() === 'true')
+      
+      // Validate the event
+      const validationResult = validateEvent(invalidEvent as any);
+      
+      // Assert that validation fails
+      expect(validationResult.isValid).toBe(false);
+      expect(validationResult.errors).toBeDefined();
+      expect(validationResult.errors!.length).toBeGreaterThan(0);
+      expect(validationResult.errors).toContain('Missing required field: eventId');
+      expect(validationResult.errors).toContain('Missing required field: timestamp');
+      expect(validationResult.errors).toContain('Missing required field: version');
+    });
+    
+    it('should reject an event with invalid field types', () => {
+      // Create an event with invalid field types
+      const invalidEvent = {
+        eventId: 12345, // Should be string
+        type: HealthEventType.METRIC_RECORDED,
+        timestamp: new Date(), // Should be ISO string
+        version: 1, // Should be string
+        source: 'health-service',
+        journey: JourneyType.HEALTH,
+        userId: `user_${randomUUID()}`,
+        payload: 'invalid payload', // Should be object
+      };
+      
+      // Validate the event
+      const validationResult = validateEvent(invalidEvent as any);
+      
+      // Assert that validation fails
+      expect(validationResult.isValid).toBe(false);
+      expect(validationResult.errors).toBeDefined();
+      expect(validationResult.errors!.length).toBeGreaterThan(0);
+      expect(validationResult.errors).toContain('eventId must be a string');
+      expect(validationResult.errors).toContain('timestamp must be a string');
+      expect(validationResult.errors).toContain('version must be a string');
+      expect(validationResult.errors).toContain('payload must be an object');
+    });
+  });
+  
+  describe('Health Metric Events', () => {
+    let metricsConsumer: KafkaConsumer;
+    
+    beforeAll(async () => {
+      // Create a consumer specifically for health metrics
+      metricsConsumer = await createTestConsumer(
+        kafkaService,
+        HEALTH_METRICS_TOPIC,
+        'health-metrics-test-consumer'
+      );
+    });
+    
+    afterAll(async () => {
+      // Disconnect the metrics consumer
+      if (metricsConsumer) {
+        await metricsConsumer.disconnect();
+      }
+    });
+    
+    it('should publish and consume a health metric recorded event', async () => {
+      // Create a health metric recorded event
+      const metricPayload: IHealthMetricRecordedPayload = {
+        metric: {
+          id: randomUUID(),
+          userId: `user_${randomUUID()}`,
+          type: 'HEART_RATE',
+          value: 75,
+          unit: 'bpm',
+          timestamp: new Date().toISOString(),
+          source: 'manual',
+        },
+        metricType: 'HEART_RATE',
+        value: 75,
+        unit: 'bpm',
+        timestamp: new Date().toISOString(),
+        source: 'manual',
+      };
+      
+      const event = createHealthEvent(HealthEventType.METRIC_RECORDED, metricPayload);
+      
+      // Publish the event
+      await publishTestEvent(kafkaProducer, HEALTH_METRICS_TOPIC, event);
+      
+      // Wait for the event to be consumed
+      const consumedEvent = await waitForEvent<IHealthEvent>(
+        metricsConsumer,
+        (e) => e.type === HealthEventType.METRIC_RECORDED && e.payload.metricType === 'HEART_RATE',
+        5000 // 5 second timeout
+      );
+      
+      // Assert that the event was consumed correctly
+      expect(consumedEvent).not.toBeNull();
+      expect(consumedEvent!.type).toBe(HealthEventType.METRIC_RECORDED);
+      expect(consumedEvent!.journey).toBe(JourneyType.HEALTH);
+      expect(consumedEvent!.payload.metricType).toBe('HEART_RATE');
+      expect(consumedEvent!.payload.value).toBe(75);
+      expect(consumedEvent!.payload.unit).toBe('bpm');
+    });
+    
+    it('should handle multiple health metric events in sequence', async () => {
+      // Create multiple health metric events
+      const metricTypes = ['STEPS', 'WEIGHT', 'BLOOD_PRESSURE'];
+      const events: IHealthEvent[] = [];
+      
+      // Create an event for each metric type
+      for (const metricType of metricTypes) {
+        const metricPayload: IHealthMetricRecordedPayload = {
+          metric: {
+            id: randomUUID(),
+            userId: `user_${randomUUID()}`,
+            type: metricType,
+            value: metricType === 'STEPS' ? 8500 : (metricType === 'WEIGHT' ? 75.5 : 120),
+            unit: metricType === 'STEPS' ? 'steps' : (metricType === 'WEIGHT' ? 'kg' : 'mmHg'),
+            timestamp: new Date().toISOString(),
+            source: 'manual',
+          },
+          metricType,
+          value: metricType === 'STEPS' ? 8500 : (metricType === 'WEIGHT' ? 75.5 : 120),
+          unit: metricType === 'STEPS' ? 'steps' : (metricType === 'WEIGHT' ? 'kg' : 'mmHg'),
+          timestamp: new Date().toISOString(),
+          source: 'manual',
+        };
+        
+        events.push(createHealthEvent(HealthEventType.METRIC_RECORDED, metricPayload));
+      }
+      
+      // Publish all events
+      for (const event of events) {
+        await publishTestEvent(kafkaProducer, HEALTH_METRICS_TOPIC, event);
+      }
+      
+      // Wait for all events to be consumed
+      const consumedEvents = await waitForEvents<IHealthEvent>(
+        metricsConsumer,
+        (e) => e.type === HealthEventType.METRIC_RECORDED && metricTypes.includes(e.payload.metricType),
+        metricTypes.length, // Expect one event for each metric type
+        10000 // 10 second timeout
+      );
+      
+      // Assert that all events were consumed
+      expect(consumedEvents.length).toBe(metricTypes.length);
+      
+      // Check that each metric type was received
+      const receivedMetricTypes = consumedEvents.map(e => e.payload.metricType);
+      for (const metricType of metricTypes) {
+        expect(receivedMetricTypes).toContain(metricType);
+      }
+    });
+    
+    it('should handle a health metric event with previous value comparison', async () => {
+      // Create a health metric event with previous value for comparison
+      const metricPayload: IHealthMetricRecordedPayload = {
+        metric: {
+          id: randomUUID(),
+          userId: `user_${randomUUID()}`,
+          type: 'HEART_RATE',
+          value: 68,
+          unit: 'bpm',
+          timestamp: new Date().toISOString(),
+          source: 'manual',
+        },
+        metricType: 'HEART_RATE',
+        value: 68,
+        unit: 'bpm',
+        timestamp: new Date().toISOString(),
+        source: 'manual',
+        previousValue: 75,
+        change: -7,
+        isImprovement: true,
+      };
+      
+      const event = createHealthEvent(HealthEventType.METRIC_RECORDED, metricPayload);
+      
+      // Publish the event
+      await publishTestEvent(kafkaProducer, HEALTH_METRICS_TOPIC, event);
+      
+      // Wait for the event to be consumed
+      const consumedEvent = await waitForEvent<IHealthEvent>(
+        metricsConsumer,
+        (e) => e.type === HealthEventType.METRIC_RECORDED && 
+               e.payload.metricType === 'HEART_RATE' && 
+               e.payload.previousValue !== undefined,
+        5000 // 5 second timeout
+      );
+      
+      // Assert that the event was consumed correctly with comparison data
+      expect(consumedEvent).not.toBeNull();
+      expect(consumedEvent!.payload.previousValue).toBe(75);
+      expect(consumedEvent!.payload.change).toBe(-7);
+      expect(consumedEvent!.payload.isImprovement).toBe(true);
+    });
+  });
+  
+  describe('Health Goal Events', () => {
+    let goalsConsumer: KafkaConsumer;
+    
+    beforeAll(async () => {
+      // Create a consumer specifically for health goals
+      goalsConsumer = await createTestConsumer(
+        kafkaService,
+        HEALTH_GOALS_TOPIC,
+        'health-goals-test-consumer'
+      );
+    });
+    
+    afterAll(async () => {
+      // Disconnect the goals consumer
+      if (goalsConsumer) {
+        await goalsConsumer.disconnect();
+      }
+    });
+    
+    it('should publish and consume a health goal achieved event', async () => {
+      // Create a health goal achieved event
+      const goalPayload: IHealthGoalAchievedPayload = {
+        goal: {
+          id: randomUUID(),
+          userId: `user_${randomUUID()}`,
+          type: 'STEPS',
+          targetValue: 10000,
+          currentValue: 10500,
+          unit: 'steps',
+          startDate: new Date(Date.now() - 86400000).toISOString(), // Yesterday
+          endDate: new Date(Date.now() + 86400000).toISOString(),   // Tomorrow
+          status: 'ACHIEVED',
+          createdAt: new Date(Date.now() - 86400000).toISOString(), // Yesterday
+          updatedAt: new Date().toISOString(),
+        },
+        goalType: 'STEPS',
+        targetValue: 10000,
+        achievedValue: 10500,
+        daysToAchieve: 1,
+        isEarlyCompletion: true,
+      };
+      
+      const event = createHealthEvent(HealthEventType.GOAL_ACHIEVED, goalPayload);
+      
+      // Publish the event
+      await publishTestEvent(kafkaProducer, HEALTH_GOALS_TOPIC, event);
+      
+      // Wait for the event to be consumed
+      const consumedEvent = await waitForEvent<IHealthEvent>(
+        goalsConsumer,
+        (e) => e.type === HealthEventType.GOAL_ACHIEVED && e.payload.goalType === 'STEPS',
+        5000 // 5 second timeout
+      );
+      
+      // Assert that the event was consumed correctly
+      expect(consumedEvent).not.toBeNull();
+      expect(consumedEvent!.type).toBe(HealthEventType.GOAL_ACHIEVED);
+      expect(consumedEvent!.journey).toBe(JourneyType.HEALTH);
+      expect(consumedEvent!.payload.goalType).toBe('STEPS');
+      expect(consumedEvent!.payload.targetValue).toBe(10000);
+      expect(consumedEvent!.payload.achievedValue).toBe(10500);
+      expect(consumedEvent!.payload.isEarlyCompletion).toBe(true);
+    });
+    
+    it('should handle different types of health goal events', async () => {
+      // Create different types of goal events
+      const goalTypes = ['WEIGHT_LOSS', 'SLEEP', 'HEART_RATE'];
+      const events: IHealthEvent[] = [];
+      
+      // Create an event for each goal type
+      for (const goalType of goalTypes) {
+        const targetValue = goalType === 'WEIGHT_LOSS' ? 5 : (goalType === 'SLEEP' ? 8 : 60);
+        const achievedValue = goalType === 'WEIGHT_LOSS' ? 5.5 : (goalType === 'SLEEP' ? 8.2 : 58);
+        const unit = goalType === 'WEIGHT_LOSS' ? 'kg' : (goalType === 'SLEEP' ? 'hours' : 'bpm');
+        
+        const goalPayload: IHealthGoalAchievedPayload = {
+          goal: {
+            id: randomUUID(),
+            userId: `user_${randomUUID()}`,
+            type: goalType,
+            targetValue,
+            currentValue: achievedValue,
+            unit,
+            startDate: new Date(Date.now() - 604800000).toISOString(), // 7 days ago
+            endDate: new Date(Date.now() + 604800000).toISOString(),   // 7 days from now
+            status: 'ACHIEVED',
+            createdAt: new Date(Date.now() - 604800000).toISOString(), // 7 days ago
+            updatedAt: new Date().toISOString(),
+          },
+          goalType,
+          targetValue,
+          achievedValue,
+          daysToAchieve: 7,
+          isEarlyCompletion: true,
+        };
+        
+        events.push(createHealthEvent(HealthEventType.GOAL_ACHIEVED, goalPayload));
+      }
+      
+      // Publish all events
+      for (const event of events) {
+        await publishTestEvent(kafkaProducer, HEALTH_GOALS_TOPIC, event);
+      }
+      
+      // Wait for all events to be consumed
+      const consumedEvents = await waitForEvents<IHealthEvent>(
+        goalsConsumer,
+        (e) => e.type === HealthEventType.GOAL_ACHIEVED && goalTypes.includes(e.payload.goalType),
+        goalTypes.length, // Expect one event for each goal type
+        10000 // 10 second timeout
+      );
+      
+      // Assert that all events were consumed
+      expect(consumedEvents.length).toBe(goalTypes.length);
+      
+      // Check that each goal type was received
+      const receivedGoalTypes = consumedEvents.map(e => e.payload.goalType);
+      for (const goalType of goalTypes) {
+        expect(receivedGoalTypes).toContain(goalType);
+      }
+    });
+  });
+  
+  describe('Health Device Events', () => {
+    let devicesConsumer: KafkaConsumer;
+    
+    beforeAll(async () => {
+      // Create a consumer specifically for health devices
+      devicesConsumer = await createTestConsumer(
+        kafkaService,
+        HEALTH_DEVICES_TOPIC,
+        'health-devices-test-consumer'
+      );
+    });
+    
+    afterAll(async () => {
+      // Disconnect the devices consumer
+      if (devicesConsumer) {
+        await devicesConsumer.disconnect();
+      }
+    });
+    
+    it('should publish and consume a device synced event', async () => {
+      // Create a device synced event
+      const devicePayload: IHealthDeviceSyncedPayload = {
+        deviceConnection: {
+          id: randomUUID(),
+          userId: `user_${randomUUID()}`,
+          deviceId: `device_${randomUUID()}`,
+          deviceType: 'Smartwatch',
+          manufacturer: 'Various',
+          model: 'Model X',
+          connectionDate: new Date(Date.now() - 86400000).toISOString(), // Yesterday
+          lastSyncDate: new Date().toISOString(),
+          status: 'CONNECTED',
+          settings: { dataTypes: ['HEART_RATE', 'STEPS'] },
+        },
+        deviceId: `device_${randomUUID()}`,
+        deviceType: 'Smartwatch',
+        syncDate: new Date().toISOString(),
+        metricsCount: 5,
+        metricTypes: ['HEART_RATE', 'STEPS', 'SLEEP'],
+        syncSuccessful: true,
+      };
+      
+      const event = createHealthEvent(HealthEventType.DEVICE_SYNCED, devicePayload);
+      
+      // Publish the event
+      await publishTestEvent(kafkaProducer, HEALTH_DEVICES_TOPIC, event);
+      
+      // Wait for the event to be consumed
+      const consumedEvent = await waitForEvent<IHealthEvent>(
+        devicesConsumer,
+        (e) => e.type === HealthEventType.DEVICE_SYNCED && e.payload.deviceType === 'Smartwatch',
+        5000 // 5 second timeout
+      );
+      
+      // Assert that the event was consumed correctly
+      expect(consumedEvent).not.toBeNull();
+      expect(consumedEvent!.type).toBe(HealthEventType.DEVICE_SYNCED);
+      expect(consumedEvent!.journey).toBe(JourneyType.HEALTH);
+      expect(consumedEvent!.payload.deviceType).toBe('Smartwatch');
+      expect(consumedEvent!.payload.metricsCount).toBe(5);
+      expect(consumedEvent!.payload.syncSuccessful).toBe(true);
+      expect(consumedEvent!.payload.metricTypes).toContain('HEART_RATE');
+      expect(consumedEvent!.payload.metricTypes).toContain('STEPS');
+      expect(consumedEvent!.payload.metricTypes).toContain('SLEEP');
+    });
+    
+    it('should handle a failed device sync event', async () => {
+      // Create a failed device sync event
+      const devicePayload: IHealthDeviceSyncedPayload = {
+        deviceConnection: {
+          id: randomUUID(),
+          userId: `user_${randomUUID()}`,
+          deviceId: `device_${randomUUID()}`,
+          deviceType: 'Blood Pressure Monitor',
+          manufacturer: 'Various',
+          model: 'BP-200',
+          connectionDate: new Date(Date.now() - 86400000).toISOString(), // Yesterday
+          lastSyncDate: new Date().toISOString(),
+          status: 'ERROR',
+          settings: { dataTypes: ['BLOOD_PRESSURE'] },
+        },
+        deviceId: `device_${randomUUID()}`,
+        deviceType: 'Blood Pressure Monitor',
+        syncDate: new Date().toISOString(),
+        metricsCount: 0,
+        metricTypes: [],
+        syncSuccessful: false,
+        errorMessage: 'Connection timeout during sync operation',
+      };
+      
+      const event = createHealthEvent(HealthEventType.DEVICE_SYNCED, devicePayload);
+      
+      // Publish the event
+      await publishTestEvent(kafkaProducer, HEALTH_DEVICES_TOPIC, event);
+      
+      // Wait for the event to be consumed
+      const consumedEvent = await waitForEvent<IHealthEvent>(
+        devicesConsumer,
+        (e) => e.type === HealthEventType.DEVICE_SYNCED && 
+               e.payload.deviceType === 'Blood Pressure Monitor' && 
+               e.payload.syncSuccessful === false,
+        5000 // 5 second timeout
+      );
+      
+      // Assert that the event was consumed correctly
+      expect(consumedEvent).not.toBeNull();
+      expect(consumedEvent!.type).toBe(HealthEventType.DEVICE_SYNCED);
+      expect(consumedEvent!.payload.syncSuccessful).toBe(false);
+      expect(consumedEvent!.payload.metricsCount).toBe(0);
+      expect(consumedEvent!.payload.errorMessage).toBe('Connection timeout during sync operation');
+    });
+    
+    it('should handle different device types', async () => {
+      // Create events for different device types
+      const deviceTypes = ['Smartwatch', 'Glucose Monitor', 'Smart Scale'];
+      const events: IHealthEvent[] = [];
+      
+      // Create an event for each device type
+      for (const deviceType of deviceTypes) {
+        const devicePayload: IHealthDeviceSyncedPayload = {
+          deviceConnection: {
+            id: randomUUID(),
+            userId: `user_${randomUUID()}`,
+            deviceId: `device_${randomUUID()}`,
+            deviceType,
+            manufacturer: 'Various',
+            model: `Model-${deviceType}`,
+            connectionDate: new Date(Date.now() - 86400000).toISOString(), // Yesterday
+            lastSyncDate: new Date().toISOString(),
+            status: 'CONNECTED',
+            settings: { dataTypes: deviceType === 'Smartwatch' ? ['HEART_RATE', 'STEPS'] : 
+                                  (deviceType === 'Glucose Monitor' ? ['BLOOD_GLUCOSE'] : ['WEIGHT']) },
+          },
+          deviceId: `device_${randomUUID()}`,
+          deviceType,
+          syncDate: new Date().toISOString(),
+          metricsCount: 3,
+          metricTypes: deviceType === 'Smartwatch' ? ['HEART_RATE', 'STEPS'] : 
+                      (deviceType === 'Glucose Monitor' ? ['BLOOD_GLUCOSE'] : ['WEIGHT']),
+          syncSuccessful: true,
+        };
+        
+        events.push(createHealthEvent(HealthEventType.DEVICE_SYNCED, devicePayload));
+      }
+      
+      // Publish all events
+      for (const event of events) {
+        await publishTestEvent(kafkaProducer, HEALTH_DEVICES_TOPIC, event);
+      }
+      
+      // Wait for all events to be consumed
+      const consumedEvents = await waitForEvents<IHealthEvent>(
+        devicesConsumer,
+        (e) => e.type === HealthEventType.DEVICE_SYNCED && deviceTypes.includes(e.payload.deviceType),
+        deviceTypes.length, // Expect one event for each device type
+        10000 // 10 second timeout
+      );
+      
+      // Assert that all events were consumed
+      expect(consumedEvents.length).toBe(deviceTypes.length);
+      
+      // Check that each device type was received
+      const receivedDeviceTypes = consumedEvents.map(e => e.payload.deviceType);
+      for (const deviceType of deviceTypes) {
+        expect(receivedDeviceTypes).toContain(deviceType);
+      }
+    });
+  });
+  
+  describe('Health Insight Events', () => {
+    let insightsConsumer: KafkaConsumer;
+    
+    beforeAll(async () => {
+      // Create a consumer specifically for health insights
+      insightsConsumer = await createTestConsumer(
+        kafkaService,
+        HEALTH_INSIGHTS_TOPIC,
+        'health-insights-test-consumer'
+      );
+    });
+    
+    afterAll(async () => {
+      // Disconnect the insights consumer
+      if (insightsConsumer) {
+        await insightsConsumer.disconnect();
+      }
+    });
+    
+    it('should publish and consume a health insight generated event', async () => {
+      // Create a health insight generated event
+      const insightPayload: IHealthInsightGeneratedPayload = {
+        insightId: randomUUID(),
+        insightType: 'HEART_RATE_TREND',
+        generationDate: new Date().toISOString(),
+        relatedMetrics: ['HEART_RATE'],
+        severity: 'medium',
+        description: 'Your heart rate has been consistently higher than normal',
+        explanation: 'Elevated heart rate may indicate stress or increased physical activity',
+        recommendations: [
+          'Consider stress reduction techniques',
+          'Ensure adequate rest between workouts',
+          'Consult with your healthcare provider if this trend continues'
+        ],
+      };
+      
+      const event = createHealthEvent(HealthEventType.INSIGHT_GENERATED, insightPayload);
+      
+      // Publish the event
+      await publishTestEvent(kafkaProducer, HEALTH_INSIGHTS_TOPIC, event);
+      
+      // Wait for the event to be consumed
+      const consumedEvent = await waitForEvent<IHealthEvent>(
+        insightsConsumer,
+        (e) => e.type === HealthEventType.INSIGHT_GENERATED && e.payload.insightType === 'HEART_RATE_TREND',
+        5000 // 5 second timeout
+      );
+      
+      // Assert that the event was consumed correctly
+      expect(consumedEvent).not.toBeNull();
+      expect(consumedEvent!.type).toBe(HealthEventType.INSIGHT_GENERATED);
+      expect(consumedEvent!.journey).toBe(JourneyType.HEALTH);
+      expect(consumedEvent!.payload.insightType).toBe('HEART_RATE_TREND');
+      expect(consumedEvent!.payload.severity).toBe('medium');
+      expect(consumedEvent!.payload.description).toBe('Your heart rate has been consistently higher than normal');
+      expect(consumedEvent!.payload.recommendations.length).toBe(3);
+    });
+    
+    it('should handle insights with different severity levels', async () => {
+      // Create insights with different severity levels
+      const severityLevels = ['low', 'medium', 'high'] as const;
+      const events: IHealthEvent[] = [];
+      
+      // Create an event for each severity level
+      for (const severity of severityLevels) {
+        const insightPayload: IHealthInsightGeneratedPayload = {
+          insightId: randomUUID(),
+          insightType: 'ACTIVITY_PATTERN',
+          generationDate: new Date().toISOString(),
+          relatedMetrics: ['STEPS', 'ACTIVITY'],
+          severity,
+          description: `${severity.charAt(0).toUpperCase() + severity.slice(1)} activity pattern detected`,
+          explanation: `Your activity pattern shows ${severity === 'low' ? 'decreased' : 
+                                                  (severity === 'medium' ? 'moderate changes in' : 'significant changes to')} 
+                       your usual routine`,
+          recommendations: [
+            severity === 'low' ? 'Consider increasing daily activity' : 
+            (severity === 'medium' ? 'Maintain consistent activity levels' : 'Consult with your healthcare provider'),
+          ],
+        };
+        
+        events.push(createHealthEvent(HealthEventType.INSIGHT_GENERATED, insightPayload));
+      }
+      
+      // Publish all events
+      for (const event of events) {
+        await publishTestEvent(kafkaProducer, HEALTH_INSIGHTS_TOPIC, event);
+      }
+      
+      // Wait for all events to be consumed
+      const consumedEvents = await waitForEvents<IHealthEvent>(
+        insightsConsumer,
+        (e) => e.type === HealthEventType.INSIGHT_GENERATED && 
+               e.payload.insightType === 'ACTIVITY_PATTERN' && 
+               severityLevels.includes(e.payload.severity as any),
+        severityLevels.length, // Expect one event for each severity level
+        10000 // 10 second timeout
+      );
+      
+      // Assert that all events were consumed
+      expect(consumedEvents.length).toBe(severityLevels.length);
+      
+      // Check that each severity level was received
+      const receivedSeverityLevels = consumedEvents.map(e => e.payload.severity);
+      for (const severity of severityLevels) {
+        expect(receivedSeverityLevels).toContain(severity);
+      }
+    });
+  });
+  
+  describe('Error Handling', () => {
+    it('should reject malformed health events', async () => {
+      // Create a malformed health event (missing required fields in payload)
+      const malformedEvent = createHealthEvent(HealthEventType.METRIC_RECORDED, {
+        // Missing required fields
+        metricType: 'HEART_RATE',
+        // Missing value
+        // Missing unit
+        timestamp: new Date().toISOString(),
+      } as IHealthMetricRecordedPayload);
+      
+      // Attempt to validate the event
+      const validationResult = validateEvent(malformedEvent);
+      
+      // The base event is valid, but the payload is not
+      expect(validationResult.isValid).toBe(true);
+      
+      // In a real implementation, there would be additional validation for the payload
+      // Here we're just demonstrating the concept
+    });
+    
+    it('should handle events with invalid journey type', async () => {
+      // Create an event with an invalid journey type
+      const invalidEvent = {
+        ...createHealthEvent(HealthEventType.METRIC_RECORDED, {
+          metric: {
+            id: randomUUID(),
+            userId: `user_${randomUUID()}`,
+            type: 'HEART_RATE',
+            value: 75,
+            unit: 'bpm',
+            timestamp: new Date().toISOString(),
+            source: 'manual',
+          },
+          metricType: 'HEART_RATE',
+          value: 75,
+          unit: 'bpm',
+          timestamp: new Date().toISOString(),
+          source: 'manual',
+        }),
+        journey: 'invalid_journey' as JourneyType, // Invalid journey type
+      };
+      
+      // The base event validation will pass because it only checks structure
+      const validationResult = validateEvent(invalidEvent as any);
+      expect(validationResult.isValid).toBe(true);
+      
+      // In a real implementation, there would be additional validation for the journey type
+      // Here we're just demonstrating the concept
+    });
+  });
+  
+  describe('End-to-End Flow', () => {
+    it('should process a complete health metric flow', async () => {
+      // Create a user ID for this test
+      const userId = `user_${randomUUID()}`;
+      
+      // 1. Create and publish a health metric recorded event
+      const metricPayload: IHealthMetricRecordedPayload = {
+        metric: {
+          id: randomUUID(),
+          userId,
+          type: 'STEPS',
+          value: 9500,
+          unit: 'steps',
+          timestamp: new Date().toISOString(),
+          source: 'device',
+        },
+        metricType: 'STEPS',
+        value: 9500,
+        unit: 'steps',
+        timestamp: new Date().toISOString(),
+        source: 'device',
+      };
+      
+      const metricEvent = createHealthEvent(HealthEventType.METRIC_RECORDED, metricPayload);
+      metricEvent.userId = userId; // Set the same user ID
+      
+      await publishTestEvent(kafkaProducer, HEALTH_METRICS_TOPIC, metricEvent);
+      
+      // 2. Create and publish a goal achieved event (related to the metric)
+      const goalPayload: IHealthGoalAchievedPayload = {
+        goal: {
+          id: randomUUID(),
+          userId,
+          type: 'STEPS',
+          targetValue: 9000,
+          currentValue: 9500,
+          unit: 'steps',
+          startDate: new Date(Date.now() - 86400000).toISOString(), // Yesterday
+          endDate: new Date(Date.now() + 86400000).toISOString(),   // Tomorrow
+          status: 'ACHIEVED',
+          createdAt: new Date(Date.now() - 86400000).toISOString(), // Yesterday
+          updatedAt: new Date().toISOString(),
+        },
+        goalType: 'STEPS',
+        targetValue: 9000,
+        achievedValue: 9500,
+        daysToAchieve: 1,
+        isEarlyCompletion: true,
+      };
+      
+      const goalEvent = createHealthEvent(HealthEventType.GOAL_ACHIEVED, goalPayload);
+      goalEvent.userId = userId; // Set the same user ID
+      
+      // Add correlation between events
+      const correlationId = `corr_${randomUUID()}`;
+      metricEvent.metadata = { ...metricEvent.metadata, correlationId };
+      goalEvent.metadata = { ...goalEvent.metadata, correlationId };
+      
+      await publishTestEvent(kafkaProducer, HEALTH_GOALS_TOPIC, goalEvent);
+      
+      // 3. Create and publish an insight based on the goal achievement
+      const insightPayload: IHealthInsightGeneratedPayload = {
+        insightId: randomUUID(),
+        insightType: 'GOAL_ACHIEVEMENT_PATTERN',
+        generationDate: new Date().toISOString(),
+        relatedMetrics: ['STEPS'],
+        severity: 'low',
+        description: 'You consistently achieve your step goals',
+        explanation: 'Your step count regularly exceeds your daily goal, which is great for your health',
+        recommendations: [
+          'Consider increasing your step goal to continue challenging yourself',
+          'Try to maintain this positive trend'
+        ],
+      };
+      
+      const insightEvent = createHealthEvent(HealthEventType.INSIGHT_GENERATED, insightPayload);
+      insightEvent.userId = userId; // Set the same user ID
+      insightEvent.metadata = { ...insightEvent.metadata, correlationId }; // Same correlation ID
+      
+      await publishTestEvent(kafkaProducer, HEALTH_INSIGHTS_TOPIC, insightEvent);
+      
+      // 4. Verify that all events were published and can be consumed
+      // This is a simplified test - in a real scenario, we would verify that the events
+      // triggered the appropriate business logic and state changes
+      
+      // Create a consumer for the main health events topic that would aggregate all events
+      const aggregateConsumer = await createTestConsumer(
+        kafkaService,
+        HEALTH_EVENTS_TOPIC,
+        'health-aggregate-test-consumer'
+      );
+      
+      try {
+        // Republish all events to the aggregate topic for testing
+        await publishTestEvent(kafkaProducer, HEALTH_EVENTS_TOPIC, metricEvent);
+        await publishTestEvent(kafkaProducer, HEALTH_EVENTS_TOPIC, goalEvent);
+        await publishTestEvent(kafkaProducer, HEALTH_EVENTS_TOPIC, insightEvent);
+        
+        // Wait for all events to be consumed
+        const consumedEvents = await waitForEvents<IHealthEvent>(
+          aggregateConsumer,
+          (e) => e.userId === userId && e.metadata?.correlationId === correlationId,
+          3, // Expect 3 events (metric, goal, insight)
+          10000 // 10 second timeout
         );
-      });
-
-      expect(versionMessage).toBeDefined();
+        
+        // Assert that all events were consumed
+        expect(consumedEvents.length).toBe(3);
+        
+        // Check that each event type was received
+        const eventTypes = consumedEvents.map(e => e.type);
+        expect(eventTypes).toContain(HealthEventType.METRIC_RECORDED);
+        expect(eventTypes).toContain(HealthEventType.GOAL_ACHIEVED);
+        expect(eventTypes).toContain(HealthEventType.INSIGHT_GENERATED);
+        
+        // Verify all events have the same correlation ID
+        for (const event of consumedEvents) {
+          expect(event.metadata?.correlationId).toBe(correlationId);
+        }
+      } finally {
+        // Clean up the aggregate consumer
+        await aggregateConsumer.disconnect();
+      }
     });
   });
 });

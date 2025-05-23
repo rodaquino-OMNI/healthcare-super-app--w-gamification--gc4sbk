@@ -1,224 +1,152 @@
 /**
- * Event Validation Interfaces - Defines standardized interfaces for validating events
- * throughout the event processing pipeline in the AUSTA SuperApp.
- *
+ * @file event-validation.interface.ts
+ * @description Defines interfaces for event data validation throughout the event processing pipeline.
  * These interfaces ensure that all events are properly validated before processing,
- * reducing errors and improving system reliability across all journey services.
+ * reducing errors and improving system reliability.
  */
-
-import { ValidationError } from '../errors/validation.error';
 
 /**
- * Severity levels for validation issues
+ * Represents the result of a validation operation.
+ * Provides a standardized structure for validation outcomes across the system.
  */
-export enum ValidationSeverity {
+export interface ValidationResult {
   /**
-   * Error that prevents event processing
+   * Indicates whether the validation was successful.
    */
-  ERROR = 'error',
-  
+  isValid: boolean;
+
   /**
-   * Warning that allows processing but should be logged
+   * Array of validation errors if validation failed.
+   * Empty array if validation was successful.
    */
-  WARNING = 'warning',
-  
+  errors: ValidationError[];
+
   /**
-   * Informational message that doesn't affect processing
+   * Optional metadata about the validation process.
+   * Can include information about the validator used, validation context, etc.
    */
-  INFO = 'info'
+  metadata?: Record<string, any>;
 }
 
 /**
- * Represents a single validation issue
+ * Represents a validation error with detailed information.
  */
-export interface ValidationIssue {
+export interface ValidationError {
   /**
-   * Unique error code for the validation issue
-   * @example 'EVENT_001'
+   * Error code for categorizing the validation error.
+   * Useful for client-side error handling and internationalization.
    */
   code: string;
-  
+
   /**
-   * Human-readable error message
+   * Human-readable error message describing the validation failure.
    */
   message: string;
-  
+
   /**
-   * Path to the field that caused the validation issue
-   * @example 'payload.userId'
+   * Path to the property that failed validation.
+   * For nested objects, this can be a dot-notation path (e.g., 'user.address.city').
    */
-  field?: string;
-  
+  path?: string;
+
   /**
-   * Severity level of the validation issue
-   * @default ValidationSeverity.ERROR
-   */
-  severity: ValidationSeverity;
-  
-  /**
-   * Additional context or metadata about the validation issue
+   * Additional context about the validation error.
+   * Can include information about expected values, constraints, etc.
    */
   context?: Record<string, any>;
 }
 
 /**
- * Result of a validation operation
- */
-export interface ValidationResult {
-  /**
-   * Whether the validation passed
-   */
-  isValid: boolean;
-  
-  /**
-   * List of validation issues found
-   */
-  issues: ValidationIssue[];
-  
-  /**
-   * Journey context for the validation (health, care, plan)
-   * Allows for journey-specific validation handling
-   */
-  journey?: string;
-  
-  /**
-   * Get all validation issues as ValidationError instances
-   */
-  getErrors(): ValidationError[];
-  
-  /**
-   * Get all validation issues with a specific severity
-   * @param severity The severity level to filter by
-   */
-  getIssuesBySeverity(severity: ValidationSeverity): ValidationIssue[];
-  
-  /**
-   * Check if there are any issues with a specific severity
-   * @param severity The severity level to check for
-   */
-  hasIssuesWithSeverity(severity: ValidationSeverity): boolean;
-}
-
-/**
- * Interface for implementing event validators
- * @template T The type of event being validated
+ * Interface for implementing event validation logic.
+ * Validators can be implemented using schema-based validation (Zod, class-validator)
+ * or custom business logic validation.
  */
 export interface IEventValidator<T = any> {
   /**
-   * Validate an event synchronously
-   * @param event The event to validate
-   * @returns Validation result
+   * Validates the provided event data synchronously.
+   * 
+   * @param data - The event data to validate
+   * @returns ValidationResult with validation outcome
    */
-  validate(event: T): ValidationResult;
-  
+  validate(data: T): ValidationResult;
+
   /**
-   * Validate an event asynchronously
-   * @param event The event to validate
-   * @returns Promise resolving to validation result
+   * Validates the provided event data asynchronously.
+   * Useful for validations that require database lookups or external service calls.
+   * 
+   * @param data - The event data to validate
+   * @returns Promise resolving to ValidationResult with validation outcome
    */
-  validateAsync(event: T): Promise<ValidationResult>;
-  
+  validateAsync(data: T): Promise<ValidationResult>;
+
   /**
-   * Check if this validator can handle the given event type
-   * @param eventType The type of event to check
-   * @returns Whether this validator can handle the event type
+   * Returns the schema or validation rules used by this validator.
+   * This can be a Zod schema, class-validator metadata, or custom validation rules.
+   * 
+   * @returns The validation schema or rules
    */
-  canValidate(eventType: string): boolean;
-  
-  /**
-   * Get the event types this validator can handle
-   * @returns Array of supported event types
-   */
-  getSupportedEventTypes(): string[];
+  getSchema(): any;
 }
 
 /**
- * Interface for schema-based validators (e.g., using Zod, class-validator)
- * @template T The type of event being validated
- * @template S The schema type used for validation
+ * Interface for schema-based validators using Zod.
+ * Provides a specialized implementation for Zod schema validation.
  */
-export interface ISchemaValidator<T = any, S = any> extends IEventValidator<T> {
+export interface IZodEventValidator<T = any> extends IEventValidator<T> {
   /**
-   * Get the schema used for validation
-   * @returns The validation schema
+   * Returns the Zod schema used for validation.
+   * 
+   * @returns The Zod schema
    */
-  getSchema(): S;
-  
-  /**
-   * Convert schema validation errors to standard ValidationIssue format
-   * @param errors The schema-specific validation errors
-   * @returns Standardized validation issues
-   */
-  mapSchemaErrorsToIssues(errors: any[]): ValidationIssue[];
+  getSchema(): any; // Zod.Schema<T> in actual implementation
 }
 
 /**
- * Factory for creating empty validation results
+ * Interface for schema-based validators using class-validator.
+ * Provides a specialized implementation for class-validator decorators.
  */
-export const ValidationResultFactory = {
+export interface IClassValidatorEventValidator<T = any> extends IEventValidator<T> {
   /**
-   * Create a valid result with no issues
-   * @param journey Optional journey context
+   * Returns the validation class with class-validator decorators.
+   * 
+   * @returns The validation class constructor
    */
-  valid: (journey?: string): ValidationResult => ({
-    isValid: true,
-    issues: [],
-    journey,
-    getErrors: () => [],
-    getIssuesBySeverity: (severity: ValidationSeverity) => [],
-    hasIssuesWithSeverity: (severity: ValidationSeverity) => false
-  }),
-  
-  /**
-   * Create an invalid result with the specified issues
-   * @param issues Validation issues
-   * @param journey Optional journey context
-   */
-  invalid: (issues: ValidationIssue[], journey?: string): ValidationResult => ({
-    isValid: false,
-    issues,
-    journey,
-    getErrors: () => issues.map(issue => new ValidationError(issue.message, issue.code, issue.field, issue.context)),
-    getIssuesBySeverity: (severity: ValidationSeverity) => issues.filter(issue => issue.severity === severity),
-    hasIssuesWithSeverity: (severity: ValidationSeverity) => issues.some(issue => issue.severity === severity)
-  })
-};
-
-/**
- * Composite validator that combines multiple validators
- * @template T The type of event being validated
- */
-export interface ICompositeValidator<T = any> extends IEventValidator<T> {
-  /**
-   * Add a validator to the composite
-   * @param validator The validator to add
-   */
-  addValidator(validator: IEventValidator<T>): void;
-  
-  /**
-   * Get all validators in the composite
-   * @returns Array of validators
-   */
-  getValidators(): IEventValidator<T>[];
-  
-  /**
-   * Set the validation strategy (e.g., fail-fast, collect-all-errors)
-   * @param strategy The validation strategy to use
-   */
-  setValidationStrategy(strategy: ValidationStrategy): void;
+  getSchema(): any; // Constructor<T> in actual implementation
 }
 
 /**
- * Validation strategy for composite validators
+ * Factory function type for creating event validators.
+ * Allows for dependency injection and dynamic validator creation.
  */
-export enum ValidationStrategy {
+export type EventValidatorFactory<T = any> = () => IEventValidator<T>;
+
+/**
+ * Options for configuring validation behavior.
+ */
+export interface ValidationOptions {
   /**
-   * Stop at the first validation failure
+   * Whether to abort validation on the first error.
+   * If true, only the first error will be returned.
+   * If false, all errors will be collected and returned.
    */
-  FAIL_FAST = 'fail-fast',
-  
+  abortEarly?: boolean;
+
   /**
-   * Collect all validation errors before returning
+   * Whether to strip unknown properties from the validated object.
+   * If true, properties not defined in the schema will be removed.
+   * If false, unknown properties will be preserved.
    */
-  COLLECT_ALL = 'collect-all'
+  stripUnknown?: boolean;
+
+  /**
+   * Custom error messages to override default messages.
+   * Keys are error codes, values are message templates.
+   */
+  messages?: Record<string, string>;
+
+  /**
+   * Context data to be passed to validation functions.
+   * Useful for conditional validation based on external factors.
+   */
+  context?: Record<string, any>;
 }

@@ -1,334 +1,367 @@
+import { IsNotEmpty, IsString, IsUUID, IsISO8601, IsEnum, IsOptional, ValidateNested, IsObject, IsBoolean, IsArray, ArrayMinSize, IsNumber, Min, Max } from 'class-validator';
 import { Type } from 'class-transformer';
-import {
-  IsDate,
-  IsEnum,
-  IsNotEmpty,
-  IsObject,
-  IsOptional,
-  IsString,
-  IsUUID,
-  ValidateNested,
-} from 'class-validator';
 
 /**
- * Enum defining the possible types of appointments.
- * Matches the AppointmentType enum in the Care service.
+ * Enum representing the possible states of an appointment.
  */
-export enum AppointmentType {
-  IN_PERSON = 'in-person',
-  TELEMEDICINE = 'telemedicine',
+export enum AppointmentState {
+  BOOKED = 'booked',
+  CHECKED_IN = 'checked_in',
+  COMPLETED = 'completed',
+  CANCELLED = 'cancelled',
+  RESCHEDULED = 'rescheduled',
+  NO_SHOW = 'no_show'
 }
 
 /**
- * Enum defining the possible statuses of appointments.
- * Matches the AppointmentStatus enum in the Care service.
+ * Enum representing the possible types of appointments.
  */
-export enum AppointmentStatus {
-  SCHEDULED = 'scheduled',
-  COMPLETED = 'completed',
-  CANCELLED = 'cancelled',
-  CHECKED_IN = 'checked-in', // Additional status for check-in events
+export enum AppointmentType {
+  IN_PERSON = 'in_person',
+  TELEMEDICINE = 'telemedicine',
+  HOME_VISIT = 'home_visit'
 }
 
 /**
  * DTO for provider information in appointment events.
  */
-export class AppointmentProviderDto {
+export class ProviderInfoDto {
   /**
-   * Unique identifier for the provider.
+   * The unique identifier of the healthcare provider.
    */
   @IsNotEmpty()
   @IsUUID()
-  id: string;
+  providerId: string;
 
   /**
-   * Name of the provider.
+   * The name of the healthcare provider.
    */
   @IsNotEmpty()
   @IsString()
-  name: string;
+  providerName: string;
 
   /**
-   * Medical specialty of the provider.
+   * The specialization of the healthcare provider.
    */
   @IsNotEmpty()
   @IsString()
-  specialty: string;
+  specialization: string;
 
   /**
-   * Location of the provider's practice.
+   * Optional provider rating (1-5).
    */
   @IsOptional()
-  @IsString()
-  location?: string;
-
-  /**
-   * Indicates whether the provider offers telemedicine services.
-   */
-  @IsOptional()
-  telemedicineAvailable?: boolean;
+  @IsNumber()
+  @Min(1)
+  @Max(5)
+  rating?: number;
 }
 
 /**
  * DTO for location information in appointment events.
  */
-export class AppointmentLocationDto {
+export class LocationInfoDto {
   /**
-   * Name of the location (e.g., clinic name, hospital name).
+   * The name of the location (clinic, hospital, etc.).
    */
   @IsNotEmpty()
   @IsString()
   name: string;
 
   /**
-   * Address of the location.
+   * The address of the location.
    */
-  @IsOptional()
+  @IsNotEmpty()
   @IsString()
-  address?: string;
+  address: string;
 
   /**
-   * Additional instructions for finding the location.
+   * Optional coordinates for the location.
    */
   @IsOptional()
-  @IsString()
-  instructions?: string;
+  @IsArray()
+  @ArrayMinSize(2)
+  @IsNumber({}, { each: true })
+  coordinates?: [number, number]; // [latitude, longitude]
+
+  /**
+   * Optional additional information about the location.
+   */
+  @IsOptional()
+  @IsObject()
+  additionalInfo?: Record<string, any>;
 }
 
 /**
  * Base DTO for appointment events.
- * Contains common properties for all appointment-related events.
  */
 export class AppointmentEventBaseDto {
   /**
-   * Unique identifier for the appointment.
+   * The unique identifier of the appointment.
    */
   @IsNotEmpty()
   @IsUUID()
   appointmentId: string;
 
   /**
-   * Date and time of the appointment.
+   * The current state of the appointment.
    */
   @IsNotEmpty()
-  @IsDate()
-  @Type(() => Date)
-  dateTime: Date;
+  @IsEnum(AppointmentState)
+  state: AppointmentState;
 
   /**
-   * Type of appointment (e.g., in-person, telemedicine).
+   * The type of the appointment.
    */
   @IsNotEmpty()
   @IsEnum(AppointmentType)
   type: AppointmentType;
 
   /**
-   * Status of the appointment.
+   * The scheduled date and time of the appointment in ISO 8601 format.
    */
   @IsNotEmpty()
-  @IsEnum(AppointmentStatus)
-  status: AppointmentStatus;
+  @IsISO8601()
+  scheduledAt: string;
 
   /**
-   * Provider information for the appointment.
+   * The duration of the appointment in minutes.
    */
   @IsNotEmpty()
-  @IsObject()
-  @ValidateNested()
-  @Type(() => AppointmentProviderDto)
-  provider: AppointmentProviderDto;
+  @IsNumber()
+  @Min(5)
+  durationMinutes: number;
 
   /**
-   * Location information for the appointment.
-   * Required for IN_PERSON appointments, optional for TELEMEDICINE.
+   * Information about the healthcare provider.
    */
-  @IsOptional()
-  @IsObject()
+  @IsNotEmpty()
   @ValidateNested()
-  @Type(() => AppointmentLocationDto)
-  location?: AppointmentLocationDto;
+  @Type(() => ProviderInfoDto)
+  provider: ProviderInfoDto;
 
   /**
-   * Optional notes or comments about the appointment.
+   * Information about the appointment location.
    */
-  @IsOptional()
-  @IsString()
-  notes?: string;
-}
+  @IsNotEmpty()
+  @ValidateNested()
+  @Type(() => LocationInfoDto)
+  location: LocationInfoDto;
 
-/**
- * DTO for appointment booking events.
- * Used when a user books a new appointment.
- */
-export class AppointmentBookedEventDto extends AppointmentEventBaseDto {
   /**
-   * Reason for the appointment.
+   * The reason for the appointment.
    */
   @IsNotEmpty()
   @IsString()
   reason: string;
 
   /**
-   * Estimated duration of the appointment in minutes.
-   */
-  @IsOptional()
-  duration?: number;
-
-  /**
    * Whether this is a first-time visit with this provider.
    */
   @IsOptional()
+  @IsBoolean()
   isFirstVisit?: boolean;
+
+  /**
+   * Optional notes about the appointment.
+   */
+  @IsOptional()
+  @IsString()
+  notes?: string;
+
+  /**
+   * Optional previous state for tracking state transitions.
+   */
+  @IsOptional()
+  @IsEnum(AppointmentState)
+  previousState?: AppointmentState;
+}
+
+/**
+ * DTO for appointment booking events.
+ */
+export class AppointmentBookedEventDto extends AppointmentEventBaseDto {
+  /**
+   * Whether the appointment was booked by the patient or on behalf of the patient.
+   */
+  @IsNotEmpty()
+  @IsBoolean()
+  bookedByPatient: boolean;
+
+  /**
+   * Whether the appointment requires any preparation.
+   */
+  @IsOptional()
+  @IsBoolean()
+  requiresPreparation?: boolean;
+
+  /**
+   * Optional preparation instructions.
+   */
+  @IsOptional()
+  @IsString()
+  preparationInstructions?: string;
 }
 
 /**
  * DTO for appointment check-in events.
- * Used when a user checks in for an appointment.
  */
 export class AppointmentCheckedInEventDto extends AppointmentEventBaseDto {
   /**
-   * Timestamp when the user checked in.
+   * The time when the patient checked in, in ISO 8601 format.
    */
   @IsNotEmpty()
-  @IsDate()
-  @Type(() => Date)
-  checkedInAt: Date;
+  @IsISO8601()
+  checkedInAt: string;
 
   /**
-   * Whether the check-in was done remotely or in-person.
+   * Whether the patient arrived on time.
+   */
+  @IsNotEmpty()
+  @IsBoolean()
+  onTime: boolean;
+
+  /**
+   * Optional check-in notes.
    */
   @IsOptional()
   @IsString()
-  checkInMethod?: string;
+  checkInNotes?: string;
 }
 
 /**
  * DTO for appointment completion events.
- * Used when an appointment is marked as completed.
  */
 export class AppointmentCompletedEventDto extends AppointmentEventBaseDto {
   /**
-   * Timestamp when the appointment was completed.
+   * The time when the appointment was completed, in ISO 8601 format.
    */
   @IsNotEmpty()
-  @IsDate()
-  @Type(() => Date)
-  completedAt: Date;
-
-  /**
-   * Duration of the actual appointment in minutes.
-   */
-  @IsOptional()
-  actualDuration?: number;
+  @IsISO8601()
+  completedAt: string;
 
   /**
    * Whether a follow-up appointment is recommended.
    */
+  @IsNotEmpty()
+  @IsBoolean()
+  followUpRecommended: boolean;
+
+  /**
+   * Optional follow-up timeframe in days.
+   */
   @IsOptional()
-  followUpRecommended?: boolean;
+  @IsNumber()
+  @Min(1)
+  followUpTimeframeDays?: number;
+
+  /**
+   * Optional summary of the appointment.
+   */
+  @IsOptional()
+  @IsString()
+  summary?: string;
 }
 
 /**
  * DTO for appointment cancellation events.
- * Used when an appointment is cancelled.
  */
 export class AppointmentCancelledEventDto extends AppointmentEventBaseDto {
   /**
-   * Timestamp when the appointment was cancelled.
+   * The time when the appointment was cancelled, in ISO 8601 format.
    */
   @IsNotEmpty()
-  @IsDate()
-  @Type(() => Date)
-  cancelledAt: Date;
+  @IsISO8601()
+  cancelledAt: string;
 
   /**
-   * Reason for cancellation.
+   * The reason for cancellation.
    */
   @IsNotEmpty()
   @IsString()
   cancellationReason: string;
 
   /**
-   * Whether the appointment was cancelled by the provider or the user.
+   * Whether the appointment was cancelled by the patient or the provider.
    */
   @IsNotEmpty()
-  @IsString()
-  cancelledBy: 'user' | 'provider';
+  @IsBoolean()
+  cancelledByPatient: boolean;
 
   /**
-   * Whether the appointment was rescheduled.
+   * Whether a cancellation fee applies.
    */
-  @IsOptional()
-  rescheduled?: boolean;
-
-  /**
-   * ID of the new appointment if rescheduled.
-   */
-  @IsOptional()
-  @IsUUID()
-  newAppointmentId?: string;
+  @IsNotEmpty()
+  @IsBoolean()
+  cancellationFeeApplies: boolean;
 }
 
 /**
  * DTO for appointment rescheduling events.
- * Used when an appointment is rescheduled.
  */
 export class AppointmentRescheduledEventDto extends AppointmentEventBaseDto {
   /**
-   * Timestamp when the appointment was rescheduled.
+   * The time when the appointment was rescheduled, in ISO 8601 format.
    */
   @IsNotEmpty()
-  @IsDate()
-  @Type(() => Date)
-  rescheduledAt: Date;
+  @IsISO8601()
+  rescheduledAt: string;
 
   /**
-   * Original date and time of the appointment before rescheduling.
+   * The previous scheduled date and time in ISO 8601 format.
    */
   @IsNotEmpty()
-  @IsDate()
-  @Type(() => Date)
-  originalDateTime: Date;
+  @IsISO8601()
+  previousScheduledAt: string;
 
   /**
-   * Reason for rescheduling.
-   */
-  @IsOptional()
-  @IsString()
-  reschedulingReason?: string;
-
-  /**
-   * Whether the appointment was rescheduled by the provider or the user.
+   * The reason for rescheduling.
    */
   @IsNotEmpty()
   @IsString()
-  rescheduledBy: 'user' | 'provider';
+  reschedulingReason: string;
+
+  /**
+   * Whether the appointment was rescheduled by the patient or the provider.
+   */
+  @IsNotEmpty()
+  @IsBoolean()
+  rescheduledByPatient: boolean;
 }
 
 /**
- * DTO for appointment reminder events.
- * Used when a reminder is sent for an upcoming appointment.
+ * DTO for appointment no-show events.
  */
-export class AppointmentReminderEventDto extends AppointmentEventBaseDto {
+export class AppointmentNoShowEventDto extends AppointmentEventBaseDto {
   /**
-   * Timestamp when the reminder was sent.
+   * The time when the no-show was recorded, in ISO 8601 format.
    */
   @IsNotEmpty()
-  @IsDate()
-  @Type(() => Date)
-  reminderSentAt: Date;
+  @IsISO8601()
+  recordedAt: string;
 
   /**
-   * Type of reminder (e.g., 'day-before', 'hour-before').
+   * Whether a no-show fee applies.
    */
   @IsNotEmpty()
-  @IsString()
-  reminderType: string;
+  @IsBoolean()
+  noShowFeeApplies: boolean;
 
   /**
-   * Channel through which the reminder was sent (e.g., 'email', 'sms', 'push').
+   * Optional notes about the no-show.
    */
-  @IsNotEmpty()
+  @IsOptional()
   @IsString()
-  reminderChannel: string;
+  noShowNotes?: string;
 }
+
+/**
+ * Type representing all possible appointment event DTOs.
+ */
+export type AppointmentEventDto =
+  | AppointmentBookedEventDto
+  | AppointmentCheckedInEventDto
+  | AppointmentCompletedEventDto
+  | AppointmentCancelledEventDto
+  | AppointmentRescheduledEventDto
+  | AppointmentNoShowEventDto;

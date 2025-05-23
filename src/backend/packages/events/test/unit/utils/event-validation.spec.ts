@@ -1,878 +1,917 @@
-/**
- * @file event-validation.spec.ts
- * @description Unit tests for event validation utilities
- */
-
-import { validate } from 'class-validator';
-import { plainToInstance } from 'class-transformer';
+import { z } from 'zod';
+import { EventType } from '../../../src/dto/event-types.enum';
+import { BaseEvent } from '../../../src/interfaces/base-event.interface';
+import { ValidationResult } from '../../../src/interfaces/event-validation.interface';
 import {
-  IsValidJourney,
-  IsValidEventType,
-  IsValidUUID,
-  IsValidISODate,
-  IsRequiredWhen,
-  IsProhibitedWhen,
-  IsValidHealthMetricValue,
-  IsValidHealthMetricUnit,
-  IsValidDeviceType,
-  IsValidAppointmentStatus,
-  IsValidClaimStatus,
-  HasValidEventMetadata,
-  formatValidationErrors,
-  validateObject,
-  isUUID,
-  isISODate,
-  isValidJourney,
-  isValidEventType,
-  ValidationError
-} from '../../../src/dto/validation';
-import { EventMetadataDto, EventOriginDto, EventVersionDto } from '../../../src/dto/event-metadata.dto';
-import { EventType, JourneyEvents } from '../../../src/dto/event-types.enum';
-import { ERROR_CODES } from '../../../src/constants/errors.constants';
-import { HealthMetricRecordedEventDto, HealthMetricType } from '../../../src/dto/health-event.dto';
-
-// Test class for decorator validation
-class TestEventDto {
-  @IsValidUUID()
-  id: string;
-
-  @IsValidJourney()
-  journey: string;
-
-  @IsValidEventType('@journey')
-  type: string;
-
-  @IsValidISODate()
-  timestamp: string;
-
-  @IsRequiredWhen('type', [EventType.HEALTH_METRIC_RECORDED])
-  metricValue: number;
-
-  @IsProhibitedWhen('type', [EventType.USER_LOGIN])
-  appointmentId: string;
-
-  constructor(data: Partial<TestEventDto>) {
-    Object.assign(this, data);
-  }
-}
-
-// Test class for health metric validation
-class TestHealthMetricDto {
-  @IsValidHealthMetricValue()
-  value: number;
-
-  @IsValidHealthMetricUnit()
-  unit: string;
-
-  metricType: string;
-
-  constructor(data: Partial<TestHealthMetricDto>) {
-    Object.assign(this, data);
-  }
-}
-
-// Test class for device type validation
-class TestDeviceDto {
-  @IsValidDeviceType()
-  deviceType: string;
-
-  constructor(data: Partial<TestDeviceDto>) {
-    Object.assign(this, data);
-  }
-}
-
-// Test class for appointment status validation
-class TestAppointmentDto {
-  @IsValidAppointmentStatus()
-  status: string;
-
-  constructor(data: Partial<TestAppointmentDto>) {
-    Object.assign(this, data);
-  }
-}
-
-// Test class for claim status validation
-class TestClaimDto {
-  @IsValidClaimStatus()
-  status: string;
-
-  constructor(data: Partial<TestClaimDto>) {
-    Object.assign(this, data);
-  }
-}
-
-// Test class for event metadata validation
-class TestEventWithMetadataDto {
-  @HasValidEventMetadata()
-  metadata: EventMetadataDto;
-
-  constructor(data: Partial<TestEventWithMetadataDto>) {
-    Object.assign(this, data);
-  }
-}
+  validateEvent,
+  validateEventByType,
+  validatePayload,
+  formatZodError,
+  createUuidValidator,
+  createRangeValidator,
+  createPatternValidator,
+  createRequiredPropsValidator,
+  EventValidator,
+  eventValidator
+} from '../../../src/utils/event-validator';
 
 describe('Event Validation Utilities', () => {
-  describe('Basic Validation Functions', () => {
-    describe('isUUID', () => {
-      it('should return true for valid UUIDs', () => {
-        expect(isUUID('123e4567-e89b-12d3-a456-426614174000')).toBe(true);
-        expect(isUUID('550e8400-e29b-41d4-a716-446655440000')).toBe(true);
-      });
+  // Test data for reuse across tests
+  const validUserId = '550e8400-e29b-41d4-a716-446655440000';
+  const invalidUserId = 'not-a-uuid';
+  const validTimestamp = new Date().toISOString();
+  const invalidTimestamp = 'not-a-timestamp';
 
-      it('should return false for invalid UUIDs', () => {
-        expect(isUUID('not-a-uuid')).toBe(false);
-        expect(isUUID('123e4567-e89b-12d3-a456-42661417400')).toBe(false); // Too short
-        expect(isUUID('123e4567-e89b-12d3-a456-4266141740000')).toBe(false); // Too long
-        expect(isUUID(null)).toBe(false);
-        expect(isUUID(undefined)).toBe(false);
-        expect(isUUID(123)).toBe(false);
-      });
+  // Helper function to create a valid base event
+  const createValidBaseEvent = (overrides: Partial<BaseEvent> = {}): BaseEvent => ({
+    eventId: '550e8400-e29b-41d4-a716-446655440000',
+    type: EventType.HEALTH_METRIC_RECORDED,
+    timestamp: validTimestamp,
+    version: '1.0.0',
+    source: 'test',
+    userId: validUserId,
+    journey: 'health',
+    payload: {
+      metricType: 'HEART_RATE',
+      value: 75,
+      unit: 'bpm',
+      timestamp: validTimestamp
+    },
+    ...overrides
+  });
+
+  describe('validateEvent', () => {
+    it('should validate a valid event', () => {
+      // Arrange
+      const validEvent = createValidBaseEvent();
+
+      // Act
+      const result = validateEvent(validEvent);
+
+      // Assert
+      expect(result.success).toBe(true);
+      expect(result.data).toBeDefined();
+      expect(result.error).toBeUndefined();
     });
 
-    describe('isISODate', () => {
-      it('should return true for valid ISO date strings', () => {
-        expect(isISODate('2023-01-01T00:00:00.000Z')).toBe(true);
-        expect(isISODate(new Date().toISOString())).toBe(true);
-      });
+    it('should reject an event with missing required fields', () => {
+      // Arrange
+      const invalidEvent = {
+        // Missing type, userId, and other required fields
+        timestamp: validTimestamp,
+        data: { value: 'test' }
+      };
 
-      it('should return false for invalid ISO date strings', () => {
-        expect(isISODate('2023-01-01')).toBe(false); // Not a full ISO string
-        expect(isISODate('not-a-date')).toBe(false);
-        expect(isISODate(null)).toBe(false);
-        expect(isISODate(undefined)).toBe(false);
-        expect(isISODate(new Date())).toBe(false); // Date object, not string
-      });
+      // Act
+      const result = validateEvent(invalidEvent);
+
+      // Assert
+      expect(result.success).toBe(false);
+      expect(result.error).toBeDefined();
+      expect(result.data).toBeUndefined();
+      // Check that the error message mentions the missing fields
+      expect(result.error.message).toContain('type');
     });
 
-    describe('isValidJourney', () => {
-      it('should return true for valid journey names', () => {
-        expect(isValidJourney('health')).toBe(true);
-        expect(isValidJourney('care')).toBe(true);
-        expect(isValidJourney('plan')).toBe(true);
-        expect(isValidJourney('user')).toBe(true);
-        expect(isValidJourney('gamification')).toBe(true);
-        // Case insensitive
-        expect(isValidJourney('HEALTH')).toBe(true);
-      });
+    it('should reject an event with invalid userId format', () => {
+      // Arrange
+      const invalidEvent = createValidBaseEvent({ userId: invalidUserId });
 
-      it('should return false for invalid journey names', () => {
-        expect(isValidJourney('invalid')).toBe(false);
-        expect(isValidJourney('')).toBe(false);
-        expect(isValidJourney(null)).toBe(false);
-        expect(isValidJourney(undefined)).toBe(false);
-        expect(isValidJourney(123)).toBe(false);
-      });
+      // Act
+      const result = validateEvent(invalidEvent);
+
+      // Assert
+      expect(result.success).toBe(false);
+      expect(result.error).toBeDefined();
+      expect(result.error.message).toContain('userId');
+      expect(result.error.message).toContain('uuid');
     });
 
-    describe('isValidEventType', () => {
-      it('should return true for valid health event types', () => {
-        expect(isValidEventType('HEALTH_METRIC_RECORDED', 'health')).toBe(true);
-        expect(isValidEventType('HEALTH_GOAL_ACHIEVED', 'health')).toBe(true);
-        expect(isValidEventType('HEALTH_GOAL_CREATED', 'health')).toBe(true);
-        expect(isValidEventType('HEALTH_GOAL_UPDATED', 'health')).toBe(true);
-        expect(isValidEventType('DEVICE_SYNCHRONIZED', 'health')).toBe(true);
-        expect(isValidEventType('HEALTH_INSIGHT_GENERATED', 'health')).toBe(true);
-      });
+    it('should reject an event with invalid timestamp format', () => {
+      // Arrange
+      const invalidEvent = createValidBaseEvent({ timestamp: invalidTimestamp });
 
-      it('should return true for valid care event types', () => {
-        expect(isValidEventType('APPOINTMENT_BOOKED', 'care')).toBe(true);
-        expect(isValidEventType('APPOINTMENT_COMPLETED', 'care')).toBe(true);
-        expect(isValidEventType('APPOINTMENT_CANCELLED', 'care')).toBe(true);
-        expect(isValidEventType('MEDICATION_ADHERENCE', 'care')).toBe(true);
-        expect(isValidEventType('TELEMEDICINE_SESSION_STARTED', 'care')).toBe(true);
-        expect(isValidEventType('TELEMEDICINE_SESSION_ENDED', 'care')).toBe(true);
-        expect(isValidEventType('CARE_PLAN_UPDATED', 'care')).toBe(true);
-      });
+      // Act
+      const result = validateEvent(invalidEvent);
 
-      it('should return true for valid plan event types', () => {
-        expect(isValidEventType('CLAIM_SUBMITTED', 'plan')).toBe(true);
-        expect(isValidEventType('CLAIM_UPDATED', 'plan')).toBe(true);
-        expect(isValidEventType('CLAIM_APPROVED', 'plan')).toBe(true);
-        expect(isValidEventType('CLAIM_REJECTED', 'plan')).toBe(true);
-        expect(isValidEventType('BENEFIT_UTILIZED', 'plan')).toBe(true);
-        expect(isValidEventType('PLAN_SELECTED', 'plan')).toBe(true);
-        expect(isValidEventType('PLAN_COMPARED', 'plan')).toBe(true);
-      });
+      // Assert
+      expect(result.success).toBe(false);
+      expect(result.error).toBeDefined();
+      expect(result.error.message).toContain('timestamp');
+      expect(result.error.message).toContain('datetime');
+    });
 
-      it('should return true for valid user event types', () => {
-        expect(isValidEventType('USER_REGISTERED', 'user')).toBe(true);
-        expect(isValidEventType('USER_LOGGED_IN', 'user')).toBe(true);
-        expect(isValidEventType('USER_PROFILE_UPDATED', 'user')).toBe(true);
-        expect(isValidEventType('USER_PREFERENCES_UPDATED', 'user')).toBe(true);
-      });
+    it('should use default timestamp if not provided', () => {
+      // Arrange
+      const eventWithoutTimestamp = createValidBaseEvent();
+      delete eventWithoutTimestamp.timestamp;
 
-      it('should return true for valid gamification event types', () => {
-        expect(isValidEventType('ACHIEVEMENT_UNLOCKED', 'gamification')).toBe(true);
-        expect(isValidEventType('REWARD_EARNED', 'gamification')).toBe(true);
-        expect(isValidEventType('REWARD_REDEEMED', 'gamification')).toBe(true);
-        expect(isValidEventType('LEADERBOARD_UPDATED', 'gamification')).toBe(true);
-        expect(isValidEventType('LEVEL_UP', 'gamification')).toBe(true);
-      });
+      // Act
+      const result = validateEvent(eventWithoutTimestamp);
 
-      it('should return false for invalid event types', () => {
-        expect(isValidEventType('INVALID_EVENT', 'health')).toBe(false);
-        expect(isValidEventType('HEALTH_METRIC_RECORDED', 'care')).toBe(false); // Valid type but wrong journey
-        expect(isValidEventType('', 'health')).toBe(false);
-        expect(isValidEventType(null, 'health')).toBe(false);
-        expect(isValidEventType(undefined, 'health')).toBe(false);
-        expect(isValidEventType('HEALTH_METRIC_RECORDED', null)).toBe(false);
-        expect(isValidEventType('HEALTH_METRIC_RECORDED', undefined)).toBe(false);
-        expect(isValidEventType('HEALTH_METRIC_RECORDED', 'invalid')).toBe(false);
-      });
+      // Assert
+      expect(result.success).toBe(true);
+      expect(result.data).toBeDefined();
+      expect(result.data.timestamp).toBeDefined();
+      // Verify it's a valid ISO date string
+      expect(() => new Date(result.data.timestamp)).not.toThrow();
     });
   });
 
-  describe('Decorator-based Validation', () => {
-    describe('IsValidUUID', () => {
-      it('should validate valid UUIDs', async () => {
-        const testEvent = new TestEventDto({
-          id: '123e4567-e89b-12d3-a456-426614174000',
-          journey: 'health',
-          type: 'HEALTH_METRIC_RECORDED',
-          timestamp: new Date().toISOString(),
-          metricValue: 75
-        });
+  describe('validateEventByType', () => {
+    it('should validate an event with the correct type', () => {
+      // Arrange
+      const validEvent = createValidBaseEvent();
 
-        const errors = await validate(testEvent, { property: 'id' });
-        expect(errors.length).toBe(0);
-      });
+      // Act
+      const result = validateEventByType(validEvent, EventType.HEALTH_METRIC_RECORDED);
 
-      it('should reject invalid UUIDs', async () => {
-        const testEvent = new TestEventDto({
-          id: 'not-a-uuid',
-          journey: 'health',
-          type: 'HEALTH_METRIC_RECORDED',
-          timestamp: new Date().toISOString(),
-          metricValue: 75
-        });
-
-        const errors = await validate(testEvent, { property: 'id' });
-        expect(errors.length).toBeGreaterThan(0);
-        expect(errors[0].constraints).toHaveProperty('isValidUUID');
-      });
+      // Assert
+      expect(result.success).toBe(true);
+      expect(result.data).toBeDefined();
     });
 
-    describe('IsValidJourney', () => {
-      it('should validate valid journey names', async () => {
-        const testEvent = new TestEventDto({
-          id: '123e4567-e89b-12d3-a456-426614174000',
-          journey: 'health',
-          type: 'HEALTH_METRIC_RECORDED',
-          timestamp: new Date().toISOString(),
-          metricValue: 75
-        });
+    it('should reject an event with the wrong type', () => {
+      // Arrange
+      const validEvent = createValidBaseEvent();
 
-        const errors = await validate(testEvent, { property: 'journey' });
-        expect(errors.length).toBe(0);
-      });
+      // Act
+      const result = validateEventByType(validEvent, EventType.HEALTH_GOAL_ACHIEVED);
 
-      it('should reject invalid journey names', async () => {
-        const testEvent = new TestEventDto({
-          id: '123e4567-e89b-12d3-a456-426614174000',
-          journey: 'invalid',
-          type: 'HEALTH_METRIC_RECORDED',
-          timestamp: new Date().toISOString(),
-          metricValue: 75
-        });
-
-        const errors = await validate(testEvent, { property: 'journey' });
-        expect(errors.length).toBeGreaterThan(0);
-        expect(errors[0].constraints).toHaveProperty('isValidJourney');
-      });
+      // Assert
+      expect(result.success).toBe(false);
+      expect(result.error).toBeDefined();
+      expect(result.error.message).toContain('type mismatch');
+      expect(result.error.message).toContain(EventType.HEALTH_GOAL_ACHIEVED);
+      expect(result.error.message).toContain(EventType.HEALTH_METRIC_RECORDED);
     });
 
-    describe('IsValidEventType', () => {
-      it('should validate valid event types for the specified journey', async () => {
-        const testEvent = new TestEventDto({
-          id: '123e4567-e89b-12d3-a456-426614174000',
-          journey: 'health',
-          type: 'HEALTH_METRIC_RECORDED',
-          timestamp: new Date().toISOString(),
-          metricValue: 75
-        });
+    it('should reject an event with an unknown type', () => {
+      // Arrange
+      const unknownTypeEvent = createValidBaseEvent({ type: 'UNKNOWN_TYPE' });
 
-        const errors = await validate(testEvent);
-        expect(errors.length).toBe(0);
-      });
+      // Act
+      const result = validateEventByType(unknownTypeEvent, 'UNKNOWN_TYPE');
 
-      it('should reject invalid event types for the specified journey', async () => {
-        const testEvent = new TestEventDto({
-          id: '123e4567-e89b-12d3-a456-426614174000',
-          journey: 'health',
-          type: 'APPOINTMENT_BOOKED', // Care journey event type
-          timestamp: new Date().toISOString(),
-          metricValue: 75
-        });
-
-        const errors = await validate(testEvent);
-        expect(errors.length).toBeGreaterThan(0);
-        expect(errors[0].constraints).toHaveProperty('isValidEventType');
-      });
-    });
-
-    describe('IsValidISODate', () => {
-      it('should validate valid ISO date strings', async () => {
-        const testEvent = new TestEventDto({
-          id: '123e4567-e89b-12d3-a456-426614174000',
-          journey: 'health',
-          type: 'HEALTH_METRIC_RECORDED',
-          timestamp: new Date().toISOString(),
-          metricValue: 75
-        });
-
-        const errors = await validate(testEvent, { property: 'timestamp' });
-        expect(errors.length).toBe(0);
-      });
-
-      it('should reject invalid ISO date strings', async () => {
-        const testEvent = new TestEventDto({
-          id: '123e4567-e89b-12d3-a456-426614174000',
-          journey: 'health',
-          type: 'HEALTH_METRIC_RECORDED',
-          timestamp: '2023-01-01', // Not a full ISO string
-          metricValue: 75
-        });
-
-        const errors = await validate(testEvent, { property: 'timestamp' });
-        expect(errors.length).toBeGreaterThan(0);
-        expect(errors[0].constraints).toHaveProperty('isValidISODate');
-      });
-    });
-
-    describe('IsRequiredWhen', () => {
-      it('should require a field when the condition is met', async () => {
-        const testEvent = new TestEventDto({
-          id: '123e4567-e89b-12d3-a456-426614174000',
-          journey: 'health',
-          type: 'HEALTH_METRIC_RECORDED',
-          timestamp: new Date().toISOString(),
-          // metricValue is missing but required for HEALTH_METRIC_RECORDED
-        });
-
-        const errors = await validate(testEvent);
-        expect(errors.length).toBeGreaterThan(0);
-        expect(errors[0].constraints).toHaveProperty('isRequiredWhen');
-      });
-
-      it('should not require a field when the condition is not met', async () => {
-        const testEvent = new TestEventDto({
-          id: '123e4567-e89b-12d3-a456-426614174000',
-          journey: 'user',
-          type: 'USER_LOGGED_IN',
-          timestamp: new Date().toISOString(),
-          // metricValue is missing but not required for USER_LOGGED_IN
-        });
-
-        const errors = await validate(testEvent);
-        expect(errors.length).toBe(0);
-      });
-    });
-
-    describe('IsProhibitedWhen', () => {
-      it('should prohibit a field when the condition is met', async () => {
-        const testEvent = new TestEventDto({
-          id: '123e4567-e89b-12d3-a456-426614174000',
-          journey: 'user',
-          type: 'USER_LOGIN',
-          timestamp: new Date().toISOString(),
-          appointmentId: '123e4567-e89b-12d3-a456-426614174000' // Prohibited for USER_LOGIN
-        });
-
-        const errors = await validate(testEvent);
-        expect(errors.length).toBeGreaterThan(0);
-        expect(errors[0].constraints).toHaveProperty('isProhibitedWhen');
-      });
-
-      it('should allow a field when the condition is not met', async () => {
-        const testEvent = new TestEventDto({
-          id: '123e4567-e89b-12d3-a456-426614174000',
-          journey: 'care',
-          type: 'APPOINTMENT_BOOKED',
-          timestamp: new Date().toISOString(),
-          appointmentId: '123e4567-e89b-12d3-a456-426614174000' // Allowed for APPOINTMENT_BOOKED
-        });
-
-        const errors = await validate(testEvent);
-        expect(errors.length).toBe(0);
-      });
-    });
-
-    describe('IsValidHealthMetricValue', () => {
-      it('should validate valid health metric values', async () => {
-        const testCases = [
-          { metricType: 'HEART_RATE', value: 75, unit: 'bpm' },
-          { metricType: 'BLOOD_GLUCOSE', value: 100, unit: 'mg/dL' },
-          { metricType: 'STEPS', value: 10000, unit: 'steps' },
-          { metricType: 'SLEEP', value: 8, unit: 'hours' },
-          { metricType: 'WEIGHT', value: 70, unit: 'kg' },
-          { metricType: 'TEMPERATURE', value: 37, unit: '°C' },
-          { metricType: 'OXYGEN_SATURATION', value: 98, unit: '%' },
-          { metricType: 'RESPIRATORY_RATE', value: 16, unit: 'breaths/min' },
-          { metricType: 'WATER_INTAKE', value: 2000, unit: 'ml' },
-          { metricType: 'CALORIES', value: 2000, unit: 'kcal' }
-        ];
-
-        for (const testCase of testCases) {
-          const testMetric = new TestHealthMetricDto(testCase);
-          const errors = await validate(testMetric);
-          expect(errors.length).toBe(0);
-        }
-      });
-
-      it('should reject invalid health metric values', async () => {
-        const testCases = [
-          { metricType: 'HEART_RATE', value: 300, unit: 'bpm' }, // Too high
-          { metricType: 'BLOOD_GLUCOSE', value: 1000, unit: 'mg/dL' }, // Too high
-          { metricType: 'STEPS', value: -100, unit: 'steps' }, // Negative
-          { metricType: 'SLEEP', value: 30, unit: 'hours' }, // Too high
-          { metricType: 'WEIGHT', value: 1000, unit: 'kg' }, // Too high
-          { metricType: 'TEMPERATURE', value: 50, unit: '°C' }, // Too high
-          { metricType: 'OXYGEN_SATURATION', value: 120, unit: '%' }, // Over 100%
-          { metricType: 'RESPIRATORY_RATE', value: 200, unit: 'breaths/min' }, // Too high
-          { metricType: 'WATER_INTAKE', value: 20000, unit: 'ml' }, // Too high
-          { metricType: 'CALORIES', value: 50000, unit: 'kcal' } // Too high
-        ];
-
-        for (const testCase of testCases) {
-          const testMetric = new TestHealthMetricDto(testCase);
-          const errors = await validate(testMetric);
-          expect(errors.length).toBeGreaterThan(0);
-          expect(errors[0].constraints).toHaveProperty('isValidHealthMetricValue');
-        }
-      });
-    });
-
-    describe('IsValidHealthMetricUnit', () => {
-      it('should validate valid health metric units', async () => {
-        const testCases = [
-          { metricType: 'HEART_RATE', value: 75, unit: 'bpm' },
-          { metricType: 'BLOOD_GLUCOSE', value: 100, unit: 'mg/dL' },
-          { metricType: 'BLOOD_GLUCOSE', value: 5.5, unit: 'mmol/L' },
-          { metricType: 'STEPS', value: 10000, unit: 'steps' },
-          { metricType: 'SLEEP', value: 8, unit: 'hours' },
-          { metricType: 'SLEEP', value: 480, unit: 'minutes' },
-          { metricType: 'WEIGHT', value: 70, unit: 'kg' },
-          { metricType: 'WEIGHT', value: 154, unit: 'lb' },
-          { metricType: 'TEMPERATURE', value: 37, unit: '°C' },
-          { metricType: 'TEMPERATURE', value: 98.6, unit: '°F' },
-          { metricType: 'OXYGEN_SATURATION', value: 98, unit: '%' },
-          { metricType: 'RESPIRATORY_RATE', value: 16, unit: 'breaths/min' },
-          { metricType: 'WATER_INTAKE', value: 2000, unit: 'ml' },
-          { metricType: 'WATER_INTAKE', value: 68, unit: 'oz' },
-          { metricType: 'CALORIES', value: 2000, unit: 'kcal' }
-        ];
-
-        for (const testCase of testCases) {
-          const testMetric = new TestHealthMetricDto(testCase);
-          const errors = await validate(testMetric);
-          expect(errors.length).toBe(0);
-        }
-      });
-
-      it('should reject invalid health metric units', async () => {
-        const testCases = [
-          { metricType: 'HEART_RATE', value: 75, unit: 'beats' }, // Invalid unit
-          { metricType: 'BLOOD_GLUCOSE', value: 100, unit: 'units' }, // Invalid unit
-          { metricType: 'STEPS', value: 10000, unit: 'count' }, // Invalid unit
-          { metricType: 'SLEEP', value: 8, unit: 'hrs' }, // Invalid unit
-          { metricType: 'WEIGHT', value: 70, unit: 'kilos' }, // Invalid unit
-          { metricType: 'TEMPERATURE', value: 37, unit: 'celsius' }, // Invalid unit
-          { metricType: 'OXYGEN_SATURATION', value: 98, unit: 'percent' }, // Invalid unit
-          { metricType: 'RESPIRATORY_RATE', value: 16, unit: 'bpm' }, // Invalid unit
-          { metricType: 'WATER_INTAKE', value: 2000, unit: 'liters' }, // Invalid unit
-          { metricType: 'CALORIES', value: 2000, unit: 'calories' } // Invalid unit
-        ];
-
-        for (const testCase of testCases) {
-          const testMetric = new TestHealthMetricDto(testCase);
-          const errors = await validate(testMetric);
-          expect(errors.length).toBeGreaterThan(0);
-          expect(errors[0].constraints).toHaveProperty('isValidHealthMetricUnit');
-        }
-      });
-    });
-
-    describe('IsValidDeviceType', () => {
-      it('should validate valid device types', async () => {
-        const validDeviceTypes = [
-          'FITNESS_TRACKER',
-          'SMARTWATCH',
-          'BLOOD_PRESSURE_MONITOR',
-          'GLUCOSE_MONITOR',
-          'SCALE',
-          'SLEEP_TRACKER',
-          'THERMOMETER',
-          'PULSE_OXIMETER'
-        ];
-
-        for (const deviceType of validDeviceTypes) {
-          const testDevice = new TestDeviceDto({ deviceType });
-          const errors = await validate(testDevice);
-          expect(errors.length).toBe(0);
-        }
-      });
-
-      it('should reject invalid device types', async () => {
-        const invalidDeviceTypes = [
-          'INVALID_DEVICE',
-          '',
-          null,
-          undefined
-        ];
-
-        for (const deviceType of invalidDeviceTypes) {
-          const testDevice = new TestDeviceDto({ deviceType });
-          const errors = await validate(testDevice);
-          expect(errors.length).toBeGreaterThan(0);
-          expect(errors[0].constraints).toHaveProperty('isValidDeviceType');
-        }
-      });
-    });
-
-    describe('IsValidAppointmentStatus', () => {
-      it('should validate valid appointment statuses', async () => {
-        const validStatuses = [
-          'SCHEDULED',
-          'CONFIRMED',
-          'CHECKED_IN',
-          'IN_PROGRESS',
-          'COMPLETED',
-          'CANCELLED',
-          'NO_SHOW',
-          'RESCHEDULED'
-        ];
-
-        for (const status of validStatuses) {
-          const testAppointment = new TestAppointmentDto({ status });
-          const errors = await validate(testAppointment);
-          expect(errors.length).toBe(0);
-        }
-      });
-
-      it('should reject invalid appointment statuses', async () => {
-        const invalidStatuses = [
-          'INVALID_STATUS',
-          '',
-          null,
-          undefined
-        ];
-
-        for (const status of invalidStatuses) {
-          const testAppointment = new TestAppointmentDto({ status });
-          const errors = await validate(testAppointment);
-          expect(errors.length).toBeGreaterThan(0);
-          expect(errors[0].constraints).toHaveProperty('isValidAppointmentStatus');
-        }
-      });
-    });
-
-    describe('IsValidClaimStatus', () => {
-      it('should validate valid claim statuses', async () => {
-        const validStatuses = [
-          'SUBMITTED',
-          'UNDER_REVIEW',
-          'ADDITIONAL_INFO_REQUIRED',
-          'APPROVED',
-          'PARTIALLY_APPROVED',
-          'REJECTED',
-          'PAYMENT_PENDING',
-          'PAYMENT_PROCESSED',
-          'APPEALED'
-        ];
-
-        for (const status of validStatuses) {
-          const testClaim = new TestClaimDto({ status });
-          const errors = await validate(testClaim);
-          expect(errors.length).toBe(0);
-        }
-      });
-
-      it('should reject invalid claim statuses', async () => {
-        const invalidStatuses = [
-          'INVALID_STATUS',
-          '',
-          null,
-          undefined
-        ];
-
-        for (const status of invalidStatuses) {
-          const testClaim = new TestClaimDto({ status });
-          const errors = await validate(testClaim);
-          expect(errors.length).toBeGreaterThan(0);
-          expect(errors[0].constraints).toHaveProperty('isValidClaimStatus');
-        }
-      });
-    });
-
-    describe('HasValidEventMetadata', () => {
-      it('should validate valid event metadata', async () => {
-        const origin = new EventOriginDto();
-        origin.service = 'test-service';
-        origin.instance = 'test-instance';
-        origin.component = 'test-component';
-
-        const metadata = new EventMetadataDto();
-        metadata.eventId = '123e4567-e89b-12d3-a456-426614174000';
-        metadata.correlationId = '550e8400-e29b-41d4-a716-446655440000';
-        metadata.timestamp = new Date();
-        metadata.origin = origin;
-
-        const testEvent = new TestEventWithMetadataDto({ metadata });
-        const errors = await validate(testEvent);
-        expect(errors.length).toBe(0);
-      });
-
-      it('should reject invalid event metadata', async () => {
-        // Missing required service in origin
-        const origin = new EventOriginDto();
-        origin.instance = 'test-instance';
-
-        const metadata = new EventMetadataDto();
-        metadata.eventId = '123e4567-e89b-12d3-a456-426614174000';
-        metadata.correlationId = '550e8400-e29b-41d4-a716-446655440000';
-        metadata.timestamp = new Date();
-        metadata.origin = origin;
-
-        const testEvent = new TestEventWithMetadataDto({ metadata });
-        const errors = await validate(testEvent);
-        expect(errors.length).toBeGreaterThan(0);
-      });
-
-      it('should reject non-object metadata', async () => {
-        const testEvent = new TestEventWithMetadataDto({ metadata: 'not-an-object' as any });
-        const errors = await validate(testEvent);
-        expect(errors.length).toBeGreaterThan(0);
-        expect(errors[0].constraints).toHaveProperty('hasValidEventMetadata');
-      });
+      // Assert
+      expect(result.success).toBe(false);
+      expect(result.error).toBeDefined();
+      expect(result.error.message).toContain('Unknown event type');
     });
   });
 
-  describe('Utility Functions', () => {
-    describe('formatValidationErrors', () => {
-      it('should format validation errors correctly', async () => {
-        const testEvent = new TestEventDto({
-          id: 'not-a-uuid',
-          journey: 'invalid',
-          type: 'INVALID_TYPE',
-          timestamp: '2023-01-01', // Not a full ISO string
-          metricValue: null
-        });
-
-        const errors = await validate(testEvent);
-        const formattedErrors = formatValidationErrors(errors);
-
-        expect(formattedErrors.length).toBeGreaterThan(0);
-        expect(formattedErrors[0]).toHaveProperty('property');
-        expect(formattedErrors[0]).toHaveProperty('errorCode');
-        expect(formattedErrors[0]).toHaveProperty('message');
-        expect(formattedErrors[0]).toHaveProperty('constraints');
-        expect(formattedErrors[0].errorCode).toBe(ERROR_CODES.SCHEMA_VALIDATION_FAILED);
-      });
-
-      it('should handle nested validation errors', async () => {
-        // Create a complex object with nested validation errors
-        // This would typically come from validating a complex DTO with nested objects
-        const mockErrors = [
-          {
-            property: 'data',
-            children: [
-              {
-                property: 'metricType',
-                constraints: {
-                  isEnum: 'metricType must be a valid enum value'
-                }
-              }
-            ]
-          }
-        ];
-
-        const formattedErrors = formatValidationErrors(mockErrors);
-
-        expect(formattedErrors.length).toBe(1);
-        expect(formattedErrors[0]).toHaveProperty('property', 'data');
-        expect(formattedErrors[0]).toHaveProperty('children');
-        expect(formattedErrors[0].children.length).toBe(1);
-        expect(formattedErrors[0].children[0]).toHaveProperty('property', 'metricType');
-        expect(formattedErrors[0].children[0]).toHaveProperty('constraints');
-      });
-    });
-
-    describe('validateObject', () => {
-      it('should return null for valid objects', async () => {
-        const testEvent = new TestEventDto({
-          id: '123e4567-e89b-12d3-a456-426614174000',
+  describe('Journey-specific event validation', () => {
+    describe('Health Journey Events', () => {
+      it('should validate a valid HEALTH_METRIC_RECORDED event', () => {
+        // Arrange
+        const validEvent = createValidBaseEvent({
+          type: EventType.HEALTH_METRIC_RECORDED,
           journey: 'health',
-          type: 'HEALTH_METRIC_RECORDED',
-          timestamp: new Date().toISOString(),
-          metricValue: 75
-        });
-
-        const errors = await validateObject(testEvent);
-        expect(errors).toBeNull();
-      });
-
-      it('should return formatted validation errors for invalid objects', async () => {
-        const testEvent = new TestEventDto({
-          id: 'not-a-uuid',
-          journey: 'invalid',
-          type: 'INVALID_TYPE',
-          timestamp: '2023-01-01', // Not a full ISO string
-          metricValue: null
-        });
-
-        const errors = await validateObject(testEvent);
-        expect(errors).not.toBeNull();
-        expect(Array.isArray(errors)).toBe(true);
-        expect(errors.length).toBeGreaterThan(0);
-        expect(errors[0]).toHaveProperty('property');
-        expect(errors[0]).toHaveProperty('errorCode');
-        expect(errors[0]).toHaveProperty('message');
-        expect(errors[0]).toHaveProperty('constraints');
-      });
-    });
-  });
-
-  describe('Complex Validation Scenarios', () => {
-    describe('Health Metric Recorded Event Validation', () => {
-      it('should validate a valid health metric recorded event', async () => {
-        const origin = new EventOriginDto();
-        origin.service = 'health-service';
-        origin.instance = 'health-service-1';
-
-        const metadata = new EventMetadataDto();
-        metadata.eventId = '123e4567-e89b-12d3-a456-426614174000';
-        metadata.timestamp = new Date();
-        metadata.origin = origin;
-
-        const event = {
-          type: 'HEALTH_METRIC_RECORDED',
-          journey: 'health',
-          userId: '550e8400-e29b-41d4-a716-446655440000',
-          timestamp: new Date().toISOString(),
-          metadata,
-          data: {
-            metricType: HealthMetricType.HEART_RATE,
+          payload: {
+            metricType: 'HEART_RATE',
             value: 75,
             unit: 'bpm',
-            recordedAt: new Date().toISOString(),
-            deviceId: '123e4567-e89b-12d3-a456-426614174000'
+            timestamp: validTimestamp,
+            source: 'MANUAL'
           }
-        };
+        });
 
-        const healthEvent = plainToInstance(HealthMetricRecordedEventDto, event);
-        const errors = await validate(healthEvent);
-        expect(errors.length).toBe(0);
+        // Act
+        const result = validateEvent(validEvent, { journeyContext: 'health' });
+
+        // Assert
+        expect(result.success).toBe(true);
+        expect(result.data).toBeDefined();
       });
 
-      it('should reject an invalid health metric recorded event', async () => {
-        const event = {
-          type: 'HEALTH_METRIC_RECORDED',
+      it('should validate a valid HEALTH_GOAL_ACHIEVED event', () => {
+        // Arrange
+        const validEvent = createValidBaseEvent({
+          type: EventType.HEALTH_GOAL_ACHIEVED,
           journey: 'health',
-          userId: 'not-a-uuid', // Invalid UUID
-          timestamp: '2023-01-01', // Not a full ISO string
-          // Missing metadata
-          data: {
-            metricType: 'INVALID_TYPE', // Invalid metric type
-            value: 1000, // Invalid value for heart rate
-            unit: 'invalid', // Invalid unit
-            recordedAt: '2023-01-01' // Not a full ISO string
+          payload: {
+            goalId: '550e8400-e29b-41d4-a716-446655440000',
+            goalType: 'STEPS',
+            targetValue: 10000,
+            achievedValue: 10500,
+            unit: 'steps',
+            achievedAt: validTimestamp,
+            streakCount: 5
           }
-        };
+        });
 
-        const healthEvent = plainToInstance(HealthMetricRecordedEventDto, event);
-        const errors = await validate(healthEvent);
-        expect(errors.length).toBeGreaterThan(0);
+        // Act
+        const result = validateEvent(validEvent, { journeyContext: 'health' });
+
+        // Assert
+        expect(result.success).toBe(true);
+        expect(result.data).toBeDefined();
+      });
+
+      it('should reject a HEALTH_METRIC_RECORDED event with invalid metric type', () => {
+        // Arrange
+        const invalidEvent = createValidBaseEvent({
+          type: EventType.HEALTH_METRIC_RECORDED,
+          journey: 'health',
+          payload: {
+            metricType: 'INVALID_METRIC', // Invalid metric type
+            value: 75,
+            unit: 'bpm',
+            timestamp: validTimestamp
+          }
+        });
+
+        // Act
+        const result = validateEvent(invalidEvent, { journeyContext: 'health' });
+
+        // Assert
+        expect(result.success).toBe(false);
+        expect(result.error).toBeDefined();
+        expect(result.error.message).toContain('metricType');
+      });
+
+      it('should reject a HEALTH_GOAL_ACHIEVED event with negative achieved value', () => {
+        // Arrange
+        const invalidEvent = createValidBaseEvent({
+          type: EventType.HEALTH_GOAL_ACHIEVED,
+          journey: 'health',
+          payload: {
+            goalId: '550e8400-e29b-41d4-a716-446655440000',
+            goalType: 'STEPS',
+            targetValue: 10000,
+            achievedValue: -500, // Negative value is invalid
+            unit: 'steps',
+            achievedAt: validTimestamp
+          }
+        });
+
+        // Act
+        const result = validateEvent(invalidEvent, { journeyContext: 'health' });
+
+        // Assert
+        expect(result.success).toBe(false);
+        expect(result.error).toBeDefined();
+        expect(result.error.message).toContain('achievedValue');
       });
     });
 
-    describe('Cross-Journey Event Validation', () => {
-      it('should validate events from different journeys', async () => {
-        // Define test events for each journey
-        const journeyEvents = [
-          {
-            type: 'HEALTH_METRIC_RECORDED',
-            journey: 'health',
-            userId: '123e4567-e89b-12d3-a456-426614174000',
-            timestamp: new Date().toISOString(),
-            data: {
-              metricType: HealthMetricType.HEART_RATE,
-              value: 75,
-              unit: 'bpm'
-            }
-          },
-          {
-            type: 'APPOINTMENT_BOOKED',
-            journey: 'care',
-            userId: '123e4567-e89b-12d3-a456-426614174000',
-            timestamp: new Date().toISOString(),
-            data: {
-              appointmentId: '123e4567-e89b-12d3-a456-426614174000',
-              providerId: '550e8400-e29b-41d4-a716-446655440000',
-              appointmentType: 'in_person',
-              scheduledAt: new Date().toISOString()
-            }
-          },
-          {
-            type: 'CLAIM_SUBMITTED',
-            journey: 'plan',
-            userId: '123e4567-e89b-12d3-a456-426614174000',
-            timestamp: new Date().toISOString(),
-            data: {
-              claimId: '123e4567-e89b-12d3-a456-426614174000',
-              providerId: '550e8400-e29b-41d4-a716-446655440000',
-              amount: 100.50,
-              serviceDate: new Date().toISOString()
-            }
+    describe('Care Journey Events', () => {
+      it('should validate a valid CARE_APPOINTMENT_BOOKED event', () => {
+        // Arrange
+        const validEvent = createValidBaseEvent({
+          type: EventType.CARE_APPOINTMENT_BOOKED,
+          journey: 'care',
+          payload: {
+            appointmentId: '550e8400-e29b-41d4-a716-446655440000',
+            providerId: '550e8400-e29b-41d4-a716-446655440001',
+            specialization: 'Cardiology',
+            dateTime: validTimestamp,
+            duration: 30,
+            location: {
+              type: 'VIRTUAL',
+              address: null
+            },
+            reason: 'Annual checkup',
+            status: 'SCHEDULED'
           }
-        ];
+        });
 
-        // Validate each event type
-        for (const event of journeyEvents) {
-          const testEvent = new TestEventDto({
-            id: '123e4567-e89b-12d3-a456-426614174000',
-            journey: event.journey,
-            type: event.type,
-            timestamp: event.timestamp,
-            metricValue: event.journey === 'health' ? 75 : undefined,
-            appointmentId: event.journey === 'care' ? '123e4567-e89b-12d3-a456-426614174000' : undefined
-          });
+        // Act
+        const result = validateEvent(validEvent, { journeyContext: 'care' });
 
-          const errors = await validate(testEvent);
-          expect(errors.length).toBe(0);
+        // Assert
+        expect(result.success).toBe(true);
+        expect(result.data).toBeDefined();
+      });
+
+      it('should validate a valid CARE_MEDICATION_TAKEN event', () => {
+        // Arrange
+        const validEvent = createValidBaseEvent({
+          type: EventType.CARE_MEDICATION_TAKEN,
+          journey: 'care',
+          payload: {
+            medicationId: '550e8400-e29b-41d4-a716-446655440000',
+            medicationName: 'Aspirin',
+            dosage: 100,
+            unit: 'mg',
+            takenAt: validTimestamp,
+            scheduledFor: validTimestamp,
+            adherence: 'ON_TIME'
+          }
+        });
+
+        // Act
+        const result = validateEvent(validEvent, { journeyContext: 'care' });
+
+        // Assert
+        expect(result.success).toBe(true);
+        expect(result.data).toBeDefined();
+      });
+
+      it('should reject a CARE_APPOINTMENT_BOOKED event with invalid location type', () => {
+        // Arrange
+        const invalidEvent = createValidBaseEvent({
+          type: EventType.CARE_APPOINTMENT_BOOKED,
+          journey: 'care',
+          payload: {
+            appointmentId: '550e8400-e29b-41d4-a716-446655440000',
+            providerId: '550e8400-e29b-41d4-a716-446655440001',
+            specialization: 'Cardiology',
+            dateTime: validTimestamp,
+            duration: 30,
+            location: {
+              type: 'INVALID_LOCATION', // Invalid location type
+              address: null
+            },
+            status: 'SCHEDULED'
+          }
+        });
+
+        // Act
+        const result = validateEvent(invalidEvent, { journeyContext: 'care' });
+
+        // Assert
+        expect(result.success).toBe(false);
+        expect(result.error).toBeDefined();
+        expect(result.error.message).toContain('location.type');
+      });
+
+      it('should reject a CARE_MEDICATION_TAKEN event with negative dosage', () => {
+        // Arrange
+        const invalidEvent = createValidBaseEvent({
+          type: EventType.CARE_MEDICATION_TAKEN,
+          journey: 'care',
+          payload: {
+            medicationId: '550e8400-e29b-41d4-a716-446655440000',
+            medicationName: 'Aspirin',
+            dosage: -100, // Negative dosage is invalid
+            unit: 'mg',
+            takenAt: validTimestamp
+          }
+        });
+
+        // Act
+        const result = validateEvent(invalidEvent, { journeyContext: 'care' });
+
+        // Assert
+        expect(result.success).toBe(false);
+        expect(result.error).toBeDefined();
+        expect(result.error.message).toContain('dosage');
+      });
+    });
+
+    describe('Plan Journey Events', () => {
+      it('should validate a valid PLAN_CLAIM_SUBMITTED event', () => {
+        // Arrange
+        const validEvent = createValidBaseEvent({
+          type: EventType.PLAN_CLAIM_SUBMITTED,
+          journey: 'plan',
+          payload: {
+            claimId: '550e8400-e29b-41d4-a716-446655440000',
+            claimType: 'MEDICAL',
+            amount: 150.75,
+            currency: 'USD',
+            serviceDate: validTimestamp,
+            providerId: '550e8400-e29b-41d4-a716-446655440001',
+            providerName: 'Dr. Smith',
+            documents: ['doc1.pdf', 'doc2.pdf'],
+            status: 'SUBMITTED'
+          }
+        });
+
+        // Act
+        const result = validateEvent(validEvent, { journeyContext: 'plan' });
+
+        // Assert
+        expect(result.success).toBe(true);
+        expect(result.data).toBeDefined();
+      });
+
+      it('should validate a valid PLAN_BENEFIT_UTILIZED event', () => {
+        // Arrange
+        const validEvent = createValidBaseEvent({
+          type: EventType.PLAN_BENEFIT_UTILIZED,
+          journey: 'plan',
+          payload: {
+            benefitId: '550e8400-e29b-41d4-a716-446655440000',
+            benefitType: 'DENTAL',
+            utilizationDate: validTimestamp,
+            value: 200,
+            remainingValue: 800,
+            expiryDate: validTimestamp,
+            provider: 'Dental Clinic'
+          }
+        });
+
+        // Act
+        const result = validateEvent(validEvent, { journeyContext: 'plan' });
+
+        // Assert
+        expect(result.success).toBe(true);
+        expect(result.data).toBeDefined();
+      });
+
+      it('should reject a PLAN_CLAIM_SUBMITTED event with zero amount', () => {
+        // Arrange
+        const invalidEvent = createValidBaseEvent({
+          type: EventType.PLAN_CLAIM_SUBMITTED,
+          journey: 'plan',
+          payload: {
+            claimId: '550e8400-e29b-41d4-a716-446655440000',
+            claimType: 'MEDICAL',
+            amount: 0, // Zero amount is invalid
+            currency: 'USD',
+            serviceDate: validTimestamp,
+            providerName: 'Dr. Smith'
+          }
+        });
+
+        // Act
+        const result = validateEvent(invalidEvent, { journeyContext: 'plan' });
+
+        // Assert
+        expect(result.success).toBe(false);
+        expect(result.error).toBeDefined();
+        expect(result.error.message).toContain('amount');
+      });
+
+      it('should reject a PLAN_BENEFIT_UTILIZED event with negative remaining value', () => {
+        // Arrange
+        const invalidEvent = createValidBaseEvent({
+          type: EventType.PLAN_BENEFIT_UTILIZED,
+          journey: 'plan',
+          payload: {
+            benefitId: '550e8400-e29b-41d4-a716-446655440000',
+            benefitType: 'DENTAL',
+            utilizationDate: validTimestamp,
+            value: 200,
+            remainingValue: -50, // Negative remaining value is invalid
+            provider: 'Dental Clinic'
+          }
+        });
+
+        // Act
+        const result = validateEvent(invalidEvent, { journeyContext: 'plan' });
+
+        // Assert
+        expect(result.success).toBe(false);
+        expect(result.error).toBeDefined();
+        expect(result.error.message).toContain('remainingValue');
+      });
+    });
+  });
+
+  describe('Nested data structure validation', () => {
+    it('should validate events with nested objects', () => {
+      // Arrange
+      const validEvent = createValidBaseEvent({
+        type: EventType.CARE_APPOINTMENT_BOOKED,
+        journey: 'care',
+        payload: {
+          appointmentId: '550e8400-e29b-41d4-a716-446655440000',
+          providerId: '550e8400-e29b-41d4-a716-446655440001',
+          specialization: 'Cardiology',
+          dateTime: validTimestamp,
+          duration: 30,
+          location: {
+            type: 'IN_PERSON',
+            address: '123 Medical St, City',
+            coordinates: [40.7128, -74.0060]
+          },
+          status: 'SCHEDULED'
         }
       });
+
+      // Act
+      const result = validateEvent(validEvent, { journeyContext: 'care' });
+
+      // Assert
+      expect(result.success).toBe(true);
+      expect(result.data).toBeDefined();
     });
 
-    describe('Validation Error Classification', () => {
-      it('should classify validation errors by type', async () => {
-        const testEvent = new TestEventDto({
-          id: 'not-a-uuid', // Format error
-          journey: 'invalid', // Value error
-          type: 'INVALID_TYPE', // Value error
-          timestamp: '2023-01-01', // Format error
-          metricValue: null // Required field error
-        });
-
-        const errors = await validate(testEvent);
-        const formattedErrors = formatValidationErrors(errors);
-
-        // Group errors by property
-        const errorsByProperty = formattedErrors.reduce((acc, error) => {
-          acc[error.property] = error;
-          return acc;
-        }, {});
-
-        // Check for different error types
-        expect(errorsByProperty).toHaveProperty('id'); // Format error
-        expect(errorsByProperty).toHaveProperty('journey'); // Value error
-        expect(errorsByProperty).toHaveProperty('type'); // Value error
-        expect(errorsByProperty).toHaveProperty('timestamp'); // Format error
-
-        // All errors should have the same error code
-        formattedErrors.forEach(error => {
-          expect(error.errorCode).toBe(ERROR_CODES.SCHEMA_VALIDATION_FAILED);
-        });
+    it('should reject events with invalid nested objects', () => {
+      // Arrange
+      const invalidEvent = createValidBaseEvent({
+        type: EventType.CARE_APPOINTMENT_BOOKED,
+        journey: 'care',
+        payload: {
+          appointmentId: '550e8400-e29b-41d4-a716-446655440000',
+          providerId: '550e8400-e29b-41d4-a716-446655440001',
+          specialization: 'Cardiology',
+          dateTime: validTimestamp,
+          duration: 30,
+          location: {
+            type: 'IN_PERSON',
+            address: '123 Medical St, City',
+            coordinates: [40.7128] // Invalid coordinates (should be a tuple of 2 numbers)
+          },
+          status: 'SCHEDULED'
+        }
       });
+
+      // Act
+      const result = validateEvent(invalidEvent, { journeyContext: 'care' });
+
+      // Assert
+      expect(result.success).toBe(false);
+      expect(result.error).toBeDefined();
+      expect(result.error.message).toContain('coordinates');
+    });
+
+    it('should validate events with nested arrays', () => {
+      // Arrange
+      const validEvent = createValidBaseEvent({
+        type: EventType.PLAN_CLAIM_SUBMITTED,
+        journey: 'plan',
+        payload: {
+          claimId: '550e8400-e29b-41d4-a716-446655440000',
+          claimType: 'MEDICAL',
+          amount: 150.75,
+          currency: 'USD',
+          serviceDate: validTimestamp,
+          providerName: 'Dr. Smith',
+          documents: ['doc1.pdf', 'doc2.pdf', 'doc3.pdf']
+        }
+      });
+
+      // Act
+      const result = validateEvent(validEvent, { journeyContext: 'plan' });
+
+      // Assert
+      expect(result.success).toBe(true);
+      expect(result.data).toBeDefined();
+    });
+
+    it('should reject events with invalid nested arrays', () => {
+      // Arrange
+      const invalidEvent = createValidBaseEvent({
+        type: EventType.PLAN_SELECTED,
+        journey: 'plan',
+        payload: {
+          planId: '550e8400-e29b-41d4-a716-446655440000',
+          planName: 'Premium Health Plan',
+          planType: 'HEALTH',
+          coverageLevel: 'INDIVIDUAL',
+          startDate: validTimestamp,
+          premium: 299.99,
+          currency: 'USD',
+          paymentFrequency: 'MONTHLY',
+          selectedBenefits: [123, 456] // Invalid: should be array of strings
+        }
+      });
+
+      // Act
+      const result = validateEvent(invalidEvent, { journeyContext: 'plan' });
+
+      // Assert
+      expect(result.success).toBe(false);
+      expect(result.error).toBeDefined();
+      expect(result.error.message).toContain('selectedBenefits');
+    });
+  });
+
+  describe('UUID format validation', () => {
+    it('should validate proper UUID format', () => {
+      // Arrange
+      const uuidValidator = createUuidValidator();
+      const validUuid = '550e8400-e29b-41d4-a716-446655440000';
+
+      // Act
+      const result = uuidValidator(validUuid);
+
+      // Assert
+      expect(result.success).toBe(true);
+    });
+
+    it('should reject invalid UUID format', () => {
+      // Arrange
+      const uuidValidator = createUuidValidator();
+      const invalidUuids = [
+        'not-a-uuid',
+        '550e8400e29b41d4a716446655440000', // No hyphens
+        '550e8400-e29b-41d4-a716-44665544000G', // Invalid character
+        '550e8400-e29b-41d4-a716', // Too short
+      ];
+
+      // Act & Assert
+      invalidUuids.forEach(uuid => {
+        const result = uuidValidator(uuid);
+        expect(result.success).toBe(false);
+        expect(result.message).toBeDefined();
+      });
+    });
+
+    it('should validate events with UUID fields', () => {
+      // Arrange
+      const validEvent = createValidBaseEvent({
+        userId: '550e8400-e29b-41d4-a716-446655440000',
+        payload: {
+          goalId: '550e8400-e29b-41d4-a716-446655440001',
+          userId: '550e8400-e29b-41d4-a716-446655440000'
+        }
+      });
+
+      // Act
+      const result = validateEvent(validEvent);
+
+      // Assert
+      expect(result.success).toBe(true);
+      expect(result.data).toBeDefined();
+    });
+
+    it('should reject events with invalid UUID fields', () => {
+      // Arrange
+      const invalidEvent = createValidBaseEvent({
+        userId: 'invalid-uuid-format',
+        payload: {
+          metricType: 'HEART_RATE',
+          value: 75,
+          unit: 'bpm'
+        }
+      });
+
+      // Act
+      const result = validateEvent(invalidEvent);
+
+      // Assert
+      expect(result.success).toBe(false);
+      expect(result.error).toBeDefined();
+      expect(result.error.message).toContain('userId');
+    });
+  });
+
+  describe('Error reporting and classification', () => {
+    it('should format Zod errors with proper path information', () => {
+      // Arrange
+      const schema = z.object({
+        name: z.string(),
+        age: z.number().positive(),
+        address: z.object({
+          street: z.string(),
+          city: z.string(),
+          zipCode: z.string().length(5)
+        })
+      });
+
+      const invalidData = {
+        name: 'John',
+        age: -5, // Invalid: negative number
+        address: {
+          street: '123 Main St',
+          city: '', // Invalid: empty string
+          zipCode: '1234' // Invalid: wrong length
+        }
+      };
+
+      // Act
+      const validationResult = schema.safeParse(invalidData);
+      const formattedError = formatZodError(validationResult.error);
+
+      // Assert
+      expect(formattedError.message).toBeDefined();
+      expect(formattedError.issues).toHaveLength(3);
+      expect(formattedError.formattedIssues).toHaveLength(3);
+
+      // Check that paths are correctly included in error messages
+      expect(formattedError.message).toContain('age:');
+      expect(formattedError.message).toContain('address.city:');
+      expect(formattedError.message).toContain('address.zipCode:');
+    });
+
+    it('should classify errors by type', () => {
+      // Arrange
+      const invalidEvent = createValidBaseEvent({
+        userId: invalidUserId, // Invalid UUID
+        timestamp: invalidTimestamp, // Invalid timestamp
+        payload: {
+          metricType: 'UNKNOWN_TYPE', // Invalid enum value
+          value: 'not-a-number', // Invalid type (should be number)
+          unit: 'bpm'
+        }
+      });
+
+      // Act
+      const result = validateEvent(invalidEvent);
+
+      // Assert
+      expect(result.success).toBe(false);
+      expect(result.error).toBeDefined();
+      
+      // Check that the error message contains all validation issues
+      const errorMessage = result.error.message;
+      expect(errorMessage).toContain('userId');
+      expect(errorMessage).toContain('timestamp');
+      expect(errorMessage).toContain('payload');
+    });
+
+    it('should provide detailed error messages for nested validation failures', () => {
+      // Arrange
+      const invalidEvent = createValidBaseEvent({
+        type: EventType.CARE_APPOINTMENT_BOOKED,
+        journey: 'care',
+        payload: {
+          // Missing required appointmentId
+          providerId: invalidUserId, // Invalid UUID
+          specialization: '', // Empty string
+          dateTime: invalidTimestamp, // Invalid timestamp
+          duration: -30, // Negative duration
+          location: {
+            type: 'UNKNOWN', // Invalid enum
+            coordinates: ['not', 'numbers'] // Invalid coordinates
+          }
+        }
+      });
+
+      // Act
+      const result = validateEvent(invalidEvent, { journeyContext: 'care' });
+
+      // Assert
+      expect(result.success).toBe(false);
+      expect(result.error).toBeDefined();
+      
+      // Check that the error message contains path information for nested fields
+      const errorMessage = result.error.message;
+      expect(errorMessage).toContain('appointmentId');
+      expect(errorMessage).toContain('providerId');
+      expect(errorMessage).toContain('dateTime');
+      expect(errorMessage).toContain('duration');
+      expect(errorMessage).toContain('location.type');
+      expect(errorMessage).toContain('location.coordinates');
+    });
+  });
+
+  describe('Custom validators', () => {
+    it('should validate ranges correctly', () => {
+      // Arrange
+      const rangeValidator = createRangeValidator(1, 100);
+
+      // Act & Assert
+      expect(rangeValidator(50).success).toBe(true);
+      expect(rangeValidator(1).success).toBe(true);
+      expect(rangeValidator(100).success).toBe(true);
+      expect(rangeValidator(0).success).toBe(false);
+      expect(rangeValidator(101).success).toBe(false);
+    });
+
+    it('should validate patterns correctly', () => {
+      // Arrange
+      const emailValidator = createPatternValidator(/^[\w.-]+@[\w.-]+\.\w+$/);
+
+      // Act & Assert
+      expect(emailValidator('user@example.com').success).toBe(true);
+      expect(emailValidator('user.name@company-domain.co.uk').success).toBe(true);
+      expect(emailValidator('invalid-email').success).toBe(false);
+      expect(emailValidator('missing@domain').success).toBe(false);
+    });
+
+    it('should validate required properties correctly', () => {
+      // Arrange
+      const requiredPropsValidator = createRequiredPropsValidator(['name', 'age', 'email']);
+
+      // Act & Assert
+      expect(requiredPropsValidator({ name: 'John', age: 30, email: 'john@example.com' }).success).toBe(true);
+      expect(requiredPropsValidator({ name: 'John', age: 30 }).success).toBe(false);
+      expect(requiredPropsValidator({ name: 'John' }).success).toBe(false);
+      expect(requiredPropsValidator({}).success).toBe(false);
+    });
+  });
+
+  describe('EventValidator class', () => {
+    it('should provide a singleton instance', () => {
+      // Assert
+      expect(eventValidator).toBeInstanceOf(EventValidator);
+    });
+
+    it('should validate events through the class interface', () => {
+      // Arrange
+      const validEvent = createValidBaseEvent();
+      const validator = new EventValidator();
+
+      // Act
+      const result = validator.validate(validEvent);
+
+      // Assert
+      expect(result.success).toBe(true);
+      expect(result.data).toBeDefined();
+    });
+
+    it('should validate events by type through the class interface', () => {
+      // Arrange
+      const validEvent = createValidBaseEvent();
+      const validator = new EventValidator();
+
+      // Act
+      const result = validator.validateByType(validEvent, EventType.HEALTH_METRIC_RECORDED);
+
+      // Assert
+      expect(result.success).toBe(true);
+      expect(result.data).toBeDefined();
+    });
+
+    it('should validate payloads through the class interface', () => {
+      // Arrange
+      const schema = z.object({
+        name: z.string(),
+        age: z.number().positive()
+      });
+      const validPayload = { name: 'John', age: 30 };
+      const validator = new EventValidator();
+
+      // Act
+      const result = validator.validatePayload(validPayload, schema);
+
+      // Assert
+      expect(result.success).toBe(true);
+      expect(result.data).toBeDefined();
+    });
+
+    it('should format errors through the class interface', () => {
+      // Arrange
+      const schema = z.object({
+        name: z.string(),
+        age: z.number().positive()
+      });
+      const invalidPayload = { name: 'John', age: -5 };
+      const validator = new EventValidator();
+      const validationResult = schema.safeParse(invalidPayload);
+
+      // Act
+      const formattedError = validator.formatError(validationResult.error);
+
+      // Assert
+      expect(formattedError.message).toBeDefined();
+      expect(formattedError.issues).toBeDefined();
+      expect(formattedError.formattedIssues).toBeDefined();
+      expect(formattedError.message).toContain('age');
+    });
+  });
+
+  describe('validatePayload', () => {
+    it('should validate a payload against a schema', () => {
+      // Arrange
+      const schema = z.object({
+        name: z.string(),
+        age: z.number().positive(),
+        email: z.string().email()
+      });
+      const validPayload = {
+        name: 'John Doe',
+        age: 30,
+        email: 'john.doe@example.com'
+      };
+
+      // Act
+      const result = validatePayload(validPayload, schema);
+
+      // Assert
+      expect(result.success).toBe(true);
+      expect(result.data).toEqual(validPayload);
+    });
+
+    it('should reject an invalid payload', () => {
+      // Arrange
+      const schema = z.object({
+        name: z.string(),
+        age: z.number().positive(),
+        email: z.string().email()
+      });
+      const invalidPayload = {
+        name: 'John Doe',
+        age: -5, // Invalid: negative number
+        email: 'not-an-email' // Invalid: not an email
+      };
+
+      // Act
+      const result = validatePayload(invalidPayload, schema);
+
+      // Assert
+      expect(result.success).toBe(false);
+      expect(result.error).toBeDefined();
+      expect(result.error.message).toContain('age');
+      expect(result.error.message).toContain('email');
+    });
+
+    it('should handle unexpected errors during validation', () => {
+      // Arrange
+      const schema = z.object({
+        name: z.string(),
+        callback: z.function().refine((fn) => fn() === true, {
+          message: 'Callback must return true'
+        })
+      });
+      const invalidPayload = {
+        name: 'John Doe',
+        callback: () => { throw new Error('Unexpected error'); }
+      };
+
+      // Act
+      const result = validatePayload(invalidPayload, schema);
+
+      // Assert
+      expect(result.success).toBe(false);
+      expect(result.error).toBeDefined();
+      expect(result.error.message).toContain('Unexpected');
     });
   });
 });

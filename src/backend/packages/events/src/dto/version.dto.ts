@@ -4,482 +4,502 @@
  * any event payload with version metadata. This file provides the infrastructure for graceful
  * schema evolution, enabling backward compatibility with older event versions while allowing
  * new fields and validation rules to be introduced over time.
- *
- * Example usage:
- * 
- * ```typescript
- * // Register a migration from version 1.0.0 to 1.1.0 for the 'USER_CREATED' event
- * registerVersionMigration<UserCreatedEvent>(
- *   'USER_CREATED',
- *   '1.0.0',
- *   '1.1.0',
- *   (oldData) => {
- *     // Transform the old data format to the new format
- *     return {
- *       ...oldData,
- *       // Add the new field with a default value
- *       preferredLanguage: 'pt-BR'
- *     };
- *   }
- * );
- * 
- * // Create a versioned event
- * const userCreatedEvent = createVersionedEvent('USER_CREATED', {
- *   userId: '123',
- *   email: 'user@example.com'
- * });
- * 
- * // Migrate to the latest version if needed
- * const latestVersion = getLatestVersion('USER_CREATED');
- * if (!userCreatedEvent.isCompatibleWith(latestVersion)) {
- *   const migratedEvent = userCreatedEvent.migrateToVersion(latestVersion);
- *   // Process the migrated event
- * }
- * ```
- *
- * @module events/dto
  */
 
 import { Type } from 'class-transformer';
-import { IsNotEmpty, IsObject, IsString, ValidateNested } from 'class-validator';
-import { EventVersionDto } from './event-metadata.dto';
+import {
+  IsNotEmpty,
+  IsNumber,
+  IsObject,
+  IsOptional,
+  IsPositive,
+  IsString,
+  Min,
+  ValidateNested,
+} from 'class-validator';
+
+import {
+  EventVersion,
+  IVersionedEvent,
+  VersionCompatibilityResult,
+} from '../interfaces/event-versioning.interface';
 
 /**
- * Interface for version migration functions that can transform
- * an older version of an event payload to a newer version.
- * 
- * Migration functions are responsible for transforming event payloads
- * from one version to another. They should handle all necessary changes
- * to the payload structure, including adding new fields, removing deprecated
- * fields, and transforming existing fields to new formats.
- * 
- * @template T The type of the transformed event payload
+ * Data Transfer Object for event version information following semantic versioning principles.
+ * Used to track and compare event schema versions.
  */
-export type VersionMigrationFn<T = any> = (oldData: any) => T;
-
-/**
- * Registry of version migration functions for different event types.
- * Maps event types to their respective version migration functions.
- * 
- * The registry is structured as follows:
- * {
- *   [eventType]: {
- *     '1.0.0->1.1.0': (oldData) => transformedData,
- *     '1.1.0->2.0.0': (oldData) => transformedData,
- *     // ... more migrations
- *   },
- *   // ... more event types
- * }
- * 
- * This structure allows the system to find and apply the appropriate
- * migration functions for a given event type and version transition.
- */
-export const versionMigrations: Record<string, Record<string, VersionMigrationFn>> = {};
-
-/**
- * Registers a migration function for a specific event type and version.
- * 
- * @param eventType The type of event this migration applies to
- * @param fromVersion The source version in 'major.minor.patch' format
- * @param toVersion The target version in 'major.minor.patch' format
- * @param migrationFn The function that transforms the data from the old version to the new version
- */
-export function registerVersionMigration<T = any>(
-  eventType: string,
-  fromVersion: string,
-  toVersion: string,
-  migrationFn: VersionMigrationFn<T>,
-): void {
-  if (!versionMigrations[eventType]) {
-    versionMigrations[eventType] = {};
-  }
-  
-  const migrationKey = `${fromVersion}->${toVersion}`;
-  versionMigrations[eventType][migrationKey] = migrationFn;
-}
-
-/**
- * Compares two semantic version strings.
- * 
- * @param version1 First version in 'major.minor.patch' format
- * @param version2 Second version in 'major.minor.patch' format
- * @returns -1 if version1 < version2, 0 if version1 === version2, 1 if version1 > version2
- */
-export function compareVersions(version1: string, version2: string): number {
-  const v1Parts = version1.split('.').map(Number);
-  const v2Parts = version2.split('.').map(Number);
-  
-  for (let i = 0; i < 3; i++) {
-    if (v1Parts[i] < v2Parts[i]) return -1;
-    if (v1Parts[i] > v2Parts[i]) return 1;
-  }
-  
-  return 0;
-}
-
-/**
- * Determines if a version is compatible with a required version.
- * 
- * @param currentVersion The current version in 'major.minor.patch' format
- * @param requiredVersion The required version in 'major.minor.patch' format
- * @returns True if the current version is compatible with the required version
- */
-export function isVersionCompatible(currentVersion: string, requiredVersion: string): boolean {
-  const current = currentVersion.split('.').map(Number);
-  const required = requiredVersion.split('.').map(Number);
-  
-  // Major version must match exactly
-  if (current[0] !== required[0]) return false;
-  
-  // Current minor version must be greater than or equal to required
-  if (current[1] < required[1]) return false;
-  
-  // If minor versions match, current patch must be greater than or equal to required
-  if (current[1] === required[1] && current[2] < required[2]) return false;
-  
-  return true;
-}
-
-/**
- * Data Transfer Object that wraps any event payload with version information.
- * This enables graceful schema evolution and backward compatibility.
- * 
- * The VersionedEventDto serves as a container for event payloads, adding version
- * metadata that allows the system to handle different versions of the same event type.
- * This is critical for maintaining backward compatibility as the system evolves.
- * 
- * Key features:
- * - Wraps any event payload with version information
- * - Provides methods to check version compatibility
- * - Supports migration between versions using registered migration functions
- * - Enables graceful schema evolution over time
- * 
- * @template T The type of the event payload
- */
-export class VersionedEventDto<T = any> {
+export class EventVersionDto implements EventVersion {
   /**
-   * The type of the event, used to determine the appropriate validation and migration rules.
+   * Major version number. Incremented for breaking changes that require
+   * migration or special handling.
+   * @example 1
    */
-  @IsString()
+  @IsNumber()
   @IsNotEmpty()
-  eventType: string;
-  
+  @Min(0)
+  major: number;
+
   /**
-   * Version information for the event schema.
+   * Minor version number. Incremented for backward-compatible feature additions.
+   * @example 2
    */
-  @IsObject()
+  @IsNumber()
+  @IsNotEmpty()
+  @Min(0)
+  minor: number;
+
+  /**
+   * Patch version number. Incremented for backward-compatible bug fixes.
+   * @example 3
+   */
+  @IsNumber()
+  @IsNotEmpty()
+  @Min(0)
+  patch: number;
+
+  /**
+   * Creates a new EventVersionDto instance.
+   * 
+   * @param major Major version number
+   * @param minor Minor version number
+   * @param patch Patch version number
+   */
+  constructor(major = 1, minor = 0, patch = 0) {
+    this.major = major;
+    this.minor = minor;
+    this.patch = patch;
+  }
+
+  /**
+   * Creates an EventVersionDto from a version string in the format "major.minor.patch".
+   * 
+   * @param versionString Version string in the format "major.minor.patch"
+   * @returns A new EventVersionDto instance
+   * @throws Error if the version string is invalid
+   */
+  static fromString(versionString: string): EventVersionDto {
+    if (!versionString) {
+      throw new Error('Version string cannot be empty');
+    }
+
+    const parts = versionString.split('.');
+    if (parts.length !== 3) {
+      throw new Error(
+        `Invalid version string format: ${versionString}. Expected format: major.minor.patch`
+      );
+    }
+
+    const [major, minor, patch] = parts.map((part) => {
+      const num = parseInt(part, 10);
+      if (isNaN(num) || num < 0) {
+        throw new Error(
+          `Invalid version component: ${part}. Version components must be non-negative integers.`
+        );
+      }
+      return num;
+    });
+
+    return new EventVersionDto(major, minor, patch);
+  }
+
+  /**
+   * Converts the version to a string in the format "major.minor.patch".
+   * 
+   * @returns Version string
+   */
+  toString(): string {
+    return `${this.major}.${this.minor}.${this.patch}`;
+  }
+
+  /**
+   * Checks if this version is compatible with another version.
+   * 
+   * Compatibility rules:
+   * - Exact match: All components match exactly
+   * - Backward compatible: Same major version, this minor >= other minor
+   * - Forward compatible: Same major version, this minor <= other minor
+   * - Incompatible: Different major versions
+   * 
+   * @param other The version to compare with
+   * @returns A VersionCompatibilityResult object
+   */
+  checkCompatibility(other: EventVersion): VersionCompatibilityResult {
+    // Exact match
+    if (
+      this.major === other.major &&
+      this.minor === other.minor &&
+      this.patch === other.patch
+    ) {
+      return {
+        compatible: true,
+        compatibilityType: 'exact',
+        migrationRequired: false,
+        sourceVersion: this,
+        targetVersion: other,
+      };
+    }
+
+    // Different major versions are incompatible
+    if (this.major !== other.major) {
+      return {
+        compatible: false,
+        compatibilityType: 'none',
+        reason: `Major version mismatch: ${this.major} vs ${other.major}`,
+        migrationRequired: true,
+        sourceVersion: this,
+        targetVersion: other,
+      };
+    }
+
+    // Same major version, check minor version
+    if (this.minor === other.minor) {
+      // Same minor version, different patch - fully compatible
+      return {
+        compatible: true,
+        compatibilityType: this.patch >= other.patch ? 'backward' : 'forward',
+        migrationRequired: false,
+        sourceVersion: this,
+        targetVersion: other,
+      };
+    }
+
+    // Same major version, different minor version
+    if (this.minor > other.minor) {
+      // This version is newer (backward compatible)
+      return {
+        compatible: true,
+        compatibilityType: 'backward',
+        migrationRequired: false,
+        sourceVersion: this,
+        targetVersion: other,
+      };
+    } else {
+      // This version is older (forward compatible, but might need migration)
+      return {
+        compatible: true,
+        compatibilityType: 'forward',
+        migrationRequired: true,
+        sourceVersion: this,
+        targetVersion: other,
+      };
+    }
+  }
+
+  /**
+   * Compares this version with another version.
+   * 
+   * @param other The version to compare with
+   * @returns -1 if this version is older, 0 if equal, 1 if this version is newer
+   */
+  compareTo(other: EventVersion): number {
+    if (this.major !== other.major) {
+      return this.major < other.major ? -1 : 1;
+    }
+
+    if (this.minor !== other.minor) {
+      return this.minor < other.minor ? -1 : 1;
+    }
+
+    if (this.patch !== other.patch) {
+      return this.patch < other.patch ? -1 : 1;
+    }
+
+    return 0;
+  }
+
+  /**
+   * Checks if this version is newer than another version.
+   * 
+   * @param other The version to compare with
+   * @returns True if this version is newer, false otherwise
+   */
+  isNewerThan(other: EventVersion): boolean {
+    return this.compareTo(other) > 0;
+  }
+
+  /**
+   * Checks if this version is older than another version.
+   * 
+   * @param other The version to compare with
+   * @returns True if this version is older, false otherwise
+   */
+  isOlderThan(other: EventVersion): boolean {
+    return this.compareTo(other) < 0;
+  }
+
+  /**
+   * Checks if this version is equal to another version.
+   * 
+   * @param other The version to compare with
+   * @returns True if versions are equal, false otherwise
+   */
+  isEqual(other: EventVersion): boolean {
+    return this.compareTo(other) === 0;
+  }
+}
+
+/**
+ * Data Transfer Object for versioned events.
+ * Wraps any event payload with version metadata to support schema evolution.
+ * 
+ * @template T Type of the event payload
+ */
+export class VersionedEventDto<T = unknown> implements IVersionedEvent<T> {
+  /**
+   * The schema version of this event.
+   */
   @ValidateNested()
   @Type(() => EventVersionDto)
   version: EventVersionDto;
-  
+
+  /**
+   * The event type identifier.
+   * @example 'health.metric.recorded'
+   */
+  @IsString()
+  @IsNotEmpty()
+  type: string;
+
   /**
    * The actual event payload data.
    */
   @IsObject()
+  @IsNotEmpty()
   payload: T;
-  
+
   /**
-   * Creates a new versioned event DTO.
-   * 
-   * @param eventType The type of the event
-   * @param payload The event payload
-   * @param version Optional version information (defaults to 1.0.0)
+   * Optional metadata associated with the event.
    */
-  constructor(eventType: string, payload: T, version?: EventVersionDto) {
-    this.eventType = eventType;
+  @IsOptional()
+  @IsObject()
+  metadata?: Record<string, unknown>;
+
+  /**
+   * Creates a new VersionedEventDto instance.
+   * 
+   * @param type Event type identifier
+   * @param payload Event payload data
+   * @param version Event schema version (defaults to 1.0.0)
+   * @param metadata Optional event metadata
+   */
+  constructor(
+    type: string,
+    payload: T,
+    version: EventVersion = new EventVersionDto(1, 0, 0),
+    metadata?: Record<string, unknown>
+  ) {
+    this.type = type;
     this.payload = payload;
-    this.version = version || new EventVersionDto();
+    this.version = version instanceof EventVersionDto 
+      ? version 
+      : new EventVersionDto(version.major, version.minor, version.patch);
+    this.metadata = metadata;
   }
-  
+
   /**
-   * Gets the full version string in semver format.
-   */
-  getVersionString(): string {
-    return this.version.toString();
-  }
-  
-  /**
-   * Checks if this event version is compatible with the required version.
+   * Creates a VersionedEventDto from a plain object.
    * 
-   * @param requiredVersion The required version in 'major.minor.patch' format
-   * @returns True if this event is compatible with the required version
+   * @param data Plain object containing event data
+   * @returns A new VersionedEventDto instance
    */
-  isCompatibleWith(requiredVersion: string): boolean {
-    return isVersionCompatible(this.getVersionString(), requiredVersion);
-  }
-  
-  /**
-   * Migrates this event to the target version if a migration path exists.
-   * 
-   * @param targetVersion The target version to migrate to
-   * @returns A new VersionedEventDto with the migrated payload, or this instance if no migration is needed
-   * @throws Error if no migration path exists
-   */
-  migrateToVersion(targetVersion: string): VersionedEventDto<T> {
-    const currentVersion = this.getVersionString();
-    
-    // If already at the target version, return this instance
-    if (currentVersion === targetVersion) {
-      return this;
+  static fromPlain<T>(data: Record<string, unknown>): VersionedEventDto<T> {
+    if (!data) {
+      throw new Error('Event data cannot be empty');
     }
-    
-    // If no migrations exist for this event type, throw an error
-    if (!versionMigrations[this.eventType]) {
-      throw new Error(`No migrations registered for event type: ${this.eventType}`);
+
+    const { type, payload, version, metadata } = data;
+
+    if (!type || typeof type !== 'string') {
+      throw new Error('Event type is required and must be a string');
     }
-    
-    // Check if a direct migration exists
-    const directMigrationKey = `${currentVersion}->${targetVersion}`;
-    if (versionMigrations[this.eventType][directMigrationKey]) {
-      const migratedPayload = versionMigrations[this.eventType][directMigrationKey](this.payload);
-      
-      // Create a new versioned event with the migrated payload and target version
-      const targetVersionParts = targetVersion.split('.');
-      const newVersion = new EventVersionDto();
-      newVersion.major = targetVersionParts[0];
-      newVersion.minor = targetVersionParts[1];
-      newVersion.patch = targetVersionParts[2];
-      
-      return new VersionedEventDto(this.eventType, migratedPayload, newVersion);
+
+    if (!payload || typeof payload !== 'object') {
+      throw new Error('Event payload is required and must be an object');
     }
-    
-    // If no direct migration exists, try to find a migration path
-    const migrationPath = this.findMigrationPath(currentVersion, targetVersion);
-    
-    if (migrationPath && migrationPath.length > 0) {
-      // Apply each migration in the path sequentially
-      let currentPayload = this.payload;
-      let currentVersionStr = currentVersion;
-      
-      for (const step of migrationPath) {
-        const [fromVersion, toVersion] = step.split('->');
-        const migrationKey = `${fromVersion}->${toVersion}`;
-        
-        if (!versionMigrations[this.eventType][migrationKey]) {
-          throw new Error(`Missing migration function for step ${migrationKey} in event type: ${this.eventType}`);
-        }
-        
-        currentPayload = versionMigrations[this.eventType][migrationKey](currentPayload);
-        currentVersionStr = toVersion;
-      }
-      
-      // Create a new versioned event with the final migrated payload and target version
-      const targetVersionParts = targetVersion.split('.');
-      const newVersion = new EventVersionDto();
-      newVersion.major = targetVersionParts[0];
-      newVersion.minor = targetVersionParts[1];
-      newVersion.patch = targetVersionParts[2];
-      
-      return new VersionedEventDto(this.eventType, currentPayload, newVersion);
+
+    let eventVersion: EventVersionDto;
+
+    if (!version) {
+      // Default to version 1.0.0 if not specified
+      eventVersion = new EventVersionDto(1, 0, 0);
+    } else if (typeof version === 'string') {
+      // Parse version string
+      eventVersion = EventVersionDto.fromString(version);
+    } else if (typeof version === 'object') {
+      // Use version object
+      const { major = 1, minor = 0, patch = 0 } = version as Record<string, unknown>;
+      eventVersion = new EventVersionDto(
+        typeof major === 'number' ? major : parseInt(String(major), 10),
+        typeof minor === 'number' ? minor : parseInt(String(minor), 10),
+        typeof patch === 'number' ? patch : parseInt(String(patch), 10)
+      );
+    } else {
+      throw new Error('Invalid version format');
     }
-    
-    // If no migration path exists, throw an error
-    throw new Error(
-      `No migration path exists from version ${currentVersion} to ${targetVersion} for event type: ${this.eventType}`
+
+    return new VersionedEventDto<T>(
+      type as string,
+      payload as T,
+      eventVersion,
+      metadata as Record<string, unknown>
     );
   }
-  
+
   /**
-   * Finds a migration path from the current version to the target version.
-   * Uses a breadth-first search algorithm to find the shortest path.
+   * Converts the event to a plain object suitable for serialization.
    * 
-   * @param fromVersion The starting version
-   * @param toVersion The target version
-   * @returns An array of migration steps, or null if no path exists
-   * @private
+   * @returns Plain object representation of the event
    */
-  private findMigrationPath(fromVersion: string, toVersion: string): string[] | null {
-    // If no migrations exist for this event type, return null
-    if (!versionMigrations[this.eventType]) {
-      return null;
-    }
-    
-    // Get all available migrations for this event type
-    const availableMigrations = Object.keys(versionMigrations[this.eventType]);
-    
-    // Build a graph of available migrations
-    const graph: Record<string, string[]> = {};
-    
-    for (const migration of availableMigrations) {
-      const [from, to] = migration.split('->');
-      
-      if (!graph[from]) {
-        graph[from] = [];
-      }
-      
-      graph[from].push(to);
-    }
-    
-    // Use breadth-first search to find the shortest path
-    const queue: Array<{ version: string; path: string[] }> = [
-      { version: fromVersion, path: [] }
-    ];
-    const visited = new Set<string>();
-    
-    while (queue.length > 0) {
-      const { version, path } = queue.shift()!;
-      
-      if (version === toVersion) {
-        return path;
-      }
-      
-      if (visited.has(version)) {
-        continue;
-      }
-      
-      visited.add(version);
-      
-      // Add all neighbors to the queue
-      if (graph[version]) {
-        for (const neighbor of graph[version]) {
-          const newPath = [...path, `${version}->${neighbor}`];
-          queue.push({ version: neighbor, path: newPath });
-        }
-      }
-    }
-    
-    // If no path is found, return null
-    return null;
+  toPlain(): Record<string, unknown> {
+    return {
+      type: this.type,
+      version: this.version.toString(),
+      payload: this.payload,
+      ...(this.metadata ? { metadata: this.metadata } : {}),
+    };
+  }
+
+  /**
+   * Checks if this event is compatible with a target version.
+   * 
+   * @param targetVersion The target version to check compatibility with
+   * @returns A VersionCompatibilityResult object
+   */
+  checkCompatibility(targetVersion: EventVersion): VersionCompatibilityResult {
+    return this.version.checkCompatibility(targetVersion);
+  }
+
+  /**
+   * Creates a new versioned event with an updated version but the same payload.
+   * Useful for migrating events to a new version without changing the payload.
+   * 
+   * @param newVersion The new version to use
+   * @returns A new VersionedEventDto with the updated version
+   */
+  withVersion(newVersion: EventVersion): VersionedEventDto<T> {
+    return new VersionedEventDto<T>(
+      this.type,
+      this.payload,
+      newVersion,
+      this.metadata
+    );
+  }
+
+  /**
+   * Creates a new versioned event with an updated payload but the same version.
+   * Useful for transforming the payload without changing the version.
+   * 
+   * @param newPayload The new payload to use
+   * @returns A new VersionedEventDto with the updated payload
+   */
+  withPayload<R>(newPayload: R): VersionedEventDto<R> {
+    return new VersionedEventDto<R>(
+      this.type,
+      newPayload,
+      this.version,
+      this.metadata
+    );
+  }
+
+  /**
+   * Creates a new versioned event with updated metadata.
+   * 
+   * @param newMetadata The new metadata to use (will be merged with existing metadata)
+   * @returns A new VersionedEventDto with the updated metadata
+   */
+  withMetadata(newMetadata: Record<string, unknown>): VersionedEventDto<T> {
+    return new VersionedEventDto<T>(
+      this.type,
+      this.payload,
+      this.version,
+      { ...this.metadata, ...newMetadata }
+    );
   }
 }
 
 /**
- * Factory function to create a versioned event DTO with the current version (1.0.0).
+ * Type guard to check if an object is a valid VersionedEventDto.
  * 
- * @param eventType The type of the event
- * @param payload The event payload
- * @returns A new VersionedEventDto instance
+ * @param obj Object to check
+ * @returns True if the object is a valid VersionedEventDto, false otherwise
  */
-export function createVersionedEvent<T>(eventType: string, payload: T): VersionedEventDto<T> {
-  return new VersionedEventDto(eventType, payload);
-}
-
-/**
- * Upgrades an event payload to the latest version using registered migrations.
- * 
- * @param eventType The type of the event
- * @param payload The event payload
- * @param currentVersion The current version of the payload
- * @param targetVersion The target version to upgrade to
- * @returns The upgraded payload
- * @throws Error if no migration path exists
- */
-export function upgradeEventPayload<T>(
-  eventType: string,
-  payload: any,
-  currentVersion: string,
-  targetVersion: string
-): T {
-  // Create a versioned event with the current version
-  const versionParts = currentVersion.split('.');
-  const version = new EventVersionDto();
-  version.major = versionParts[0];
-  version.minor = versionParts[1];
-  version.patch = versionParts[2];
-  
-  const versionedEvent = new VersionedEventDto<any>(eventType, payload, version);
-  
-  // Migrate to the target version
-  const migratedEvent = versionedEvent.migrateToVersion(targetVersion);
-  
-  // Return the migrated payload
-  return migratedEvent.payload as T;
-}
-
-/**
- * Creates a version object from a version string.
- * 
- * @param versionStr The version string in 'major.minor.patch' format
- * @returns A new EventVersionDto instance
- */
-export function createVersionFromString(versionStr: string): EventVersionDto {
-  const versionParts = versionStr.split('.');
-  const version = new EventVersionDto();
-  
-  if (versionParts.length >= 1) {
-    version.major = versionParts[0];
-  }
-  
-  if (versionParts.length >= 2) {
-    version.minor = versionParts[1];
-  }
-  
-  if (versionParts.length >= 3) {
-    version.patch = versionParts[2];
-  }
-  
-  return version;
-}
-
-/**
- * Gets the latest registered version for a specific event type.
- * 
- * @param eventType The type of event to check
- * @returns The latest version string, or '1.0.0' if no migrations are registered
- */
-export function getLatestVersion(eventType: string): string {
-  if (!versionMigrations[eventType]) {
-    return '1.0.0';
-  }
-  
-  const migrations = Object.keys(versionMigrations[eventType]);
-  let latestVersion = '1.0.0';
-  
-  for (const migration of migrations) {
-    const [, toVersion] = migration.split('->');
-    
-    if (compareVersions(toVersion, latestVersion) > 0) {
-      latestVersion = toVersion;
-    }
-  }
-  
-  return latestVersion;
-}
-
-/**
- * Checks if a migration path exists between two versions for a specific event type.
- * 
- * @param eventType The type of event to check
- * @param fromVersion The starting version
- * @param toVersion The target version
- * @returns True if a migration path exists, false otherwise
- */
-export function canMigrate(eventType: string, fromVersion: string, toVersion: string): boolean {
-  try {
-    // Create a temporary versioned event to use the findMigrationPath method
-    const tempVersion = createVersionFromString(fromVersion);
-    const tempEvent = new VersionedEventDto(eventType, {}, tempVersion);
-    
-    // Use the private method via any type assertion
-    const path = (tempEvent as any).findMigrationPath(fromVersion, toVersion);
-    
-    return path !== null;
-  } catch (error) {
+export function isVersionedEvent(obj: unknown): obj is VersionedEventDto {
+  if (!obj || typeof obj !== 'object') {
     return false;
   }
+
+  const event = obj as Partial<VersionedEventDto>;
+  
+  return (
+    typeof event.type === 'string' &&
+    !!event.type &&
+    !!event.payload &&
+    typeof event.payload === 'object' &&
+    !!event.version &&
+    typeof event.version === 'object' &&
+    typeof (event.version as Partial<EventVersion>).major === 'number' &&
+    typeof (event.version as Partial<EventVersion>).minor === 'number' &&
+    typeof (event.version as Partial<EventVersion>).patch === 'number'
+  );
 }
 
 /**
- * Registers a chain of migrations for a specific event type.
- * This is a convenience function for registering multiple migrations at once.
+ * Utility function to create a versioned event.
  * 
- * @param eventType The type of event these migrations apply to
- * @param migrations An array of migration objects with fromVersion, toVersion, and migrationFn
+ * @param type Event type identifier
+ * @param payload Event payload data
+ * @param version Event schema version (defaults to 1.0.0)
+ * @param metadata Optional event metadata
+ * @returns A new VersionedEventDto instance
  */
-export function registerMigrationChain<T = any>(
-  eventType: string,
-  migrations: Array<{
-    fromVersion: string;
-    toVersion: string;
-    migrationFn: VersionMigrationFn<T>;
-  }>
-): void {
-  for (const migration of migrations) {
-    registerVersionMigration(
-      eventType,
-      migration.fromVersion,
-      migration.toVersion,
-      migration.migrationFn
-    );
-  }
+export function createVersionedEvent<T>(
+  type: string,
+  payload: T,
+  version?: EventVersion,
+  metadata?: Record<string, unknown>
+): VersionedEventDto<T> {
+  return new VersionedEventDto<T>(type, payload, version, metadata);
+}
+
+/**
+ * Utility function to parse a version string into an EventVersionDto.
+ * 
+ * @param versionString Version string in the format "major.minor.patch"
+ * @returns A new EventVersionDto instance
+ */
+export function parseVersion(versionString: string): EventVersionDto {
+  return EventVersionDto.fromString(versionString);
+}
+
+/**
+ * Utility function to compare two versions.
+ * 
+ * @param version1 First version to compare
+ * @param version2 Second version to compare
+ * @returns -1 if version1 is older, 0 if equal, 1 if version1 is newer
+ */
+export function compareVersions(version1: EventVersion, version2: EventVersion): number {
+  const v1 = version1 instanceof EventVersionDto 
+    ? version1 
+    : new EventVersionDto(version1.major, version1.minor, version1.patch);
+  
+  return v1.compareTo(version2);
+}
+
+/**
+ * Utility function to check if two versions are compatible.
+ * 
+ * @param version1 First version to check
+ * @param version2 Second version to check
+ * @returns A VersionCompatibilityResult object
+ */
+export function checkVersionCompatibility(
+  version1: EventVersion,
+  version2: EventVersion
+): VersionCompatibilityResult {
+  const v1 = version1 instanceof EventVersionDto 
+    ? version1 
+    : new EventVersionDto(version1.major, version1.minor, version1.patch);
+  
+  return v1.checkCompatibility(version2);
 }

@@ -1,348 +1,243 @@
 /**
  * @file event-handler.interface.ts
- * @description Defines the contract for event handlers and processors that consume events
- * throughout the application. This interface ensures type-safe event processing with proper
- * error handling, tracing, and retry mechanisms.
+ * @description Defines the contract for event handlers and processors that consume events throughout the application.
+ * This interface ensures type-safe event processing with proper error handling, tracing, and retry mechanisms.
+ * It standardizes how events are processed across different services, ensuring consistent behavior for
+ * gamification processing, notification delivery, and other event-driven operations.
  */
 
-import { IVersionedEvent } from './event-versioning.interface';
+import { IEventResponse } from './event-response.interface';
 import { ValidationResult } from './event-validation.interface';
-import { IEventResponse, EventResponseStatus } from './event-response.interface';
 
 /**
- * Interface for event handlers that process events throughout the application.
- * Implementations of this interface provide the core business logic for handling
- * specific event types across different services and journeys.
- * 
- * @template T - The type of event payload this handler processes
- * @template R - The type of data returned in the response (defaults to any)
+ * Options for event handling operations
  */
-export interface IEventHandler<T = unknown, R = any> {
+export interface EventHandlerOptions {
   /**
-   * Processes an event and returns a response indicating success or failure.
-   * This is the main method that contains the business logic for handling the event.
-   * 
-   * @param event - The event to process
-   * @param context - Optional context information for processing
-   * @returns A promise resolving to an event response
+   * Whether to skip validation before processing
+   * Default: false
    */
-  handle(event: IVersionedEvent & { payload: T }, context?: EventHandlerContext): Promise<IEventResponse<R>>;
-  
-  /**
-   * Determines if this handler can process the given event.
-   * This method allows for runtime validation of whether an event should be processed
-   * by this handler, beyond just checking the event type.
-   * 
-   * @param event - The event to check
-   * @param context - Optional context information
-   * @returns A promise resolving to true if the handler can process the event, false otherwise
-   */
-  canHandle(event: IVersionedEvent, context?: EventHandlerContext): Promise<boolean>;
-  
-  /**
-   * Gets the event type(s) this handler can process.
-   * This method is used for routing events to the appropriate handler.
-   * 
-   * @returns The event type string or array of event types this handler can process
-   */
-  getEventType(): string | string[];
-}
+  skipValidation?: boolean;
 
-/**
- * Context information for event processing.
- * Provides additional metadata and services that may be needed during event handling.
- */
-export interface EventHandlerContext {
   /**
-   * Correlation ID for tracing requests across services
+   * Correlation ID for distributed tracing
    */
   correlationId?: string;
-  
+
   /**
-   * Journey context (health, care, plan) for journey-specific processing
-   */
-  journeyContext?: 'health' | 'care' | 'plan' | 'game';
-  
-  /**
-   * User ID associated with the event, if applicable
-   */
-  userId?: string;
-  
-  /**
-   * Tenant ID for multi-tenant environments
-   */
-  tenantId?: string;
-  
-  /**
-   * Current retry count if this event is being retried
+   * Current retry attempt number (0 for first attempt)
    */
   retryCount?: number;
-  
+
   /**
-   * Maximum number of retries allowed for this event
+   * Maximum number of retry attempts allowed
    */
   maxRetries?: number;
-  
+
   /**
-   * Timestamp when the event was originally published
-   */
-  publishedAt?: string;
-  
-  /**
-   * Additional context properties
+   * Context-specific handler options
    */
   [key: string]: any;
 }
 
 /**
- * Interface for event processors that manage the lifecycle of event processing.
- * Event processors are responsible for receiving events, routing them to the appropriate
- * handlers, and managing retries and error handling.
+ * Context information passed to event handlers during processing
  */
-export interface IEventProcessor {
+export interface EventHandlerContext {
   /**
-   * Processes an event by routing it to the appropriate handler.
-   * 
-   * @param event - The event to process
-   * @param context - Optional context information
-   * @returns A promise resolving to the event response
+   * Correlation ID for distributed tracing
    */
-  process(event: IVersionedEvent, context?: EventHandlerContext): Promise<IEventResponse>;
-  
+  correlationId?: string;
+
   /**
-   * Registers an event handler with this processor.
-   * 
-   * @param handler - The event handler to register
+   * ID of the service processing the event
    */
-  registerHandler(handler: IEventHandler): void;
-  
+  serviceId?: string;
+
   /**
-   * Gets all registered handlers for a specific event type.
-   * 
-   * @param eventType - The event type to get handlers for
-   * @returns An array of handlers that can process the event type
+   * Current retry attempt number (0 for first attempt)
    */
-  getHandlersForEventType(eventType: string): IEventHandler[];
-  
+  retryCount?: number;
+
   /**
-   * Validates an event before processing.
-   * 
-   * @param event - The event to validate
-   * @returns A promise resolving to the validation result
+   * Timestamp when the event processing started
    */
-  validateEvent(event: IVersionedEvent): Promise<ValidationResult>;
+  startedAt?: string;
+
+  /**
+   * Journey context information if applicable
+   */
+  journeyContext?: {
+    journeyType?: 'health' | 'care' | 'plan';
+    userId?: string;
+    sessionId?: string;
+  };
+
+  /**
+   * Additional context-specific information
+   */
+  [key: string]: any;
 }
 
 /**
- * Interface for Kafka-specific event handlers that process events from Kafka topics.
- * Extends the base event handler interface with Kafka-specific functionality.
+ * Interface for event handlers and processors that consume events throughout the application.
  * 
- * @template T - The type of event payload this handler processes
- * @template R - The type of data returned in the response
+ * This interface ensures type-safe event processing with proper error handling, tracing, and retry mechanisms.
+ * It standardizes how events are processed across different services, ensuring consistent behavior for
+ * gamification processing, notification delivery, and other event-driven operations.
+ * 
+ * @template T Type of event payload this handler processes
+ * @template R Type of data returned by the handler (defaults to any)
  */
-export interface IKafkaEventHandler<T = unknown, R = any> extends IEventHandler<T, R> {
+export interface IEventHandler<T = any, R = any> {
   /**
-   * Gets the Kafka topic(s) this handler listens to.
+   * Processes an event and returns a standardized response.
    * 
-   * @returns The Kafka topic string or array of topics
+   * This is the main method that implements the event processing logic. It should:
+   * 1. Validate the event payload if needed
+   * 2. Process the event according to business rules
+   * 3. Return a standardized response with success/failure status
+   * 4. Handle errors appropriately and include error details in the response
+   * 
+   * @param event The event payload to process
+   * @param context Additional context information for processing
+   * @param options Options for controlling the handling behavior
+   * @returns A promise resolving to a standardized event response
    */
-  getTopic(): string | string[];
-  
+  handle(event: T, context?: EventHandlerContext, options?: EventHandlerOptions): Promise<IEventResponse<R>>;
+
   /**
-   * Gets the consumer group ID for this handler.
+   * Determines whether this handler can process the given event.
    * 
-   * @returns The consumer group ID
+   * This method allows for handler-specific validation logic to determine if an event
+   * can be processed by this handler. It should check:
+   * 1. If the event type matches what this handler can process
+   * 2. If the event payload structure is valid for this handler
+   * 3. If any business rules or preconditions are satisfied
+   * 
+   * @param event The event to check
+   * @param context Additional context information
+   * @returns A validation result indicating whether the handler can process the event
    */
-  getConsumerGroupId(): string;
-  
+  canHandle(event: any, context?: EventHandlerContext): Promise<ValidationResult>;
+
   /**
-   * Handles a dead-letter event that has failed processing multiple times.
+   * Returns the type of event this handler processes.
    * 
-   * @param event - The failed event
-   * @param error - The error that caused the failure
-   * @param context - Optional context information
-   * @returns A promise resolving to an event response
+   * This method is used for routing events to the appropriate handler and for
+   * diagnostic and monitoring purposes. It should return a string identifier
+   * that uniquely identifies the event type this handler is responsible for.
+   * 
+   * @returns The event type string
    */
-  handleDeadLetter(event: IVersionedEvent & { payload: T }, error: Error, context?: EventHandlerContext): Promise<IEventResponse>;
+  getEventType(): string;
+
+  /**
+   * Returns the priority of this handler.
+   * 
+   * Used when multiple handlers can process the same event type.
+   * Higher values indicate higher priority.
+   * 
+   * @returns The handler priority (default: 0)
+   */
+  getPriority?(): number;
+
+  /**
+   * Performs cleanup operations after event processing.
+   * 
+   * This method is called after event processing completes, regardless of success or failure.
+   * It can be used to release resources, close connections, or perform other cleanup tasks.
+   * 
+   * @param event The event that was processed
+   * @param response The response from the handle method
+   * @param context The context that was used for processing
+   */
+  cleanup?(event: T, response: IEventResponse<R>, context?: EventHandlerContext): Promise<void>;
 }
 
 /**
- * Interface for batch event handlers that process multiple events at once.
- * Useful for optimizing processing of high-volume events.
+ * Interface for event handlers that support batch processing of multiple events.
+ * Extends the base IEventHandler interface with batch processing capabilities.
  * 
- * @template T - The type of event payload this handler processes
- * @template R - The type of data returned in the response
+ * @template T Type of event payload this handler processes
+ * @template R Type of data returned by the handler (defaults to any)
  */
-export interface IBatchEventHandler<T = unknown, R = any> extends IEventHandler<T, R> {
+export interface IBatchEventHandler<T = any, R = any> extends IEventHandler<T, R> {
   /**
-   * Processes a batch of events and returns responses for each.
+   * Processes multiple events in a batch and returns an array of responses.
    * 
-   * @param events - The events to process
-   * @param context - Optional context information
-   * @returns A promise resolving to an array of event responses
+   * This method allows for efficient processing of multiple events at once,
+   * which can improve performance for high-volume event processing scenarios.
+   * 
+   * @param events Array of event payloads to process
+   * @param context Additional context information for processing
+   * @param options Options for controlling the handling behavior
+   * @returns A promise resolving to an array of standardized event responses
    */
-  handleBatch(events: Array<IVersionedEvent & { payload: T }>, context?: EventHandlerContext): Promise<IEventResponse<R>[]>;
-  
+  handleBatch(events: T[], context?: EventHandlerContext, options?: EventHandlerOptions): Promise<IEventResponse<R>[]>;
+
   /**
-   * Gets the maximum batch size this handler can process.
+   * Returns the maximum batch size this handler can process efficiently.
    * 
-   * @returns The maximum batch size
+   * This method helps event dispatchers determine how many events to send
+   * to this handler at once for optimal performance.
+   * 
+   * @returns The maximum recommended batch size
    */
   getMaxBatchSize(): number;
 }
 
 /**
- * Interface for retry policies that determine how failed events should be retried.
+ * Interface for event handlers that support dead-letter queue (DLQ) processing.
+ * Extends the base IEventHandler interface with DLQ-specific capabilities.
+ * 
+ * @template T Type of event payload this handler processes
+ * @template R Type of data returned by the handler (defaults to any)
  */
-export interface IRetryPolicy {
+export interface IDLQEventHandler<T = any, R = any> extends IEventHandler<T, R> {
   /**
-   * Determines if an event should be retried based on the error and context.
+   * Processes a failed event from the dead-letter queue.
    * 
-   * @param error - The error that caused the failure
-   * @param context - The event handler context
+   * This method implements special handling for events that have previously failed
+   * processing and were sent to a dead-letter queue. It may implement different
+   * logic than the standard handle method to address specific failure scenarios.
+   * 
+   * @param event The failed event payload to process
+   * @param failureReason The reason the event was sent to the DLQ
+   * @param failureCount Number of times this event has failed processing
+   * @param context Additional context information for processing
+   * @param options Options for controlling the handling behavior
+   * @returns A promise resolving to a standardized event response
+   */
+  handleDeadLetter(
+    event: T,
+    failureReason: string,
+    failureCount: number,
+    context?: EventHandlerContext,
+    options?: EventHandlerOptions
+  ): Promise<IEventResponse<R>>;
+
+  /**
+   * Determines whether a failed event should be retried or permanently failed.
+   * 
+   * This method helps implement retry policies for failed events by determining
+   * if an event should be retried based on the failure reason and count.
+   * 
+   * @param event The failed event
+   * @param failureReason The reason the event failed
+   * @param failureCount Number of times this event has failed
    * @returns True if the event should be retried, false otherwise
    */
-  shouldRetry(error: Error, context: EventHandlerContext): boolean;
-  
-  /**
-   * Calculates the delay before the next retry attempt.
-   * 
-   * @param retryCount - The current retry count
-   * @param error - The error that caused the failure
-   * @returns The delay in milliseconds before the next retry
-   */
-  getRetryDelay(retryCount: number, error: Error): number;
-  
-  /**
-   * Gets the maximum number of retry attempts.
-   * 
-   * @returns The maximum number of retries
-   */
-  getMaxRetries(): number;
-}
+  shouldRetryDeadLetter(event: T, failureReason: string, failureCount: number): Promise<boolean>;
 
-/**
- * Factory for creating common event handler responses.
- */
-export const EventHandlerResponseFactory = {
   /**
-   * Creates a success response.
+   * Calculates the delay before retrying a failed event.
    * 
-   * @param eventId - The ID of the processed event
-   * @param eventType - The type of the processed event
-   * @param data - Optional data to include in the response
-   * @param metadata - Optional additional metadata
-   * @returns A success event response
-   */
-  success: <T>(eventId: string, eventType: string, data?: T, metadata?: Record<string, any>): IEventResponse<T> => ({
-    success: true,
-    status: EventResponseStatus.SUCCESS,
-    eventId,
-    eventType,
-    data,
-    metadata: {
-      timestamp: new Date().toISOString(),
-      ...metadata,
-    },
-  }),
-  
-  /**
-   * Creates a failure response.
+   * This method implements backoff strategies for retrying failed events,
+   * such as exponential backoff or fixed interval with jitter.
    * 
-   * @param eventId - The ID of the processed event
-   * @param eventType - The type of the processed event
-   * @param error - The error that caused the failure
-   * @param metadata - Optional additional metadata
-   * @returns A failure event response
+   * @param failureCount Number of times this event has failed
+   * @returns The delay in milliseconds before retrying
    */
-  failure: <T>(eventId: string, eventType: string, error: Error, metadata?: Record<string, any>): IEventResponse<T> => ({
-    success: false,
-    status: EventResponseStatus.FAILURE,
-    eventId,
-    eventType,
-    error: {
-      code: error.name || 'ERROR',
-      message: error.message || 'An unknown error occurred',
-      stack: error.stack,
-      retryable: false,
-    },
-    metadata: {
-      timestamp: new Date().toISOString(),
-      ...metadata,
-    },
-  }),
-  
-  /**
-   * Creates a retry response.
-   * 
-   * @param eventId - The ID of the processed event
-   * @param eventType - The type of the processed event
-   * @param error - The error that caused the failure
-   * @param retryCount - The current retry count
-   * @param metadata - Optional additional metadata
-   * @returns A retry event response
-   */
-  retry: <T>(eventId: string, eventType: string, error: Error, retryCount: number, metadata?: Record<string, any>): IEventResponse<T> => ({
-    success: false,
-    status: EventResponseStatus.RETRY,
-    eventId,
-    eventType,
-    error: {
-      code: error.name || 'ERROR',
-      message: error.message || 'An unknown error occurred',
-      stack: error.stack,
-      retryable: true,
-    },
-    metadata: {
-      timestamp: new Date().toISOString(),
-      retryCount,
-      ...metadata,
-    },
-  }),
-};
-
-/**
- * Abstract base class for event handlers that provides common functionality.
- * Concrete handlers can extend this class to reduce boilerplate code.
- * 
- * @template T - The type of event payload this handler processes
- * @template R - The type of data returned in the response
- */
-export abstract class BaseEventHandler<T = unknown, R = any> implements IEventHandler<T, R> {
-  /**
-   * The event type(s) this handler can process.
-   */
-  protected abstract eventType: string | string[];
-  
-  /**
-   * Processes an event and returns a response.
-   * Concrete implementations must override this method.
-   * 
-   * @param event - The event to process
-   * @param context - Optional context information
-   * @returns A promise resolving to an event response
-   */
-  abstract handle(event: IVersionedEvent & { payload: T }, context?: EventHandlerContext): Promise<IEventResponse<R>>;
-  
-  /**
-   * Determines if this handler can process the given event.
-   * Default implementation checks if the event type matches.
-   * 
-   * @param event - The event to check
-   * @param context - Optional context information
-   * @returns A promise resolving to true if the handler can process the event, false otherwise
-   */
-  async canHandle(event: IVersionedEvent, context?: EventHandlerContext): Promise<boolean> {
-    const eventTypes = Array.isArray(this.eventType) ? this.eventType : [this.eventType];
-    return eventTypes.includes(event.type);
-  }
-  
-  /**
-   * Gets the event type(s) this handler can process.
-   * 
-   * @returns The event type string or array of event types
-   */
-  getEventType(): string | string[] {
-    return this.eventType;
-  }
+  getRetryDelayMs(failureCount: number): number;
 }

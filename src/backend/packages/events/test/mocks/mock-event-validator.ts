@@ -4,1507 +4,718 @@
  * This mock allows tests to verify that events conform to the expected structure for each journey and event type
  * without requiring the full validation pipeline. It supports testing of both valid and invalid events with
  * detailed error reporting for validation failures.
- *
- * @module events/test/mocks
  */
 
-import { ValidationError } from '../../src/dto/validation';
-import { ERROR_CODES, ERROR_MESSAGES } from '../../src/constants/errors.constants';
+import { performance } from 'perf_hooks';
+import { ZodSchema, z } from 'zod';
+import { JourneyType } from '@austa/interfaces/common/dto/journey.dto';
+import { BaseEvent } from '../../src/interfaces/base-event.interface';
+import { 
+  IEventValidator, 
+  ValidationResult, 
+  ValidationError,
+  ValidationOptions 
+} from '../../src/interfaces/event-validation.interface';
 
 /**
- * Interface for event validation result
+ * Configuration options for the MockEventValidator
  */
-export interface EventValidationResult {
+export interface MockEventValidatorConfig {
   /**
-   * Whether the event is valid
+   * Whether validation should always pass regardless of input
    */
-  isValid: boolean;
-
-  /**
-   * Validation errors, if any
-   */
-  errors?: ValidationError[];
+  alwaysValid?: boolean;
 
   /**
-   * Performance metrics for validation
+   * Whether validation should always fail regardless of input
    */
-  metrics?: {
-    /**
-     * Time taken to validate the event in milliseconds
-     */
-    validationTimeMs: number;
-
-    /**
-     * Number of fields validated
-     */
-    fieldsValidated: number;
-
-    /**
-     * Number of schema rules applied
-     */
-    rulesApplied: number;
-  };
-}
-
-/**
- * Interface for event validator
- */
-export interface IEventValidator {
-  /**
-   * Validates an event against its schema
-   * 
-   * @param event The event to validate
-   * @param options Additional validation options
-   * @returns Promise resolving to validation result
-   */
-  validate(event: any, options?: EventValidatorOptions): Promise<EventValidationResult>;
+  alwaysFail?: boolean;
 
   /**
-   * Validates an event synchronously against its schema
-   * 
-   * @param event The event to validate
-   * @param options Additional validation options
-   * @returns Validation result
+   * Predefined validation errors to return when validation fails
    */
-  validateSync(event: any, options?: EventValidatorOptions): EventValidationResult;
+  predefinedErrors?: ValidationError[];
 
   /**
-   * Gets the schema for a specific event type and journey
-   * 
-   * @param eventType The event type
-   * @param journey The journey
-   * @param version Optional schema version
-   * @returns The schema or null if not found
+   * Specific event types that should be considered valid
    */
-  getSchema(eventType: string, journey: string, version?: string): any | null;
-}
-
-/**
- * Options for event validation
- */
-export interface EventValidatorOptions {
-  /**
-   * Whether to collect performance metrics
-   */
-  collectMetrics?: boolean;
+  validEventTypes?: string[];
 
   /**
-   * Whether to validate nested fields
+   * Specific event types that should be considered invalid
    */
-  validateNested?: boolean;
-
-  /**
-   * Whether to stop validation on first error
-   */
-  stopOnFirstError?: boolean;
-
-  /**
-   * Specific schema version to validate against
-   */
-  schemaVersion?: string;
-
-  /**
-   * Whether to apply journey-specific validation rules
-   */
-  applyJourneyRules?: boolean;
-}
-
-/**
- * Schema definition for event validation
- */
-export interface EventSchema {
-  /**
-   * Schema version
-   */
-  version: string;
-
-  /**
-   * Schema properties
-   */
-  properties: Record<string, SchemaProperty>;
-
-  /**
-   * Required properties
-   */
-  required: string[];
+  invalidEventTypes?: string[];
 
   /**
    * Journey-specific validation rules
    */
-  journeyRules?: Record<string, JourneyRule[]>;
+  journeyValidators?: Record<JourneyType, (event: BaseEvent) => ValidationResult>;
+
+  /**
+   * Schema-based validators for specific event types
+   */
+  schemaValidators?: Record<string, ZodSchema>;
+
+  /**
+   * Whether to simulate validation performance metrics
+   */
+  trackPerformance?: boolean;
+
+  /**
+   * Simulated validation latency in milliseconds
+   */
+  simulatedLatencyMs?: number;
+
+  /**
+   * Whether to validate event versions
+   */
+  validateVersions?: boolean;
+
+  /**
+   * Minimum required version for events
+   */
+  minimumVersion?: string;
+
+  /**
+   * Whether to perform deep validation of nested fields
+   */
+  deepValidation?: boolean;
 }
 
 /**
- * Schema property definition
+ * Default validation errors for common issues
  */
-export interface SchemaProperty {
-  /**
-   * Property type
-   */
-  type: 'string' | 'number' | 'boolean' | 'object' | 'array';
-
-  /**
-   * Property format (for string types)
-   */
-  format?: 'uuid' | 'date-time' | 'email' | 'uri';
-
-  /**
-   * Minimum value (for number types)
-   */
-  minimum?: number;
-
-  /**
-   * Maximum value (for number types)
-   */
-  maximum?: number;
-
-  /**
-   * Minimum length (for string types)
-   */
-  minLength?: number;
-
-  /**
-   * Maximum length (for string types)
-   */
-  maxLength?: number;
-
-  /**
-   * Pattern (for string types)
-   */
-  pattern?: string;
-
-  /**
-   * Enum values (for string types)
-   */
-  enum?: string[];
-
-  /**
-   * Properties (for object types)
-   */
-  properties?: Record<string, SchemaProperty>;
-
-  /**
-   * Required properties (for object types)
-   */
-  required?: string[];
-
-  /**
-   * Items (for array types)
-   */
-  items?: SchemaProperty;
-}
+export const DEFAULT_VALIDATION_ERRORS: Record<string, ValidationError> = {
+  MISSING_EVENT_ID: {
+    code: 'MISSING_FIELD',
+    message: 'Event ID is required',
+    path: 'eventId'
+  },
+  MISSING_TYPE: {
+    code: 'MISSING_FIELD',
+    message: 'Event type is required',
+    path: 'type'
+  },
+  MISSING_TIMESTAMP: {
+    code: 'MISSING_FIELD',
+    message: 'Event timestamp is required',
+    path: 'timestamp'
+  },
+  INVALID_TIMESTAMP: {
+    code: 'INVALID_FORMAT',
+    message: 'Event timestamp must be a valid ISO 8601 string',
+    path: 'timestamp'
+  },
+  MISSING_VERSION: {
+    code: 'MISSING_FIELD',
+    message: 'Event version is required',
+    path: 'version'
+  },
+  INVALID_VERSION: {
+    code: 'INVALID_FORMAT',
+    message: 'Event version must follow semantic versioning (major.minor.patch)',
+    path: 'version'
+  },
+  OUTDATED_VERSION: {
+    code: 'OUTDATED_VERSION',
+    message: 'Event version is outdated',
+    path: 'version'
+  },
+  MISSING_SOURCE: {
+    code: 'MISSING_FIELD',
+    message: 'Event source is required',
+    path: 'source'
+  },
+  MISSING_PAYLOAD: {
+    code: 'MISSING_FIELD',
+    message: 'Event payload is required',
+    path: 'payload'
+  },
+  INVALID_PAYLOAD: {
+    code: 'INVALID_STRUCTURE',
+    message: 'Event payload has an invalid structure',
+    path: 'payload'
+  },
+  MISSING_USER_ID: {
+    code: 'MISSING_FIELD',
+    message: 'User ID is required',
+    path: 'userId'
+  },
+  MISSING_JOURNEY: {
+    code: 'MISSING_FIELD',
+    message: 'Journey type is required',
+    path: 'journey'
+  },
+  INVALID_JOURNEY: {
+    code: 'INVALID_VALUE',
+    message: 'Journey type must be one of: health, care, plan',
+    path: 'journey'
+  }
+};
 
 /**
- * Journey-specific validation rule
+ * Default schemas for validating journey-specific event payloads
  */
-export interface JourneyRule {
-  /**
-   * Rule type
-   */
-  type: 'required' | 'prohibited' | 'conditional' | 'format' | 'range' | 'custom';
+export const DEFAULT_SCHEMAS = {
+  // Health journey schemas
+  HEALTH_METRIC_RECORDED: z.object({
+    metricType: z.string(),
+    metricValue: z.number().or(z.string()),
+    unit: z.string(),
+    timestamp: z.string().datetime().optional(),
+    source: z.string().optional(),
+    previousValue: z.number().optional(),
+    change: z.number().optional(),
+    isImprovement: z.boolean().optional()
+  }),
+  HEALTH_GOAL_ACHIEVED: z.object({
+    goalId: z.string(),
+    goalType: z.string(),
+    achievedValue: z.number(),
+    targetValue: z.number(),
+    daysToAchieve: z.number().optional(),
+    isEarlyCompletion: z.boolean().optional()
+  }),
+  HEALTH_DEVICE_CONNECTED: z.object({
+    deviceId: z.string(),
+    deviceType: z.string(),
+    connectionDate: z.string().datetime().optional(),
+    isFirstConnection: z.boolean().optional()
+  }),
 
-  /**
-   * Fields affected by the rule
-   */
-  fields: string[];
+  // Care journey schemas
+  CARE_APPOINTMENT_BOOKED: z.object({
+    appointmentId: z.string(),
+    providerId: z.string(),
+    appointmentType: z.string(),
+    scheduledDate: z.string().datetime(),
+    isFirstAppointment: z.boolean().optional(),
+    isUrgent: z.boolean().optional()
+  }),
+  CARE_MEDICATION_TAKEN: z.object({
+    medicationId: z.string(),
+    medicationName: z.string(),
+    takenDate: z.string().datetime(),
+    takenOnTime: z.boolean(),
+    dosage: z.string()
+  }),
+  CARE_TELEMEDICINE_SESSION_COMPLETED: z.object({
+    sessionId: z.string(),
+    providerId: z.string(),
+    startTime: z.string().datetime(),
+    endTime: z.string().datetime(),
+    duration: z.number(),
+    appointmentId: z.string().optional(),
+    technicalIssues: z.boolean().optional()
+  }),
 
-  /**
-   * Condition for the rule
-   */
-  condition?: {
-    /**
-     * Field to check
-     */
-    field: string;
-
-    /**
-     * Operator for the condition
-     */
-    operator: '==' | '!=' | 'in' | 'not-in' | '>' | '<' | '>=' | '<=';
-
-    /**
-     * Value to compare against
-     */
-    value: any;
-  };
-
-  /**
-   * Custom validation function
-   */
-  validate?: (value: any, event: any) => boolean;
-
-  /**
-   * Error message for validation failure
-   */
-  errorMessage?: string;
-}
+  // Plan journey schemas
+  PLAN_CLAIM_SUBMITTED: z.object({
+    claimId: z.string(),
+    submissionDate: z.string().datetime(),
+    amount: z.number().positive(),
+    claimType: z.string(),
+    hasDocuments: z.boolean(),
+    isComplete: z.boolean()
+  }),
+  PLAN_BENEFIT_UTILIZED: z.object({
+    benefitId: z.string(),
+    benefitType: z.string(),
+    utilizationDate: z.string().datetime(),
+    serviceProvider: z.string().optional(),
+    amount: z.number().optional(),
+    remainingCoverage: z.number().optional(),
+    isFirstUtilization: z.boolean()
+  }),
+  PLAN_REWARD_REDEEMED: z.object({
+    rewardId: z.string(),
+    rewardName: z.string(),
+    redemptionDate: z.string().datetime(),
+    pointValue: z.number().positive(),
+    monetaryValue: z.number().optional(),
+    rewardType: z.string(),
+    isPremiumReward: z.boolean()
+  })
+};
 
 /**
- * Mock implementation of event validator for testing
+ * A mock implementation of IEventValidator for testing purposes.
+ * Provides configurable validation behavior for event payloads.
  */
-export class MockEventValidator implements IEventValidator {
-  private schemas: Record<string, Record<string, Record<string, EventSchema>>> = {};
-  private defaultOptions: EventValidatorOptions = {
-    collectMetrics: true,
-    validateNested: true,
-    stopOnFirstError: false,
-    applyJourneyRules: true,
-  };
+export class MockEventValidator<T = any> implements IEventValidator<T> {
+  private config: MockEventValidatorConfig;
+  private validationCount = 0;
+  private totalValidationTimeMs = 0;
+  private validationResults: Record<string, { valid: number; invalid: number }> = {};
 
   /**
-   * Creates a new instance of MockEventValidator
+   * Creates a new MockEventValidator with the specified configuration.
    * 
-   * @param mockSchemas Optional mock schemas to initialize with
+   * @param config Configuration options for the validator
    */
-  constructor(mockSchemas?: Record<string, Record<string, Record<string, EventSchema>>>) {
-    if (mockSchemas) {
-      this.schemas = mockSchemas;
-    } else {
-      this.initializeDefaultSchemas();
-    }
-  }
-
-  /**
-   * Initializes default schemas for common event types
-   */
-  private initializeDefaultSchemas(): void {
-    // Health journey schemas
-    this.registerSchema('HEALTH_METRIC_RECORDED', 'health', this.createHealthMetricSchema());
-    this.registerSchema('HEALTH_GOAL_ACHIEVED', 'health', this.createHealthGoalSchema());
-    this.registerSchema('DEVICE_SYNCHRONIZED', 'health', this.createDeviceSyncSchema());
-
-    // Care journey schemas
-    this.registerSchema('APPOINTMENT_BOOKED', 'care', this.createAppointmentSchema());
-    this.registerSchema('MEDICATION_ADHERENCE', 'care', this.createMedicationSchema());
-
-    // Plan journey schemas
-    this.registerSchema('CLAIM_SUBMITTED', 'plan', this.createClaimSchema());
-    this.registerSchema('BENEFIT_UTILIZED', 'plan', this.createBenefitSchema());
-
-    // User journey schemas
-    this.registerSchema('USER_REGISTERED', 'user', this.createUserSchema());
-
-    // Gamification journey schemas
-    this.registerSchema('ACHIEVEMENT_UNLOCKED', 'gamification', this.createAchievementSchema());
-  }
-
-  /**
-   * Creates a schema for health metric events
-   * 
-   * @returns Health metric event schema
-   */
-  private createHealthMetricSchema(): EventSchema {
-    return {
-      version: '1.0.0',
-      properties: {
-        eventId: { type: 'string', format: 'uuid' },
-        timestamp: { type: 'string', format: 'date-time' },
-        userId: { type: 'string', format: 'uuid' },
-        journey: { type: 'string', enum: ['health'] },
-        type: { type: 'string', enum: ['HEALTH_METRIC_RECORDED'] },
-        payload: {
-          type: 'object',
-          properties: {
-            metricType: {
-              type: 'string',
-              enum: [
-                'HEART_RATE',
-                'BLOOD_PRESSURE',
-                'BLOOD_GLUCOSE',
-                'STEPS',
-                'WEIGHT',
-                'SLEEP',
-                'TEMPERATURE',
-                'OXYGEN_SATURATION',
-                'RESPIRATORY_RATE',
-                'WATER_INTAKE',
-                'CALORIES'
-              ],
-            },
-            value: { type: 'number' },
-            unit: { type: 'string' },
-            recordedAt: { type: 'string', format: 'date-time' },
-            deviceId: { type: 'string', format: 'uuid' },
-            deviceType: { type: 'string' },
-          },
-          required: ['metricType', 'value', 'unit', 'recordedAt'],
-        },
-        metadata: {
-          type: 'object',
-          properties: {
-            source: { type: 'string' },
-            correlationId: { type: 'string', format: 'uuid' },
-            version: { type: 'string' },
-          },
-          required: ['source'],
-        },
-      },
-      required: ['eventId', 'timestamp', 'userId', 'journey', 'type', 'payload'],
-      journeyRules: {
-        'health': [
-          {
-            type: 'custom',
-            fields: ['payload.value'],
-            validate: (value, event) => {
-              const metricType = event.payload.metricType;
-              switch (metricType) {
-                case 'HEART_RATE':
-                  return value >= 30 && value <= 220;
-                case 'BLOOD_GLUCOSE':
-                  return value >= 20 && value <= 600;
-                case 'STEPS':
-                  return value >= 0 && value <= 100000;
-                case 'SLEEP':
-                  return value >= 0 && value <= 24;
-                case 'WEIGHT':
-                  return value >= 0 && value <= 500;
-                case 'TEMPERATURE':
-                  return value >= 30 && value <= 45;
-                case 'OXYGEN_SATURATION':
-                  return value >= 50 && value <= 100;
-                case 'RESPIRATORY_RATE':
-                  return value >= 0 && value <= 100;
-                case 'WATER_INTAKE':
-                  return value >= 0 && value <= 10000;
-                case 'CALORIES':
-                  return value >= 0 && value <= 10000;
-                default:
-                  return true;
-              }
-            },
-            errorMessage: 'Value is out of range for the specified metric type',
-          },
-          {
-            type: 'custom',
-            fields: ['payload.unit'],
-            validate: (value, event) => {
-              const metricType = event.payload.metricType;
-              switch (metricType) {
-                case 'HEART_RATE':
-                  return value === 'bpm';
-                case 'BLOOD_GLUCOSE':
-                  return ['mg/dL', 'mmol/L'].includes(value);
-                case 'STEPS':
-                  return value === 'steps';
-                case 'SLEEP':
-                  return ['hours', 'minutes'].includes(value);
-                case 'WEIGHT':
-                  return ['kg', 'lb'].includes(value);
-                case 'TEMPERATURE':
-                  return ['°C', '°F'].includes(value);
-                case 'OXYGEN_SATURATION':
-                  return value === '%';
-                case 'RESPIRATORY_RATE':
-                  return value === 'breaths/min';
-                case 'WATER_INTAKE':
-                  return ['ml', 'oz'].includes(value);
-                case 'CALORIES':
-                  return value === 'kcal';
-                default:
-                  return true;
-              }
-            },
-            errorMessage: 'Unit is not valid for the specified metric type',
-          },
-        ],
-      },
+  constructor(config: MockEventValidatorConfig = {}) {
+    this.config = {
+      alwaysValid: false,
+      alwaysFail: false,
+      trackPerformance: true,
+      simulatedLatencyMs: 0,
+      validateVersions: true,
+      deepValidation: true,
+      ...config,
+      schemaValidators: {
+        ...DEFAULT_SCHEMAS,
+        ...config.schemaValidators
+      }
     };
   }
 
   /**
-   * Creates a schema for health goal events
+   * Validates the provided event data synchronously.
    * 
-   * @returns Health goal event schema
+   * @param data The event data to validate
+   * @returns ValidationResult with validation outcome
    */
-  private createHealthGoalSchema(): EventSchema {
-    return {
-      version: '1.0.0',
-      properties: {
-        eventId: { type: 'string', format: 'uuid' },
-        timestamp: { type: 'string', format: 'date-time' },
-        userId: { type: 'string', format: 'uuid' },
-        journey: { type: 'string', enum: ['health'] },
-        type: { type: 'string', enum: ['HEALTH_GOAL_ACHIEVED'] },
-        payload: {
-          type: 'object',
-          properties: {
-            goalId: { type: 'string', format: 'uuid' },
-            goalType: {
-              type: 'string',
-              enum: [
-                'STEPS_GOAL',
-                'WEIGHT_GOAL',
-                'SLEEP_GOAL',
-                'ACTIVITY_GOAL',
-                'WATER_INTAKE_GOAL',
-                'NUTRITION_GOAL',
-              ],
-            },
-            targetValue: { type: 'number' },
-            achievedValue: { type: 'number' },
-            unit: { type: 'string' },
-            achievedAt: { type: 'string', format: 'date-time' },
-            streakCount: { type: 'number' },
-          },
-          required: ['goalId', 'goalType', 'targetValue', 'achievedValue', 'achievedAt'],
-        },
-        metadata: {
-          type: 'object',
-          properties: {
-            source: { type: 'string' },
-            correlationId: { type: 'string', format: 'uuid' },
-            version: { type: 'string' },
-          },
-          required: ['source'],
-        },
-      },
-      required: ['eventId', 'timestamp', 'userId', 'journey', 'type', 'payload'],
-      journeyRules: {
-        'health': [
-          {
-            type: 'conditional',
-            fields: ['payload.unit'],
-            condition: {
-              field: 'payload.goalType',
-              operator: '==',
-              value: 'STEPS_GOAL',
-            },
-            validate: (value) => value === 'steps',
-            errorMessage: 'Unit must be "steps" for step goals',
-          },
-          {
-            type: 'conditional',
-            fields: ['payload.unit'],
-            condition: {
-              field: 'payload.goalType',
-              operator: '==',
-              value: 'WEIGHT_GOAL',
-            },
-            validate: (value) => ['kg', 'lb'].includes(value),
-            errorMessage: 'Unit must be "kg" or "lb" for weight goals',
-          },
-        ],
-      },
-    };
-  }
-
-  /**
-   * Creates a schema for device synchronization events
-   * 
-   * @returns Device synchronization event schema
-   */
-  private createDeviceSyncSchema(): EventSchema {
-    return {
-      version: '1.0.0',
-      properties: {
-        eventId: { type: 'string', format: 'uuid' },
-        timestamp: { type: 'string', format: 'date-time' },
-        userId: { type: 'string', format: 'uuid' },
-        journey: { type: 'string', enum: ['health'] },
-        type: { type: 'string', enum: ['DEVICE_SYNCHRONIZED'] },
-        payload: {
-          type: 'object',
-          properties: {
-            deviceId: { type: 'string', format: 'uuid' },
-            deviceType: {
-              type: 'string',
-              enum: [
-                'FITNESS_TRACKER',
-                'SMARTWATCH',
-                'BLOOD_PRESSURE_MONITOR',
-                'GLUCOSE_MONITOR',
-                'SCALE',
-                'SLEEP_TRACKER',
-                'THERMOMETER',
-                'PULSE_OXIMETER',
-              ],
-            },
-            manufacturer: { type: 'string' },
-            model: { type: 'string' },
-            syncedAt: { type: 'string', format: 'date-time' },
-            metricsCount: { type: 'number', minimum: 0 },
-            batteryLevel: { type: 'number', minimum: 0, maximum: 100 },
-          },
-          required: ['deviceId', 'deviceType', 'syncedAt'],
-        },
-        metadata: {
-          type: 'object',
-          properties: {
-            source: { type: 'string' },
-            correlationId: { type: 'string', format: 'uuid' },
-            version: { type: 'string' },
-          },
-          required: ['source'],
-        },
-      },
-      required: ['eventId', 'timestamp', 'userId', 'journey', 'type', 'payload'],
-    };
-  }
-
-  /**
-   * Creates a schema for appointment events
-   * 
-   * @returns Appointment event schema
-   */
-  private createAppointmentSchema(): EventSchema {
-    return {
-      version: '1.0.0',
-      properties: {
-        eventId: { type: 'string', format: 'uuid' },
-        timestamp: { type: 'string', format: 'date-time' },
-        userId: { type: 'string', format: 'uuid' },
-        journey: { type: 'string', enum: ['care'] },
-        type: { type: 'string', enum: ['APPOINTMENT_BOOKED'] },
-        payload: {
-          type: 'object',
-          properties: {
-            appointmentId: { type: 'string', format: 'uuid' },
-            providerId: { type: 'string', format: 'uuid' },
-            specialtyId: { type: 'string', format: 'uuid' },
-            appointmentType: {
-              type: 'string',
-              enum: ['IN_PERSON', 'TELEMEDICINE', 'HOME_VISIT'],
-            },
-            status: {
-              type: 'string',
-              enum: [
-                'SCHEDULED',
-                'CONFIRMED',
-                'CHECKED_IN',
-                'IN_PROGRESS',
-                'COMPLETED',
-                'CANCELLED',
-                'NO_SHOW',
-                'RESCHEDULED',
-              ],
-            },
-            scheduledAt: { type: 'string', format: 'date-time' },
-            duration: { type: 'number', minimum: 0 },
-            location: { type: 'string' },
-          },
-          required: ['appointmentId', 'providerId', 'appointmentType', 'status', 'scheduledAt'],
-        },
-        metadata: {
-          type: 'object',
-          properties: {
-            source: { type: 'string' },
-            correlationId: { type: 'string', format: 'uuid' },
-            version: { type: 'string' },
-          },
-          required: ['source'],
-        },
-      },
-      required: ['eventId', 'timestamp', 'userId', 'journey', 'type', 'payload'],
-      journeyRules: {
-        'care': [
-          {
-            type: 'conditional',
-            fields: ['payload.location'],
-            condition: {
-              field: 'payload.appointmentType',
-              operator: '==',
-              value: 'IN_PERSON',
-            },
-            validate: (value) => !!value && value.length > 0,
-            errorMessage: 'Location is required for in-person appointments',
-          },
-        ],
-      },
-    };
-  }
-
-  /**
-   * Creates a schema for medication events
-   * 
-   * @returns Medication event schema
-   */
-  private createMedicationSchema(): EventSchema {
-    return {
-      version: '1.0.0',
-      properties: {
-        eventId: { type: 'string', format: 'uuid' },
-        timestamp: { type: 'string', format: 'date-time' },
-        userId: { type: 'string', format: 'uuid' },
-        journey: { type: 'string', enum: ['care'] },
-        type: { type: 'string', enum: ['MEDICATION_ADHERENCE'] },
-        payload: {
-          type: 'object',
-          properties: {
-            medicationId: { type: 'string', format: 'uuid' },
-            medicationName: { type: 'string' },
-            dosage: { type: 'string' },
-            adherenceType: {
-              type: 'string',
-              enum: ['TAKEN_ON_TIME', 'TAKEN_LATE', 'MISSED', 'SKIPPED'],
-            },
-            scheduledAt: { type: 'string', format: 'date-time' },
-            takenAt: { type: 'string', format: 'date-time' },
-            notes: { type: 'string' },
-          },
-          required: ['medicationId', 'medicationName', 'adherenceType', 'scheduledAt'],
-        },
-        metadata: {
-          type: 'object',
-          properties: {
-            source: { type: 'string' },
-            correlationId: { type: 'string', format: 'uuid' },
-            version: { type: 'string' },
-          },
-          required: ['source'],
-        },
-      },
-      required: ['eventId', 'timestamp', 'userId', 'journey', 'type', 'payload'],
-      journeyRules: {
-        'care': [
-          {
-            type: 'conditional',
-            fields: ['payload.takenAt'],
-            condition: {
-              field: 'payload.adherenceType',
-              operator: 'in',
-              value: ['TAKEN_ON_TIME', 'TAKEN_LATE'],
-            },
-            validate: (value) => !!value,
-            errorMessage: 'takenAt is required when medication is taken',
-          },
-        ],
-      },
-    };
-  }
-
-  /**
-   * Creates a schema for claim events
-   * 
-   * @returns Claim event schema
-   */
-  private createClaimSchema(): EventSchema {
-    return {
-      version: '1.0.0',
-      properties: {
-        eventId: { type: 'string', format: 'uuid' },
-        timestamp: { type: 'string', format: 'date-time' },
-        userId: { type: 'string', format: 'uuid' },
-        journey: { type: 'string', enum: ['plan'] },
-        type: { type: 'string', enum: ['CLAIM_SUBMITTED'] },
-        payload: {
-          type: 'object',
-          properties: {
-            claimId: { type: 'string', format: 'uuid' },
-            claimType: {
-              type: 'string',
-              enum: [
-                'MEDICAL_CONSULTATION',
-                'EXAMINATION',
-                'THERAPY',
-                'HOSPITALIZATION',
-                'MEDICATION',
-                'OTHER',
-              ],
-            },
-            amount: { type: 'number', minimum: 0 },
-            currency: { type: 'string', enum: ['BRL'] },
-            serviceDate: { type: 'string', format: 'date-time' },
-            providerId: { type: 'string', format: 'uuid' },
-            providerName: { type: 'string' },
-            status: {
-              type: 'string',
-              enum: [
-                'SUBMITTED',
-                'UNDER_REVIEW',
-                'ADDITIONAL_INFO_REQUIRED',
-                'APPROVED',
-                'PARTIALLY_APPROVED',
-                'REJECTED',
-                'PAYMENT_PENDING',
-                'PAYMENT_PROCESSED',
-                'APPEALED',
-              ],
-            },
-            documents: {
-              type: 'array',
-              items: {
-                type: 'object',
-                properties: {
-                  documentId: { type: 'string', format: 'uuid' },
-                  documentType: {
-                    type: 'string',
-                    enum: ['RECEIPT', 'PRESCRIPTION', 'MEDICAL_REPORT', 'OTHER'],
-                  },
-                  fileName: { type: 'string' },
-                  fileSize: { type: 'number', minimum: 0 },
-                  mimeType: { type: 'string' },
-                  uploadedAt: { type: 'string', format: 'date-time' },
-                },
-                required: ['documentId', 'documentType', 'fileName', 'uploadedAt'],
-              },
-            },
-          },
-          required: ['claimId', 'claimType', 'amount', 'currency', 'serviceDate', 'status'],
-        },
-        metadata: {
-          type: 'object',
-          properties: {
-            source: { type: 'string' },
-            correlationId: { type: 'string', format: 'uuid' },
-            version: { type: 'string' },
-          },
-          required: ['source'],
-        },
-      },
-      required: ['eventId', 'timestamp', 'userId', 'journey', 'type', 'payload'],
-      journeyRules: {
-        'plan': [
-          {
-            type: 'conditional',
-            fields: ['payload.documents'],
-            condition: {
-              field: 'payload.status',
-              operator: '==',
-              value: 'SUBMITTED',
-            },
-            validate: (value) => Array.isArray(value) && value.length > 0,
-            errorMessage: 'At least one document is required for submitted claims',
-          },
-        ],
-      },
-    };
-  }
-
-  /**
-   * Creates a schema for benefit events
-   * 
-   * @returns Benefit event schema
-   */
-  private createBenefitSchema(): EventSchema {
-    return {
-      version: '1.0.0',
-      properties: {
-        eventId: { type: 'string', format: 'uuid' },
-        timestamp: { type: 'string', format: 'date-time' },
-        userId: { type: 'string', format: 'uuid' },
-        journey: { type: 'string', enum: ['plan'] },
-        type: { type: 'string', enum: ['BENEFIT_UTILIZED'] },
-        payload: {
-          type: 'object',
-          properties: {
-            benefitId: { type: 'string', format: 'uuid' },
-            benefitType: {
-              type: 'string',
-              enum: [
-                'DISCOUNT',
-                'CASHBACK',
-                'FREE_SERVICE',
-                'WELLNESS_PROGRAM',
-                'OTHER',
-              ],
-            },
-            benefitName: { type: 'string' },
-            utilizedAt: { type: 'string', format: 'date-time' },
-            value: { type: 'number' },
-            currency: { type: 'string', enum: ['BRL'] },
-            partnerId: { type: 'string', format: 'uuid' },
-            partnerName: { type: 'string' },
-          },
-          required: ['benefitId', 'benefitType', 'benefitName', 'utilizedAt'],
-        },
-        metadata: {
-          type: 'object',
-          properties: {
-            source: { type: 'string' },
-            correlationId: { type: 'string', format: 'uuid' },
-            version: { type: 'string' },
-          },
-          required: ['source'],
-        },
-      },
-      required: ['eventId', 'timestamp', 'userId', 'journey', 'type', 'payload'],
-    };
-  }
-
-  /**
-   * Creates a schema for user events
-   * 
-   * @returns User event schema
-   */
-  private createUserSchema(): EventSchema {
-    return {
-      version: '1.0.0',
-      properties: {
-        eventId: { type: 'string', format: 'uuid' },
-        timestamp: { type: 'string', format: 'date-time' },
-        userId: { type: 'string', format: 'uuid' },
-        journey: { type: 'string', enum: ['user'] },
-        type: { type: 'string', enum: ['USER_REGISTERED'] },
-        payload: {
-          type: 'object',
-          properties: {
-            name: { type: 'string' },
-            email: { type: 'string', format: 'email' },
-            phone: { type: 'string' },
-            cpf: { type: 'string', pattern: '^\\d{11}$' },
-            birthDate: { type: 'string', format: 'date-time' },
-            gender: { type: 'string', enum: ['MALE', 'FEMALE', 'OTHER', 'PREFER_NOT_TO_SAY'] },
-            registeredAt: { type: 'string', format: 'date-time' },
-            source: { type: 'string' },
-          },
-          required: ['name', 'email', 'registeredAt'],
-        },
-        metadata: {
-          type: 'object',
-          properties: {
-            source: { type: 'string' },
-            correlationId: { type: 'string', format: 'uuid' },
-            version: { type: 'string' },
-          },
-          required: ['source'],
-        },
-      },
-      required: ['eventId', 'timestamp', 'userId', 'journey', 'type', 'payload'],
-    };
-  }
-
-  /**
-   * Creates a schema for achievement events
-   * 
-   * @returns Achievement event schema
-   */
-  private createAchievementSchema(): EventSchema {
-    return {
-      version: '1.0.0',
-      properties: {
-        eventId: { type: 'string', format: 'uuid' },
-        timestamp: { type: 'string', format: 'date-time' },
-        userId: { type: 'string', format: 'uuid' },
-        journey: { type: 'string', enum: ['gamification'] },
-        type: { type: 'string', enum: ['ACHIEVEMENT_UNLOCKED'] },
-        payload: {
-          type: 'object',
-          properties: {
-            achievementId: { type: 'string', format: 'uuid' },
-            achievementType: { type: 'string' },
-            title: { type: 'string' },
-            description: { type: 'string' },
-            level: { type: 'number', minimum: 1 },
-            maxLevel: { type: 'number', minimum: 1 },
-            xpEarned: { type: 'number', minimum: 0 },
-            unlockedAt: { type: 'string', format: 'date-time' },
-            sourceJourney: { type: 'string', enum: ['health', 'care', 'plan'] },
-            icon: { type: 'string' },
-          },
-          required: ['achievementId', 'achievementType', 'title', 'level', 'xpEarned', 'unlockedAt', 'sourceJourney'],
-        },
-        metadata: {
-          type: 'object',
-          properties: {
-            source: { type: 'string' },
-            correlationId: { type: 'string', format: 'uuid' },
-            version: { type: 'string' },
-          },
-          required: ['source'],
-        },
-      },
-      required: ['eventId', 'timestamp', 'userId', 'journey', 'type', 'payload'],
-    };
-  }
-
-  /**
-   * Registers a schema for a specific event type and journey
-   * 
-   * @param eventType The event type
-   * @param journey The journey
-   * @param schema The schema to register
-   */
-  public registerSchema(eventType: string, journey: string, schema: EventSchema): void {
-    if (!this.schemas[journey]) {
-      this.schemas[journey] = {};
-    }
-    if (!this.schemas[journey][eventType]) {
-      this.schemas[journey][eventType] = {};
-    }
-    this.schemas[journey][eventType][schema.version] = schema;
-  }
-
-  /**
-   * Gets the schema for a specific event type and journey
-   * 
-   * @param eventType The event type
-   * @param journey The journey
-   * @param version Optional schema version
-   * @returns The schema or null if not found
-   */
-  public getSchema(eventType: string, journey: string, version?: string): EventSchema | null {
-    if (!this.schemas[journey] || !this.schemas[journey][eventType]) {
-      return null;
-    }
-
-    if (version) {
-      return this.schemas[journey][eventType][version] || null;
-    }
-
-    // Return the latest version if no specific version is requested
-    const versions = Object.keys(this.schemas[journey][eventType]);
-    if (versions.length === 0) {
-      return null;
-    }
-
-    // Sort versions semantically
-    versions.sort((a, b) => {
-      const aParts = a.split('.').map(Number);
-      const bParts = b.split('.').map(Number);
-
-      for (let i = 0; i < Math.max(aParts.length, bParts.length); i++) {
-        const aVal = i < aParts.length ? aParts[i] : 0;
-        const bVal = i < bParts.length ? bParts[i] : 0;
-
-        if (aVal !== bVal) {
-          return bVal - aVal; // Descending order
+  validate(data: T): ValidationResult {
+    if (this.config.trackPerformance) {
+      const startTime = performance.now();
+      const result = this.performValidation(data);
+      const endTime = performance.now();
+      
+      this.validationCount++;
+      this.totalValidationTimeMs += (endTime - startTime);
+      
+      // Track results by event type
+      if (this.isBaseEvent(data)) {
+        const eventType = data.type;
+        if (!this.validationResults[eventType]) {
+          this.validationResults[eventType] = { valid: 0, invalid: 0 };
+        }
+        
+        if (result.isValid) {
+          this.validationResults[eventType].valid++;
+        } else {
+          this.validationResults[eventType].invalid++;
         }
       }
-
-      return 0;
-    });
-
-    return this.schemas[journey][eventType][versions[0]] || null;
+      
+      return result;
+    }
+    
+    return this.performValidation(data);
   }
 
   /**
-   * Validates an event against its schema
+   * Validates the provided event data asynchronously.
+   * Useful for validations that require database lookups or external service calls.
    * 
-   * @param event The event to validate
-   * @param options Additional validation options
-   * @returns Promise resolving to validation result
+   * @param data The event data to validate
+   * @returns Promise resolving to ValidationResult with validation outcome
    */
-  public async validate(event: any, options?: EventValidatorOptions): Promise<EventValidationResult> {
-    // Simulate async validation
-    return new Promise((resolve) => {
-      setTimeout(() => {
-        resolve(this.validateSync(event, options));
-      }, 10);
-    });
+  async validateAsync(data: T): Promise<ValidationResult> {
+    if (this.config.simulatedLatencyMs > 0) {
+      await new Promise(resolve => setTimeout(resolve, this.config.simulatedLatencyMs));
+    }
+    
+    return this.validate(data);
   }
 
   /**
-   * Validates an event synchronously against its schema
+   * Returns the schema or validation rules used by this validator.
    * 
-   * @param event The event to validate
-   * @param options Additional validation options
-   * @returns Validation result
+   * @returns The validation schema or rules
    */
-  public validateSync(event: any, options?: EventValidatorOptions): EventValidationResult {
-    const startTime = Date.now();
-    const mergedOptions = { ...this.defaultOptions, ...options };
-    const errors: ValidationError[] = [];
-    let fieldsValidated = 0;
-    let rulesApplied = 0;
+  getSchema(): any {
+    return this.config.schemaValidators || {};
+  }
 
-    // Basic event structure validation
-    if (!event) {
-      errors.push({
-        property: 'event',
-        errorCode: ERROR_CODES.SCHEMA_VALIDATION_FAILED,
-        message: 'Event cannot be null or undefined',
-      });
-      return {
-        isValid: false,
-        errors,
-        metrics: mergedOptions.collectMetrics ? {
-          validationTimeMs: Date.now() - startTime,
-          fieldsValidated,
-          rulesApplied,
-        } : undefined,
+  /**
+   * Returns performance metrics for validation operations.
+   * 
+   * @returns Object containing validation performance metrics
+   */
+  getPerformanceMetrics() {
+    if (!this.config.trackPerformance) {
+      return { enabled: false };
+    }
+    
+    return {
+      enabled: true,
+      validationCount: this.validationCount,
+      totalValidationTimeMs: this.totalValidationTimeMs,
+      averageValidationTimeMs: this.validationCount > 0 
+        ? this.totalValidationTimeMs / this.validationCount 
+        : 0,
+      validationResults: this.validationResults
+    };
+  }
+
+  /**
+   * Resets all performance metrics.
+   */
+  resetPerformanceMetrics() {
+    this.validationCount = 0;
+    this.totalValidationTimeMs = 0;
+    this.validationResults = {};
+  }
+
+  /**
+   * Updates the validator configuration.
+   * 
+   * @param config New configuration options
+   */
+  updateConfig(config: Partial<MockEventValidatorConfig>) {
+    this.config = {
+      ...this.config,
+      ...config,
+      schemaValidators: {
+        ...this.config.schemaValidators,
+        ...config.schemaValidators
+      }
+    };
+  }
+
+  /**
+   * Performs the actual validation logic based on the configuration.
+   * 
+   * @param data The event data to validate
+   * @returns ValidationResult with validation outcome
+   */
+  private performValidation(data: T): ValidationResult {
+    // Handle forced validation results
+    if (this.config.alwaysValid) {
+      return { isValid: true, errors: [] };
+    }
+    
+    if (this.config.alwaysFail) {
+      return { 
+        isValid: false, 
+        errors: this.config.predefinedErrors || [
+          {
+            code: 'FORCED_FAILURE',
+            message: 'Validation failed due to alwaysFail configuration',
+            path: ''
+          }
+        ] 
       };
     }
-
-    if (typeof event !== 'object') {
-      errors.push({
-        property: 'event',
-        errorCode: ERROR_CODES.SCHEMA_VALIDATION_FAILED,
-        message: 'Event must be an object',
-      });
+    
+    // Check if this is a BaseEvent
+    if (!this.isBaseEvent(data)) {
       return {
         isValid: false,
-        errors,
-        metrics: mergedOptions.collectMetrics ? {
-          validationTimeMs: Date.now() - startTime,
-          fieldsValidated,
-          rulesApplied,
-        } : undefined,
+        errors: [
+          {
+            code: 'INVALID_EVENT',
+            message: 'Data is not a valid event object',
+            path: ''
+          }
+        ]
       };
     }
-
-    // Check required top-level fields
-    const requiredFields = ['eventId', 'timestamp', 'userId', 'journey', 'type', 'payload'];
-    for (const field of requiredFields) {
-      fieldsValidated++;
-      rulesApplied++;
-      if (event[field] === undefined) {
-        errors.push({
-          property: field,
-          errorCode: ERROR_CODES.SCHEMA_VALIDATION_FAILED,
-          message: `${field} is required`,
-        });
-        if (mergedOptions.stopOnFirstError) {
-          return {
-            isValid: false,
-            errors,
-            metrics: mergedOptions.collectMetrics ? {
-              validationTimeMs: Date.now() - startTime,
-              fieldsValidated,
-              rulesApplied,
-            } : undefined,
-          };
-        }
+    
+    const event = data as unknown as BaseEvent;
+    
+    // Check for specific event types that should pass or fail
+    if (this.config.validEventTypes?.includes(event.type)) {
+      return { isValid: true, errors: [] };
+    }
+    
+    if (this.config.invalidEventTypes?.includes(event.type)) {
+      return {
+        isValid: false,
+        errors: [
+          {
+            code: 'INVALID_EVENT_TYPE',
+            message: `Event type '${event.type}' is configured as invalid`,
+            path: 'type'
+          }
+        ]
+      };
+    }
+    
+    // Perform basic event validation
+    const basicValidationResult = this.validateBaseEvent(event);
+    if (!basicValidationResult.isValid) {
+      return basicValidationResult;
+    }
+    
+    // Perform version validation if enabled
+    if (this.config.validateVersions && this.config.minimumVersion) {
+      const versionValidationResult = this.validateEventVersion(event);
+      if (!versionValidationResult.isValid) {
+        return versionValidationResult;
       }
     }
+    
+    // Perform journey-specific validation if available
+    if (event.journey && this.config.journeyValidators?.[event.journey as JourneyType]) {
+      const journeyValidator = this.config.journeyValidators[event.journey as JourneyType];
+      const journeyValidationResult = journeyValidator(event);
+      if (!journeyValidationResult.isValid) {
+        return journeyValidationResult;
+      }
+    }
+    
+    // Perform schema validation if available for this event type
+    if (this.config.schemaValidators?.[event.type]) {
+      return this.validateEventAgainstSchema(event);
+    }
+    
+    // If we've made it this far, the event is valid
+    return { isValid: true, errors: [] };
+  }
 
-    // Get schema for the event
-    const schema = this.getSchema(
-      event.type,
-      event.journey,
-      mergedOptions.schemaVersion
+  /**
+   * Validates that an object is a BaseEvent.
+   * 
+   * @param data The data to check
+   * @returns True if the data is a BaseEvent, false otherwise
+   */
+  private isBaseEvent(data: any): data is BaseEvent {
+    return (
+      data &&
+      typeof data === 'object' &&
+      typeof data.type === 'string' &&
+      typeof data.source === 'string' &&
+      typeof data.payload === 'object'
     );
+  }
 
-    if (!schema) {
-      errors.push({
-        property: 'event',
-        errorCode: ERROR_CODES.SCHEMA_NOT_FOUND,
-        message: `Schema not found for event type ${event.type} and journey ${event.journey}${mergedOptions.schemaVersion ? ` with version ${mergedOptions.schemaVersion}` : ''}`,
-      });
-      return {
-        isValid: false,
-        errors,
-        metrics: mergedOptions.collectMetrics ? {
-          validationTimeMs: Date.now() - startTime,
-          fieldsValidated,
-          rulesApplied,
-        } : undefined,
-      };
+  /**
+   * Validates the basic structure of a BaseEvent.
+   * 
+   * @param event The event to validate
+   * @returns ValidationResult with validation outcome
+   */
+  private validateBaseEvent(event: BaseEvent): ValidationResult {
+    const errors: ValidationError[] = [];
+    
+    // Check required fields
+    if (!event.eventId) errors.push(DEFAULT_VALIDATION_ERRORS.MISSING_EVENT_ID);
+    if (!event.type) errors.push(DEFAULT_VALIDATION_ERRORS.MISSING_TYPE);
+    if (!event.timestamp) errors.push(DEFAULT_VALIDATION_ERRORS.MISSING_TIMESTAMP);
+    if (!event.version) errors.push(DEFAULT_VALIDATION_ERRORS.MISSING_VERSION);
+    if (!event.source) errors.push(DEFAULT_VALIDATION_ERRORS.MISSING_SOURCE);
+    if (!event.payload) errors.push(DEFAULT_VALIDATION_ERRORS.MISSING_PAYLOAD);
+    
+    // Validate timestamp format if present
+    if (event.timestamp && !this.isValidISODateString(event.timestamp)) {
+      errors.push(DEFAULT_VALIDATION_ERRORS.INVALID_TIMESTAMP);
     }
-
-    // Validate against schema
-    this.validateAgainstSchema(event, schema, '', errors, mergedOptions, fieldsValidated, rulesApplied);
-
-    // Apply journey-specific rules if enabled
-    if (mergedOptions.applyJourneyRules && schema.journeyRules && schema.journeyRules[event.journey]) {
-      this.applyJourneyRules(event, schema.journeyRules[event.journey], errors, mergedOptions);
-      rulesApplied += schema.journeyRules[event.journey].length;
+    
+    // Validate version format if present
+    if (event.version && !this.isValidSemVer(event.version)) {
+      errors.push(DEFAULT_VALIDATION_ERRORS.INVALID_VERSION);
     }
-
+    
+    // Validate journey if present
+    if (event.journey) {
+      const validJourneys = Object.values(JourneyType);
+      if (!validJourneys.includes(event.journey as JourneyType)) {
+        errors.push(DEFAULT_VALIDATION_ERRORS.INVALID_JOURNEY);
+      }
+    }
+    
     return {
       isValid: errors.length === 0,
-      errors: errors.length > 0 ? errors : undefined,
-      metrics: mergedOptions.collectMetrics ? {
-        validationTimeMs: Date.now() - startTime,
-        fieldsValidated,
-        rulesApplied,
-      } : undefined,
+      errors
     };
   }
 
   /**
-   * Validates an event against a schema
+   * Validates that an event version meets the minimum required version.
    * 
    * @param event The event to validate
-   * @param schema The schema to validate against
-   * @param path The current path in the event
-   * @param errors Array to collect validation errors
-   * @param options Validation options
-   * @param fieldsValidated Number of fields validated so far
-   * @param rulesApplied Number of rules applied so far
+   * @returns ValidationResult with validation outcome
    */
-  private validateAgainstSchema(
-    event: any,
-    schema: EventSchema,
-    path: string,
-    errors: ValidationError[],
-    options: EventValidatorOptions,
-    fieldsValidated: number,
-    rulesApplied: number
-  ): void {
-    // Validate required fields
-    for (const field of schema.required) {
-      fieldsValidated++;
-      rulesApplied++;
-      const fieldPath = path ? `${path}.${field}` : field;
-      const value = this.getValueAtPath(event, fieldPath);
-
-      if (value === undefined) {
-        errors.push({
-          property: fieldPath,
-          errorCode: ERROR_CODES.SCHEMA_VALIDATION_FAILED,
-          message: `${fieldPath} is required`,
-        });
-        if (options.stopOnFirstError) {
-          return;
-        }
-      }
+  private validateEventVersion(event: BaseEvent): ValidationResult {
+    if (!this.config.minimumVersion || !event.version) {
+      return { isValid: true, errors: [] };
     }
-
-    // Validate properties
-    for (const [field, propSchema] of Object.entries(schema.properties)) {
-      fieldsValidated++;
-      const fieldPath = path ? `${path}.${field}` : field;
-      const value = this.getValueAtPath(event, fieldPath);
-
-      if (value === undefined) {
-        continue; // Skip validation for undefined fields that aren't required
-      }
-
-      // Validate type
-      rulesApplied++;
-      if (!this.validateType(value, propSchema.type)) {
-        errors.push({
-          property: fieldPath,
-          errorCode: ERROR_CODES.SCHEMA_VALIDATION_FAILED,
-          message: `${fieldPath} must be of type ${propSchema.type}`,
-        });
-        if (options.stopOnFirstError) {
-          return;
-        }
-        continue; // Skip further validation for this field
-      }
-
-      // Validate format
-      if (propSchema.format) {
-        rulesApplied++;
-        if (!this.validateFormat(value, propSchema.format)) {
-          errors.push({
-            property: fieldPath,
-            errorCode: ERROR_CODES.SCHEMA_VALIDATION_FAILED,
-            message: `${fieldPath} must be a valid ${propSchema.format}`,
-          });
-          if (options.stopOnFirstError) {
-            return;
-          }
-        }
-      }
-
-      // Validate enum
-      if (propSchema.enum) {
-        rulesApplied++;
-        if (!propSchema.enum.includes(value)) {
-          errors.push({
-            property: fieldPath,
-            errorCode: ERROR_CODES.SCHEMA_VALIDATION_FAILED,
-            message: `${fieldPath} must be one of [${propSchema.enum.join(', ')}]`,
-          });
-          if (options.stopOnFirstError) {
-            return;
-          }
-        }
-      }
-
-      // Validate string constraints
-      if (propSchema.type === 'string') {
-        if (propSchema.minLength !== undefined) {
-          rulesApplied++;
-          if (value.length < propSchema.minLength) {
-            errors.push({
-              property: fieldPath,
-              errorCode: ERROR_CODES.SCHEMA_VALIDATION_FAILED,
-              message: `${fieldPath} must be at least ${propSchema.minLength} characters long`,
-            });
-            if (options.stopOnFirstError) {
-              return;
+    
+    if (this.compareVersions(event.version, this.config.minimumVersion) < 0) {
+      return {
+        isValid: false,
+        errors: [
+          {
+            ...DEFAULT_VALIDATION_ERRORS.OUTDATED_VERSION,
+            message: `Event version ${event.version} is outdated. Minimum required version is ${this.config.minimumVersion}`,
+            context: {
+              eventVersion: event.version,
+              minimumVersion: this.config.minimumVersion
             }
           }
-        }
-
-        if (propSchema.maxLength !== undefined) {
-          rulesApplied++;
-          if (value.length > propSchema.maxLength) {
-            errors.push({
-              property: fieldPath,
-              errorCode: ERROR_CODES.SCHEMA_VALIDATION_FAILED,
-              message: `${fieldPath} must be at most ${propSchema.maxLength} characters long`,
-            });
-            if (options.stopOnFirstError) {
-              return;
-            }
-          }
-        }
-
-        if (propSchema.pattern) {
-          rulesApplied++;
-          const regex = new RegExp(propSchema.pattern);
-          if (!regex.test(value)) {
-            errors.push({
-              property: fieldPath,
-              errorCode: ERROR_CODES.SCHEMA_VALIDATION_FAILED,
-              message: `${fieldPath} must match pattern ${propSchema.pattern}`,
-            });
-            if (options.stopOnFirstError) {
-              return;
-            }
-          }
-        }
-      }
-
-      // Validate number constraints
-      if (propSchema.type === 'number') {
-        if (propSchema.minimum !== undefined) {
-          rulesApplied++;
-          if (value < propSchema.minimum) {
-            errors.push({
-              property: fieldPath,
-              errorCode: ERROR_CODES.SCHEMA_VALIDATION_FAILED,
-              message: `${fieldPath} must be at least ${propSchema.minimum}`,
-            });
-            if (options.stopOnFirstError) {
-              return;
-            }
-          }
-        }
-
-        if (propSchema.maximum !== undefined) {
-          rulesApplied++;
-          if (value > propSchema.maximum) {
-            errors.push({
-              property: fieldPath,
-              errorCode: ERROR_CODES.SCHEMA_VALIDATION_FAILED,
-              message: `${fieldPath} must be at most ${propSchema.maximum}`,
-            });
-            if (options.stopOnFirstError) {
-              return;
-            }
-          }
-        }
-      }
-
-      // Validate nested objects
-      if (propSchema.type === 'object' && propSchema.properties && options.validateNested) {
-        const nestedSchema: EventSchema = {
-          version: schema.version,
-          properties: propSchema.properties,
-          required: propSchema.required || [],
-        };
-        this.validateAgainstSchema(event, nestedSchema, fieldPath, errors, options, fieldsValidated, rulesApplied);
-      }
-
-      // Validate arrays
-      if (propSchema.type === 'array' && propSchema.items && Array.isArray(value) && options.validateNested) {
-        for (let i = 0; i < value.length; i++) {
-          const itemPath = `${fieldPath}[${i}]`;
-          const itemValue = value[i];
-
-          // Validate item type
-          rulesApplied++;
-          if (!this.validateType(itemValue, propSchema.items.type)) {
-            errors.push({
-              property: itemPath,
-              errorCode: ERROR_CODES.SCHEMA_VALIDATION_FAILED,
-              message: `${itemPath} must be of type ${propSchema.items.type}`,
-            });
-            if (options.stopOnFirstError) {
-              return;
-            }
-            continue; // Skip further validation for this item
-          }
-
-          // Validate nested object in array
-          if (propSchema.items.type === 'object' && propSchema.items.properties) {
-            const nestedSchema: EventSchema = {
-              version: schema.version,
-              properties: propSchema.items.properties,
-              required: propSchema.items.required || [],
-            };
-            this.validateAgainstSchema(itemValue, nestedSchema, itemPath, errors, options, fieldsValidated, rulesApplied);
-          }
-        }
-      }
+        ]
+      };
     }
+    
+    return { isValid: true, errors: [] };
   }
 
   /**
-   * Applies journey-specific validation rules
+   * Validates an event against its schema if available.
    * 
    * @param event The event to validate
-   * @param rules The rules to apply
-   * @param errors Array to collect validation errors
-   * @param options Validation options
+   * @returns ValidationResult with validation outcome
    */
-  private applyJourneyRules(
-    event: any,
-    rules: JourneyRule[],
-    errors: ValidationError[],
-    options: EventValidatorOptions
-  ): void {
-    for (const rule of rules) {
-      // Skip rule if condition doesn't match
-      if (rule.condition) {
-        const conditionValue = this.getValueAtPath(event, rule.condition.field);
-        if (!this.evaluateCondition(conditionValue, rule.condition.operator, rule.condition.value)) {
-          continue;
-        }
-      }
+  private validateEventAgainstSchema(event: BaseEvent): ValidationResult {
+    const schema = this.config.schemaValidators?.[event.type];
+    if (!schema) {
+      return { isValid: true, errors: [] };
+    }
+    
+    const result = schema.safeParse(event.payload);
+    if (!result.success) {
+      return {
+        isValid: false,
+        errors: result.error.errors.map(err => ({
+          code: 'SCHEMA_VALIDATION_ERROR',
+          message: err.message,
+          path: `payload${err.path.length > 0 ? '.' + err.path.join('.') : ''}`,
+          context: {
+            expected: err.expected,
+            received: err.received
+          }
+        }))
+      };
+    }
+    
+    return { isValid: true, errors: [] };
+  }
 
-      // Apply rule to all specified fields
-      for (const field of rule.fields) {
-        const value = this.getValueAtPath(event, field);
-
-        switch (rule.type) {
-          case 'required':
-            if (value === undefined) {
-              errors.push({
-                property: field,
-                errorCode: ERROR_CODES.SCHEMA_VALIDATION_FAILED,
-                message: rule.errorMessage || `${field} is required`,
-              });
-              if (options.stopOnFirstError) {
-                return;
-              }
-            }
-            break;
-
-          case 'prohibited':
-            if (value !== undefined) {
-              errors.push({
-                property: field,
-                errorCode: ERROR_CODES.SCHEMA_VALIDATION_FAILED,
-                message: rule.errorMessage || `${field} is not allowed`,
-              });
-              if (options.stopOnFirstError) {
-                return;
-              }
-            }
-            break;
-
-          case 'conditional':
-          case 'custom':
-            if (rule.validate && !rule.validate(value, event)) {
-              errors.push({
-                property: field,
-                errorCode: ERROR_CODES.SCHEMA_VALIDATION_FAILED,
-                message: rule.errorMessage || `${field} failed validation`,
-              });
-              if (options.stopOnFirstError) {
-                return;
-              }
-            }
-            break;
-        }
-      }
+  /**
+   * Checks if a string is a valid ISO date string.
+   * 
+   * @param dateString The string to check
+   * @returns True if the string is a valid ISO date string, false otherwise
+   */
+  private isValidISODateString(dateString: string): boolean {
+    try {
+      const date = new Date(dateString);
+      return !isNaN(date.getTime()) && date.toISOString() === dateString;
+    } catch {
+      return false;
     }
   }
 
   /**
-   * Gets a value at a specific path in an object
+   * Checks if a string is a valid semantic version.
    * 
-   * @param obj The object to get the value from
-   * @param path The path to the value
-   * @returns The value at the path or undefined if not found
+   * @param version The string to check
+   * @returns True if the string is a valid semantic version, false otherwise
    */
-  private getValueAtPath(obj: any, path: string): any {
-    const parts = path.split('.');
-    let current = obj;
-
-    for (const part of parts) {
-      if (current === undefined || current === null) {
-        return undefined;
-      }
-
-      // Handle array indexing
-      const match = part.match(/^([^\[]+)\[(\d+)\]$/);
-      if (match) {
-        const [, arrayName, indexStr] = match;
-        const index = parseInt(indexStr, 10);
-        current = current[arrayName];
-        if (!Array.isArray(current) || index >= current.length) {
-          return undefined;
-        }
-        current = current[index];
-      } else {
-        current = current[part];
-      }
-    }
-
-    return current;
+  private isValidSemVer(version: string): boolean {
+    const semVerRegex = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\+([0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?$/;
+    return semVerRegex.test(version);
   }
 
   /**
-   * Validates that a value is of the specified type
+   * Compares two semantic versions.
    * 
-   * @param value The value to validate
-   * @param type The expected type
-   * @returns Whether the value is of the expected type
+   * @param versionA First version
+   * @param versionB Second version
+   * @returns -1 if versionA < versionB, 0 if versionA = versionB, 1 if versionA > versionB
    */
-  private validateType(value: any, type: string): boolean {
-    switch (type) {
-      case 'string':
-        return typeof value === 'string';
-      case 'number':
-        return typeof value === 'number';
-      case 'boolean':
-        return typeof value === 'boolean';
-      case 'object':
-        return typeof value === 'object' && value !== null && !Array.isArray(value);
-      case 'array':
-        return Array.isArray(value);
-      default:
-        return false;
+  private compareVersions(versionA: string, versionB: string): number {
+    const partsA = versionA.split('.').map(Number);
+    const partsB = versionB.split('.').map(Number);
+    
+    for (let i = 0; i < Math.max(partsA.length, partsB.length); i++) {
+      const partA = i < partsA.length ? partsA[i] : 0;
+      const partB = i < partsB.length ? partsB[i] : 0;
+      
+      if (partA < partB) return -1;
+      if (partA > partB) return 1;
     }
+    
+    return 0;
   }
+}
 
-  /**
-   * Validates that a value matches the specified format
-   * 
-   * @param value The value to validate
-   * @param format The expected format
-   * @returns Whether the value matches the expected format
-   */
-  private validateFormat(value: any, format: string): boolean {
-    switch (format) {
-      case 'uuid':
-        return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
-      case 'date-time':
-        try {
-          const date = new Date(value);
-          return !isNaN(date.getTime());
-        } catch (e) {
-          return false;
-        }
-      case 'email':
-        return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
-      case 'uri':
-        try {
-          new URL(value);
-          return true;
-        } catch (e) {
-          return false;
-        }
-      default:
-        return true;
-    }
-  }
+/**
+ * Factory function to create a MockEventValidator with default configuration.
+ * 
+ * @returns A new MockEventValidator instance
+ */
+export function createMockEventValidator(): MockEventValidator {
+  return new MockEventValidator();
+}
 
-  /**
-   * Evaluates a condition
-   * 
-   * @param value The value to evaluate
-   * @param operator The operator to use
-   * @param compareValue The value to compare against
-   * @returns Whether the condition is met
-   */
-  private evaluateCondition(value: any, operator: string, compareValue: any): boolean {
-    switch (operator) {
-      case '==':
-        return value === compareValue;
-      case '!=':
-        return value !== compareValue;
-      case 'in':
-        return Array.isArray(compareValue) && compareValue.includes(value);
-      case 'not-in':
-        return Array.isArray(compareValue) && !compareValue.includes(value);
-      case '>':
-        return value > compareValue;
-      case '<':
-        return value < compareValue;
-      case '>=':
-        return value >= compareValue;
-      case '<=':
-        return value <= compareValue;
-      default:
-        return false;
-    }
-  }
+/**
+ * Factory function to create a MockEventValidator that always passes validation.
+ * 
+ * @returns A new MockEventValidator instance that always passes validation
+ */
+export function createAlwaysValidEventValidator(): MockEventValidator {
+  return new MockEventValidator({ alwaysValid: true });
+}
+
+/**
+ * Factory function to create a MockEventValidator that always fails validation.
+ * 
+ * @param errors Optional custom validation errors to return
+ * @returns A new MockEventValidator instance that always fails validation
+ */
+export function createAlwaysFailingEventValidator(errors?: ValidationError[]): MockEventValidator {
+  return new MockEventValidator({ 
+    alwaysFail: true,
+    predefinedErrors: errors
+  });
+}
+
+/**
+ * Factory function to create a MockEventValidator with journey-specific validation.
+ * 
+ * @param journeyValidators Record of journey-specific validation functions
+ * @returns A new MockEventValidator instance with journey-specific validation
+ */
+export function createJourneyAwareEventValidator(
+  journeyValidators: Record<JourneyType, (event: BaseEvent) => ValidationResult>
+): MockEventValidator {
+  return new MockEventValidator({ journeyValidators });
+}
+
+/**
+ * Factory function to create a MockEventValidator with schema-based validation.
+ * 
+ * @param schemas Record of event type to schema mappings
+ * @returns A new MockEventValidator instance with schema-based validation
+ */
+export function createSchemaEventValidator(
+  schemas: Record<string, ZodSchema>
+): MockEventValidator {
+  return new MockEventValidator({ 
+    schemaValidators: schemas,
+    deepValidation: true
+  });
+}
+
+/**
+ * Factory function to create a MockEventValidator with version validation.
+ * 
+ * @param minimumVersion Minimum required version for events
+ * @returns A new MockEventValidator instance with version validation
+ */
+export function createVersionedEventValidator(
+  minimumVersion: string
+): MockEventValidator {
+  return new MockEventValidator({ 
+    validateVersions: true,
+    minimumVersion
+  });
+}
+
+/**
+ * Factory function to create a MockEventValidator with performance tracking.
+ * 
+ * @param simulatedLatencyMs Optional simulated latency in milliseconds
+ * @returns A new MockEventValidator instance with performance tracking
+ */
+export function createPerformanceTrackingEventValidator(
+  simulatedLatencyMs?: number
+): MockEventValidator {
+  return new MockEventValidator({ 
+    trackPerformance: true,
+    simulatedLatencyMs
+  });
 }

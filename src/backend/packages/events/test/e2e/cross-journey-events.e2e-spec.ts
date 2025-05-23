@@ -3,973 +3,728 @@
  * @description End-to-end tests for cross-journey event processing, validating the integration
  * between different journey events and the gamification engine. This file tests multi-journey
  * achievement tracking, cross-journey event correlation, and end-to-end notification delivery.
- * It ensures proper event handling across journey boundaries and validates gamification event processing.
  */
 
+import { Test, TestingModule } from '@nestjs/testing';
+import { ConfigModule } from '@nestjs/config';
+import { randomUUID } from 'crypto';
 import { PrismaClient } from '@prisma/client';
-import { v4 as uuidv4 } from 'uuid';
+import { PrismaService } from '@austa/database';
+import { KafkaService } from '../../src/kafka/kafka.service';
+import { KafkaProducer } from '../../src/kafka/kafka.producer';
+import { KafkaConsumer } from '../../src/kafka/kafka.consumer';
+import { EventsModule } from '../../src/events.module';
+import { BaseEvent } from '../../src/interfaces/base-event.interface';
+import { JourneyType } from '@austa/interfaces/common/dto/journey.dto';
 import {
+  createTestEnvironment,
+  createTestConsumer,
+  publishTestEvent,
+  waitForEvent,
+  waitForEvents,
+  createJourneyEventFactories,
   TestEnvironment,
-  createTestUser,
-  createTestHealthMetrics,
-  createTestAppointment,
-  createTestClaim,
-  createTestEvent,
-  assertEvent,
   waitForCondition,
+  retry
 } from './test-helpers';
-import { EventType } from '../../src/dto/event-types.enum';
 
-// Define journey types based on the application context
-enum JourneyType {
-  HEALTH = 'health',
-  CARE = 'care',
-  PLAN = 'plan',
-  GAMIFICATION = 'gamification',
-  USER = 'user'
+// Test timeout configuration
+const TEST_TIMEOUT = 30000;
+
+/**
+ * Helper function to create a user for testing
+ */
+async function createTestUser(prisma: PrismaClient) {
+  const userId = randomUUID();
+  await prisma.user.create({
+    data: {
+      id: userId,
+      name: 'Test User',
+      email: `test-${userId.substring(0, 8)}@example.com`,
+      password: 'password123',
+      phone: '+5511999999999',
+      cpf: '12345678901',
+    },
+  });
+  
+  // Create a gamification profile for the user
+  await prisma.gamificationProfile.create({
+    data: {
+      userId,
+      level: 1,
+      points: 0,
+      totalPoints: 0,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    },
+  });
+  
+  return userId;
 }
 
-describe('Cross-Journey Events', () => {
+/**
+ * Helper function to create a cross-journey achievement
+ */
+async function createCrossJourneyAchievement(prisma: PrismaClient, name: string, journeys: JourneyType[]) {
+  const achievementId = randomUUID();
+  await prisma.achievementType.create({
+    data: {
+      id: achievementId,
+      name,
+      title: `Cross Journey Achievement: ${name}`,
+      description: `Achievement that spans multiple journeys: ${journeys.join(', ')}`,
+      journey: 'cross-journey',
+      icon: 'star',
+      levels: 3,
+      isActive: true,
+      requiredJourneys: journeys,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    },
+  });
+  
+  return achievementId;
+}
+
+/**
+ * Helper function to create achievement rules for cross-journey achievements
+ */
+async function createCrossJourneyAchievementRule(
+  prisma: PrismaClient,
+  achievementTypeId: string,
+  eventTypes: string[],
+  requiredCount: number = 1,
+  timeframeHours: number = 24
+) {
+  const ruleId = randomUUID();
+  await prisma.achievementRule.create({
+    data: {
+      id: ruleId,
+      achievementTypeId,
+      eventTypes,
+      requiredCount,
+      timeframeHours,
+      isSequential: false,
+      isActive: true,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    },
+  });
+  
+  return ruleId;
+}
+
+describe('Cross-Journey Events (E2E)', () => {
   let testEnv: TestEnvironment;
   let prisma: PrismaClient;
   let userId: string;
+  let eventFactories: ReturnType<typeof createJourneyEventFactories>;
   
-  // Test timeout is extended for end-to-end tests
-  jest.setTimeout(60000);
-  
+  // Setup before all tests
   beforeAll(async () => {
-    // Set up test environment with Kafka and database connections
-    testEnv = new TestEnvironment({
-      testTimeout: 30000,
-      maxRetries: 3,
+    // Create test environment
+    testEnv = await createTestEnvironment({
+      useRealKafka: true,
+      seedDatabase: true,
+      assertionTimeout: 10000,
     });
     
-    await testEnv.setup();
-    prisma = testEnv.getPrisma();
+    // Get services
+    prisma = new PrismaClient();
     
-    // Create a test user for all tests
-    const user = await createTestUser(prisma);
-    userId = user.id;
-  });
+    // Create test user
+    userId = await createTestUser(prisma);
+    
+    // Create event factories
+    eventFactories = createJourneyEventFactories();
+    
+    // Wait for services to be ready
+    await new Promise(resolve => setTimeout(resolve, 1000));
+  }, TEST_TIMEOUT);
   
+  // Cleanup after all tests
   afterAll(async () => {
     // Clean up test environment
-    await testEnv.teardown();
+    await testEnv.cleanup();
+    
+    // Close Prisma connection
+    await prisma.$disconnect();
   });
   
-  beforeEach(() => {
-    // Clear consumed messages before each test
-    testEnv.clearConsumedMessages();
-  });
-  
-  /**
-   * Test multi-journey achievement tracking
-   * 
-   * This test verifies that achievements can be unlocked based on events from multiple journeys.
-   * It simulates a user completing actions across health, care, and plan journeys, and validates
-   * that a cross-journey achievement is unlocked when all conditions are met.
-   */
   describe('Multi-Journey Achievement Tracking', () => {
-    it('should unlock a cross-journey achievement when events from multiple journeys meet criteria', async () => {
-      // Create test data for each journey
-      const healthMetrics = await createTestHealthMetrics(prisma, userId, 3);
-      const appointment = await createTestAppointment(prisma, userId);
-      const claim = await createTestClaim(prisma, userId);
-      
-      // Publish health journey event
-      await testEnv.publishEvent(
-        createTestEvent(
-          EventType.HEALTH_METRIC_RECORDED,
-          JourneyType.HEALTH,
-          userId,
-          {
-            metricType: 'HEART_RATE',
-            value: 75,
-            unit: 'bpm',
-            timestamp: new Date().toISOString(),
-            source: 'manual'
-          }
-        ),
-        'health-events'
+    let healthCareAchievementId: string;
+    let healthCareRuleId: string;
+    let achievementConsumer: KafkaConsumer;
+    
+    beforeAll(async () => {
+      // Create a cross-journey achievement that requires events from Health and Care journeys
+      healthCareAchievementId = await createCrossJourneyAchievement(
+        prisma,
+        'health-care-synergy',
+        [JourneyType.HEALTH, JourneyType.CARE]
       );
       
-      // Publish care journey event
-      await testEnv.publishEvent(
-        createTestEvent(
-          EventType.CARE_APPOINTMENT_COMPLETED,
-          JourneyType.CARE,
-          userId,
-          {
-            appointmentId: appointment.id,
-            providerId: appointment.providerId,
-            appointmentType: 'in_person',
-            scheduledAt: appointment.scheduledAt.toISOString(),
-            completedAt: new Date().toISOString(),
-            duration: 30
-          }
-        ),
-        'care-events'
+      // Create a rule that requires one health metric recorded and one appointment completed
+      healthCareRuleId = await createCrossJourneyAchievementRule(
+        prisma,
+        healthCareAchievementId,
+        ['health.metric.recorded', 'care.appointment.completed'],
+        1, // One of each event type
+        24 // Within 24 hours
       );
       
-      // Publish plan journey event
-      await testEnv.publishEvent(
-        createTestEvent(
-          EventType.PLAN_CLAIM_SUBMITTED,
-          JourneyType.PLAN,
-          userId,
-          {
-            claimId: claim.id,
-            claimType: 'medical',
-            providerId: appointment.providerId,
-            serviceDate: new Date().toISOString(),
-            amount: claim.amount,
-            submittedAt: new Date().toISOString()
-          }
-        ),
-        'plan-events'
+      // Create a consumer for achievement events
+      achievementConsumer = await createTestConsumer(
+        testEnv.kafkaService,
+        'gamification.achievements',
+        `test-achievement-consumer-${randomUUID()}`
       );
+    });
+    
+    afterAll(async () => {
+      // Disconnect consumer
+      await achievementConsumer.disconnect();
+    });
+    
+    it('should trigger achievement when events from multiple journeys occur', async () => {
+      // Create correlation ID to link events
+      const correlationId = randomUUID();
       
-      // Wait for achievement unlocked event
-      const achievementEvent = await testEnv.waitForEvent(
-        EventType.GAMIFICATION_ACHIEVEMENT_UNLOCKED,
-        userId
-      );
-      
-      // Assert that the achievement was unlocked
-      expect(achievementEvent).not.toBeNull();
-      expect(achievementEvent.type).toBe(EventType.GAMIFICATION_ACHIEVEMENT_UNLOCKED);
-      expect(achievementEvent.journey).toBe(JourneyType.GAMIFICATION);
-      expect(achievementEvent.userId).toBe(userId);
-      expect(achievementEvent.data).toHaveProperty('achievementId');
-      expect(achievementEvent.data).toHaveProperty('achievementType');
-      
-      // Verify the achievement in the database
-      const userAchievement = await prisma.userAchievement.findFirst({
-        where: {
+      // Create health metric recorded event
+      const healthEvent = eventFactories.health.metricRecorded({
+        userId,
+        metadata: { correlationId },
+        payload: {
           userId,
-          achievementTypeId: achievementEvent.data.achievementId,
+          metricType: 'HEART_RATE',
+          value: 75,
+          unit: 'bpm',
+          recordedAt: new Date().toISOString(),
+          source: 'manual',
         },
       });
       
-      expect(userAchievement).not.toBeNull();
-      expect(userAchievement.unlockedAt).toBeDefined();
-    });
-    
-    it('should track progress across multiple journeys for tiered achievements', async () => {
-      // Create test data
-      const healthMetrics = await createTestHealthMetrics(prisma, userId, 2);
-      const appointment = await createTestAppointment(prisma, userId);
-      
-      // Publish first journey event (health)
-      await testEnv.publishEvent(
-        createTestEvent(
-          EventType.HEALTH_GOAL_ACHIEVED,
-          JourneyType.HEALTH,
+      // Create care appointment completed event
+      const careEvent = eventFactories.care.appointmentBooked({
+        userId,
+        metadata: { correlationId },
+        payload: {
           userId,
-          {
-            goalId: uuidv4(),
-            goalType: 'steps',
-            targetValue: 10000,
-            achievedValue: 10500,
-            completedAt: new Date().toISOString()
-          }
-        ),
-        'health-events'
+          appointmentId: randomUUID(),
+          providerId: randomUUID(),
+          specialtyId: randomUUID(),
+          scheduledAt: new Date(Date.now() + 86400000).toISOString(), // Tomorrow
+          bookedAt: new Date().toISOString(),
+        },
+      });
+      
+      // Publish health event
+      await publishTestEvent(testEnv.kafkaProducer, 'health.events', healthEvent);
+      
+      // Publish care event
+      await publishTestEvent(testEnv.kafkaProducer, 'care.events', careEvent);
+      
+      // Wait for achievement unlocked event
+      const achievementEvent = await waitForEvent(
+        achievementConsumer,
+        (event: BaseEvent) => {
+          return (
+            event.type === 'gamification.achievement.unlocked' &&
+            event.payload.achievementTypeId === healthCareAchievementId &&
+            event.userId === userId
+          );
+        },
+        10000
       );
       
-      // Wait for points earned event
-      const pointsEvent1 = await testEnv.waitForEvent(
-        EventType.GAMIFICATION_POINTS_EARNED,
-        userId
-      );
-      
-      // Publish second journey event (care)
-      await testEnv.publishEvent(
-        createTestEvent(
-          EventType.CARE_MEDICATION_TAKEN,
-          JourneyType.CARE,
-          userId,
-          {
-            medicationId: uuidv4(),
-            medicationName: 'Test Medication',
-            dosage: '10mg',
-            takenAt: new Date().toISOString(),
-            adherence: 'on_time'
-          }
-        ),
-        'care-events'
-      );
-      
-      // Wait for points earned event
-      const pointsEvent2 = await testEnv.waitForEvent(
-        EventType.GAMIFICATION_POINTS_EARNED,
-        userId
-      );
-      
-      // Clear messages to prepare for next test
-      testEnv.clearConsumedMessages();
-      
-      // Publish third journey event (plan)
-      await testEnv.publishEvent(
-        createTestEvent(
-          EventType.PLAN_BENEFIT_UTILIZED,
-          JourneyType.PLAN,
-          userId,
-          {
-            benefitId: uuidv4(),
-            benefitType: 'wellness',
-            utilizationDate: new Date().toISOString(),
-            savingsAmount: 100
-          }
-        ),
-        'plan-events'
-      );
-      
-      // Wait for achievement unlocked event (bronze tier)
-      const achievementEvent = await testEnv.waitForEvent(
-        EventType.GAMIFICATION_ACHIEVEMENT_UNLOCKED,
-        userId
-      );
-      
-      // Assert that the achievement was unlocked
+      // Verify achievement event
       expect(achievementEvent).not.toBeNull();
-      expect(achievementEvent.data).toHaveProperty('tier', 'bronze');
+      expect(achievementEvent?.payload.achievementTypeId).toBe(healthCareAchievementId);
+      expect(achievementEvent?.userId).toBe(userId);
+      expect(achievementEvent?.metadata?.correlationId).toBeDefined();
       
-      // Verify the achievement in the database
-      const userAchievement = await prisma.userAchievement.findFirst({
+      // Verify achievement was recorded in database
+      const achievement = await prisma.userAchievement.findFirst({
         where: {
           userId,
-          achievementTypeId: achievementEvent.data.achievementId,
+          achievementTypeId: healthCareAchievementId,
+        },
+      });
+      
+      expect(achievement).not.toBeNull();
+      expect(achievement?.level).toBe(1);
+      expect(achievement?.unlockedAt).toBeDefined();
+    }, TEST_TIMEOUT);
+    
+    it('should not trigger achievement when events are outside the timeframe', async () => {
+      // Create a new user for this test
+      const newUserId = await createTestUser(prisma);
+      
+      // Create correlation ID to link events
+      const correlationId = randomUUID();
+      
+      // Create health metric recorded event with timestamp 25 hours ago
+      const pastDate = new Date(Date.now() - 25 * 60 * 60 * 1000).toISOString();
+      const healthEvent = eventFactories.health.metricRecorded({
+        userId: newUserId,
+        metadata: { correlationId },
+        timestamp: pastDate,
+        payload: {
+          userId: newUserId,
+          metricType: 'HEART_RATE',
+          value: 75,
+          unit: 'bpm',
+          recordedAt: pastDate,
+          source: 'manual',
+        },
+      });
+      
+      // Create care appointment completed event with current timestamp
+      const careEvent = eventFactories.care.appointmentBooked({
+        userId: newUserId,
+        metadata: { correlationId },
+        payload: {
+          userId: newUserId,
+          appointmentId: randomUUID(),
+          providerId: randomUUID(),
+          specialtyId: randomUUID(),
+          scheduledAt: new Date(Date.now() + 86400000).toISOString(), // Tomorrow
+          bookedAt: new Date().toISOString(),
+        },
+      });
+      
+      // Publish health event
+      await publishTestEvent(testEnv.kafkaProducer, 'health.events', healthEvent);
+      
+      // Publish care event
+      await publishTestEvent(testEnv.kafkaProducer, 'care.events', careEvent);
+      
+      // Wait a few seconds to ensure events are processed
+      await new Promise(resolve => setTimeout(resolve, 5000));
+      
+      // Verify achievement was NOT recorded in database
+      const achievement = await prisma.userAchievement.findFirst({
+        where: {
+          userId: newUserId,
+          achievementTypeId: healthCareAchievementId,
+        },
+      });
+      
+      expect(achievement).toBeNull();
+    }, TEST_TIMEOUT);
+  });
+  
+  describe('Cross-Journey Event Correlation', () => {
+    let correlationConsumer: KafkaConsumer;
+    
+    beforeAll(async () => {
+      // Create a consumer for correlated events
+      correlationConsumer = await createTestConsumer(
+        testEnv.kafkaService,
+        'event.correlations',
+        `test-correlation-consumer-${randomUUID()}`
+      );
+    });
+    
+    afterAll(async () => {
+      // Disconnect consumer
+      await correlationConsumer.disconnect();
+    });
+    
+    it('should correlate events across different journeys', async () => {
+      // Create correlation ID to link events
+      const correlationId = randomUUID();
+      
+      // Create events from all three journeys with the same correlation ID
+      const healthEvent = eventFactories.health.metricRecorded({
+        userId,
+        metadata: { correlationId },
+        payload: {
+          userId,
+          metricType: 'BLOOD_PRESSURE',
+          value: 120,
+          unit: 'mmHg',
+          recordedAt: new Date().toISOString(),
+          source: 'manual',
+        },
+      });
+      
+      const careEvent = eventFactories.care.medicationTaken({
+        userId,
+        metadata: { correlationId },
+        payload: {
+          userId,
+          medicationId: randomUUID(),
+          scheduledAt: new Date().toISOString(),
+          takenAt: new Date().toISOString(),
+          dosage: '10mg',
+        },
+      });
+      
+      const planEvent = eventFactories.plan.benefitUtilized({
+        userId,
+        metadata: { correlationId },
+        payload: {
+          userId,
+          benefitId: randomUUID(),
+          utilizedAt: new Date().toISOString(),
+          value: 50.0,
+          currency: 'BRL',
+        },
+      });
+      
+      // Publish all events
+      await publishTestEvent(testEnv.kafkaProducer, 'health.events', healthEvent);
+      await publishTestEvent(testEnv.kafkaProducer, 'care.events', careEvent);
+      await publishTestEvent(testEnv.kafkaProducer, 'plan.events', planEvent);
+      
+      // Wait for correlation event that contains references to all three events
+      const correlationEvent = await waitForEvent(
+        correlationConsumer,
+        (event: BaseEvent) => {
+          return (
+            event.type === 'event.correlation.created' &&
+            event.metadata?.correlationId === correlationId &&
+            event.payload.eventCount >= 3
+          );
+        },
+        10000
+      );
+      
+      // Verify correlation event
+      expect(correlationEvent).not.toBeNull();
+      expect(correlationEvent?.metadata?.correlationId).toBe(correlationId);
+      expect(correlationEvent?.payload.eventCount).toBeGreaterThanOrEqual(3);
+      expect(correlationEvent?.payload.journeys).toContain(JourneyType.HEALTH);
+      expect(correlationEvent?.payload.journeys).toContain(JourneyType.CARE);
+      expect(correlationEvent?.payload.journeys).toContain(JourneyType.PLAN);
+      expect(correlationEvent?.payload.eventIds).toContain(healthEvent.eventId);
+      expect(correlationEvent?.payload.eventIds).toContain(careEvent.eventId);
+      expect(correlationEvent?.payload.eventIds).toContain(planEvent.eventId);
+    }, TEST_TIMEOUT);
+  });
+  
+  describe('Achievement Notification Delivery', () => {
+    let healthPlanAchievementId: string;
+    let healthPlanRuleId: string;
+    let notificationConsumer: KafkaConsumer;
+    
+    beforeAll(async () => {
+      // Create a cross-journey achievement that requires events from Health and Plan journeys
+      healthPlanAchievementId = await createCrossJourneyAchievement(
+        prisma,
+        'health-plan-integration',
+        [JourneyType.HEALTH, JourneyType.PLAN]
+      );
+      
+      // Create a rule that requires one health goal achieved and one claim submitted
+      healthPlanRuleId = await createCrossJourneyAchievementRule(
+        prisma,
+        healthPlanAchievementId,
+        ['health.goal.achieved', 'plan.claim.submitted'],
+        1, // One of each event type
+        24 // Within 24 hours
+      );
+      
+      // Create a consumer for notification events
+      notificationConsumer = await createTestConsumer(
+        testEnv.kafkaService,
+        'notifications.outbound',
+        `test-notification-consumer-${randomUUID()}`
+      );
+    });
+    
+    afterAll(async () => {
+      // Disconnect consumer
+      await notificationConsumer.disconnect();
+    });
+    
+    it('should deliver notifications when cross-journey achievement is unlocked', async () => {
+      // Create correlation ID to link events
+      const correlationId = randomUUID();
+      
+      // Create health goal achieved event
+      const healthEvent = eventFactories.health.goalAchieved({
+        userId,
+        metadata: { correlationId },
+        payload: {
+          userId,
+          goalId: randomUUID(),
+          goalType: 'STEPS',
+          targetValue: 10000,
+          achievedValue: 10500,
+          achievedAt: new Date().toISOString(),
+        },
+      });
+      
+      // Create plan claim submitted event
+      const planEvent = eventFactories.plan.claimSubmitted({
+        userId,
+        metadata: { correlationId },
+        payload: {
+          userId,
+          claimId: randomUUID(),
+          claimTypeId: randomUUID(),
+          amount: 150.0,
+          currency: 'BRL',
+          submittedAt: new Date().toISOString(),
+          status: 'PENDING',
+        },
+      });
+      
+      // Publish health event
+      await publishTestEvent(testEnv.kafkaProducer, 'health.events', healthEvent);
+      
+      // Publish plan event
+      await publishTestEvent(testEnv.kafkaProducer, 'plan.events', planEvent);
+      
+      // Wait for notification event
+      const notificationEvent = await waitForEvent(
+        notificationConsumer,
+        (event: BaseEvent) => {
+          return (
+            event.type === 'notification.achievement.unlocked' &&
+            event.userId === userId &&
+            event.payload.achievementTypeId === healthPlanAchievementId
+          );
+        },
+        10000
+      );
+      
+      // Verify notification event
+      expect(notificationEvent).not.toBeNull();
+      expect(notificationEvent?.userId).toBe(userId);
+      expect(notificationEvent?.payload.achievementTypeId).toBe(healthPlanAchievementId);
+      expect(notificationEvent?.payload.achievementTitle).toBeDefined();
+      expect(notificationEvent?.payload.level).toBe(1);
+      expect(notificationEvent?.payload.points).toBeGreaterThan(0);
+      expect(notificationEvent?.metadata?.correlationId).toBeDefined();
+      
+      // Verify notification was recorded in database
+      const notification = await prisma.notification.findFirst({
+        where: {
+          userId,
+          type: 'ACHIEVEMENT_UNLOCKED',
         },
         orderBy: {
-          unlockedAt: 'desc',
+          createdAt: 'desc',
         },
       });
       
-      expect(userAchievement).not.toBeNull();
-      expect(userAchievement.tier).toBe(1); // Bronze tier
-    });
-  });
-  
-  /**
-   * Test cross-journey event correlation
-   * 
-   * This test verifies that events from different journeys can be correlated using
-   * correlation IDs and other metadata. It simulates a user flow that spans multiple
-   * journeys and validates that events are properly linked.
-   */
-  describe('Cross-Journey Event Correlation', () => {
-    it('should correlate events across journeys using correlation IDs', async () => {
-      // Generate a correlation ID for this test flow
-      const correlationId = uuidv4();
-      
-      // Create test data
-      const appointment = await createTestAppointment(prisma, userId);
-      
-      // Publish care journey event with correlation ID
-      await testEnv.publishEvent(
-        {
-          type: EventType.CARE_APPOINTMENT_BOOKED,
-          journey: JourneyType.CARE,
-          userId,
-          data: {
-            appointmentId: appointment.id,
-            providerId: appointment.providerId,
-            specialtyType: 'Cardiologia',
-            appointmentType: 'in_person',
-            scheduledAt: appointment.scheduledAt.toISOString(),
-            bookedAt: new Date().toISOString()
-          },
-          metadata: {
-            correlationId,
-            timestamp: new Date().toISOString(),
-            version: '1.0.0',
-            source: 'e2e-test'
-          }
-        },
-        'care-events'
-      );
-      
-      // Publish health journey event with same correlation ID
-      await testEnv.publishEvent(
-        {
-          type: EventType.HEALTH_ASSESSMENT_COMPLETED,
-          journey: JourneyType.HEALTH,
-          userId,
-          data: {
-            assessmentId: uuidv4(),
-            assessmentType: 'pre_appointment',
-            score: 85,
-            completedAt: new Date().toISOString(),
-            duration: 300
-          },
-          metadata: {
-            correlationId, // Same correlation ID
-            timestamp: new Date().toISOString(),
-            version: '1.0.0',
-            source: 'e2e-test'
-          }
-        },
-        'health-events'
-      );
-      
-      // Wait for points earned events
-      const pointsEvents = [];
-      for (let i = 0; i < 2; i++) {
-        const event = await testEnv.waitForEvent(EventType.GAMIFICATION_POINTS_EARNED, userId);
-        if (event) pointsEvents.push(event);
-      }
-      
-      // Assert that both events were processed and correlated
-      expect(pointsEvents.length).toBe(2);
-      
-      // Check that both events have the same correlation ID
-      const allHaveSameCorrelationId = pointsEvents.every(
-        event => event.metadata?.correlationId === correlationId
-      );
-      
-      expect(allHaveSameCorrelationId).toBe(true);
-      
-      // Verify that the events are linked in the database
-      const eventRecords = await prisma.eventLog.findMany({
-        where: {
-          correlationId,
-        },
-      });
-      
-      expect(eventRecords.length).toBeGreaterThanOrEqual(2);
-    });
-    
-    it('should track a complete user journey across multiple services', async () => {
-      // Generate a correlation ID for this test flow
-      const correlationId = uuidv4();
-      const sessionId = uuidv4();
-      
-      // Create test data
-      const claim = await createTestClaim(prisma, userId);
-      
-      // Step 1: User logs in (user journey)
-      await testEnv.publishEvent(
-        {
-          type: EventType.USER_LOGIN,
-          journey: JourneyType.USER,
-          userId,
-          data: {
-            loginMethod: 'password',
-            deviceType: 'mobile',
-            loginAt: new Date().toISOString()
-          },
-          metadata: {
-            correlationId,
-            sessionId,
-            timestamp: new Date().toISOString(),
-            version: '1.0.0',
-            source: 'e2e-test'
-          }
-        },
-        'user-events'
-      );
-      
-      // Step 2: User checks health metrics (health journey)
-      await testEnv.publishEvent(
-        {
-          type: EventType.HEALTH_METRIC_RECORDED,
-          journey: JourneyType.HEALTH,
-          userId,
-          data: {
-            metricType: 'BLOOD_PRESSURE',
-            value: 120,
-            unit: 'mmHg',
-            timestamp: new Date().toISOString(),
-            source: 'manual'
-          },
-          metadata: {
-            correlationId,
-            sessionId,
-            timestamp: new Date().toISOString(),
-            version: '1.0.0',
-            source: 'e2e-test'
-          }
-        },
-        'health-events'
-      );
-      
-      // Step 3: User submits a claim (plan journey)
-      await testEnv.publishEvent(
-        {
-          type: EventType.PLAN_CLAIM_SUBMITTED,
-          journey: JourneyType.PLAN,
-          userId,
-          data: {
-            claimId: claim.id,
-            claimType: 'medical',
-            providerId: uuidv4(),
-            serviceDate: new Date().toISOString(),
-            amount: claim.amount,
-            submittedAt: new Date().toISOString()
-          },
-          metadata: {
-            correlationId,
-            sessionId,
-            timestamp: new Date().toISOString(),
-            version: '1.0.0',
-            source: 'e2e-test'
-          }
-        },
-        'plan-events'
-      );
-      
-      // Wait for achievement unlocked event
-      const achievementEvent = await testEnv.waitForEvent(
-        EventType.GAMIFICATION_ACHIEVEMENT_UNLOCKED,
-        userId
-      );
-      
-      // Assert that the achievement was unlocked
-      expect(achievementEvent).not.toBeNull();
-      expect(achievementEvent.metadata?.correlationId).toBe(correlationId);
-      expect(achievementEvent.metadata?.sessionId).toBe(sessionId);
-      
-      // Verify the user journey in the database
-      const userJourney = await prisma.userJourney.findFirst({
-        where: {
-          userId,
-          sessionId,
-        },
-        include: {
-          steps: true,
-        },
-      });
-      
-      expect(userJourney).not.toBeNull();
-      expect(userJourney.steps.length).toBeGreaterThanOrEqual(3);
-      
-      // Verify that steps from all journeys are included
-      const journeys = userJourney.steps.map(step => step.journey);
-      expect(journeys).toContain('user');
-      expect(journeys).toContain('health');
-      expect(journeys).toContain('plan');
-    });
-  });
-  
-  /**
-   * Test notification delivery for achievements
-   * 
-   * This test verifies that notifications are delivered when achievements are unlocked
-   * based on events from multiple journeys. It simulates a user completing actions that
-   * trigger an achievement and validates that a notification is sent.
-   */
-  describe('Achievement Notification Delivery', () => {
-    it('should deliver notifications when cross-journey achievements are unlocked', async () => {
-      // Create test data
-      const healthMetrics = await createTestHealthMetrics(prisma, userId, 1);
-      
-      // Publish health journey event
-      await testEnv.publishEvent(
-        createTestEvent(
-          EventType.HEALTH_GOAL_ACHIEVED,
-          JourneyType.HEALTH,
-          userId,
-          {
-            goalId: uuidv4(),
-            goalType: 'steps',
-            targetValue: 10000,
-            achievedValue: 12000,
-            completedAt: new Date().toISOString()
-          }
-        ),
-        'health-events'
-      );
-      
-      // Wait for achievement unlocked event
-      const achievementEvent = await testEnv.waitForEvent(
-        EventType.GAMIFICATION_ACHIEVEMENT_UNLOCKED,
-        userId
-      );
-      
-      // Assert that the achievement was unlocked
-      expect(achievementEvent).not.toBeNull();
-      
-      // Wait for notification to be created in the database
-      let notification = null;
-      await waitForCondition(async () => {
-        notification = await prisma.notification.findFirst({
-          where: {
-            userId,
-            type: 'ACHIEVEMENT_UNLOCKED',
-            relatedId: achievementEvent.data.achievementId,
-          },
-          orderBy: {
-            createdAt: 'desc',
-          },
-        });
-        
-        return !!notification;
-      });
-      
-      // Assert that the notification was created
       expect(notification).not.toBeNull();
-      expect(notification.title).toContain('Achievement');
-      expect(notification.status).toBe('PENDING');
-      
-      // Wait for notification to be marked as sent
-      await waitForCondition(async () => {
-        const updatedNotification = await prisma.notification.findUnique({
-          where: {
-            id: notification.id,
-          },
-        });
-        
-        return updatedNotification.status === 'SENT';
-      });
-      
-      // Verify notification delivery status
-      const finalNotification = await prisma.notification.findUnique({
-        where: {
-          id: notification.id,
-        },
-      });
-      
-      expect(finalNotification.status).toBe('SENT');
-      expect(finalNotification.sentAt).not.toBeNull();
-    });
-    
-    it('should include journey context in achievement notifications', async () => {
-      // Create test data
-      const appointment = await createTestAppointment(prisma, userId);
-      
-      // Publish care journey event
-      await testEnv.publishEvent(
-        createTestEvent(
-          EventType.CARE_APPOINTMENT_COMPLETED,
-          JourneyType.CARE,
-          userId,
-          {
-            appointmentId: appointment.id,
-            providerId: appointment.providerId,
-            appointmentType: 'in_person',
-            scheduledAt: appointment.scheduledAt.toISOString(),
-            completedAt: new Date().toISOString(),
-            duration: 30
-          }
-        ),
-        'care-events'
-      );
-      
-      // Wait for achievement unlocked event
-      const achievementEvent = await testEnv.waitForEvent(
-        EventType.GAMIFICATION_ACHIEVEMENT_UNLOCKED,
-        userId
-      );
-      
-      // Assert that the achievement was unlocked
-      expect(achievementEvent).not.toBeNull();
-      
-      // Wait for notification to be created
-      let notification = null;
-      await waitForCondition(async () => {
-        notification = await prisma.notification.findFirst({
-          where: {
-            userId,
-            type: 'ACHIEVEMENT_UNLOCKED',
-            relatedId: achievementEvent.data.achievementId,
-          },
-          orderBy: {
-            createdAt: 'desc',
-          },
-        });
-        
-        return !!notification;
-      });
-      
-      // Assert that the notification includes journey context
-      expect(notification).not.toBeNull();
-      expect(notification.metadata).toBeDefined();
-      
-      const metadata = JSON.parse(notification.metadata);
-      expect(metadata).toHaveProperty('journeyContext');
-      expect(metadata.journeyContext).toHaveProperty('originJourney', 'care');
-      expect(metadata.journeyContext).toHaveProperty('achievementJourney', 'gamification');
-    });
+      expect(notification?.read).toBe(false);
+      expect(notification?.data).toContain(healthPlanAchievementId);
+    }, TEST_TIMEOUT);
   });
   
-  /**
-   * Test leaderboard updates based on cross-journey events
-   * 
-   * This test verifies that leaderboards are updated based on events from multiple journeys.
-   * It simulates users earning points from different journeys and validates that the
-   * leaderboard reflects the combined points.
-   */
   describe('Leaderboard Updates', () => {
-    it('should update leaderboards based on points from multiple journeys', async () => {
-      // Create additional test users for leaderboard
-      const user2 = await createTestUser(prisma);
-      const user3 = await createTestUser(prisma);
-      
-      // Publish events for first user (health journey)
-      await testEnv.publishEvent(
-        createTestEvent(
-          EventType.HEALTH_METRIC_RECORDED,
-          JourneyType.HEALTH,
-          userId,
-          {
-            metricType: 'STEPS',
-            value: 15000,
-            unit: 'steps',
-            timestamp: new Date().toISOString(),
-            source: 'device'
-          }
-        ),
-        'health-events'
+    let leaderboardConsumer: KafkaConsumer;
+    
+    beforeAll(async () => {
+      // Create a consumer for leaderboard events
+      leaderboardConsumer = await createTestConsumer(
+        testEnv.kafkaService,
+        'gamification.leaderboards',
+        `test-leaderboard-consumer-${randomUUID()}`
       );
       
-      // Publish events for second user (care journey)
-      await testEnv.publishEvent(
-        createTestEvent(
-          EventType.CARE_MEDICATION_TAKEN,
-          JourneyType.CARE,
-          user2.id,
-          {
-            medicationId: uuidv4(),
-            medicationName: 'Test Medication',
-            dosage: '10mg',
-            takenAt: new Date().toISOString(),
-            adherence: 'on_time'
-          }
-        ),
-        'care-events'
-      );
+      // Create a global leaderboard if it doesn't exist
+      const existingLeaderboard = await prisma.leaderboard.findFirst({
+        where: { type: 'GLOBAL' },
+      });
       
-      // Publish events for third user (plan journey)
-      await testEnv.publishEvent(
-        createTestEvent(
-          EventType.PLAN_BENEFIT_UTILIZED,
-          JourneyType.PLAN,
-          user3.id,
-          {
-            benefitId: uuidv4(),
-            benefitType: 'wellness',
-            utilizationDate: new Date().toISOString(),
-            savingsAmount: 50
-          }
-        ),
-        'plan-events'
-      );
-      
-      // Wait for points to be processed
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      
-      // Verify leaderboard in the database
-      const leaderboard = await prisma.leaderboard.findFirst({
-        where: {
-          type: 'GLOBAL',
-        },
-        include: {
-          entries: {
-            orderBy: {
-              score: 'desc',
-            },
-            take: 10,
+      if (!existingLeaderboard) {
+        await prisma.leaderboard.create({
+          data: {
+            id: randomUUID(),
+            name: 'Global Leaderboard',
+            type: 'GLOBAL',
+            description: 'Global leaderboard for all users',
+            isActive: true,
+            createdAt: new Date(),
+            updatedAt: new Date(),
           },
-        },
-      });
-      
-      expect(leaderboard).not.toBeNull();
-      expect(leaderboard.entries.length).toBeGreaterThanOrEqual(3);
-      
-      // Get user scores
-      const userScores = {};
-      leaderboard.entries.forEach(entry => {
-        userScores[entry.userId] = entry.score;
-      });
-      
-      // Verify that all users have points
-      expect(userScores[userId]).toBeGreaterThan(0);
-      expect(userScores[user2.id]).toBeGreaterThan(0);
-      expect(userScores[user3.id]).toBeGreaterThan(0);
-      
-      // Publish additional events for first user (care journey)
-      await testEnv.publishEvent(
-        createTestEvent(
-          EventType.CARE_APPOINTMENT_COMPLETED,
-          JourneyType.CARE,
-          userId,
-          {
-            appointmentId: uuidv4(),
-            providerId: uuidv4(),
-            appointmentType: 'telemedicine',
-            scheduledAt: new Date().toISOString(),
-            completedAt: new Date().toISOString(),
-            duration: 15
-          }
-        ),
-        'care-events'
-      );
-      
-      // Wait for points to be processed
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      
-      // Verify updated leaderboard
-      const updatedLeaderboard = await prisma.leaderboard.findFirst({
-        where: {
-          type: 'GLOBAL',
-        },
-        include: {
-          entries: {
-            orderBy: {
-              score: 'desc',
-            },
-            take: 10,
-          },
-        },
-      });
-      
-      // Get updated user scores
-      const updatedUserScores = {};
-      updatedLeaderboard.entries.forEach(entry => {
-        updatedUserScores[entry.userId] = entry.score;
-      });
-      
-      // Verify that first user's score increased
-      expect(updatedUserScores[userId]).toBeGreaterThan(userScores[userId]);
+        });
+      }
     });
     
-    it('should maintain journey-specific leaderboards alongside global leaderboard', async () => {
-      // Create additional test users
-      const user2 = await createTestUser(prisma);
-      
-      // Publish health journey event for first user
-      await testEnv.publishEvent(
-        createTestEvent(
-          EventType.HEALTH_GOAL_ACHIEVED,
-          JourneyType.HEALTH,
-          userId,
-          {
-            goalId: uuidv4(),
-            goalType: 'weight_loss',
-            targetValue: 5,
-            achievedValue: 5.2,
-            completedAt: new Date().toISOString()
-          }
-        ),
-        'health-events'
-      );
-      
-      // Publish care journey event for second user
-      await testEnv.publishEvent(
-        createTestEvent(
-          EventType.CARE_TELEMEDICINE_COMPLETED,
-          JourneyType.CARE,
-          user2.id,
-          {
-            sessionId: uuidv4(),
-            appointmentId: uuidv4(),
-            providerId: uuidv4(),
-            startedAt: new Date(Date.now() - 1800000).toISOString(), // 30 minutes ago
-            endedAt: new Date().toISOString(),
-            duration: 30,
-            quality: 'good'
-          }
-        ),
-        'care-events'
-      );
-      
-      // Wait for points to be processed
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      
-      // Verify global leaderboard
-      const globalLeaderboard = await prisma.leaderboard.findFirst({
-        where: {
-          type: 'GLOBAL',
-        },
-        include: {
-          entries: {
-            orderBy: {
-              score: 'desc',
-            },
-          },
-        },
-      });
-      
-      expect(globalLeaderboard).not.toBeNull();
-      
-      // Verify health journey leaderboard
-      const healthLeaderboard = await prisma.leaderboard.findFirst({
-        where: {
-          type: 'JOURNEY',
-          journeyType: 'health',
-        },
-        include: {
-          entries: {
-            orderBy: {
-              score: 'desc',
-            },
-          },
-        },
-      });
-      
-      expect(healthLeaderboard).not.toBeNull();
-      expect(healthLeaderboard.entries.some(entry => entry.userId === userId)).toBe(true);
-      
-      // Verify care journey leaderboard
-      const careLeaderboard = await prisma.leaderboard.findFirst({
-        where: {
-          type: 'JOURNEY',
-          journeyType: 'care',
-        },
-        include: {
-          entries: {
-            orderBy: {
-              score: 'desc',
-            },
-          },
-        },
-      });
-      
-      expect(careLeaderboard).not.toBeNull();
-      expect(careLeaderboard.entries.some(entry => entry.userId === user2.id)).toBe(true);
+    afterAll(async () => {
+      // Disconnect consumer
+      await leaderboardConsumer.disconnect();
     });
+    
+    it('should update leaderboards when cross-journey events occur', async () => {
+      // Create a new user for this test
+      const newUserId = await createTestUser(prisma);
+      
+      // Create correlation ID to link events
+      const correlationId = randomUUID();
+      
+      // Create events from all three journeys with the same correlation ID
+      const healthEvent = eventFactories.health.metricRecorded({
+        userId: newUserId,
+        metadata: { correlationId },
+        payload: {
+          userId: newUserId,
+          metricType: 'STEPS',
+          value: 8000,
+          unit: 'steps',
+          recordedAt: new Date().toISOString(),
+          source: 'manual',
+        },
+      });
+      
+      const careEvent = eventFactories.care.appointmentBooked({
+        userId: newUserId,
+        metadata: { correlationId },
+        payload: {
+          userId: newUserId,
+          appointmentId: randomUUID(),
+          providerId: randomUUID(),
+          specialtyId: randomUUID(),
+          scheduledAt: new Date(Date.now() + 86400000).toISOString(), // Tomorrow
+          bookedAt: new Date().toISOString(),
+        },
+      });
+      
+      // Publish events
+      await publishTestEvent(testEnv.kafkaProducer, 'health.events', healthEvent);
+      await publishTestEvent(testEnv.kafkaProducer, 'care.events', careEvent);
+      
+      // Wait for leaderboard update event
+      const leaderboardEvent = await waitForEvent(
+        leaderboardConsumer,
+        (event: BaseEvent) => {
+          return (
+            event.type === 'gamification.leaderboard.updated' &&
+            event.payload.userId === newUserId
+          );
+        },
+        10000
+      );
+      
+      // Verify leaderboard event
+      expect(leaderboardEvent).not.toBeNull();
+      expect(leaderboardEvent?.payload.userId).toBe(newUserId);
+      expect(leaderboardEvent?.payload.pointsAdded).toBeGreaterThan(0);
+      expect(leaderboardEvent?.payload.leaderboardType).toBe('GLOBAL');
+      
+      // Verify leaderboard entry in database
+      const leaderboardEntry = await prisma.leaderboardEntry.findFirst({
+        where: {
+          userId: newUserId,
+          leaderboard: {
+            type: 'GLOBAL',
+          },
+        },
+      });
+      
+      expect(leaderboardEntry).not.toBeNull();
+      expect(leaderboardEntry?.points).toBeGreaterThan(0);
+    }, TEST_TIMEOUT);
   });
   
-  /**
-   * Test user profile updates from multiple journey events
-   * 
-   * This test verifies that user profiles are updated based on events from multiple journeys.
-   * It simulates a user completing actions across different journeys and validates that
-   * the user profile reflects the combined activity.
-   */
   describe('User Profile Updates', () => {
-    it('should update user profile with achievements from multiple journeys', async () => {
-      // Create test data
-      const healthMetrics = await createTestHealthMetrics(prisma, userId, 1);
-      const appointment = await createTestAppointment(prisma, userId);
+    it('should update user profile when events from multiple journeys occur', async () => {
+      // Create a new user for this test
+      const newUserId = await createTestUser(prisma);
       
-      // Publish health journey event
-      await testEnv.publishEvent(
-        createTestEvent(
-          EventType.HEALTH_GOAL_ACHIEVED,
-          JourneyType.HEALTH,
-          userId,
-          {
-            goalId: uuidv4(),
-            goalType: 'steps',
-            targetValue: 10000,
-            achievedValue: 12000,
-            completedAt: new Date().toISOString()
-          }
-        ),
-        'health-events'
-      );
+      // Get initial profile
+      const initialProfile = await prisma.gamificationProfile.findUnique({
+        where: { userId: newUserId },
+      });
       
-      // Publish care journey event
-      await testEnv.publishEvent(
-        createTestEvent(
-          EventType.CARE_APPOINTMENT_COMPLETED,
-          JourneyType.CARE,
-          userId,
-          {
-            appointmentId: appointment.id,
-            providerId: appointment.providerId,
-            appointmentType: 'in_person',
-            scheduledAt: appointment.scheduledAt.toISOString(),
-            completedAt: new Date().toISOString(),
-            duration: 30
-          }
-        ),
-        'care-events'
-      );
+      expect(initialProfile).not.toBeNull();
+      expect(initialProfile?.points).toBe(0);
+      expect(initialProfile?.level).toBe(1);
       
-      // Wait for achievements to be processed
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      // Create correlation ID to link events
+      const correlationId = randomUUID();
       
-      // Verify user profile in the database
-      const userProfile = await prisma.userProfile.findUnique({
-        where: {
-          userId,
-        },
-        include: {
-          achievements: true,
+      // Create events from all three journeys with the same correlation ID
+      const healthEvent = eventFactories.health.metricRecorded({
+        userId: newUserId,
+        metadata: { correlationId },
+        payload: {
+          userId: newUserId,
+          metricType: 'WEIGHT',
+          value: 70,
+          unit: 'kg',
+          recordedAt: new Date().toISOString(),
+          source: 'manual',
         },
       });
       
-      expect(userProfile).not.toBeNull();
-      expect(userProfile.achievements.length).toBeGreaterThanOrEqual(2);
-      
-      // Verify that achievements from both journeys are included
-      const journeys = userProfile.achievements.map(achievement => {
-        return achievement.achievementType.journey;
-      });
-      
-      expect(journeys).toContain('health');
-      expect(journeys).toContain('care');
-    });
-    
-    it('should update user level based on points from multiple journeys', async () => {
-      // Get initial user level
-      const initialUserProfile = await prisma.userProfile.findUnique({
-        where: {
-          userId,
+      const careEvent = eventFactories.care.medicationTaken({
+        userId: newUserId,
+        metadata: { correlationId },
+        payload: {
+          userId: newUserId,
+          medicationId: randomUUID(),
+          scheduledAt: new Date().toISOString(),
+          takenAt: new Date().toISOString(),
+          dosage: '10mg',
         },
       });
       
-      const initialLevel = initialUserProfile.level;
+      const planEvent = eventFactories.plan.claimSubmitted({
+        userId: newUserId,
+        metadata: { correlationId },
+        payload: {
+          userId: newUserId,
+          claimId: randomUUID(),
+          claimTypeId: randomUUID(),
+          amount: 150.0,
+          currency: 'BRL',
+          submittedAt: new Date().toISOString(),
+          status: 'PENDING',
+        },
+      });
       
-      // Publish multiple events to earn enough points for level up
-      for (let i = 0; i < 5; i++) {
-        // Health journey event
-        await testEnv.publishEvent(
-          createTestEvent(
-            EventType.HEALTH_METRIC_RECORDED,
-            JourneyType.HEALTH,
-            userId,
-            {
-              metricType: 'STEPS',
-              value: 8000 + i * 1000,
-              unit: 'steps',
-              timestamp: new Date(Date.now() + i * 3600000).toISOString(), // Each hour
-              source: 'device'
-            }
-          ),
-          'health-events'
-        );
+      // Publish all events
+      await publishTestEvent(testEnv.kafkaProducer, 'health.events', healthEvent);
+      await publishTestEvent(testEnv.kafkaProducer, 'care.events', careEvent);
+      await publishTestEvent(testEnv.kafkaProducer, 'plan.events', planEvent);
+      
+      // Wait for profile to be updated
+      await retry(async () => {
+        const updatedProfile = await prisma.gamificationProfile.findUnique({
+          where: { userId: newUserId },
+        });
         
-        // Care journey event
-        await testEnv.publishEvent(
-          createTestEvent(
-            EventType.CARE_MEDICATION_TAKEN,
-            JourneyType.CARE,
-            userId,
-            {
-              medicationId: uuidv4(),
-              medicationName: `Medication ${i}`,
-              dosage: '10mg',
-              takenAt: new Date(Date.now() + i * 3600000).toISOString(), // Each hour
-              adherence: 'on_time'
-            }
-          ),
-          'care-events'
-        );
-      }
+        if (!updatedProfile || updatedProfile.points <= initialProfile!.points) {
+          throw new Error('Profile not updated yet');
+        }
+        
+        return updatedProfile;
+      }, 5, 2000);
       
-      // Wait for level up event
-      const levelUpEvent = await testEnv.waitForEvent(
-        EventType.GAMIFICATION_LEVEL_UP,
-        userId
-      );
+      // Get final profile
+      const finalProfile = await prisma.gamificationProfile.findUnique({
+        where: { userId: newUserId },
+      });
       
-      // Assert that level up occurred
-      expect(levelUpEvent).not.toBeNull();
-      expect(levelUpEvent.data.previousLevel).toBe(initialLevel);
-      expect(levelUpEvent.data.newLevel).toBeGreaterThan(initialLevel);
+      expect(finalProfile).not.toBeNull();
+      expect(finalProfile?.points).toBeGreaterThan(initialProfile!.points);
+      expect(finalProfile?.totalPoints).toBeGreaterThan(initialProfile!.totalPoints);
       
-      // Verify updated user profile
-      const updatedUserProfile = await prisma.userProfile.findUnique({
+      // Check for activity log entries
+      const activityLogs = await prisma.userActivityLog.findMany({
         where: {
-          userId,
+          userId: newUserId,
+          createdAt: {
+            gte: new Date(Date.now() - 60000), // Last minute
+          },
         },
       });
       
-      expect(updatedUserProfile.level).toBeGreaterThan(initialLevel);
-    });
+      expect(activityLogs.length).toBeGreaterThanOrEqual(3); // At least one for each journey
+      
+      // Verify we have logs from each journey
+      const journeys = activityLogs.map(log => log.journey);
+      expect(journeys).toContain(JourneyType.HEALTH);
+      expect(journeys).toContain(JourneyType.CARE);
+      expect(journeys).toContain(JourneyType.PLAN);
+    }, TEST_TIMEOUT);
   });
 });

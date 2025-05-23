@@ -1,381 +1,457 @@
 /**
  * @file version-detector.ts
  * @description Provides utilities to detect the version of an event payload from different sources.
- * Supports multiple detection strategies including explicit version field, structural analysis,
- * and header-based detection. This module enables the system to correctly identify event versions
- * even when the versioning approach varies across different parts of the application.
+ * 
+ * This module implements multiple version detection strategies including explicit field detection,
+ * structure-based detection, header-based detection, and custom detection functions. It supports
+ * a fallback chain to handle different versioning approaches across the application, ensuring
+ * backward compatibility while allowing schema evolution.
  */
 
-import { EventVersion } from '../interfaces/event-versioning.interface';
-import { KafkaEvent } from '../interfaces/kafka-event.interface';
-import { VERSION_CONSTANTS, DEFAULT_VERSION_CONFIG, VERSION_ERROR_MESSAGES } from './constants';
-import { VersionDetectionError, VersioningErrorCode } from './errors';
-import {
-  VersionDetectionStrategy,
-  VersionDetectionOptions,
-  VersionDetectionResult,
-  isValidVersion,
-} from './types';
+import { VERSION_FIELD_NAMES, VERSION_FORMAT_REGEX, VERSION_HEADER_NAMES, DEFAULT_VERSION_DETECTOR_CONFIG, DEFAULT_DETECTION_CONFIDENCE_THRESHOLD, LATEST_VERSION } from './constants';
+import { VersionDetectionError } from './errors';
+import { VersionDetectionResult, VersionDetectionStrategy, VersionDetectionStrategyType, VersionDetectorConfig, ExplicitVersionStrategy, HeaderBasedStrategy, StructureBasedStrategy, CustomStrategy } from './types';
+import { isVersionedEvent } from './types';
+import { JourneyType } from '@austa/errors';
 
 /**
- * Detects the version of an event payload using configured strategies.
- * Tries each strategy in order until one succeeds or all fail.
- *
- * @param payload - The event payload to detect version from
- * @param options - Configuration options for version detection
- * @returns A result object containing the detected version and metadata
- * @throws VersionDetectionError if throwOnFailure is true and no version could be detected
+ * Class responsible for detecting the version of an event payload using various strategies.
+ * It supports multiple detection methods and a fallback chain for reliable version detection.
  */
-export function detectVersion(
-  payload: unknown,
-  options?: Partial<VersionDetectionOptions>
-): VersionDetectionResult {
-  // Merge provided options with defaults
-  const config: VersionDetectionOptions = {
-    strategies: options?.strategies || getDefaultStrategies(),
-    throwOnFailure: options?.throwOnFailure ?? DEFAULT_VERSION_CONFIG.THROW_ON_VERSION_DETECTION_FAILURE,
-    defaultVersion: options?.defaultVersion || VERSION_CONSTANTS.DEFAULT_VERSION,
-  };
+export class VersionDetector {
+  private readonly config: VersionDetectorConfig;
+  private readonly strategies: VersionDetectionStrategy[];
 
-  // Try each strategy in order
-  for (const strategy of config.strategies) {
-    try {
-      const result = applyDetectionStrategy(payload, strategy);
-      if (result.success && result.version) {
-        return result;
+  /**
+   * Creates a new VersionDetector instance
+   * 
+   * @param config - Configuration options for the detector
+   */
+  constructor(config: Partial<VersionDetectorConfig> = {}) {
+    this.config = {
+      ...DEFAULT_VERSION_DETECTOR_CONFIG,
+      ...config,
+    };
+
+    this.strategies = this.initializeStrategies(this.config.strategies);
+  }
+
+  /**
+   * Initializes the detection strategies based on the provided configuration
+   * 
+   * @param strategyConfigs - Array of strategy configurations
+   * @returns Array of initialized detection strategies
+   */
+  private initializeStrategies(strategyConfigs: VersionDetectionStrategyType[]): VersionDetectionStrategy[] {
+    return strategyConfigs.map(strategyConfig => {
+      switch (strategyConfig.type) {
+        case 'explicit':
+          return this.createExplicitFieldStrategy(strategyConfig);
+        case 'structure':
+          return this.createStructureBasedStrategy(strategyConfig);
+        case 'header':
+          return this.createHeaderBasedStrategy(strategyConfig);
+        case 'custom':
+          return this.createCustomStrategy(strategyConfig);
+        default:
+          throw new Error(`Unsupported version detection strategy type: ${(strategyConfig as any).type}`);
       }
-    } catch (error) {
-      // Continue to next strategy on failure
-      continue;
+    });
+  }
+
+  /**
+   * Creates an explicit field detection strategy
+   * 
+   * @param config - Strategy configuration
+   * @returns Initialized strategy
+   */
+  private createExplicitFieldStrategy(config: ExplicitVersionStrategy): VersionDetectionStrategy {
+    return {
+      type: 'explicit',
+      detect: (event: unknown): string | null => {
+        if (!event || typeof event !== 'object') {
+          return null;
+        }
+
+        // If a specific field is provided in the config, check that field first
+        if (config.field && config.field in (event as Record<string, any>)) {
+          const version = (event as Record<string, any>)[config.field];
+          if (typeof version === 'string' && this.isValidVersionFormat(version)) {
+            return version;
+          }
+        }
+
+        // Otherwise, try common version field names
+        for (const field of VERSION_FIELD_NAMES) {
+          if (field in (event as Record<string, any>)) {
+            const version = (event as Record<string, any>)[field];
+            if (typeof version === 'string' && this.isValidVersionFormat(version)) {
+              return version;
+            }
+          }
+        }
+
+        return null;
+      }
+    };
+  }
+
+  /**
+   * Creates a structure-based detection strategy
+   * 
+   * @param config - Strategy configuration
+   * @returns Initialized strategy
+   */
+  private createStructureBasedStrategy(config: StructureBasedStrategy): VersionDetectionStrategy {
+    return {
+      type: 'structure',
+      detect: (event: unknown): string | null => {
+        if (!event || typeof event !== 'object') {
+          return null;
+        }
+
+        // Check each version's structure matcher function
+        for (const [version, matcher] of Object.entries(config.versionMap)) {
+          if (matcher(event)) {
+            return version;
+          }
+        }
+
+        return null;
+      }
+    };
+  }
+
+  /**
+   * Creates a header-based detection strategy
+   * 
+   * @param config - Strategy configuration
+   * @returns Initialized strategy
+   */
+  private createHeaderBasedStrategy(config: HeaderBasedStrategy): VersionDetectionStrategy {
+    return {
+      type: 'header',
+      detect: (event: unknown): string | null => {
+        if (!event || typeof event !== 'object') {
+          return null;
+        }
+
+        // Check for headers or metadata in the event
+        const eventObj = event as Record<string, any>;
+        const headers = eventObj.headers || eventObj.metadata?.headers || eventObj.meta?.headers;
+
+        if (!headers || typeof headers !== 'object') {
+          return null;
+        }
+
+        // If a specific header field is provided in the config, check that field first
+        if (config.headerField && config.headerField in headers) {
+          const version = headers[config.headerField];
+          if (typeof version === 'string' && this.isValidVersionFormat(version)) {
+            return version;
+          }
+        }
+
+        // Otherwise, try common header field names
+        for (const field of VERSION_HEADER_NAMES) {
+          if (field in headers) {
+            const version = headers[field];
+            if (typeof version === 'string' && this.isValidVersionFormat(version)) {
+              return version;
+            }
+          }
+        }
+
+        return null;
+      }
+    };
+  }
+
+  /**
+   * Creates a custom detection strategy
+   * 
+   * @param config - Strategy configuration
+   * @returns Initialized strategy
+   */
+  private createCustomStrategy(config: CustomStrategy): VersionDetectionStrategy {
+    return {
+      type: 'custom',
+      detect: (event: unknown): string | null => {
+        try {
+          const version = config.detector(event);
+          if (version !== null && !this.isValidVersionFormat(version)) {
+            return null;
+          }
+          return version;
+        } catch (error) {
+          // If the custom detector throws an error, log it and return null
+          console.warn('Custom version detector failed:', error);
+          return null;
+        }
+      }
+    };
+  }
+
+  /**
+   * Validates if a string follows the semantic version format (major.minor.patch)
+   * 
+   * @param version - Version string to validate
+   * @returns True if the version format is valid, false otherwise
+   */
+  private isValidVersionFormat(version: string): boolean {
+    return VERSION_FORMAT_REGEX.test(version);
+  }
+
+  /**
+   * Detects the version of an event using configured strategies
+   * 
+   * @param event - The event to detect the version for
+   * @param journey - Optional journey type for error context
+   * @returns Version detection result
+   * @throws VersionDetectionError if throwOnUndetected is true and no version is detected
+   */
+  public detect(event: unknown, journey?: JourneyType): VersionDetectionResult {
+    // If the event is already a versioned event with a valid version, return it directly
+    if (isVersionedEvent(event) && this.isValidVersionFormat(event.version)) {
+      return {
+        detected: true,
+        version: event.version,
+        strategy: 'explicit',
+        confidence: 1.0,
+      };
     }
-  }
 
-  // If we reach here, all strategies failed
-  const eventId = typeof payload === 'object' && payload !== null ? (payload as any).eventId : undefined;
-  const error = new VersionDetectionError(
-    VERSION_ERROR_MESSAGES.VERSION_NOT_DETECTED.replace('{eventId}', eventId || 'unknown'),
-    { eventId }
-  );
+    // Try each strategy in order until one succeeds
+    for (const strategy of this.strategies) {
+      try {
+        const version = strategy.detect(event);
+        if (version !== null) {
+          return {
+            detected: true,
+            version,
+            strategy: strategy.type,
+            confidence: 1.0, // Full confidence for exact matches
+          };
+        }
+      } catch (error) {
+        // If a strategy throws an error, log it and continue with the next strategy
+        console.warn(`Version detection strategy ${strategy.type} failed:`, error);
+      }
+    }
 
-  // Either throw or return failure result
-  if (config.throwOnFailure) {
-    throw error;
-  }
+    // If no version was detected but we have a default version, use it
+    if (this.config.defaultVersion) {
+      return {
+        detected: false,
+        version: this.config.defaultVersion,
+        confidence: 0.5, // Lower confidence for default version
+      };
+    }
 
-  return {
-    success: false,
-    error,
-  };
-}
-
-/**
- * Applies a specific detection strategy to the payload.
- *
- * @param payload - The event payload to detect version from
- * @param strategy - The strategy to apply
- * @returns A result object containing the detected version if successful
- */
-function applyDetectionStrategy(
-  payload: unknown,
-  strategy: VersionDetectionStrategy
-): VersionDetectionResult {
-  switch (strategy.type) {
-    case 'explicit':
-      return detectExplicitVersion(payload, strategy.field);
-    case 'header':
-      return detectHeaderVersion(payload, strategy.headerName);
-    case 'structure':
-      return detectStructureVersion(
-        payload,
-        strategy.versionMap,
-        strategy.structureChecks
+    // If throwOnUndetected is true, throw an error
+    if (this.config.throwOnUndetected) {
+      const eventId = this.extractEventId(event);
+      throw new VersionDetectionError(
+        `Failed to detect version for event: ${eventId || 'unknown'}`,
+        { event, strategies: this.strategies.map(s => s.type) },
+        journey
       );
-    case 'fallback':
-      return {
-        success: true,
-        version: strategy.defaultVersion,
-        strategy: 'fallback',
-      };
-    default:
-      return {
-        success: false,
-        error: new VersionDetectionError(`Unknown detection strategy: ${(strategy as any).type}`),
-      };
-  }
-}
-
-/**
- * Detects version from an explicit version field in the payload.
- *
- * @param payload - The event payload to detect version from
- * @param field - The name of the field containing the version
- * @returns A result object containing the detected version if successful
- */
-export function detectExplicitVersion(
-  payload: unknown,
-  field: string = VERSION_CONSTANTS.VERSION_FIELD
-): VersionDetectionResult {
-  // Ensure payload is an object
-  if (!payload || typeof payload !== 'object') {
-    return {
-      success: false,
-      error: new VersionDetectionError('Payload is not an object'),
-    };
-  }
-
-  // Extract version from nested path (supports dot notation)
-  const version = extractNestedProperty(payload, field);
-
-  // Validate version exists and has correct format
-  if (version === undefined) {
-    return {
-      success: false,
-      error: VersionDetectionError.fieldMissing(
-        field,
-        (payload as any).eventId,
-        (payload as any).type
-      ),
-    };
-  }
-
-  if (typeof version !== 'string' || !isValidVersion(version)) {
-    return {
-      success: false,
-      error: VersionDetectionError.invalidFormat(
-        String(version),
-        (payload as any).eventId,
-        (payload as any).type
-      ),
-    };
-  }
-
-  return {
-    success: true,
-    version,
-    strategy: 'explicit',
-  };
-}
-
-/**
- * Detects version from headers (primarily for Kafka messages).
- *
- * @param payload - The event payload to detect version from
- * @param headerName - The name of the header containing the version
- * @returns A result object containing the detected version if successful
- */
-export function detectHeaderVersion(
-  payload: unknown,
-  headerName: string = VERSION_CONSTANTS.VERSION_HEADER
-): VersionDetectionResult {
-  // Check if payload is a Kafka event with headers
-  if (
-    !payload ||
-    typeof payload !== 'object' ||
-    !(payload as Partial<KafkaEvent>).headers
-  ) {
-    return {
-      success: false,
-      error: new VersionDetectionError('Payload has no headers'),
-    };
-  }
-
-  const kafkaEvent = payload as Partial<KafkaEvent>;
-  const headers = kafkaEvent.headers || {};
-  const version = headers[headerName];
-
-  // Validate version exists and has correct format
-  if (version === undefined) {
-    return {
-      success: false,
-      error: VersionDetectionError.fieldMissing(
-        `headers.${headerName}`,
-        kafkaEvent.eventId,
-        kafkaEvent.type
-      ),
-    };
-  }
-
-  // Handle both string and Buffer header values (Kafka can use either)
-  const versionStr = Buffer.isBuffer(version) ? version.toString('utf8') : String(version);
-
-  if (!isValidVersion(versionStr)) {
-    return {
-      success: false,
-      error: VersionDetectionError.invalidFormat(
-        versionStr,
-        kafkaEvent.eventId,
-        kafkaEvent.type
-      ),
-    };
-  }
-
-  return {
-    success: true,
-    version: versionStr,
-    strategy: 'header',
-  };
-}
-
-/**
- * Detects version by analyzing the structure of the payload.
- * Uses a set of structure checks and a mapping of structures to versions.
- *
- * @param payload - The event payload to detect version from
- * @param versionMap - Mapping of structure identifiers to versions
- * @param structureChecks - Functions that check if payload matches a specific structure
- * @returns A result object containing the detected version if successful
- */
-export function detectStructureVersion(
-  payload: unknown,
-  versionMap: Record<string, EventVersion>,
-  structureChecks: Array<(payload: unknown) => boolean>
-): VersionDetectionResult {
-  // Ensure payload is an object
-  if (!payload || typeof payload !== 'object') {
-    return {
-      success: false,
-      error: new VersionDetectionError('Payload is not an object'),
-    };
-  }
-
-  // Apply each structure check
-  for (let i = 0; i < structureChecks.length; i++) {
-    const check = structureChecks[i];
-    const structureId = String(i);
-
-    if (check(payload) && versionMap[structureId]) {
-      return {
-        success: true,
-        version: versionMap[structureId],
-        strategy: 'structure',
-      };
-    }
-  }
-
-  return {
-    success: false,
-    error: new VersionDetectionError('No matching structure found for payload'),
-  };
-}
-
-/**
- * Creates a set of default detection strategies based on configuration.
- *
- * @returns An array of detection strategies in order of precedence
- */
-export function getDefaultStrategies(): VersionDetectionStrategy[] {
-  const strategies: VersionDetectionStrategy[] = [];
-
-  // Add strategies based on default configuration
-  for (const strategyType of DEFAULT_VERSION_CONFIG.DEFAULT_DETECTION_STRATEGIES) {
-    switch (strategyType) {
-      case 'explicit':
-        strategies.push({
-          type: 'explicit',
-          field: VERSION_CONSTANTS.VERSION_FIELD,
-        });
-        break;
-      case 'header':
-        strategies.push({
-          type: 'header',
-          headerName: VERSION_CONSTANTS.VERSION_HEADER,
-        });
-        break;
-      case 'structure':
-        // This is a placeholder - actual structure checks would be application-specific
-        // and should be provided by the consumer
-        strategies.push({
-          type: 'structure',
-          versionMap: { '0': VERSION_CONSTANTS.DEFAULT_VERSION },
-          structureChecks: [() => false], // Default to not matching any structure
-        });
-        break;
-      case 'fallback':
-        strategies.push({
-          type: 'fallback',
-          defaultVersion: VERSION_CONSTANTS.DEFAULT_VERSION,
-        });
-        break;
-    }
-  }
-
-  return strategies;
-}
-
-/**
- * Creates a structure check function that verifies if a payload has all required fields
- * and none of the excluded fields.
- *
- * @param requiredFields - Fields that must exist in the payload
- * @param excludedFields - Fields that must not exist in the payload
- * @returns A function that checks if a payload matches the criteria
- */
-export function createStructureCheck(
-  requiredFields: string[],
-  excludedFields: string[] = []
-): (payload: unknown) => boolean {
-  return (payload: unknown): boolean => {
-    if (!payload || typeof payload !== 'object') {
-      return false;
     }
 
-    // Check required fields
-    for (const field of requiredFields) {
-      if (extractNestedProperty(payload, field) === undefined) {
-        return false;
-      }
-    }
-
-    // Check excluded fields
-    for (const field of excludedFields) {
-      if (extractNestedProperty(payload, field) !== undefined) {
-        return false;
-      }
-    }
-
-    return true;
-  };
-}
-
-/**
- * Creates a detection configuration with custom strategies.
- *
- * @param strategies - Array of detection strategies in order of precedence
- * @param options - Additional configuration options
- * @returns Complete detection configuration
- */
-export function createDetectionConfig(
-  strategies: VersionDetectionStrategy[],
-  options?: Partial<Omit<VersionDetectionOptions, 'strategies'>>
-): VersionDetectionOptions {
-  return {
-    strategies,
-    throwOnFailure: options?.throwOnFailure ?? DEFAULT_VERSION_CONFIG.THROW_ON_VERSION_DETECTION_FAILURE,
-    defaultVersion: options?.defaultVersion || VERSION_CONSTANTS.DEFAULT_VERSION,
-  };
-}
-
-/**
- * Extracts a property from an object using dot notation for nested properties.
- *
- * @param obj - The object to extract from
- * @param path - The property path (e.g., 'user.address.city')
- * @returns The property value or undefined if not found
- */
-function extractNestedProperty(obj: unknown, path: string): unknown {
-  if (!obj || typeof obj !== 'object') {
-    return undefined;
+    // Otherwise, return null version
+    return {
+      detected: false,
+      version: null,
+      confidence: 0,
+    };
   }
 
-  const parts = path.split('.');
-  let current: any = obj;
-
-  for (const part of parts) {
-    if (current === null || current === undefined || typeof current !== 'object') {
+  /**
+   * Attempts to extract an event ID from an event for error reporting
+   * 
+   * @param event - The event to extract the ID from
+   * @returns The event ID if found, undefined otherwise
+   */
+  private extractEventId(event: unknown): string | undefined {
+    if (!event || typeof event !== 'object') {
       return undefined;
     }
-    current = current[part];
+
+    const eventObj = event as Record<string, any>;
+    return eventObj.eventId || eventObj.id || eventObj.uuid || undefined;
   }
 
-  return current;
+  /**
+   * Creates a new VersionDetector with default configuration
+   * 
+   * @returns A new VersionDetector instance
+   */
+  public static createDefault(): VersionDetector {
+    return new VersionDetector();
+  }
+
+  /**
+   * Creates a new VersionDetector with only explicit field detection
+   * 
+   * @param field - The field name to check for version information
+   * @returns A new VersionDetector instance
+   */
+  public static createExplicitFieldDetector(field = 'version'): VersionDetector {
+    return new VersionDetector({
+      strategies: [
+        {
+          type: 'explicit',
+          field,
+        },
+      ],
+      defaultVersion: LATEST_VERSION,
+      throwOnUndetected: false,
+    });
+  }
+
+  /**
+   * Creates a new VersionDetector with only header-based detection
+   * 
+   * @param headerField - The header field name to check for version information
+   * @returns A new VersionDetector instance
+   */
+  public static createHeaderDetector(headerField = 'x-event-version'): VersionDetector {
+    return new VersionDetector({
+      strategies: [
+        {
+          type: 'header',
+          headerField,
+        },
+      ],
+      defaultVersion: LATEST_VERSION,
+      throwOnUndetected: false,
+    });
+  }
+
+  /**
+   * Creates a new VersionDetector with a custom detection function
+   * 
+   * @param detector - Custom function to detect the version
+   * @returns A new VersionDetector instance
+   */
+  public static createCustomDetector(
+    detector: (event: unknown) => string | null
+  ): VersionDetector {
+    return new VersionDetector({
+      strategies: [
+        {
+          type: 'custom',
+          detector,
+        },
+      ],
+      defaultVersion: LATEST_VERSION,
+      throwOnUndetected: false,
+    });
+  }
+
+  /**
+   * Creates a comprehensive VersionDetector with all available strategies
+   * 
+   * @param versionMap - Map of versions to structure matcher functions for structure-based detection
+   * @returns A new VersionDetector instance
+   */
+  public static createComprehensiveDetector(
+    versionMap: Record<string, (event: unknown) => boolean> = {}
+  ): VersionDetector {
+    return new VersionDetector({
+      strategies: [
+        {
+          type: 'explicit',
+          field: 'version',
+        },
+        {
+          type: 'header',
+          headerField: 'x-event-version',
+        },
+        {
+          type: 'structure',
+          versionMap,
+        },
+      ],
+      defaultVersion: LATEST_VERSION,
+      throwOnUndetected: true,
+    });
+  }
+}
+
+/**
+ * Helper function to detect the version of an event using default settings
+ * 
+ * @param event - The event to detect the version for
+ * @param journey - Optional journey type for error context
+ * @returns The detected version or the default version
+ * @throws VersionDetectionError if no version is detected and throwOnUndetected is true
+ */
+export function detectEventVersion(event: unknown, journey?: JourneyType): string {
+  const detector = VersionDetector.createDefault();
+  const result = detector.detect(event, journey);
+  
+  if (!result.detected && result.version === null) {
+    throw new VersionDetectionError(
+      `Failed to detect version for event`,
+      { event },
+      journey
+    );
+  }
+  
+  return result.version as string;
+}
+
+/**
+ * Helper function to check if an event has a specific version
+ * 
+ * @param event - The event to check
+ * @param expectedVersion - The expected version
+ * @returns True if the event has the expected version, false otherwise
+ */
+export function hasVersion(event: unknown, expectedVersion: string): boolean {
+  try {
+    const detector = VersionDetector.createDefault();
+    const result = detector.detect(event);
+    return result.detected && result.version === expectedVersion;
+  } catch (error) {
+    return false;
+  }
+}
+
+/**
+ * Helper function to ensure an event has a version field
+ * If the event doesn't have a version, adds the specified version
+ * 
+ * @param event - The event to ensure has a version
+ * @param defaultVersion - The default version to use if none is detected
+ * @returns The event with a version field
+ */
+export function ensureEventVersion<T extends Record<string, any>>(
+  event: T,
+  defaultVersion = LATEST_VERSION
+): T & { version: string } {
+  if (!event) {
+    throw new Error('Cannot ensure version for null or undefined event');
+  }
+
+  // If the event already has a valid version, return it as is
+  if ('version' in event && typeof event.version === 'string' && VERSION_FORMAT_REGEX.test(event.version)) {
+    return event as T & { version: string };
+  }
+
+  // Try to detect the version
+  try {
+    const detector = VersionDetector.createDefault();
+    const result = detector.detect(event);
+    
+    if (result.detected && result.version) {
+      return { ...event, version: result.version } as T & { version: string };
+    }
+  } catch (error) {
+    // If detection fails, use the default version
+  }
+
+  // Add the default version
+  return { ...event, version: defaultVersion } as T & { version: string };
 }

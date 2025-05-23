@@ -1,292 +1,424 @@
-/**
- * Health goal event DTO for the AUSTA SuperApp.
- * 
- * This DTO specializes in validating and structuring health goal events (goal creation, 
- * progress updates, goal achievement) from the Health journey. It ensures proper structure 
- * and validation of health goals, tracks progress, and provides the foundation for gamifying 
- * health objectives. It's critical for achievement tracking and XP awards in the gamification engine.
- */
-
 import { Type } from 'class-transformer';
 import {
-  IsEnum,
-  IsUUID,
-  IsString,
-  IsNumber,
   IsDate,
-  IsOptional,
+  IsEnum,
   IsNotEmpty,
-  Min,
+  IsNumber,
+  IsOptional,
+  IsPositive,
+  IsString,
+  IsUUID,
   Max,
-  ValidateNested,
-  IsISO8601,
-  IsBoolean,
+  Min,
+  ValidateNested
 } from 'class-validator';
-
-// Import enums from the interfaces package
-import { GoalType, GoalStatus, GoalPeriod } from '@austa/interfaces/journey/health';
+import { GoalPeriod, GoalStatus, GoalType, IHealthGoal } from '@austa/interfaces/journey/health';
 
 /**
- * Enumeration of health goal event types.
+ * Base DTO for health goal events that contains common properties
+ * shared across all health goal event types.
  */
-export enum HealthGoalEventType {
-  GOAL_CREATED = 'health.goal.created',
-  GOAL_UPDATED = 'health.goal.updated',
-  GOAL_PROGRESS = 'health.goal.progress',
-  GOAL_ACHIEVED = 'health.goal.achieved',
-  GOAL_ABANDONED = 'health.goal.abandoned',
-}
-
-/**
- * Base DTO for health goal events.
- * Contains common properties for all health goal events.
- */
-export class HealthGoalEventBaseDto {
+export class BaseHealthGoalEventDto {
   /**
-   * Unique identifier for the health goal.
+   * Unique identifier of the health goal
    */
-  @IsUUID(4)
-  @IsNotEmpty()
+  @IsNotEmpty({ message: 'Goal ID is required' })
+  @IsUUID('4', { message: 'Goal ID must be a valid UUID' })
   goalId: string;
 
   /**
-   * User ID associated with this health goal.
+   * Type of health goal (steps, sleep, weight, etc.)
    */
-  @IsUUID(4)
-  @IsNotEmpty()
-  userId: string;
-
-  /**
-   * Type of health goal (e.g., steps, sleep, weight).
-   */
-  @IsEnum(GoalType)
-  @IsNotEmpty()
+  @IsNotEmpty({ message: 'Goal type is required' })
+  @IsEnum(GoalType, { message: 'Goal type must be a valid GoalType enum value' })
   type: GoalType;
 
   /**
-   * Title or name of the goal.
+   * Title of the health goal
    */
-  @IsString()
-  @IsNotEmpty()
+  @IsNotEmpty({ message: 'Goal title is required' })
+  @IsString({ message: 'Goal title must be a string' })
   title: string;
 
   /**
-   * Optional description of the goal.
+   * Optional description of the health goal
    */
-  @IsString()
   @IsOptional()
+  @IsString({ message: 'Goal description must be a string' })
   description?: string;
 
   /**
-   * Target value to achieve for this goal.
+   * Unit of measurement for the goal (e.g., steps, hours, kg)
    */
-  @IsNumber()
-  @Min(0)
-  targetValue: number;
-
-  /**
-   * Unit of measurement for the goal (e.g., steps, hours, kg).
-   */
-  @IsString()
-  @IsNotEmpty()
+  @IsNotEmpty({ message: 'Goal unit is required' })
+  @IsString({ message: 'Goal unit must be a string' })
   unit: string;
 
   /**
-   * Current progress value toward the goal.
+   * Period for the goal (daily, weekly, monthly, custom)
    */
-  @IsNumber()
-  @Min(0)
+  @IsNotEmpty({ message: 'Goal period is required' })
+  @IsEnum(GoalPeriod, { message: 'Goal period must be a valid GoalPeriod enum value' })
+  period: GoalPeriod;
+}
+
+/**
+ * DTO for health goal creation events.
+ * Used when a user creates a new health goal in the system.
+ */
+export class HealthGoalCreatedEventDto extends BaseHealthGoalEventDto {
+  /**
+   * Target value to achieve for this goal
+   */
+  @IsNotEmpty({ message: 'Target value is required' })
+  @IsNumber({}, { message: 'Target value must be a number' })
+  @IsPositive({ message: 'Target value must be positive' })
+  targetValue: number;
+
+  /**
+   * Initial value for the goal (usually 0 or a starting measurement)
+   */
+  @IsNotEmpty({ message: 'Initial value is required' })
+  @IsNumber({}, { message: 'Initial value must be a number' })
+  @Min(0, { message: 'Initial value cannot be negative' })
+  initialValue: number;
+
+  /**
+   * Date when the goal was started or became active
+   */
+  @IsNotEmpty({ message: 'Start date is required' })
+  @IsDate({ message: 'Start date must be a valid date' })
+  @Type(() => Date)
+  startDate: Date;
+
+  /**
+   * Optional target end date for the goal
+   */
+  @IsOptional()
+  @IsDate({ message: 'End date must be a valid date' })
+  @Type(() => Date)
+  endDate?: Date;
+}
+
+/**
+ * DTO for health goal progress update events.
+ * Used when a user's progress toward a goal is updated.
+ */
+export class HealthGoalProgressEventDto extends BaseHealthGoalEventDto {
+  /**
+   * Target value to achieve for this goal
+   */
+  @IsNotEmpty({ message: 'Target value is required' })
+  @IsNumber({}, { message: 'Target value must be a number' })
+  @IsPositive({ message: 'Target value must be positive' })
+  targetValue: number;
+
+  /**
+   * Previous progress value before this update
+   */
+  @IsNotEmpty({ message: 'Previous value is required' })
+  @IsNumber({}, { message: 'Previous value must be a number' })
+  @Min(0, { message: 'Previous value cannot be negative' })
+  previousValue: number;
+
+  /**
+   * Current progress value after this update
+   */
+  @IsNotEmpty({ message: 'Current value is required' })
+  @IsNumber({}, { message: 'Current value must be a number' })
+  @Min(0, { message: 'Current value cannot be negative' })
   currentValue: number;
 
   /**
-   * Current status of the goal (active, completed, abandoned).
+   * Progress percentage (0-100) calculated from current/target values
    */
-  @IsEnum(GoalStatus)
-  status: GoalStatus;
+  @IsNotEmpty({ message: 'Progress percentage is required' })
+  @IsNumber({}, { message: 'Progress percentage must be a number' })
+  @Min(0, { message: 'Progress percentage cannot be less than 0' })
+  @Max(100, { message: 'Progress percentage cannot be greater than 100' })
+  progressPercentage: number;
 
   /**
-   * Period for the goal (daily, weekly, monthly, custom).
+   * Indicates if this update completes the goal
    */
-  @IsEnum(GoalPeriod)
-  period: GoalPeriod;
+  @IsNotEmpty({ message: 'Completed flag is required' })
+  isCompleted: boolean;
+}
+
+/**
+ * DTO for health goal achievement/completion events.
+ * Used when a user successfully completes a health goal.
+ */
+export class HealthGoalAchievedEventDto extends BaseHealthGoalEventDto {
+  /**
+   * Target value that was achieved
+   */
+  @IsNotEmpty({ message: 'Target value is required' })
+  @IsNumber({}, { message: 'Target value must be a number' })
+  @IsPositive({ message: 'Target value must be positive' })
+  targetValue: number;
 
   /**
-   * Date when the goal was started or became active.
+   * Final value recorded when the goal was achieved
    */
-  @IsISO8601()
-  startDate: string;
+  @IsNotEmpty({ message: 'Final value is required' })
+  @IsNumber({}, { message: 'Final value must be a number' })
+  @Min(0, { message: 'Final value cannot be negative' })
+  finalValue: number;
 
   /**
-   * Optional target end date for the goal.
+   * Date when the goal was started
    */
-  @IsISO8601()
+  @IsNotEmpty({ message: 'Start date is required' })
+  @IsDate({ message: 'Start date must be a valid date' })
+  @Type(() => Date)
+  startDate: Date;
+
+  /**
+   * Date when the goal was completed
+   */
+  @IsNotEmpty({ message: 'Completion date is required' })
+  @IsDate({ message: 'Completion date must be a valid date' })
+  @Type(() => Date)
+  completedDate: Date;
+
+  /**
+   * Duration in days it took to complete the goal
+   */
+  @IsNotEmpty({ message: 'Duration is required' })
+  @IsNumber({}, { message: 'Duration must be a number' })
+  @IsPositive({ message: 'Duration must be positive' })
+  durationDays: number;
+
+  /**
+   * Whether the goal was completed ahead of schedule (if an end date was set)
+   */
   @IsOptional()
-  endDate?: string;
+  aheadOfSchedule?: boolean;
+}
+
+/**
+ * DTO for health goal status change events.
+ * Used when a goal's status changes (e.g., from active to abandoned).
+ */
+export class HealthGoalStatusChangedEventDto extends BaseHealthGoalEventDto {
+  /**
+   * Previous status of the goal
+   */
+  @IsNotEmpty({ message: 'Previous status is required' })
+  @IsEnum(GoalStatus, { message: 'Previous status must be a valid GoalStatus enum value' })
+  previousStatus: GoalStatus;
 
   /**
-   * Optional date when the goal was completed, if applicable.
+   * New status of the goal
    */
-  @IsISO8601()
+  @IsNotEmpty({ message: 'New status is required' })
+  @IsEnum(GoalStatus, { message: 'New status must be a valid GoalStatus enum value' })
+  newStatus: GoalStatus;
+
+  /**
+   * Reason for the status change (especially important for abandoned goals)
+   */
   @IsOptional()
-  completedDate?: string;
+  @IsString({ message: 'Reason must be a string' })
+  reason?: string;
 
   /**
-   * Progress percentage (0-100) calculated from currentValue and targetValue.
+   * Current progress value at the time of status change
    */
-  @IsNumber()
-  @Min(0)
-  @Max(100)
+  @IsNotEmpty({ message: 'Current value is required' })
+  @IsNumber({}, { message: 'Current value must be a number' })
+  @Min(0, { message: 'Current value cannot be negative' })
+  currentValue: number;
+
+  /**
+   * Target value for the goal
+   */
+  @IsNotEmpty({ message: 'Target value is required' })
+  @IsNumber({}, { message: 'Target value must be a number' })
+  @IsPositive({ message: 'Target value must be positive' })
+  targetValue: number;
+
+  /**
+   * Progress percentage at the time of status change
+   */
+  @IsNotEmpty({ message: 'Progress percentage is required' })
+  @IsNumber({}, { message: 'Progress percentage must be a number' })
+  @Min(0, { message: 'Progress percentage cannot be less than 0' })
+  @Max(100, { message: 'Progress percentage cannot be greater than 100' })
   progressPercentage: number;
 }
 
 /**
- * DTO for goal creation events.
+ * DTO for health goal streak events.
+ * Used to track consecutive goal achievements for recurring goals.
  */
-export class HealthGoalCreatedEventDto extends HealthGoalEventBaseDto {
+export class HealthGoalStreakEventDto extends BaseHealthGoalEventDto {
   /**
-   * Timestamp when the goal was created.
+   * Current streak count (number of consecutive completions)
    */
-  @IsISO8601()
-  createdAt: string;
+  @IsNotEmpty({ message: 'Streak count is required' })
+  @IsNumber({}, { message: 'Streak count must be a number' })
+  @Min(1, { message: 'Streak count must be at least 1' })
+  streakCount: number;
+
+  /**
+   * Whether this is a new personal best streak
+   */
+  @IsNotEmpty({ message: 'Personal best flag is required' })
+  isPersonalBest: boolean;
+
+  /**
+   * Previous personal best streak (if any)
+   */
+  @IsOptional()
+  @IsNumber({}, { message: 'Previous best must be a number' })
+  @Min(0, { message: 'Previous best cannot be negative' })
+  previousBest?: number;
+
+  /**
+   * Date of the first goal completion in this streak
+   */
+  @IsNotEmpty({ message: 'Streak start date is required' })
+  @IsDate({ message: 'Streak start date must be a valid date' })
+  @Type(() => Date)
+  streakStartDate: Date;
+
+  /**
+   * Date of the most recent goal completion in this streak
+   */
+  @IsNotEmpty({ message: 'Latest completion date is required' })
+  @IsDate({ message: 'Latest completion date must be a valid date' })
+  @Type(() => Date)
+  latestCompletionDate: Date;
 }
 
 /**
- * DTO for goal progress update events.
+ * Comprehensive DTO that can represent a complete health goal with all its properties.
+ * Used for events that need to include the full goal state.
  */
-export class HealthGoalProgressEventDto extends HealthGoalEventBaseDto {
-  /**
-   * Previous value before this progress update.
-   */
-  @IsNumber()
-  @Min(0)
-  previousValue: number;
+export class HealthGoalCompleteDto implements Partial<IHealthGoal> {
+  @IsNotEmpty({ message: 'Goal ID is required' })
+  @IsUUID('4', { message: 'Goal ID must be a valid UUID' })
+  id: string;
 
-  /**
-   * Amount of progress made in this update.
-   */
-  @IsNumber()
-  progressDelta: number;
+  @IsNotEmpty({ message: 'Record ID is required' })
+  @IsUUID('4', { message: 'Record ID must be a valid UUID' })
+  recordId: string;
 
-  /**
-   * Timestamp when the progress was recorded.
-   */
-  @IsISO8601()
-  updatedAt: string;
+  @IsNotEmpty({ message: 'Goal type is required' })
+  @IsEnum(GoalType, { message: 'Goal type must be a valid GoalType enum value' })
+  type: GoalType;
+
+  @IsNotEmpty({ message: 'Goal title is required' })
+  @IsString({ message: 'Goal title must be a string' })
+  title: string;
+
+  @IsOptional()
+  @IsString({ message: 'Goal description must be a string' })
+  description?: string;
+
+  @IsNotEmpty({ message: 'Target value is required' })
+  @IsNumber({}, { message: 'Target value must be a number' })
+  @IsPositive({ message: 'Target value must be positive' })
+  targetValue: number;
+
+  @IsNotEmpty({ message: 'Unit is required' })
+  @IsString({ message: 'Unit must be a string' })
+  unit: string;
+
+  @IsNotEmpty({ message: 'Current value is required' })
+  @IsNumber({}, { message: 'Current value must be a number' })
+  @Min(0, { message: 'Current value cannot be negative' })
+  currentValue: number;
+
+  @IsNotEmpty({ message: 'Status is required' })
+  @IsEnum(GoalStatus, { message: 'Status must be a valid GoalStatus enum value' })
+  status: GoalStatus;
+
+  @IsNotEmpty({ message: 'Period is required' })
+  @IsEnum(GoalPeriod, { message: 'Period must be a valid GoalPeriod enum value' })
+  period: GoalPeriod;
+
+  @IsNotEmpty({ message: 'Start date is required' })
+  @IsDate({ message: 'Start date must be a valid date' })
+  @Type(() => Date)
+  startDate: Date;
+
+  @IsOptional()
+  @IsDate({ message: 'End date must be a valid date' })
+  @Type(() => Date)
+  endDate?: Date;
+
+  @IsOptional()
+  @IsDate({ message: 'Completed date must be a valid date' })
+  @Type(() => Date)
+  completedDate?: Date;
+
+  @IsNotEmpty({ message: 'Created at date is required' })
+  @IsDate({ message: 'Created at date must be a valid date' })
+  @Type(() => Date)
+  createdAt: Date;
+
+  @IsNotEmpty({ message: 'Updated at date is required' })
+  @IsDate({ message: 'Updated at date must be a valid date' })
+  @Type(() => Date)
+  updatedAt: Date;
 }
 
 /**
- * DTO for goal achievement events.
+ * DTO for health goal gamification payload.
+ * Contains additional information needed for gamification rules processing.
  */
-export class HealthGoalAchievedEventDto extends HealthGoalEventBaseDto {
+export class HealthGoalGamificationPayloadDto {
   /**
-   * Indicates if the goal was achieved before the target end date.
+   * Complete goal information
    */
-  @IsBoolean()
-  achievedEarly: boolean;
+  @ValidateNested()
+  @Type(() => HealthGoalCompleteDto)
+  goal: HealthGoalCompleteDto;
 
   /**
-   * Number of days taken to achieve the goal.
-   */
-  @IsNumber()
-  @Min(0)
-  daysToAchieve: number;
-
-  /**
-   * Timestamp when the goal was achieved.
-   */
-  @IsISO8601()
-  achievedAt: string;
-
-  /**
-   * Optional achievement context for gamification rules.
+   * Current streak information for recurring goals
    */
   @IsOptional()
   @ValidateNested()
-  @Type(() => HealthGoalAchievementContextDto)
-  achievementContext?: HealthGoalAchievementContextDto;
-}
+  @Type(() => HealthGoalStreakEventDto)
+  streak?: HealthGoalStreakEventDto;
 
-/**
- * DTO for goal abandonment events.
- */
-export class HealthGoalAbandonedEventDto extends HealthGoalEventBaseDto {
   /**
-   * Reason for abandoning the goal.
+   * Whether this is the user's first completed goal of this type
    */
-  @IsString()
-  @IsOptional()
-  abandonReason?: string;
+  @IsNotEmpty({ message: 'First completion flag is required' })
+  isFirstCompletion: boolean;
 
   /**
-   * Timestamp when the goal was abandoned.
+   * Whether this goal was particularly challenging
+   * (e.g., significantly higher target than user's previous goals)
    */
-  @IsISO8601()
-  abandonedAt: string;
-}
+  @IsNotEmpty({ message: 'Challenging goal flag is required' })
+  isChallengingGoal: boolean;
 
-/**
- * Context information for goal achievement events.
- * This provides additional data for gamification rules.
- */
-export class HealthGoalAchievementContextDto {
   /**
-   * Indicates if this is the user's first goal of this type.
+   * Number of goals of this type the user has completed
    */
-  @IsBoolean()
-  isFirstGoalOfType: boolean;
+  @IsNotEmpty({ message: 'Completion count is required' })
+  @IsNumber({}, { message: 'Completion count must be a number' })
+  @Min(1, { message: 'Completion count must be at least 1' })
+  completionCount: number;
 
   /**
-   * Indicates if the user has a streak of completed goals.
-   */
-  @IsBoolean()
-  isPartOfStreak: boolean;
-
-  /**
-   * Current streak count if part of a streak.
-   */
-  @IsNumber()
-  @IsOptional()
-  @Min(0)
-  streakCount?: number;
-
-  /**
-   * Difficulty level of the goal (calculated based on target value and period).
-   */
-  @IsNumber()
-  @Min(1)
-  @Max(5)
-  difficultyLevel: number;
-
-  /**
-   * Related health metrics that contributed to this goal.
+   * Whether the goal was completed ahead of schedule (if an end date was set)
    */
   @IsOptional()
-  @IsString({ each: true })
-  relatedMetricIds?: string[];
-}
+  aheadOfSchedule?: boolean;
 
-/**
- * Factory function to create the appropriate health goal event DTO based on the event type.
- * @param eventType The type of health goal event.
- * @param data The event data.
- * @returns The appropriate DTO instance for the event type.
- */
-export function createHealthGoalEventDto(eventType: HealthGoalEventType, data: any): 
-  HealthGoalCreatedEventDto | 
-  HealthGoalProgressEventDto | 
-  HealthGoalAchievedEventDto | 
-  HealthGoalAbandonedEventDto {
-  
-  switch (eventType) {
-    case HealthGoalEventType.GOAL_CREATED:
-      return Object.assign(new HealthGoalCreatedEventDto(), data);
-    case HealthGoalEventType.GOAL_PROGRESS:
-      return Object.assign(new HealthGoalProgressEventDto(), data);
-    case HealthGoalEventType.GOAL_ACHIEVED:
-      return Object.assign(new HealthGoalAchievedEventDto(), data);
-    case HealthGoalEventType.GOAL_ABANDONED:
-      return Object.assign(new HealthGoalAbandonedEventDto(), data);
-    default:
-      throw new Error(`Unsupported health goal event type: ${eventType}`);
-  }
+  /**
+   * Suggested XP to award for this goal achievement
+   * (final XP will be determined by gamification rules)
+   */
+  @IsNotEmpty({ message: 'Suggested XP is required' })
+  @IsNumber({}, { message: 'Suggested XP must be a number' })
+  @Min(0, { message: 'Suggested XP cannot be negative' })
+  suggestedXp: number;
 }

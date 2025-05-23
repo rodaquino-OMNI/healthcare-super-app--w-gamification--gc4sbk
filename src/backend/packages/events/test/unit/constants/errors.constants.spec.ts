@@ -1,246 +1,396 @@
-import { ERROR_CODES, ERROR_MESSAGES, ERROR_SEVERITY, HTTP_STATUS_CODES } from '../../../src/constants/errors.constants';
+import { describe, it, expect } from 'jest';
+import {
+  // Error severity and HTTP status enums
+  EventErrorSeverity,
+  EventErrorHttpStatus,
+  
+  // Producer error codes
+  EVENT_PROD_SERIALIZATION_FAILED,
+  EVENT_PROD_SCHEMA_VALIDATION_FAILED,
+  EVENT_PROD_DELIVERY_TIMEOUT,
+  EVENT_PROD_BROKER_UNAVAILABLE,
+  EVENT_PROD_TOPIC_NOT_FOUND,
+  EVENT_PROD_AUTHORIZATION_FAILED,
+  EVENT_PROD_RATE_LIMIT_EXCEEDED,
+  
+  // Consumer error codes
+  EVENT_CONS_DESERIALIZATION_FAILED,
+  EVENT_CONS_SCHEMA_VALIDATION_FAILED,
+  EVENT_CONS_PROCESSING_TIMEOUT,
+  EVENT_CONS_HANDLER_NOT_FOUND,
+  EVENT_CONS_RETRY_EXHAUSTED,
+  EVENT_CONS_COMMIT_FAILED,
+  EVENT_CONS_CONCURRENCY_LIMIT_EXCEEDED,
+  
+  // Schema validation error codes
+  EVENT_SCHEMA_VERSION_MISMATCH,
+  EVENT_SCHEMA_REQUIRED_FIELD_MISSING,
+  EVENT_SCHEMA_INVALID_FIELD_TYPE,
+  EVENT_SCHEMA_REGISTRY_UNAVAILABLE,
+  EVENT_SCHEMA_EVOLUTION_INCOMPATIBLE,
+  
+  // Delivery error codes
+  EVENT_DELIV_TIMEOUT,
+  EVENT_DELIV_BROKER_UNAVAILABLE,
+  EVENT_DELIV_NETWORK_FAILURE,
+  EVENT_DELIV_PARTITION_ERROR,
+  EVENT_DELIV_REBALANCE_IN_PROGRESS,
+  
+  // Dead Letter Queue error codes
+  EVENT_DLQ_WRITE_FAILED,
+  EVENT_DLQ_READ_FAILED,
+  EVENT_DLQ_FULL,
+  EVENT_DLQ_REPROCESSING_FAILED,
+  
+  // Error message mapping and utility functions
+  ERROR_MESSAGES,
+  getErrorDetails,
+  isRetryableError,
+  shouldSendToDLQ,
+  getErrorLogLevel
+} from '../../../src/constants/errors.constants';
 
 describe('Event Error Constants', () => {
+  // Group error codes by category for easier testing
+  const producerErrorCodes = [
+    EVENT_PROD_SERIALIZATION_FAILED,
+    EVENT_PROD_SCHEMA_VALIDATION_FAILED,
+    EVENT_PROD_DELIVERY_TIMEOUT,
+    EVENT_PROD_BROKER_UNAVAILABLE,
+    EVENT_PROD_TOPIC_NOT_FOUND,
+    EVENT_PROD_AUTHORIZATION_FAILED,
+    EVENT_PROD_RATE_LIMIT_EXCEEDED
+  ];
+  
+  const consumerErrorCodes = [
+    EVENT_CONS_DESERIALIZATION_FAILED,
+    EVENT_CONS_SCHEMA_VALIDATION_FAILED,
+    EVENT_CONS_PROCESSING_TIMEOUT,
+    EVENT_CONS_HANDLER_NOT_FOUND,
+    EVENT_CONS_RETRY_EXHAUSTED,
+    EVENT_CONS_COMMIT_FAILED,
+    EVENT_CONS_CONCURRENCY_LIMIT_EXCEEDED
+  ];
+  
+  const schemaErrorCodes = [
+    EVENT_SCHEMA_VERSION_MISMATCH,
+    EVENT_SCHEMA_REQUIRED_FIELD_MISSING,
+    EVENT_SCHEMA_INVALID_FIELD_TYPE,
+    EVENT_SCHEMA_REGISTRY_UNAVAILABLE,
+    EVENT_SCHEMA_EVOLUTION_INCOMPATIBLE
+  ];
+  
+  const deliveryErrorCodes = [
+    EVENT_DELIV_TIMEOUT,
+    EVENT_DELIV_BROKER_UNAVAILABLE,
+    EVENT_DELIV_NETWORK_FAILURE,
+    EVENT_DELIV_PARTITION_ERROR,
+    EVENT_DELIV_REBALANCE_IN_PROGRESS
+  ];
+  
+  const dlqErrorCodes = [
+    EVENT_DLQ_WRITE_FAILED,
+    EVENT_DLQ_READ_FAILED,
+    EVENT_DLQ_FULL,
+    EVENT_DLQ_REPROCESSING_FAILED
+  ];
+  
+  // All error codes combined
+  const allErrorCodes = [
+    ...producerErrorCodes,
+    ...consumerErrorCodes,
+    ...schemaErrorCodes,
+    ...deliveryErrorCodes,
+    ...dlqErrorCodes
+  ];
+  
   describe('Error Code Format', () => {
-    it('should have all error codes following the KAFKA_XXX pattern', () => {
-      // Check that all error codes follow the pattern KAFKA_XXX where XXX is a number
-      Object.values(ERROR_CODES).forEach(code => {
-        expect(code).toMatch(/^KAFKA_\d{3}$/);
+    it('should have producer error codes that follow the EVENT_PROD_XXX pattern', () => {
+      const producerPattern = /^EVENT_PROD_[A-Z_]+$/;
+      producerErrorCodes.forEach(code => {
+        expect(code).toMatch(producerPattern);
       });
     });
-
-    it('should have unique error codes', () => {
-      const codeValues = Object.values(ERROR_CODES);
-      const uniqueValues = new Set(codeValues);
-      expect(uniqueValues.size).toBe(codeValues.length);
+    
+    it('should have consumer error codes that follow the EVENT_CONS_XXX pattern', () => {
+      const consumerPattern = /^EVENT_CONS_[A-Z_]+$/;
+      consumerErrorCodes.forEach(code => {
+        expect(code).toMatch(consumerPattern);
+      });
+    });
+    
+    it('should have schema error codes that follow the EVENT_SCHEMA_XXX pattern', () => {
+      const schemaPattern = /^EVENT_SCHEMA_[A-Z_]+$/;
+      schemaErrorCodes.forEach(code => {
+        expect(code).toMatch(schemaPattern);
+      });
+    });
+    
+    it('should have delivery error codes that follow the EVENT_DELIV_XXX pattern', () => {
+      const deliveryPattern = /^EVENT_DELIV_[A-Z_]+$/;
+      deliveryErrorCodes.forEach(code => {
+        expect(code).toMatch(deliveryPattern);
+      });
+    });
+    
+    it('should have DLQ error codes that follow the EVENT_DLQ_XXX pattern', () => {
+      const dlqPattern = /^EVENT_DLQ_[A-Z_]+$/;
+      dlqErrorCodes.forEach(code => {
+        expect(code).toMatch(dlqPattern);
+      });
+    });
+    
+    it('should have numeric suffixes in the error codes', () => {
+      const numericSuffixPattern = /\d{3}$/;
+      allErrorCodes.forEach(code => {
+        // Extract the numeric part from the code (last 3 characters)
+        const numericPart = code.slice(-3);
+        expect(numericPart).toMatch(numericSuffixPattern);
+      });
     });
   });
-
-  describe('Error Code Categories', () => {
-    it('should have initialization errors in the 000-099 range', () => {
-      expect(ERROR_CODES.INITIALIZATION_FAILED).toMatch(/^KAFKA_0\d{2}$/);
-    });
-
-    it('should have producer errors in the 100-199 range', () => {
-      expect(ERROR_CODES.PRODUCER_CONNECTION_FAILED).toMatch(/^KAFKA_1\d{2}$/);
-      expect(ERROR_CODES.PRODUCER_SEND_FAILED).toMatch(/^KAFKA_1\d{2}$/);
-      expect(ERROR_CODES.PRODUCER_BATCH_FAILED).toMatch(/^KAFKA_1\d{2}$/);
-      expect(ERROR_CODES.PRODUCER_TRANSACTION_FAILED).toMatch(/^KAFKA_1\d{2}$/);
-    });
-
-    it('should have consumer errors in the 200-299 range', () => {
-      expect(ERROR_CODES.CONSUMER_CONNECTION_FAILED).toMatch(/^KAFKA_2\d{2}$/);
-      expect(ERROR_CODES.CONSUMER_SUBSCRIPTION_FAILED).toMatch(/^KAFKA_2\d{2}$/);
-      expect(ERROR_CODES.CONSUMER_GROUP_ERROR).toMatch(/^KAFKA_2\d{2}$/);
-      expect(ERROR_CODES.CONSUMER_PROCESSING_FAILED).toMatch(/^KAFKA_2\d{2}$/);
-    });
-
-    it('should have message errors in the 300-399 range', () => {
-      expect(ERROR_CODES.MESSAGE_SERIALIZATION_FAILED).toMatch(/^KAFKA_3\d{2}$/);
-      expect(ERROR_CODES.MESSAGE_DESERIALIZATION_FAILED).toMatch(/^KAFKA_3\d{2}$/);
-    });
-
-    it('should have schema errors in the 400-499 range', () => {
-      expect(ERROR_CODES.SCHEMA_VALIDATION_FAILED).toMatch(/^KAFKA_4\d{2}$/);
-      expect(ERROR_CODES.SCHEMA_VALIDATION_ERROR).toMatch(/^KAFKA_4\d{2}$/);
-      expect(ERROR_CODES.SCHEMA_NOT_FOUND).toMatch(/^KAFKA_4\d{2}$/);
-    });
-
-    it('should have dead-letter queue errors in the 500-599 range', () => {
-      expect(ERROR_CODES.DLQ_SEND_FAILED).toMatch(/^KAFKA_5\d{2}$/);
-    });
-
-    it('should have retry errors in the 600-699 range', () => {
-      expect(ERROR_CODES.RETRY_EXHAUSTED).toMatch(/^KAFKA_6\d{2}$/);
-      expect(ERROR_CODES.RETRY_FAILED).toMatch(/^KAFKA_6\d{2}$/);
-    });
-  });
-
+  
   describe('Error Messages', () => {
-    it('should have a corresponding message for each error code', () => {
-      // Check that all error codes have a corresponding message
-      Object.values(ERROR_CODES).forEach(code => {
-        expect(ERROR_MESSAGES[code]).toBeDefined();
-        expect(typeof ERROR_MESSAGES[code]).toBe('string');
+    it('should have an entry in ERROR_MESSAGES for each error code', () => {
+      allErrorCodes.forEach(code => {
+        expect(ERROR_MESSAGES).toHaveProperty(code);
       });
     });
-
-    it('should have descriptive error messages', () => {
-      // Check that all error messages are descriptive (not empty and have a minimum length)
-      Object.values(ERROR_CODES).forEach(code => {
-        expect(ERROR_MESSAGES[code].length).toBeGreaterThan(10);
+    
+    it('should have a non-empty message for each error code', () => {
+      allErrorCodes.forEach(code => {
+        expect(ERROR_MESSAGES[code].message).toBeDefined();
+        expect(ERROR_MESSAGES[code].message.length).toBeGreaterThan(10); // Ensure message is descriptive
       });
     });
-
-    it('should have error messages that mention the relevant component', () => {
-      // Producer errors should mention producer or producing
-      Object.entries(ERROR_CODES)
-        .filter(([key]) => key.startsWith('PRODUCER_'))
-        .forEach(([_, code]) => {
-          expect(ERROR_MESSAGES[code].toLowerCase()).toMatch(/produc/);
-        });
-
-      // Consumer errors should mention consumer or consuming
-      Object.entries(ERROR_CODES)
-        .filter(([key]) => key.startsWith('CONSUMER_'))
-        .forEach(([_, code]) => {
-          expect(ERROR_MESSAGES[code].toLowerCase()).toMatch(/consum/);
-        });
-
-      // Schema errors should mention schema or validation
-      Object.entries(ERROR_CODES)
-        .filter(([key]) => key.startsWith('SCHEMA_'))
-        .forEach(([_, code]) => {
-          expect(ERROR_MESSAGES[code].toLowerCase()).toMatch(/schema|validat/);
-        });
-
-      // Retry errors should mention retry
-      Object.entries(ERROR_CODES)
-        .filter(([key]) => key.startsWith('RETRY_'))
-        .forEach(([_, code]) => {
-          expect(ERROR_MESSAGES[code].toLowerCase()).toMatch(/retry/);
-        });
-
-      // DLQ errors should mention dead-letter queue or DLQ
-      Object.entries(ERROR_CODES)
-        .filter(([key]) => key.startsWith('DLQ_'))
-        .forEach(([_, code]) => {
-          expect(ERROR_MESSAGES[code].toLowerCase()).toMatch(/dead-letter queue|dlq/);
-        });
+    
+    it('should have a valid severity level for each error code', () => {
+      const validSeverities = Object.values(EventErrorSeverity);
+      allErrorCodes.forEach(code => {
+        expect(ERROR_MESSAGES[code].severity).toBeDefined();
+        expect(validSeverities).toContain(ERROR_MESSAGES[code].severity);
+      });
     });
-  });
-
-  describe('Error Code Completeness', () => {
-    it('should have error codes for all critical event processing stages', () => {
-      // Check that we have error codes for all critical stages
-      const errorCodeKeys = Object.keys(ERROR_CODES);
-      
-      // Initialization
-      expect(errorCodeKeys.some(key => key.includes('INITIALIZATION'))).toBeTruthy();
-      
-      // Producer
-      expect(errorCodeKeys.some(key => key.includes('PRODUCER_CONNECTION'))).toBeTruthy();
-      expect(errorCodeKeys.some(key => key.includes('PRODUCER_SEND'))).toBeTruthy();
-      
-      // Consumer
-      expect(errorCodeKeys.some(key => key.includes('CONSUMER_CONNECTION'))).toBeTruthy();
-      expect(errorCodeKeys.some(key => key.includes('CONSUMER_PROCESSING'))).toBeTruthy();
-      
-      // Schema
-      expect(errorCodeKeys.some(key => key.includes('SCHEMA_VALIDATION'))).toBeTruthy();
-      
-      // Retry
-      expect(errorCodeKeys.some(key => key.includes('RETRY'))).toBeTruthy();
-      
-      // Dead Letter Queue
-      expect(errorCodeKeys.some(key => key.includes('DLQ'))).toBeTruthy();
+    
+    it('should have a valid HTTP status code for each error code', () => {
+      const validStatusCodes = Object.values(EventErrorHttpStatus);
+      allErrorCodes.forEach(code => {
+        expect(ERROR_MESSAGES[code].status).toBeDefined();
+        expect(validStatusCodes).toContain(ERROR_MESSAGES[code].status);
+      });
     });
-  });
-
-  describe('Error Code Integration', () => {
-    it('should have error codes that align with the retry mechanism requirements', () => {
-      // Verify we have error codes for retry exhaustion and retry failure
-      expect(ERROR_CODES.RETRY_EXHAUSTED).toBeDefined();
-      expect(ERROR_CODES.RETRY_FAILED).toBeDefined();
+    
+    it('should include troubleshooting guidance in error messages', () => {
+      // Check that messages contain action-oriented guidance
+      const actionPhrases = ['Check', 'Verify', 'Ensure', 'Consider'];
       
-      // Verify the messages are descriptive for retry-related errors
-      expect(ERROR_MESSAGES[ERROR_CODES.RETRY_EXHAUSTED]).toContain('Maximum retry');
-      expect(ERROR_MESSAGES[ERROR_CODES.RETRY_FAILED]).toContain('Failed to retry');
-    });
-
-    it('should have error codes that support dead letter queue implementation', () => {
-      // Verify we have error codes for DLQ operations
-      expect(ERROR_CODES.DLQ_SEND_FAILED).toBeDefined();
-      
-      // Verify the message is descriptive for DLQ-related errors
-      expect(ERROR_MESSAGES[ERROR_CODES.DLQ_SEND_FAILED]).toContain('dead-letter queue');
-    });
-
-    it('should have error codes that enable proper monitoring categorization', () => {
-      // Verify we have distinct categories of error codes for monitoring
-      const categories = {
-        initialization: Object.entries(ERROR_CODES).filter(([key]) => key.startsWith('INITIALIZATION')),
-        producer: Object.entries(ERROR_CODES).filter(([key]) => key.startsWith('PRODUCER')),
-        consumer: Object.entries(ERROR_CODES).filter(([key]) => key.startsWith('CONSUMER')),
-        message: Object.entries(ERROR_CODES).filter(([key]) => key.startsWith('MESSAGE')),
-        schema: Object.entries(ERROR_CODES).filter(([key]) => key.startsWith('SCHEMA')),
-        dlq: Object.entries(ERROR_CODES).filter(([key]) => key.startsWith('DLQ')),
-        retry: Object.entries(ERROR_CODES).filter(([key]) => key.startsWith('RETRY')),
-      };
-      
-      // Each category should have at least one error code
-      Object.values(categories).forEach(category => {
-        expect(category.length).toBeGreaterThan(0);
+      allErrorCodes.forEach(code => {
+        const message = ERROR_MESSAGES[code].message;
+        const containsActionGuidance = actionPhrases.some(phrase => message.includes(phrase));
+        expect(containsActionGuidance).toBe(true);
       });
     });
   });
-
-  describe('Error Severity Classification', () => {
-    it('should define severity levels for all error codes', () => {
-      // Check that all error codes have a severity level assigned
-      Object.values(ERROR_CODES).forEach(code => {
-        expect(ERROR_SEVERITY[code]).toBeDefined();
+  
+  describe('Error Categories', () => {
+    it('should assign appropriate severity levels to producer errors', () => {
+      producerErrorCodes.forEach(code => {
+        expect(ERROR_MESSAGES[code].severity).toBeDefined();
+        // Critical errors should have CRITICAL or ERROR severity
+        if (code === EVENT_PROD_BROKER_UNAVAILABLE) {
+          expect(ERROR_MESSAGES[code].severity).toBe(EventErrorSeverity.CRITICAL);
+        }
       });
     });
-
-    it('should have valid severity levels', () => {
-      // Valid severity levels should be one of: 'CRITICAL', 'ERROR', 'WARNING', 'INFO'
-      const validSeverities = ['CRITICAL', 'ERROR', 'WARNING', 'INFO'];
-      
-      Object.values(ERROR_CODES).forEach(code => {
-        expect(validSeverities).toContain(ERROR_SEVERITY[code]);
+    
+    it('should assign appropriate severity levels to consumer errors', () => {
+      consumerErrorCodes.forEach(code => {
+        expect(ERROR_MESSAGES[code].severity).toBeDefined();
+        // Commit failures are critical as they can cause data loss
+        if (code === EVENT_CONS_COMMIT_FAILED) {
+          expect(ERROR_MESSAGES[code].severity).toBe(EventErrorSeverity.CRITICAL);
+        }
       });
     });
-
-    it('should assign appropriate severity levels based on error category', () => {
-      // Connection failures should be CRITICAL
-      expect(ERROR_SEVERITY[ERROR_CODES.PRODUCER_CONNECTION_FAILED]).toBe('CRITICAL');
-      expect(ERROR_SEVERITY[ERROR_CODES.CONSUMER_CONNECTION_FAILED]).toBe('CRITICAL');
+    
+    it('should assign appropriate severity levels to schema errors', () => {
+      schemaErrorCodes.forEach(code => {
+        expect(ERROR_MESSAGES[code].severity).toBeDefined();
+        // Schema registry unavailability is critical
+        if (code === EVENT_SCHEMA_REGISTRY_UNAVAILABLE || code === EVENT_SCHEMA_EVOLUTION_INCOMPATIBLE) {
+          expect(ERROR_MESSAGES[code].severity).toBe(EventErrorSeverity.CRITICAL);
+        }
+      });
+    });
+    
+    it('should assign appropriate severity levels to delivery errors', () => {
+      deliveryErrorCodes.forEach(code => {
+        expect(ERROR_MESSAGES[code].severity).toBeDefined();
+        // Broker unavailability is critical
+        if (code === EVENT_DELIV_BROKER_UNAVAILABLE) {
+          expect(ERROR_MESSAGES[code].severity).toBe(EventErrorSeverity.CRITICAL);
+        }
+        // Rebalance is just informational
+        if (code === EVENT_DELIV_REBALANCE_IN_PROGRESS) {
+          expect(ERROR_MESSAGES[code].severity).toBe(EventErrorSeverity.INFO);
+        }
+      });
+    });
+    
+    it('should assign appropriate severity levels to DLQ errors', () => {
+      dlqErrorCodes.forEach(code => {
+        expect(ERROR_MESSAGES[code].severity).toBeDefined();
+        // DLQ write failures and capacity issues are critical
+        if (code === EVENT_DLQ_WRITE_FAILED || code === EVENT_DLQ_FULL) {
+          expect(ERROR_MESSAGES[code].severity).toBe(EventErrorSeverity.CRITICAL);
+        }
+      });
+    });
+    
+    it('should assign appropriate HTTP status codes to different error categories', () => {
+      // Validation errors should be 400 or 422
+      expect(ERROR_MESSAGES[EVENT_SCHEMA_REQUIRED_FIELD_MISSING].status).toBe(EventErrorHttpStatus.BAD_REQUEST);
+      expect(ERROR_MESSAGES[EVENT_SCHEMA_INVALID_FIELD_TYPE].status).toBe(EventErrorHttpStatus.BAD_REQUEST);
+      expect(ERROR_MESSAGES[EVENT_PROD_SCHEMA_VALIDATION_FAILED].status).toBe(EventErrorHttpStatus.UNPROCESSABLE);
       
-      // Initialization failures should be CRITICAL
-      expect(ERROR_SEVERITY[ERROR_CODES.INITIALIZATION_FAILED]).toBe('CRITICAL');
+      // Timeout errors should be 504
+      expect(ERROR_MESSAGES[EVENT_PROD_DELIVERY_TIMEOUT].status).toBe(EventErrorHttpStatus.GATEWAY_TIMEOUT);
+      expect(ERROR_MESSAGES[EVENT_CONS_PROCESSING_TIMEOUT].status).toBe(EventErrorHttpStatus.GATEWAY_TIMEOUT);
+      expect(ERROR_MESSAGES[EVENT_DELIV_TIMEOUT].status).toBe(EventErrorHttpStatus.GATEWAY_TIMEOUT);
       
-      // Schema validation issues should be ERROR
-      expect(ERROR_SEVERITY[ERROR_CODES.SCHEMA_VALIDATION_FAILED]).toBe('ERROR');
-      expect(ERROR_SEVERITY[ERROR_CODES.SCHEMA_VALIDATION_ERROR]).toBe('ERROR');
-      
-      // Retry exhaustion should be WARNING (expected in some cases)
-      expect(ERROR_SEVERITY[ERROR_CODES.RETRY_EXHAUSTED]).toBe('WARNING');
+      // Service unavailable errors should be 503
+      expect(ERROR_MESSAGES[EVENT_PROD_BROKER_UNAVAILABLE].status).toBe(EventErrorHttpStatus.SERVICE_UNAVAILABLE);
+      expect(ERROR_MESSAGES[EVENT_DELIV_BROKER_UNAVAILABLE].status).toBe(EventErrorHttpStatus.SERVICE_UNAVAILABLE);
+      expect(ERROR_MESSAGES[EVENT_SCHEMA_REGISTRY_UNAVAILABLE].status).toBe(EventErrorHttpStatus.SERVICE_UNAVAILABLE);
     });
   });
-
-  describe('HTTP Status Code Mappings', () => {
-    it('should define HTTP status codes for all error codes', () => {
-      // Check that all error codes have an HTTP status code assigned
-      Object.values(ERROR_CODES).forEach(code => {
-        expect(HTTP_STATUS_CODES[code]).toBeDefined();
-        expect(typeof HTTP_STATUS_CODES[code]).toBe('number');
+  
+  describe('Utility Functions', () => {
+    describe('getErrorDetails', () => {
+      it('should return error details for a valid error code', () => {
+        const details = getErrorDetails(EVENT_PROD_SERIALIZATION_FAILED);
+        expect(details).toEqual(ERROR_MESSAGES[EVENT_PROD_SERIALIZATION_FAILED]);
+      });
+      
+      it('should return a default error for an invalid error code', () => {
+        const details = getErrorDetails('INVALID_CODE');
+        expect(details).toEqual({
+          message: 'Unknown error occurred during event processing.',
+          severity: EventErrorSeverity.ERROR,
+          status: EventErrorHttpStatus.INTERNAL_ERROR
+        });
       });
     });
-
-    it('should have valid HTTP status codes', () => {
-      // HTTP status codes should be in the range 400-599 for errors
-      Object.values(ERROR_CODES).forEach(code => {
-        const statusCode = HTTP_STATUS_CODES[code];
-        expect(statusCode).toBeGreaterThanOrEqual(400);
-        expect(statusCode).toBeLessThanOrEqual(599);
+    
+    describe('isRetryableError', () => {
+      it('should identify timeout errors as retryable', () => {
+        expect(isRetryableError(EVENT_PROD_DELIVERY_TIMEOUT)).toBe(true);
+        expect(isRetryableError(EVENT_CONS_PROCESSING_TIMEOUT)).toBe(true);
+        expect(isRetryableError(EVENT_DELIV_TIMEOUT)).toBe(true);
+      });
+      
+      it('should identify broker unavailability as retryable', () => {
+        expect(isRetryableError(EVENT_PROD_BROKER_UNAVAILABLE)).toBe(true);
+        expect(isRetryableError(EVENT_DELIV_BROKER_UNAVAILABLE)).toBe(true);
+      });
+      
+      it('should identify network failures as retryable', () => {
+        expect(isRetryableError(EVENT_DELIV_NETWORK_FAILURE)).toBe(true);
+      });
+      
+      it('should identify rebalance in progress as retryable', () => {
+        expect(isRetryableError(EVENT_DELIV_REBALANCE_IN_PROGRESS)).toBe(true);
+      });
+      
+      it('should identify validation errors as non-retryable', () => {
+        expect(isRetryableError(EVENT_PROD_SCHEMA_VALIDATION_FAILED)).toBe(false);
+        expect(isRetryableError(EVENT_CONS_SCHEMA_VALIDATION_FAILED)).toBe(false);
+        expect(isRetryableError(EVENT_SCHEMA_REQUIRED_FIELD_MISSING)).toBe(false);
+      });
+      
+      it('should identify handler not found as non-retryable', () => {
+        expect(isRetryableError(EVENT_CONS_HANDLER_NOT_FOUND)).toBe(false);
+      });
+      
+      it('should identify DLQ errors as non-retryable', () => {
+        expect(isRetryableError(EVENT_DLQ_WRITE_FAILED)).toBe(false);
+        expect(isRetryableError(EVENT_DLQ_READ_FAILED)).toBe(false);
+        expect(isRetryableError(EVENT_DLQ_FULL)).toBe(false);
       });
     });
-
-    it('should assign appropriate HTTP status codes based on error category', () => {
-      // Schema validation errors should be 400 Bad Request
-      expect(HTTP_STATUS_CODES[ERROR_CODES.SCHEMA_VALIDATION_FAILED]).toBe(400);
-      expect(HTTP_STATUS_CODES[ERROR_CODES.SCHEMA_VALIDATION_ERROR]).toBe(400);
+    
+    describe('shouldSendToDLQ', () => {
+      it('should send non-retryable errors to DLQ immediately', () => {
+        expect(shouldSendToDLQ(EVENT_PROD_SCHEMA_VALIDATION_FAILED, 0, 3)).toBe(true);
+        expect(shouldSendToDLQ(EVENT_CONS_SCHEMA_VALIDATION_FAILED, 0, 3)).toBe(true);
+        expect(shouldSendToDLQ(EVENT_SCHEMA_REQUIRED_FIELD_MISSING, 0, 3)).toBe(true);
+      });
       
-      // Connection failures should be 503 Service Unavailable
-      expect(HTTP_STATUS_CODES[ERROR_CODES.PRODUCER_CONNECTION_FAILED]).toBe(503);
-      expect(HTTP_STATUS_CODES[ERROR_CODES.CONSUMER_CONNECTION_FAILED]).toBe(503);
+      it('should not send retryable errors to DLQ if retries not exhausted', () => {
+        expect(shouldSendToDLQ(EVENT_PROD_DELIVERY_TIMEOUT, 0, 3)).toBe(false);
+        expect(shouldSendToDLQ(EVENT_PROD_DELIVERY_TIMEOUT, 1, 3)).toBe(false);
+        expect(shouldSendToDLQ(EVENT_PROD_DELIVERY_TIMEOUT, 2, 3)).toBe(false);
+      });
       
-      // Initialization failures should be 500 Internal Server Error
-      expect(HTTP_STATUS_CODES[ERROR_CODES.INITIALIZATION_FAILED]).toBe(500);
+      it('should send retryable errors to DLQ if retries exhausted', () => {
+        expect(shouldSendToDLQ(EVENT_PROD_DELIVERY_TIMEOUT, 3, 3)).toBe(true);
+        expect(shouldSendToDLQ(EVENT_PROD_DELIVERY_TIMEOUT, 4, 3)).toBe(true);
+      });
+    });
+    
+    describe('getErrorLogLevel', () => {
+      it('should return "info" for INFO severity errors', () => {
+        expect(getErrorLogLevel(EVENT_DELIV_REBALANCE_IN_PROGRESS)).toBe('info');
+      });
       
-      // Retry exhaustion should be 503 Service Unavailable
-      expect(HTTP_STATUS_CODES[ERROR_CODES.RETRY_EXHAUSTED]).toBe(503);
+      it('should return "warn" for WARNING severity errors', () => {
+        expect(getErrorLogLevel(EVENT_PROD_DELIVERY_TIMEOUT)).toBe('warn');
+        expect(getErrorLogLevel(EVENT_CONS_PROCESSING_TIMEOUT)).toBe('warn');
+        expect(getErrorLogLevel(EVENT_PROD_RATE_LIMIT_EXCEEDED)).toBe('warn');
+      });
+      
+      it('should return "error" for ERROR severity errors', () => {
+        expect(getErrorLogLevel(EVENT_PROD_SCHEMA_VALIDATION_FAILED)).toBe('error');
+        expect(getErrorLogLevel(EVENT_CONS_SCHEMA_VALIDATION_FAILED)).toBe('error');
+        expect(getErrorLogLevel(EVENT_SCHEMA_REQUIRED_FIELD_MISSING)).toBe('error');
+      });
+      
+      it('should return "fatal" for CRITICAL severity errors', () => {
+        expect(getErrorLogLevel(EVENT_PROD_BROKER_UNAVAILABLE)).toBe('fatal');
+        expect(getErrorLogLevel(EVENT_CONS_COMMIT_FAILED)).toBe('fatal');
+        expect(getErrorLogLevel(EVENT_SCHEMA_REGISTRY_UNAVAILABLE)).toBe('fatal');
+      });
+      
+      it('should return "fatal" for FATAL severity errors', () => {
+        // Create a mock error code with FATAL severity for testing
+        const mockFatalErrorCode = 'MOCK_FATAL_ERROR';
+        const mockErrorMessages = {
+          ...ERROR_MESSAGES,
+          [mockFatalErrorCode]: {
+            message: 'Fatal error for testing',
+            severity: EventErrorSeverity.FATAL,
+            status: EventErrorHttpStatus.INTERNAL_ERROR
+          }
+        };
+        
+        // Mock the getErrorDetails function to use our mock error messages
+        jest.spyOn(global, 'getErrorDetails').mockImplementation((errorCode) => {
+          return mockErrorMessages[errorCode] || {
+            message: 'Unknown error',
+            severity: EventErrorSeverity.ERROR,
+            status: EventErrorHttpStatus.INTERNAL_ERROR
+          };
+        });
+        
+        expect(getErrorLogLevel(mockFatalErrorCode)).toBe('fatal');
+        
+        // Restore the original implementation
+        jest.restoreAllMocks();
+      });
+      
+      it('should return "error" as default for unknown error codes', () => {
+        expect(getErrorLogLevel('UNKNOWN_ERROR_CODE')).toBe('error');
+      });
     });
   });
 });

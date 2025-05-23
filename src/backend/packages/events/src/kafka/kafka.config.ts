@@ -1,1143 +1,704 @@
-/**
- * @file kafka.config.ts
- * @description Provides configuration utilities for Kafka connections, including default settings,
- * configuration loading from environment variables, and validation. This file centralizes all
- * Kafka configuration logic across services, ensuring consistent settings and validation.
- * 
- * @example
- * // Basic usage with environment variables
- * const kafkaOptions = createKafkaOptionsFromEnv();
- * 
- * // Journey-specific configuration
- * const healthKafkaOptions = createKafkaOptionsFromEnv('health');
- * 
- * // Manual configuration with validation
- * const config = {
- *   client: {
- *     clientId: 'my-app',
- *     brokers: ['kafka1:9092', 'kafka2:9092']
- *   }
- * };
- * const validatedConfig = validateKafkaConfig(config);
- * const kafkaOptions = createKafkaOptions(validatedConfig);
- * 
- * // Usage with NestJS ConfigModule
- * @Module({
- *   imports: [
- *     ConfigModule.forRoot({
- *       load: [() => ({ kafka: kafkaConfigFactory('health')() })]
- *     })
- *   ],
- *   providers: [registerKafkaConfig('health')]
- * })
- */
-
-import { KafkaOptions, Transport } from '@nestjs/microservices';
 import * as Joi from 'joi';
+import { Logger } from '@nestjs/common';
 
 /**
- * Interface for Kafka client configuration
+ * Kafka broker configuration options
  */
-export interface KafkaClientConfig {
-  /**
-   * Client identifier used by the broker to identify the client
-   */
-  clientId: string;
-  
-  /**
-   * List of broker addresses in the format host:port
-   */
+export interface KafkaBrokerConfig {
+  /** List of Kafka broker addresses in the format host:port */
   brokers: string[];
-  
-  /**
-   * SSL configuration for secure connections
-   */
-  ssl?: boolean | KafkaSSLConfig;
-  
-  /**
-   * SASL authentication configuration
-   */
-  sasl?: KafkaSASLConfig;
-  
-  /**
-   * Connection timeout in milliseconds
-   */
+  /** Client ID used to identify this application to the Kafka cluster */
+  clientId: string;
+  /** SSL configuration for secure connections */
+  ssl?: boolean;
+  /** SASL authentication configuration */
+  sasl?: {
+    mechanism: 'plain' | 'scram-sha-256' | 'scram-sha-512';
+    username: string;
+    password: string;
+  };
+  /** Connection timeout in milliseconds */
   connectionTimeout?: number;
-  
-  /**
-   * Request timeout in milliseconds
-   */
-  requestTimeout?: number;
-  
-  /**
-   * Retry configuration for failed requests
-   */
-  retry?: KafkaRetryConfig;
+  /** Authentication timeout in milliseconds */
+  authenticationTimeout?: number;
 }
 
 /**
- * Interface for Kafka SSL configuration
- */
-export interface KafkaSSLConfig {
-  /**
-   * Path to CA certificate file
-   */
-  ca?: string;
-  
-  /**
-   * Path to client certificate file
-   */
-  cert?: string;
-  
-  /**
-   * Path to client key file
-   */
-  key?: string;
-  
-  /**
-   * Passphrase for the client key
-   */
-  passphrase?: string;
-  
-  /**
-   * Whether to reject unauthorized connections
-   */
-  rejectUnauthorized?: boolean;
-}
-
-/**
- * Interface for Kafka SASL authentication configuration
- */
-export interface KafkaSASLConfig {
-  /**
-   * SASL mechanism (plain, scram-sha-256, scram-sha-512, aws)
-   */
-  mechanism: 'plain' | 'scram-sha-256' | 'scram-sha-512' | 'aws';
-  
-  /**
-   * Username for PLAIN and SCRAM mechanisms
-   */
-  username?: string;
-  
-  /**
-   * Password for PLAIN and SCRAM mechanisms
-   */
-  password?: string;
-  
-  /**
-   * Authorization identity for AWS IAM authentication
-   */
-  authorizationIdentity?: string;
-}
-
-/**
- * Interface for Kafka retry configuration
- */
-export interface KafkaRetryConfig {
-  /**
-   * Maximum number of retries
-   */
-  maxRetryTime?: number;
-  
-  /**
-   * Initial retry delay in milliseconds
-   */
-  initialRetryTime?: number;
-  
-  /**
-   * Factor by which the retry time increases
-   */
-  factor?: number;
-  
-  /**
-   * Maximum delay between retries in milliseconds
-   */
-  multiplier?: number;
-  
-  /**
-   * Whether to retry indefinitely
-   */
-  retries?: number;
-}
-
-/**
- * Interface for Kafka consumer configuration
+ * Kafka consumer configuration options
  */
 export interface KafkaConsumerConfig {
-  /**
-   * Consumer group ID
-   */
+  /** Consumer group ID */
   groupId: string;
-  
-  /**
-   * Maximum number of bytes to fetch in a single batch
-   */
-  maxBytes?: number;
-  
-  /**
-   * Minimum number of bytes required for a fetch to return
-   */
-  minBytes?: number;
-  
-  /**
-   * Maximum wait time for a fetch to return
-   */
+  /** Maximum number of messages to process in a batch */
+  maxBatchSize?: number;
+  /** Maximum number of bytes to fetch in a batch */
+  maxBatchSizeInBytes?: number;
+  /** Minimum number of bytes to fetch in a batch */
+  minBatchSizeInBytes?: number;
+  /** Maximum time to wait for a batch to fill up (in milliseconds) */
   maxWaitTimeInMs?: number;
-  
-  /**
-   * Whether to read messages from the beginning of the topic
-   */
-  readUncommitted?: boolean;
-  
-  /**
-   * Whether to allow auto-commit of offsets
-   */
-  allowAutoTopicCreation?: boolean;
+  /** Whether to automatically commit offsets */
+  autoCommit?: boolean;
+  /** Interval for auto-committing offsets (in milliseconds) */
+  autoCommitInterval?: number;
+  /** Maximum number of retries for failed messages */
+  maxRetries?: number;
+  /** Initial retry delay in milliseconds */
+  initialRetryTime?: number;
+  /** Factor by which to multiply retry time on each retry */
+  retryFactor?: number;
+  /** Maximum retry time in milliseconds */
+  maxRetryTime?: number;
+  /** Whether to retry non-retriable errors */
+  retryNonRetriableErrors?: boolean;
+  /** Dead letter queue topic suffix */
+  dlqSuffix?: string;
 }
 
 /**
- * Interface for Kafka producer configuration
+ * Kafka producer configuration options
  */
 export interface KafkaProducerConfig {
-  /**
-   * Whether to wait for all replicas to acknowledge writes
-   */
-  allowAutoTopicCreation?: boolean;
-  
-  /**
-   * Compression type for produced messages
-   */
+  /** Whether to wait for acknowledgment from all replicas */
+  requireAllAcks?: boolean;
+  /** Timeout for acknowledgments in milliseconds */
+  ackTimeoutMs?: number;
+  /** Maximum number of retries for failed messages */
+  maxRetries?: number;
+  /** Initial retry delay in milliseconds */
+  initialRetryTime?: number;
+  /** Factor by which to multiply retry time on each retry */
+  retryFactor?: number;
+  /** Maximum retry time in milliseconds */
+  maxRetryTime?: number;
+  /** Whether to retry non-retriable errors */
+  retryNonRetriableErrors?: boolean;
+  /** Compression type for messages */
   compression?: 'none' | 'gzip' | 'snappy' | 'lz4';
-  
-  /**
-   * Maximum time to buffer messages before sending
-   */
-  metadataMaxAge?: number;
-  
-  /**
-   * Required acknowledgments for produced messages
-   */
-  acks?: number | 'all';
-}
-
-/**
- * Interface for Kafka run configuration
- */
-export interface KafkaRunConfig {
-  /**
-   * Whether to automatically commit offsets
-   */
-  autoCommit?: boolean;
-  
-  /**
-   * Auto-commit interval in milliseconds
-   */
-  autoCommitInterval?: number | null;
-  
-  /**
-   * Maximum number of messages to process in a batch
-   */
+  /** Batch size in bytes */
   batchSize?: number;
-  
-  /**
-   * Maximum number of concurrent message processing
-   */
-  concurrency?: number;
-  
-  /**
-   * Partition assignment strategy
-   */
-  partitionsConsumedConcurrently?: number;
+  /** Batch linger time in milliseconds */
+  lingerMs?: number;
+  /** Whether to use idempotent production */
+  idempotent?: boolean;
 }
 
 /**
- * Interface for Kafka subscribe configuration
+ * Journey-specific Kafka configuration
  */
-export interface KafkaSubscribeConfig {
-  /**
-   * Topic to subscribe to
-   */
-  topic: string;
-  
-  /**
-   * Consumer group ID
-   */
-  groupId?: string;
-  
-  /**
-   * From which offset to start reading
-   */
-  fromBeginning?: boolean;
-  
-  /**
-   * Journey associated with this topic
-   */
-  journey?: 'health' | 'care' | 'plan' | 'common';
+export interface JourneyKafkaConfig {
+  /** Topics specific to this journey */
+  topics: {
+    /** Main event topic for this journey */
+    events: string;
+    /** Dead letter queue topic for this journey */
+    dlq: string;
+    /** Retry topic for this journey */
+    retry?: string;
+  };
+  /** Consumer group ID prefix for this journey */
+  consumerGroupPrefix: string;
+  /** Journey-specific producer configuration overrides */
+  producer?: Partial<KafkaProducerConfig>;
+  /** Journey-specific consumer configuration overrides */
+  consumer?: Partial<KafkaConsumerConfig>;
 }
 
 /**
- * Interface for complete Kafka configuration
+ * Complete Kafka configuration for the application
  */
 export interface KafkaConfig {
-  /**
-   * Client configuration
-   */
-  client: KafkaClientConfig;
-  
-  /**
-   * Consumer configuration
-   */
-  consumer?: KafkaConsumerConfig;
-  
-  /**
-   * Producer configuration
-   */
-  producer?: KafkaProducerConfig;
-  
-  /**
-   * Run configuration
-   */
-  run?: KafkaRunConfig;
-  
-  /**
-   * Subscribe configuration
-   */
-  subscribe?: KafkaSubscribeConfig[];
+  /** Broker configuration */
+  broker: KafkaBrokerConfig;
+  /** Default consumer configuration */
+  consumer: KafkaConsumerConfig;
+  /** Default producer configuration */
+  producer: KafkaProducerConfig;
+  /** Health journey specific configuration */
+  healthJourney: JourneyKafkaConfig;
+  /** Care journey specific configuration */
+  careJourney: JourneyKafkaConfig;
+  /** Plan journey specific configuration */
+  planJourney: JourneyKafkaConfig;
+  /** Gamification specific configuration */
+  gamification: JourneyKafkaConfig;
+  /** Notification specific configuration */
+  notification: JourneyKafkaConfig;
 }
 
 /**
- * Default Kafka client configuration
+ * Default Kafka configuration values
  */
-export const DEFAULT_CLIENT_CONFIG: Partial<KafkaClientConfig> = {
-  clientId: 'austa-app',
-  connectionTimeout: 3000,
-  requestTimeout: 30000,
-  retry: {
-    initialRetryTime: 100,
-    maxRetryTime: 30000,
-    factor: 0.2,
-    multiplier: 2,
-    retries: 5,
+export const DEFAULT_KAFKA_CONFIG: KafkaConfig = {
+  broker: {
+    brokers: ['localhost:9092'],
+    clientId: 'austa-superapp',
+    connectionTimeout: 3000,
+    authenticationTimeout: 1000,
   },
-};
-
-/**
- * Default Kafka consumer configuration
- */
-export const DEFAULT_CONSUMER_CONFIG: Partial<KafkaConsumerConfig> = {
-  maxBytes: 1048576, // 1MB
-  minBytes: 1,
-  maxWaitTimeInMs: 5000,
-  readUncommitted: false,
-  allowAutoTopicCreation: false,
-};
-
-/**
- * Default Kafka producer configuration
- */
-export const DEFAULT_PRODUCER_CONFIG: Partial<KafkaProducerConfig> = {
-  allowAutoTopicCreation: false,
-  compression: 'none',
-  metadataMaxAge: 300000, // 5 minutes
-  acks: 'all',
-};
-
-/**
- * Default Kafka run configuration
- */
-export const DEFAULT_RUN_CONFIG: Partial<KafkaRunConfig> = {
-  autoCommit: true,
-  autoCommitInterval: 5000,
-  batchSize: 100,
-  concurrency: 10,
-  partitionsConsumedConcurrently: 1,
+  consumer: {
+    groupId: 'austa-default-group',
+    maxBatchSize: 100,
+    maxBatchSizeInBytes: 10485760, // 10MB
+    minBatchSizeInBytes: 1024, // 1KB
+    maxWaitTimeInMs: 5000,
+    autoCommit: true,
+    autoCommitInterval: 5000,
+    maxRetries: 5,
+    initialRetryTime: 100,
+    retryFactor: 2,
+    maxRetryTime: 30000,
+    retryNonRetriableErrors: false,
+    dlqSuffix: '.dlq',
+  },
+  producer: {
+    requireAllAcks: true,
+    ackTimeoutMs: 5000,
+    maxRetries: 5,
+    initialRetryTime: 100,
+    retryFactor: 2,
+    maxRetryTime: 30000,
+    retryNonRetriableErrors: false,
+    compression: 'snappy',
+    batchSize: 16384, // 16KB
+    lingerMs: 5,
+    idempotent: true,
+  },
+  healthJourney: {
+    topics: {
+      events: 'health.events',
+      dlq: 'health.events.dlq',
+      retry: 'health.events.retry',
+    },
+    consumerGroupPrefix: 'health-service',
+    consumer: {
+      // Health-specific consumer overrides
+      maxRetries: 3,
+    },
+    producer: {
+      // Health-specific producer overrides
+    },
+  },
+  careJourney: {
+    topics: {
+      events: 'care.events',
+      dlq: 'care.events.dlq',
+      retry: 'care.events.retry',
+    },
+    consumerGroupPrefix: 'care-service',
+    consumer: {
+      // Care-specific consumer overrides
+    },
+    producer: {
+      // Care-specific producer overrides
+    },
+  },
+  planJourney: {
+    topics: {
+      events: 'plan.events',
+      dlq: 'plan.events.dlq',
+      retry: 'plan.events.retry',
+    },
+    consumerGroupPrefix: 'plan-service',
+    consumer: {
+      // Plan-specific consumer overrides
+    },
+    producer: {
+      // Plan-specific producer overrides
+    },
+  },
+  gamification: {
+    topics: {
+      events: 'gamification.events',
+      dlq: 'gamification.events.dlq',
+      retry: 'gamification.events.retry',
+    },
+    consumerGroupPrefix: 'gamification-engine',
+    consumer: {
+      // Gamification-specific consumer overrides
+      maxRetries: 10, // More retries for gamification events to ensure they're processed
+    },
+    producer: {
+      // Gamification-specific producer overrides
+    },
+  },
+  notification: {
+    topics: {
+      events: 'notification.events',
+      dlq: 'notification.events.dlq',
+      retry: 'notification.events.retry',
+    },
+    consumerGroupPrefix: 'notification-service',
+    consumer: {
+      // Notification-specific consumer overrides
+    },
+    producer: {
+      // Notification-specific producer overrides
+    },
+  },
 };
 
 /**
  * Environment variable names for Kafka configuration
  */
 export const KAFKA_ENV_VARS = {
-  // Client configuration
+  BROKER_LIST: 'KAFKA_BROKERS',
   CLIENT_ID: 'KAFKA_CLIENT_ID',
-  BROKERS: 'KAFKA_BROKERS',
-  CONNECTION_TIMEOUT: 'KAFKA_CONNECTION_TIMEOUT',
-  REQUEST_TIMEOUT: 'KAFKA_REQUEST_TIMEOUT',
-  
-  // SSL configuration
   SSL_ENABLED: 'KAFKA_SSL_ENABLED',
-  SSL_CA: 'KAFKA_SSL_CA',
-  SSL_CERT: 'KAFKA_SSL_CERT',
-  SSL_KEY: 'KAFKA_SSL_KEY',
-  SSL_PASSPHRASE: 'KAFKA_SSL_PASSPHRASE',
-  SSL_REJECT_UNAUTHORIZED: 'KAFKA_SSL_REJECT_UNAUTHORIZED',
-  
-  // SASL configuration
   SASL_MECHANISM: 'KAFKA_SASL_MECHANISM',
   SASL_USERNAME: 'KAFKA_SASL_USERNAME',
   SASL_PASSWORD: 'KAFKA_SASL_PASSWORD',
-  SASL_AUTH_IDENTITY: 'KAFKA_SASL_AUTH_IDENTITY',
-  
-  // Retry configuration
-  RETRY_MAX_TIME: 'KAFKA_RETRY_MAX_TIME',
-  RETRY_INITIAL_TIME: 'KAFKA_RETRY_INITIAL_TIME',
-  RETRY_FACTOR: 'KAFKA_RETRY_FACTOR',
-  RETRY_MULTIPLIER: 'KAFKA_RETRY_MULTIPLIER',
-  RETRY_RETRIES: 'KAFKA_RETRY_RETRIES',
-  
-  // Consumer configuration
+  CONNECTION_TIMEOUT: 'KAFKA_CONNECTION_TIMEOUT',
+  AUTHENTICATION_TIMEOUT: 'KAFKA_AUTHENTICATION_TIMEOUT',
   CONSUMER_GROUP_ID: 'KAFKA_CONSUMER_GROUP_ID',
-  CONSUMER_MAX_BYTES: 'KAFKA_CONSUMER_MAX_BYTES',
-  CONSUMER_MIN_BYTES: 'KAFKA_CONSUMER_MIN_BYTES',
-  CONSUMER_MAX_WAIT_TIME: 'KAFKA_CONSUMER_MAX_WAIT_TIME',
-  CONSUMER_READ_UNCOMMITTED: 'KAFKA_CONSUMER_READ_UNCOMMITTED',
-  CONSUMER_ALLOW_AUTO_TOPIC_CREATION: 'KAFKA_CONSUMER_ALLOW_AUTO_TOPIC_CREATION',
-  
-  // Producer configuration
-  PRODUCER_ALLOW_AUTO_TOPIC_CREATION: 'KAFKA_PRODUCER_ALLOW_AUTO_TOPIC_CREATION',
-  PRODUCER_COMPRESSION: 'KAFKA_PRODUCER_COMPRESSION',
-  PRODUCER_METADATA_MAX_AGE: 'KAFKA_PRODUCER_METADATA_MAX_AGE',
+  CONSUMER_MAX_BATCH_SIZE: 'KAFKA_CONSUMER_MAX_BATCH_SIZE',
+  CONSUMER_MAX_RETRIES: 'KAFKA_CONSUMER_MAX_RETRIES',
+  CONSUMER_INITIAL_RETRY_TIME: 'KAFKA_CONSUMER_INITIAL_RETRY_TIME',
+  CONSUMER_RETRY_FACTOR: 'KAFKA_CONSUMER_RETRY_FACTOR',
+  CONSUMER_MAX_RETRY_TIME: 'KAFKA_CONSUMER_MAX_RETRY_TIME',
   PRODUCER_ACKS: 'KAFKA_PRODUCER_ACKS',
-  
-  // Run configuration
-  RUN_AUTO_COMMIT: 'KAFKA_RUN_AUTO_COMMIT',
-  RUN_AUTO_COMMIT_INTERVAL: 'KAFKA_RUN_AUTO_COMMIT_INTERVAL',
-  RUN_BATCH_SIZE: 'KAFKA_RUN_BATCH_SIZE',
-  RUN_CONCURRENCY: 'KAFKA_RUN_CONCURRENCY',
-  RUN_PARTITIONS_CONSUMED_CONCURRENTLY: 'KAFKA_RUN_PARTITIONS_CONSUMED_CONCURRENTLY',
-  
-  // Journey-specific prefixes
-  JOURNEY_PREFIX: 'JOURNEY_',
+  PRODUCER_MAX_RETRIES: 'KAFKA_PRODUCER_MAX_RETRIES',
+  PRODUCER_COMPRESSION: 'KAFKA_PRODUCER_COMPRESSION',
+  PRODUCER_BATCH_SIZE: 'KAFKA_PRODUCER_BATCH_SIZE',
+  PRODUCER_LINGER_MS: 'KAFKA_PRODUCER_LINGER_MS',
+  // Journey-specific environment variables
+  HEALTH_EVENTS_TOPIC: 'KAFKA_HEALTH_EVENTS_TOPIC',
+  HEALTH_DLQ_TOPIC: 'KAFKA_HEALTH_DLQ_TOPIC',
+  HEALTH_RETRY_TOPIC: 'KAFKA_HEALTH_RETRY_TOPIC',
+  HEALTH_CONSUMER_GROUP_PREFIX: 'KAFKA_HEALTH_CONSUMER_GROUP_PREFIX',
+  CARE_EVENTS_TOPIC: 'KAFKA_CARE_EVENTS_TOPIC',
+  CARE_DLQ_TOPIC: 'KAFKA_CARE_DLQ_TOPIC',
+  CARE_RETRY_TOPIC: 'KAFKA_CARE_RETRY_TOPIC',
+  CARE_CONSUMER_GROUP_PREFIX: 'KAFKA_CARE_CONSUMER_GROUP_PREFIX',
+  PLAN_EVENTS_TOPIC: 'KAFKA_PLAN_EVENTS_TOPIC',
+  PLAN_DLQ_TOPIC: 'KAFKA_PLAN_DLQ_TOPIC',
+  PLAN_RETRY_TOPIC: 'KAFKA_PLAN_RETRY_TOPIC',
+  PLAN_CONSUMER_GROUP_PREFIX: 'KAFKA_PLAN_CONSUMER_GROUP_PREFIX',
+  GAMIFICATION_EVENTS_TOPIC: 'KAFKA_GAMIFICATION_EVENTS_TOPIC',
+  GAMIFICATION_DLQ_TOPIC: 'KAFKA_GAMIFICATION_DLQ_TOPIC',
+  GAMIFICATION_RETRY_TOPIC: 'KAFKA_GAMIFICATION_RETRY_TOPIC',
+  GAMIFICATION_CONSUMER_GROUP_PREFIX: 'KAFKA_GAMIFICATION_CONSUMER_GROUP_PREFIX',
+  NOTIFICATION_EVENTS_TOPIC: 'KAFKA_NOTIFICATION_EVENTS_TOPIC',
+  NOTIFICATION_DLQ_TOPIC: 'KAFKA_NOTIFICATION_DLQ_TOPIC',
+  NOTIFICATION_RETRY_TOPIC: 'KAFKA_NOTIFICATION_RETRY_TOPIC',
+  NOTIFICATION_CONSUMER_GROUP_PREFIX: 'KAFKA_NOTIFICATION_CONSUMER_GROUP_PREFIX',
 };
 
 /**
- * Validation schema for Kafka client configuration
+ * Joi validation schema for Kafka broker configuration
  */
-export const kafkaClientConfigSchema = Joi.object({
-  clientId: Joi.string().required(),
-  brokers: Joi.array().items(Joi.string()).min(1).required(),
-  connectionTimeout: Joi.number().positive().default(DEFAULT_CLIENT_CONFIG.connectionTimeout),
-  requestTimeout: Joi.number().positive().default(DEFAULT_CLIENT_CONFIG.requestTimeout),
-  ssl: Joi.alternatives().try(
-    Joi.boolean(),
-    Joi.object({
-      ca: Joi.string().optional(),
-      cert: Joi.string().optional(),
-      key: Joi.string().optional(),
-      passphrase: Joi.string().optional(),
-      rejectUnauthorized: Joi.boolean().default(true),
-    }),
-  ).optional(),
+export const kafkaBrokerConfigSchema = Joi.object({
+  brokers: Joi.array().items(Joi.string()).min(1).required()
+    .description('List of Kafka broker addresses in the format host:port'),
+  clientId: Joi.string().required()
+    .description('Client ID used to identify this application to the Kafka cluster'),
+  ssl: Joi.boolean().default(false)
+    .description('Whether to use SSL for secure connections'),
   sasl: Joi.object({
-    mechanism: Joi.string().valid('plain', 'scram-sha-256', 'scram-sha-512', 'aws').required(),
-    username: Joi.string().when('mechanism', {
-      is: Joi.string().valid('plain', 'scram-sha-256', 'scram-sha-512'),
-      then: Joi.required(),
-      otherwise: Joi.optional(),
-    }),
-    password: Joi.string().when('mechanism', {
-      is: Joi.string().valid('plain', 'scram-sha-256', 'scram-sha-512'),
-      then: Joi.required(),
-      otherwise: Joi.optional(),
-    }),
-    authorizationIdentity: Joi.string().when('mechanism', {
-      is: 'aws',
-      then: Joi.required(),
-      otherwise: Joi.optional(),
-    }),
-  }).optional(),
-  retry: Joi.object({
-    maxRetryTime: Joi.number().positive().default(DEFAULT_CLIENT_CONFIG.retry?.maxRetryTime),
-    initialRetryTime: Joi.number().positive().default(DEFAULT_CLIENT_CONFIG.retry?.initialRetryTime),
-    factor: Joi.number().positive().default(DEFAULT_CLIENT_CONFIG.retry?.factor),
-    multiplier: Joi.number().positive().default(DEFAULT_CLIENT_CONFIG.retry?.multiplier),
-    retries: Joi.number().min(0).default(DEFAULT_CLIENT_CONFIG.retry?.retries),
-  }).default(DEFAULT_CLIENT_CONFIG.retry),
+    mechanism: Joi.string().valid('plain', 'scram-sha-256', 'scram-sha-512').required()
+      .description('SASL authentication mechanism'),
+    username: Joi.string().required()
+      .description('SASL authentication username'),
+    password: Joi.string().required()
+      .description('SASL authentication password'),
+  }).optional().description('SASL authentication configuration'),
+  connectionTimeout: Joi.number().integer().min(1000).max(60000).default(3000)
+    .description('Connection timeout in milliseconds'),
+  authenticationTimeout: Joi.number().integer().min(100).max(10000).default(1000)
+    .description('Authentication timeout in milliseconds'),
 });
 
 /**
- * Validation schema for Kafka consumer configuration
+ * Joi validation schema for Kafka consumer configuration
  */
 export const kafkaConsumerConfigSchema = Joi.object({
-  groupId: Joi.string().required(),
-  maxBytes: Joi.number().positive().default(DEFAULT_CONSUMER_CONFIG.maxBytes),
-  minBytes: Joi.number().positive().default(DEFAULT_CONSUMER_CONFIG.minBytes),
-  maxWaitTimeInMs: Joi.number().positive().default(DEFAULT_CONSUMER_CONFIG.maxWaitTimeInMs),
-  readUncommitted: Joi.boolean().default(DEFAULT_CONSUMER_CONFIG.readUncommitted),
-  allowAutoTopicCreation: Joi.boolean().default(DEFAULT_CONSUMER_CONFIG.allowAutoTopicCreation),
+  groupId: Joi.string().required()
+    .description('Consumer group ID'),
+  maxBatchSize: Joi.number().integer().min(1).max(1000).default(100)
+    .description('Maximum number of messages to process in a batch'),
+  maxBatchSizeInBytes: Joi.number().integer().min(1024).max(104857600).default(10485760)
+    .description('Maximum number of bytes to fetch in a batch'),
+  minBatchSizeInBytes: Joi.number().integer().min(1).max(104857600).default(1024)
+    .description('Minimum number of bytes to fetch in a batch'),
+  maxWaitTimeInMs: Joi.number().integer().min(100).max(30000).default(5000)
+    .description('Maximum time to wait for a batch to fill up (in milliseconds)'),
+  autoCommit: Joi.boolean().default(true)
+    .description('Whether to automatically commit offsets'),
+  autoCommitInterval: Joi.number().integer().min(100).max(60000).default(5000)
+    .description('Interval for auto-committing offsets (in milliseconds)'),
+  maxRetries: Joi.number().integer().min(0).max(100).default(5)
+    .description('Maximum number of retries for failed messages'),
+  initialRetryTime: Joi.number().integer().min(10).max(60000).default(100)
+    .description('Initial retry delay in milliseconds'),
+  retryFactor: Joi.number().min(1).max(10).default(2)
+    .description('Factor by which to multiply retry time on each retry'),
+  maxRetryTime: Joi.number().integer().min(1000).max(3600000).default(30000)
+    .description('Maximum retry time in milliseconds'),
+  retryNonRetriableErrors: Joi.boolean().default(false)
+    .description('Whether to retry non-retriable errors'),
+  dlqSuffix: Joi.string().default('.dlq')
+    .description('Dead letter queue topic suffix'),
 });
 
 /**
- * Validation schema for Kafka producer configuration
+ * Joi validation schema for Kafka producer configuration
  */
 export const kafkaProducerConfigSchema = Joi.object({
-  allowAutoTopicCreation: Joi.boolean().default(DEFAULT_PRODUCER_CONFIG.allowAutoTopicCreation),
-  compression: Joi.string().valid('none', 'gzip', 'snappy', 'lz4').default(DEFAULT_PRODUCER_CONFIG.compression),
-  metadataMaxAge: Joi.number().positive().default(DEFAULT_PRODUCER_CONFIG.metadataMaxAge),
-  acks: Joi.alternatives().try(
-    Joi.number().valid(0, 1, -1),
-    Joi.string().valid('all')
-  ).default(DEFAULT_PRODUCER_CONFIG.acks),
+  requireAllAcks: Joi.boolean().default(true)
+    .description('Whether to wait for acknowledgment from all replicas'),
+  ackTimeoutMs: Joi.number().integer().min(100).max(60000).default(5000)
+    .description('Timeout for acknowledgments in milliseconds'),
+  maxRetries: Joi.number().integer().min(0).max(100).default(5)
+    .description('Maximum number of retries for failed messages'),
+  initialRetryTime: Joi.number().integer().min(10).max(60000).default(100)
+    .description('Initial retry delay in milliseconds'),
+  retryFactor: Joi.number().min(1).max(10).default(2)
+    .description('Factor by which to multiply retry time on each retry'),
+  maxRetryTime: Joi.number().integer().min(1000).max(3600000).default(30000)
+    .description('Maximum retry time in milliseconds'),
+  retryNonRetriableErrors: Joi.boolean().default(false)
+    .description('Whether to retry non-retriable errors'),
+  compression: Joi.string().valid('none', 'gzip', 'snappy', 'lz4').default('snappy')
+    .description('Compression type for messages'),
+  batchSize: Joi.number().integer().min(1024).max(10485760).default(16384)
+    .description('Batch size in bytes'),
+  lingerMs: Joi.number().integer().min(0).max(1000).default(5)
+    .description('Batch linger time in milliseconds'),
+  idempotent: Joi.boolean().default(true)
+    .description('Whether to use idempotent production'),
 });
 
 /**
- * Validation schema for Kafka run configuration
+ * Joi validation schema for journey-specific Kafka configuration
  */
-export const kafkaRunConfigSchema = Joi.object({
-  autoCommit: Joi.boolean().default(DEFAULT_RUN_CONFIG.autoCommit),
-  autoCommitInterval: Joi.alternatives().try(
-    Joi.number().positive(),
-    Joi.valid(null)
-  ).default(DEFAULT_RUN_CONFIG.autoCommitInterval),
-  batchSize: Joi.number().positive().default(DEFAULT_RUN_CONFIG.batchSize),
-  concurrency: Joi.number().positive().default(DEFAULT_RUN_CONFIG.concurrency),
-  partitionsConsumedConcurrently: Joi.number().positive().default(DEFAULT_RUN_CONFIG.partitionsConsumedConcurrently),
+export const journeyKafkaConfigSchema = Joi.object({
+  topics: Joi.object({
+    events: Joi.string().required()
+      .description('Main event topic for this journey'),
+    dlq: Joi.string().required()
+      .description('Dead letter queue topic for this journey'),
+    retry: Joi.string().optional()
+      .description('Retry topic for this journey'),
+  }).required().description('Topics specific to this journey'),
+  consumerGroupPrefix: Joi.string().required()
+    .description('Consumer group ID prefix for this journey'),
+  producer: Joi.object().optional()
+    .description('Journey-specific producer configuration overrides'),
+  consumer: Joi.object().optional()
+    .description('Journey-specific consumer configuration overrides'),
 });
 
 /**
- * Validation schema for Kafka subscribe configuration
- */
-export const kafkaSubscribeConfigSchema = Joi.object({
-  topic: Joi.string().required(),
-  groupId: Joi.string().optional(),
-  fromBeginning: Joi.boolean().default(false),
-  journey: Joi.string().valid('health', 'care', 'plan', 'common').optional(),
-});
-
-/**
- * Validation schema for complete Kafka configuration
+ * Joi validation schema for complete Kafka configuration
  */
 export const kafkaConfigSchema = Joi.object({
-  client: kafkaClientConfigSchema.required(),
-  consumer: kafkaConsumerConfigSchema.optional(),
-  producer: kafkaProducerConfigSchema.optional(),
-  run: kafkaRunConfigSchema.optional(),
-  subscribe: Joi.array().items(kafkaSubscribeConfigSchema).optional(),
+  broker: kafkaBrokerConfigSchema.required()
+    .description('Broker configuration'),
+  consumer: kafkaConsumerConfigSchema.required()
+    .description('Default consumer configuration'),
+  producer: kafkaProducerConfigSchema.required()
+    .description('Default producer configuration'),
+  healthJourney: journeyKafkaConfigSchema.required()
+    .description('Health journey specific configuration'),
+  careJourney: journeyKafkaConfigSchema.required()
+    .description('Care journey specific configuration'),
+  planJourney: journeyKafkaConfigSchema.required()
+    .description('Plan journey specific configuration'),
+  gamification: journeyKafkaConfigSchema.required()
+    .description('Gamification specific configuration'),
+  notification: journeyKafkaConfigSchema.required()
+    .description('Notification specific configuration'),
 });
 
 /**
- * Parses a comma-separated string into an array of strings
- * @param value The comma-separated string to parse
- * @returns An array of strings
+ * Logger instance for Kafka configuration
  */
-export function parseStringArray(value: string | undefined): string[] {
-  if (!value) return [];
-  return value.split(',').map(item => item.trim()).filter(Boolean);
-}
+const logger = new Logger('KafkaConfig');
 
 /**
- * Loads Kafka client configuration from environment variables
- * @param prefix Optional prefix for environment variables (for journey-specific configuration)
- * @returns Kafka client configuration
+ * Loads Kafka configuration from environment variables
+ * @param env The environment variables object (defaults to process.env)
+ * @returns The loaded Kafka configuration
  */
-export function loadKafkaClientConfigFromEnv(prefix = ''): KafkaClientConfig {
-  const envPrefix = prefix ? `${prefix}_` : '';
-  
-  const clientId = process.env[`${envPrefix}${KAFKA_ENV_VARS.CLIENT_ID}`] || DEFAULT_CLIENT_CONFIG.clientId;
-  const brokers = parseStringArray(process.env[`${envPrefix}${KAFKA_ENV_VARS.BROKERS}`]);
-  const connectionTimeout = process.env[`${envPrefix}${KAFKA_ENV_VARS.CONNECTION_TIMEOUT}`] ? 
-    parseInt(process.env[`${envPrefix}${KAFKA_ENV_VARS.CONNECTION_TIMEOUT}`] as string, 10) : 
-    DEFAULT_CLIENT_CONFIG.connectionTimeout;
-  const requestTimeout = process.env[`${envPrefix}${KAFKA_ENV_VARS.REQUEST_TIMEOUT}`] ? 
-    parseInt(process.env[`${envPrefix}${KAFKA_ENV_VARS.REQUEST_TIMEOUT}`] as string, 10) : 
-    DEFAULT_CLIENT_CONFIG.requestTimeout;
-  
-  // SSL configuration
-  let ssl: boolean | KafkaSSLConfig | undefined;
-  const sslEnabled = process.env[`${envPrefix}${KAFKA_ENV_VARS.SSL_ENABLED}`];
-  
-  if (sslEnabled === 'true') {
-    ssl = {
-      ca: process.env[`${envPrefix}${KAFKA_ENV_VARS.SSL_CA}`],
-      cert: process.env[`${envPrefix}${KAFKA_ENV_VARS.SSL_CERT}`],
-      key: process.env[`${envPrefix}${KAFKA_ENV_VARS.SSL_KEY}`],
-      passphrase: process.env[`${envPrefix}${KAFKA_ENV_VARS.SSL_PASSPHRASE}`],
-      rejectUnauthorized: process.env[`${envPrefix}${KAFKA_ENV_VARS.SSL_REJECT_UNAUTHORIZED}`] !== 'false',
-    };
-  } else if (sslEnabled === 'false') {
-    ssl = false;
+export function loadKafkaConfigFromEnv(env: NodeJS.ProcessEnv = process.env): KafkaConfig {
+  const config: KafkaConfig = { ...DEFAULT_KAFKA_CONFIG };
+
+  try {
+    // Load broker configuration
+    if (env[KAFKA_ENV_VARS.BROKER_LIST]) {
+      config.broker.brokers = env[KAFKA_ENV_VARS.BROKER_LIST].split(',');
+    }
+
+    if (env[KAFKA_ENV_VARS.CLIENT_ID]) {
+      config.broker.clientId = env[KAFKA_ENV_VARS.CLIENT_ID];
+    }
+
+    if (env[KAFKA_ENV_VARS.SSL_ENABLED]) {
+      config.broker.ssl = env[KAFKA_ENV_VARS.SSL_ENABLED] === 'true';
+    }
+
+    // Load SASL configuration if all required variables are present
+    if (env[KAFKA_ENV_VARS.SASL_MECHANISM] && 
+        env[KAFKA_ENV_VARS.SASL_USERNAME] && 
+        env[KAFKA_ENV_VARS.SASL_PASSWORD]) {
+      config.broker.sasl = {
+        mechanism: env[KAFKA_ENV_VARS.SASL_MECHANISM] as 'plain' | 'scram-sha-256' | 'scram-sha-512',
+        username: env[KAFKA_ENV_VARS.SASL_USERNAME],
+        password: env[KAFKA_ENV_VARS.SASL_PASSWORD],
+      };
+    }
+
+    if (env[KAFKA_ENV_VARS.CONNECTION_TIMEOUT]) {
+      config.broker.connectionTimeout = parseInt(env[KAFKA_ENV_VARS.CONNECTION_TIMEOUT], 10);
+    }
+
+    if (env[KAFKA_ENV_VARS.AUTHENTICATION_TIMEOUT]) {
+      config.broker.authenticationTimeout = parseInt(env[KAFKA_ENV_VARS.AUTHENTICATION_TIMEOUT], 10);
+    }
+
+    // Load consumer configuration
+    if (env[KAFKA_ENV_VARS.CONSUMER_GROUP_ID]) {
+      config.consumer.groupId = env[KAFKA_ENV_VARS.CONSUMER_GROUP_ID];
+    }
+
+    if (env[KAFKA_ENV_VARS.CONSUMER_MAX_BATCH_SIZE]) {
+      config.consumer.maxBatchSize = parseInt(env[KAFKA_ENV_VARS.CONSUMER_MAX_BATCH_SIZE], 10);
+    }
+
+    if (env[KAFKA_ENV_VARS.CONSUMER_MAX_RETRIES]) {
+      config.consumer.maxRetries = parseInt(env[KAFKA_ENV_VARS.CONSUMER_MAX_RETRIES], 10);
+    }
+
+    if (env[KAFKA_ENV_VARS.CONSUMER_INITIAL_RETRY_TIME]) {
+      config.consumer.initialRetryTime = parseInt(env[KAFKA_ENV_VARS.CONSUMER_INITIAL_RETRY_TIME], 10);
+    }
+
+    if (env[KAFKA_ENV_VARS.CONSUMER_RETRY_FACTOR]) {
+      config.consumer.retryFactor = parseFloat(env[KAFKA_ENV_VARS.CONSUMER_RETRY_FACTOR]);
+    }
+
+    if (env[KAFKA_ENV_VARS.CONSUMER_MAX_RETRY_TIME]) {
+      config.consumer.maxRetryTime = parseInt(env[KAFKA_ENV_VARS.CONSUMER_MAX_RETRY_TIME], 10);
+    }
+
+    // Load producer configuration
+    if (env[KAFKA_ENV_VARS.PRODUCER_ACKS]) {
+      config.producer.requireAllAcks = env[KAFKA_ENV_VARS.PRODUCER_ACKS] === 'all';
+    }
+
+    if (env[KAFKA_ENV_VARS.PRODUCER_MAX_RETRIES]) {
+      config.producer.maxRetries = parseInt(env[KAFKA_ENV_VARS.PRODUCER_MAX_RETRIES], 10);
+    }
+
+    if (env[KAFKA_ENV_VARS.PRODUCER_COMPRESSION]) {
+      config.producer.compression = env[KAFKA_ENV_VARS.PRODUCER_COMPRESSION] as 'none' | 'gzip' | 'snappy' | 'lz4';
+    }
+
+    if (env[KAFKA_ENV_VARS.PRODUCER_BATCH_SIZE]) {
+      config.producer.batchSize = parseInt(env[KAFKA_ENV_VARS.PRODUCER_BATCH_SIZE], 10);
+    }
+
+    if (env[KAFKA_ENV_VARS.PRODUCER_LINGER_MS]) {
+      config.producer.lingerMs = parseInt(env[KAFKA_ENV_VARS.PRODUCER_LINGER_MS], 10);
+    }
+
+    // Load journey-specific configurations
+    // Health Journey
+    if (env[KAFKA_ENV_VARS.HEALTH_EVENTS_TOPIC]) {
+      config.healthJourney.topics.events = env[KAFKA_ENV_VARS.HEALTH_EVENTS_TOPIC];
+    }
+
+    if (env[KAFKA_ENV_VARS.HEALTH_DLQ_TOPIC]) {
+      config.healthJourney.topics.dlq = env[KAFKA_ENV_VARS.HEALTH_DLQ_TOPIC];
+    }
+
+    if (env[KAFKA_ENV_VARS.HEALTH_RETRY_TOPIC]) {
+      config.healthJourney.topics.retry = env[KAFKA_ENV_VARS.HEALTH_RETRY_TOPIC];
+    }
+
+    if (env[KAFKA_ENV_VARS.HEALTH_CONSUMER_GROUP_PREFIX]) {
+      config.healthJourney.consumerGroupPrefix = env[KAFKA_ENV_VARS.HEALTH_CONSUMER_GROUP_PREFIX];
+    }
+
+    // Care Journey
+    if (env[KAFKA_ENV_VARS.CARE_EVENTS_TOPIC]) {
+      config.careJourney.topics.events = env[KAFKA_ENV_VARS.CARE_EVENTS_TOPIC];
+    }
+
+    if (env[KAFKA_ENV_VARS.CARE_DLQ_TOPIC]) {
+      config.careJourney.topics.dlq = env[KAFKA_ENV_VARS.CARE_DLQ_TOPIC];
+    }
+
+    if (env[KAFKA_ENV_VARS.CARE_RETRY_TOPIC]) {
+      config.careJourney.topics.retry = env[KAFKA_ENV_VARS.CARE_RETRY_TOPIC];
+    }
+
+    if (env[KAFKA_ENV_VARS.CARE_CONSUMER_GROUP_PREFIX]) {
+      config.careJourney.consumerGroupPrefix = env[KAFKA_ENV_VARS.CARE_CONSUMER_GROUP_PREFIX];
+    }
+
+    // Plan Journey
+    if (env[KAFKA_ENV_VARS.PLAN_EVENTS_TOPIC]) {
+      config.planJourney.topics.events = env[KAFKA_ENV_VARS.PLAN_EVENTS_TOPIC];
+    }
+
+    if (env[KAFKA_ENV_VARS.PLAN_DLQ_TOPIC]) {
+      config.planJourney.topics.dlq = env[KAFKA_ENV_VARS.PLAN_DLQ_TOPIC];
+    }
+
+    if (env[KAFKA_ENV_VARS.PLAN_RETRY_TOPIC]) {
+      config.planJourney.topics.retry = env[KAFKA_ENV_VARS.PLAN_RETRY_TOPIC];
+    }
+
+    if (env[KAFKA_ENV_VARS.PLAN_CONSUMER_GROUP_PREFIX]) {
+      config.planJourney.consumerGroupPrefix = env[KAFKA_ENV_VARS.PLAN_CONSUMER_GROUP_PREFIX];
+    }
+
+    // Gamification
+    if (env[KAFKA_ENV_VARS.GAMIFICATION_EVENTS_TOPIC]) {
+      config.gamification.topics.events = env[KAFKA_ENV_VARS.GAMIFICATION_EVENTS_TOPIC];
+    }
+
+    if (env[KAFKA_ENV_VARS.GAMIFICATION_DLQ_TOPIC]) {
+      config.gamification.topics.dlq = env[KAFKA_ENV_VARS.GAMIFICATION_DLQ_TOPIC];
+    }
+
+    if (env[KAFKA_ENV_VARS.GAMIFICATION_RETRY_TOPIC]) {
+      config.gamification.topics.retry = env[KAFKA_ENV_VARS.GAMIFICATION_RETRY_TOPIC];
+    }
+
+    if (env[KAFKA_ENV_VARS.GAMIFICATION_CONSUMER_GROUP_PREFIX]) {
+      config.gamification.consumerGroupPrefix = env[KAFKA_ENV_VARS.GAMIFICATION_CONSUMER_GROUP_PREFIX];
+    }
+
+    // Notification
+    if (env[KAFKA_ENV_VARS.NOTIFICATION_EVENTS_TOPIC]) {
+      config.notification.topics.events = env[KAFKA_ENV_VARS.NOTIFICATION_EVENTS_TOPIC];
+    }
+
+    if (env[KAFKA_ENV_VARS.NOTIFICATION_DLQ_TOPIC]) {
+      config.notification.topics.dlq = env[KAFKA_ENV_VARS.NOTIFICATION_DLQ_TOPIC];
+    }
+
+    if (env[KAFKA_ENV_VARS.NOTIFICATION_RETRY_TOPIC]) {
+      config.notification.topics.retry = env[KAFKA_ENV_VARS.NOTIFICATION_RETRY_TOPIC];
+    }
+
+    if (env[KAFKA_ENV_VARS.NOTIFICATION_CONSUMER_GROUP_PREFIX]) {
+      config.notification.consumerGroupPrefix = env[KAFKA_ENV_VARS.NOTIFICATION_CONSUMER_GROUP_PREFIX];
+    }
+
+    logger.log('Kafka configuration loaded from environment variables');
+  } catch (error) {
+    logger.error(`Error loading Kafka configuration from environment: ${error.message}`, error.stack);
+    throw new Error(`Failed to load Kafka configuration: ${error.message}`);
   }
-  
-  // SASL configuration
-  let sasl: KafkaSASLConfig | undefined;
-  const saslMechanism = process.env[`${envPrefix}${KAFKA_ENV_VARS.SASL_MECHANISM}`] as 
-    'plain' | 'scram-sha-256' | 'scram-sha-512' | 'aws' | undefined;
-  
-  if (saslMechanism) {
-    sasl = {
-      mechanism: saslMechanism,
-      username: process.env[`${envPrefix}${KAFKA_ENV_VARS.SASL_USERNAME}`],
-      password: process.env[`${envPrefix}${KAFKA_ENV_VARS.SASL_PASSWORD}`],
-      authorizationIdentity: process.env[`${envPrefix}${KAFKA_ENV_VARS.SASL_AUTH_IDENTITY}`],
-    };
-  }
-  
-  // Retry configuration
-  const retry: KafkaRetryConfig = {
-    maxRetryTime: process.env[`${envPrefix}${KAFKA_ENV_VARS.RETRY_MAX_TIME}`] ? 
-      parseInt(process.env[`${envPrefix}${KAFKA_ENV_VARS.RETRY_MAX_TIME}`] as string, 10) : 
-      DEFAULT_CLIENT_CONFIG.retry?.maxRetryTime,
-    initialRetryTime: process.env[`${envPrefix}${KAFKA_ENV_VARS.RETRY_INITIAL_TIME}`] ? 
-      parseInt(process.env[`${envPrefix}${KAFKA_ENV_VARS.RETRY_INITIAL_TIME}`] as string, 10) : 
-      DEFAULT_CLIENT_CONFIG.retry?.initialRetryTime,
-    factor: process.env[`${envPrefix}${KAFKA_ENV_VARS.RETRY_FACTOR}`] ? 
-      parseFloat(process.env[`${envPrefix}${KAFKA_ENV_VARS.RETRY_FACTOR}`] as string) : 
-      DEFAULT_CLIENT_CONFIG.retry?.factor,
-    multiplier: process.env[`${envPrefix}${KAFKA_ENV_VARS.RETRY_MULTIPLIER}`] ? 
-      parseFloat(process.env[`${envPrefix}${KAFKA_ENV_VARS.RETRY_MULTIPLIER}`] as string) : 
-      DEFAULT_CLIENT_CONFIG.retry?.multiplier,
-    retries: process.env[`${envPrefix}${KAFKA_ENV_VARS.RETRY_RETRIES}`] ? 
-      parseInt(process.env[`${envPrefix}${KAFKA_ENV_VARS.RETRY_RETRIES}`] as string, 10) : 
-      DEFAULT_CLIENT_CONFIG.retry?.retries,
-  };
-  
-  const config: KafkaClientConfig = {
-    clientId: clientId as string,
-    brokers,
-    connectionTimeout,
-    requestTimeout,
-    retry,
-  };
-  
-  if (ssl) {
-    config.ssl = ssl;
-  }
-  
-  if (sasl) {
-    config.sasl = sasl;
-  }
-  
+
   return config;
 }
 
 /**
- * Loads Kafka consumer configuration from environment variables
- * @param prefix Optional prefix for environment variables (for journey-specific configuration)
- * @returns Kafka consumer configuration
- */
-export function loadKafkaConsumerConfigFromEnv(prefix = ''): KafkaConsumerConfig | undefined {
-  const envPrefix = prefix ? `${prefix}_` : '';
-  
-  const groupId = process.env[`${envPrefix}${KAFKA_ENV_VARS.CONSUMER_GROUP_ID}`];
-  
-  if (!groupId) {
-    return undefined;
-  }
-  
-  return {
-    groupId,
-    maxBytes: process.env[`${envPrefix}${KAFKA_ENV_VARS.CONSUMER_MAX_BYTES}`] ? 
-      parseInt(process.env[`${envPrefix}${KAFKA_ENV_VARS.CONSUMER_MAX_BYTES}`] as string, 10) : 
-      DEFAULT_CONSUMER_CONFIG.maxBytes,
-    minBytes: process.env[`${envPrefix}${KAFKA_ENV_VARS.CONSUMER_MIN_BYTES}`] ? 
-      parseInt(process.env[`${envPrefix}${KAFKA_ENV_VARS.CONSUMER_MIN_BYTES}`] as string, 10) : 
-      DEFAULT_CONSUMER_CONFIG.minBytes,
-    maxWaitTimeInMs: process.env[`${envPrefix}${KAFKA_ENV_VARS.CONSUMER_MAX_WAIT_TIME}`] ? 
-      parseInt(process.env[`${envPrefix}${KAFKA_ENV_VARS.CONSUMER_MAX_WAIT_TIME}`] as string, 10) : 
-      DEFAULT_CONSUMER_CONFIG.maxWaitTimeInMs,
-    readUncommitted: process.env[`${envPrefix}${KAFKA_ENV_VARS.CONSUMER_READ_UNCOMMITTED}`] === 'true',
-    allowAutoTopicCreation: process.env[`${envPrefix}${KAFKA_ENV_VARS.CONSUMER_ALLOW_AUTO_TOPIC_CREATION}`] === 'true',
-  };
-}
-
-/**
- * Loads Kafka producer configuration from environment variables
- * @param prefix Optional prefix for environment variables (for journey-specific configuration)
- * @returns Kafka producer configuration
- */
-export function loadKafkaProducerConfigFromEnv(prefix = ''): KafkaProducerConfig | undefined {
-  const envPrefix = prefix ? `${prefix}_` : '';
-  
-  // Check if any producer-specific environment variables are set
-  const hasProducerConfig = [
-    KAFKA_ENV_VARS.PRODUCER_ALLOW_AUTO_TOPIC_CREATION,
-    KAFKA_ENV_VARS.PRODUCER_COMPRESSION,
-    KAFKA_ENV_VARS.PRODUCER_METADATA_MAX_AGE,
-    KAFKA_ENV_VARS.PRODUCER_ACKS,
-  ].some(key => process.env[`${envPrefix}${key}`] !== undefined);
-  
-  if (!hasProducerConfig) {
-    return undefined;
-  }
-  
-  return {
-    allowAutoTopicCreation: process.env[`${envPrefix}${KAFKA_ENV_VARS.PRODUCER_ALLOW_AUTO_TOPIC_CREATION}`] === 'true',
-    compression: (process.env[`${envPrefix}${KAFKA_ENV_VARS.PRODUCER_COMPRESSION}`] || DEFAULT_PRODUCER_CONFIG.compression) as 'none' | 'gzip' | 'snappy' | 'lz4',
-    metadataMaxAge: process.env[`${envPrefix}${KAFKA_ENV_VARS.PRODUCER_METADATA_MAX_AGE}`] ? 
-      parseInt(process.env[`${envPrefix}${KAFKA_ENV_VARS.PRODUCER_METADATA_MAX_AGE}`] as string, 10) : 
-      DEFAULT_PRODUCER_CONFIG.metadataMaxAge,
-    acks: process.env[`${envPrefix}${KAFKA_ENV_VARS.PRODUCER_ACKS}`] ? 
-      (process.env[`${envPrefix}${KAFKA_ENV_VARS.PRODUCER_ACKS}`] === 'all' ? 'all' : parseInt(process.env[`${envPrefix}${KAFKA_ENV_VARS.PRODUCER_ACKS}`] as string, 10)) : 
-      DEFAULT_PRODUCER_CONFIG.acks,
-  };
-}
-
-/**
- * Loads Kafka run configuration from environment variables
- * @param prefix Optional prefix for environment variables (for journey-specific configuration)
- * @returns Kafka run configuration
- */
-export function loadKafkaRunConfigFromEnv(prefix = ''): KafkaRunConfig | undefined {
-  const envPrefix = prefix ? `${prefix}_` : '';
-  
-  // Check if any run-specific environment variables are set
-  const hasRunConfig = [
-    KAFKA_ENV_VARS.RUN_AUTO_COMMIT,
-    KAFKA_ENV_VARS.RUN_AUTO_COMMIT_INTERVAL,
-    KAFKA_ENV_VARS.RUN_BATCH_SIZE,
-    KAFKA_ENV_VARS.RUN_CONCURRENCY,
-    KAFKA_ENV_VARS.RUN_PARTITIONS_CONSUMED_CONCURRENTLY,
-  ].some(key => process.env[`${envPrefix}${key}`] !== undefined);
-  
-  if (!hasRunConfig) {
-    return undefined;
-  }
-  
-  let autoCommitInterval: number | null | undefined = DEFAULT_RUN_CONFIG.autoCommitInterval;
-  
-  if (process.env[`${envPrefix}${KAFKA_ENV_VARS.RUN_AUTO_COMMIT_INTERVAL}`] === 'null') {
-    autoCommitInterval = null;
-  } else if (process.env[`${envPrefix}${KAFKA_ENV_VARS.RUN_AUTO_COMMIT_INTERVAL}`]) {
-    autoCommitInterval = parseInt(process.env[`${envPrefix}${KAFKA_ENV_VARS.RUN_AUTO_COMMIT_INTERVAL}`] as string, 10);
-  }
-  
-  return {
-    autoCommit: process.env[`${envPrefix}${KAFKA_ENV_VARS.RUN_AUTO_COMMIT}`] === 'true',
-    autoCommitInterval,
-    batchSize: process.env[`${envPrefix}${KAFKA_ENV_VARS.RUN_BATCH_SIZE}`] ? 
-      parseInt(process.env[`${envPrefix}${KAFKA_ENV_VARS.RUN_BATCH_SIZE}`] as string, 10) : 
-      DEFAULT_RUN_CONFIG.batchSize,
-    concurrency: process.env[`${envPrefix}${KAFKA_ENV_VARS.RUN_CONCURRENCY}`] ? 
-      parseInt(process.env[`${envPrefix}${KAFKA_ENV_VARS.RUN_CONCURRENCY}`] as string, 10) : 
-      DEFAULT_RUN_CONFIG.concurrency,
-    partitionsConsumedConcurrently: process.env[`${envPrefix}${KAFKA_ENV_VARS.RUN_PARTITIONS_CONSUMED_CONCURRENTLY}`] ? 
-      parseInt(process.env[`${envPrefix}${KAFKA_ENV_VARS.RUN_PARTITIONS_CONSUMED_CONCURRENTLY}`] as string, 10) : 
-      DEFAULT_RUN_CONFIG.partitionsConsumedConcurrently,
-  };
-}
-
-/**
- * Loads complete Kafka configuration from environment variables
- * @param journeyName Optional journey name for journey-specific configuration
- * @returns Complete Kafka configuration
- */
-export function loadKafkaConfigFromEnv(journeyName?: 'health' | 'care' | 'plan'): KafkaConfig {
-  const prefix = journeyName ? `${KAFKA_ENV_VARS.JOURNEY_PREFIX}${journeyName.toUpperCase()}` : '';
-  
-  const client = loadKafkaClientConfigFromEnv(prefix);
-  const consumer = loadKafkaConsumerConfigFromEnv(prefix);
-  const producer = loadKafkaProducerConfigFromEnv(prefix);
-  const run = loadKafkaRunConfigFromEnv(prefix);
-  
-  const config: KafkaConfig = { client };
-  
-  if (consumer) {
-    config.consumer = consumer;
-  }
-  
-  if (producer) {
-    config.producer = producer;
-  }
-  
-  if (run) {
-    config.run = run;
-  }
-  
-  return config;
-}
-
-/**
- * Validates Kafka configuration against schema
- * @param config Kafka configuration to validate
- * @returns Validated Kafka configuration
+ * Validates the Kafka configuration against the schema
+ * @param config The Kafka configuration to validate
+ * @returns The validated Kafka configuration
  * @throws Error if validation fails
  */
 export function validateKafkaConfig(config: KafkaConfig): KafkaConfig {
-  // Ensure client configuration exists
-  if (!config || !config.client) {
-    throw new Error('Invalid Kafka configuration: client configuration is required');
-  }
-  
-  // Ensure brokers are specified
-  if (!config.client.brokers || config.client.brokers.length === 0) {
-    throw new Error('Invalid Kafka configuration: at least one broker must be specified');
-  }
-  
-  // Validate against schema
-  const { error, value } = kafkaConfigSchema.validate(config, { 
-    abortEarly: false,
-    allowUnknown: false,
-    stripUnknown: true
-  });
-  
-  if (error) {
-    const details = error.details.map(detail => detail.message).join(', ');
-    throw new Error(`Invalid Kafka configuration: ${details}`);
-  }
-  
-  // Additional validation for SASL configuration
-  if (value.client.sasl) {
-    const { mechanism, username, password, authorizationIdentity } = value.client.sasl;
-    
-    if ((mechanism === 'plain' || mechanism === 'scram-sha-256' || mechanism === 'scram-sha-512') && 
-        (!username || !password)) {
-      throw new Error(`Invalid Kafka configuration: username and password are required for ${mechanism} mechanism`);
-    }
-    
-    if (mechanism === 'aws' && !authorizationIdentity) {
-      throw new Error('Invalid Kafka configuration: authorizationIdentity is required for aws mechanism');
-    }
-  }
-  
-  return value;
-}
-
-/**
- * Creates Kafka options for NestJS microservices
- * @param config Kafka configuration
- * @returns Kafka options for NestJS microservices
- */
-export function createKafkaOptions(config: KafkaConfig): KafkaOptions {
-  return {
-    transport: Transport.KAFKA,
-    options: config,
-  };
-}
-
-/**
- * Creates Kafka options for NestJS microservices from environment variables
- * @param journeyName Optional journey name for journey-specific configuration
- * @returns Kafka options for NestJS microservices
- */
-export function createKafkaOptionsFromEnv(journeyName?: 'health' | 'care' | 'plan'): KafkaOptions {
-  const config = loadKafkaConfigFromEnv(journeyName);
-  const validatedConfig = validateKafkaConfig(config);
-  
-  return createKafkaOptions(validatedConfig);
-}
-
-/**
- * Factory function for creating Kafka options for NestJS ConfigModule
- * @param journeyName Optional journey name for journey-specific configuration
- * @returns Factory function for Kafka options
- */
-export function kafkaConfigFactory(journeyName?: 'health' | 'care' | 'plan') {
-  return () => {
-    const config = loadKafkaConfigFromEnv(journeyName);
-    return validateKafkaConfig(config);
-  };
-}
-
-/**
- * Registers Kafka configuration with NestJS ConfigModule
- * @param journeyName Optional journey name for journey-specific configuration
- * @returns ConfigModule with Kafka configuration
- */
-export function registerKafkaConfig(journeyName?: 'health' | 'care' | 'plan') {
-  return {
-    provide: 'KAFKA_CONFIG',
-    useFactory: kafkaConfigFactory(journeyName),
-  };
-}
-
-/**
- * Checks if Kafka configuration is valid and all required brokers are available
- * @param config Kafka configuration to check
- * @returns True if configuration is valid, false otherwise
- */
-export function isKafkaConfigValid(config: KafkaConfig): boolean {
   try {
-    validateKafkaConfig(config);
-    
-    // Check if brokers are specified
-    if (!config.client.brokers || config.client.brokers.length === 0) {
-      return false;
+    const { error, value } = kafkaConfigSchema.validate(config, {
+      abortEarly: false,
+      allowUnknown: false,
+    });
+
+    if (error) {
+      const errorDetails = error.details.map(detail => detail.message).join(', ');
+      logger.error(`Kafka configuration validation failed: ${errorDetails}`);
+      throw new Error(`Kafka configuration validation failed: ${errorDetails}`);
     }
-    
-    return true;
+
+    logger.log('Kafka configuration validated successfully');
+    return value;
   } catch (error) {
-    return false;
+    logger.error(`Error validating Kafka configuration: ${error.message}`, error.stack);
+    throw error;
   }
 }
 
 /**
- * Standard topic naming convention for journey-specific topics
- * @param journey Journey name
- * @param eventType Event type
- * @returns Standardized topic name
+ * Gets the journey-specific Kafka configuration
+ * @param config The complete Kafka configuration
+ * @param journeyType The journey type ('health', 'care', 'plan', 'gamification', 'notification')
+ * @returns The journey-specific Kafka configuration
  */
-export function getJourneyTopic(journey: 'health' | 'care' | 'plan', eventType: string): string {
-  return `austa.${journey}.${eventType}`;
+export function getJourneyKafkaConfig(
+  config: KafkaConfig,
+  journeyType: 'health' | 'care' | 'plan' | 'gamification' | 'notification',
+): JourneyKafkaConfig {
+  switch (journeyType) {
+    case 'health':
+      return config.healthJourney;
+    case 'care':
+      return config.careJourney;
+    case 'plan':
+      return config.planJourney;
+    case 'gamification':
+      return config.gamification;
+    case 'notification':
+      return config.notification;
+    default:
+      throw new Error(`Unknown journey type: ${journeyType}`);
+  }
 }
 
 /**
- * Gets all topics for a specific journey
- * @param journey Journey name
- * @param config Kafka configuration
- * @returns Array of topics for the specified journey
+ * Gets the consumer group ID for a specific journey and consumer name
+ * @param config The Kafka configuration
+ * @param journeyType The journey type
+ * @param consumerName The consumer name
+ * @returns The consumer group ID
  */
-export function getJourneyTopics(journey: 'health' | 'care' | 'plan', config?: KafkaConfig): string[] {
-  if (!config || !config.subscribe) {
-    return [];
-  }
-  
-  return config.subscribe
-    .filter(sub => sub.journey === journey || sub.journey === 'common')
-    .map(sub => sub.topic);
+export function getConsumerGroupId(
+  config: KafkaConfig,
+  journeyType: 'health' | 'care' | 'plan' | 'gamification' | 'notification',
+  consumerName: string,
+): string {
+  const journeyConfig = getJourneyKafkaConfig(config, journeyType);
+  return `${journeyConfig.consumerGroupPrefix}-${consumerName}`;
 }
 
 /**
- * Standard journey-specific Kafka configuration
- * @param journey Journey name
- * @param additionalConfig Additional configuration to merge
- * @returns Journey-specific Kafka configuration
+ * Creates a complete Kafka configuration with defaults and environment overrides
+ * @param overrides Optional configuration overrides
+ * @returns The complete validated Kafka configuration
  */
-export function createJourneyKafkaConfig(journey: 'health' | 'care' | 'plan', additionalConfig?: Partial<KafkaConfig>): KafkaConfig {
-  // Load base configuration from environment
-  const baseConfig = loadKafkaConfigFromEnv(journey);
-  
-  // Default journey-specific client ID if not provided
-  if (!baseConfig.client.clientId.includes(journey)) {
-    baseConfig.client.clientId = `austa-${journey}-${baseConfig.client.clientId}`;
-  }
-  
-  // Default journey-specific consumer group if not provided
-  if (baseConfig.consumer && !baseConfig.consumer.groupId.includes(journey)) {
-    baseConfig.consumer.groupId = `austa-${journey}-${baseConfig.consumer.groupId}`;
-  }
-  
-  // Merge with additional configuration if provided
-  if (additionalConfig) {
-    return mergeKafkaConfigs(baseConfig, additionalConfig);
-  }
-  
-  return baseConfig;
-}
-
-/**
- * Creates Kafka configuration for the gamification engine
- * This configuration subscribes to all journey topics to process events for achievements
- * @param additionalConfig Additional configuration to merge
- * @returns Gamification engine Kafka configuration
- */
-export function createGamificationKafkaConfig(additionalConfig?: Partial<KafkaConfig>): KafkaConfig {
-  // Load base configuration from environment
-  const baseConfig = loadKafkaConfigFromEnv();
-  
-  // Set gamification-specific client ID
-  baseConfig.client.clientId = 'austa-gamification-engine';
-  
-  // Set gamification-specific consumer group
-  if (baseConfig.consumer) {
-    baseConfig.consumer.groupId = 'austa-gamification-consumers';
-  } else {
-    baseConfig.consumer = {
-      groupId: 'austa-gamification-consumers',
-      ...DEFAULT_CONSUMER_CONFIG,
-    };
-  }
-  
-  // Subscribe to all journey topics
-  const defaultSubscriptions: KafkaSubscribeConfig[] = [
-    { topic: 'austa.health.events', journey: 'health' },
-    { topic: 'austa.care.events', journey: 'care' },
-    { topic: 'austa.plan.events', journey: 'plan' },
-    { topic: 'austa.user.events', journey: 'common' },
-    { topic: 'austa.game.events', journey: 'common' },
-  ];
-  
-  baseConfig.subscribe = baseConfig.subscribe || [];
-  
-  // Add default subscriptions if they don't already exist
-  for (const sub of defaultSubscriptions) {
-    if (!baseConfig.subscribe.some(existing => existing.topic === sub.topic)) {
-      baseConfig.subscribe.push(sub);
+export function createKafkaConfig(overrides?: Partial<KafkaConfig>): KafkaConfig {
+  try {
+    // Start with default configuration
+    let config = { ...DEFAULT_KAFKA_CONFIG };
+    
+    // Load environment variables
+    config = loadKafkaConfigFromEnv();
+    
+    // Apply any overrides
+    if (overrides) {
+      config = {
+        ...config,
+        ...overrides,
+        broker: { ...config.broker, ...overrides.broker },
+        consumer: { ...config.consumer, ...overrides.consumer },
+        producer: { ...config.producer, ...overrides.producer },
+        healthJourney: { ...config.healthJourney, ...overrides.healthJourney },
+        careJourney: { ...config.careJourney, ...overrides.careJourney },
+        planJourney: { ...config.planJourney, ...overrides.planJourney },
+        gamification: { ...config.gamification, ...overrides.gamification },
+        notification: { ...config.notification, ...overrides.notification },
+      };
     }
+    
+    // Validate the configuration
+    return validateKafkaConfig(config);
+  } catch (error) {
+    logger.error(`Failed to create Kafka configuration: ${error.message}`, error.stack);
+    throw error;
   }
-  
-  // Merge with additional configuration if provided
-  if (additionalConfig) {
-    return mergeKafkaConfigs(baseConfig, additionalConfig);
-  }
-  
-  return baseConfig;
-}
-
-/**
- * Creates Kafka configuration for the notification service
- * This configuration subscribes to notification topics from all journeys
- * @param additionalConfig Additional configuration to merge
- * @returns Notification service Kafka configuration
- */
-export function createNotificationKafkaConfig(additionalConfig?: Partial<KafkaConfig>): KafkaConfig {
-  // Load base configuration from environment
-  const baseConfig = loadKafkaConfigFromEnv();
-  
-  // Set notification-specific client ID
-  baseConfig.client.clientId = 'austa-notification-service';
-  
-  // Set notification-specific consumer group
-  if (baseConfig.consumer) {
-    baseConfig.consumer.groupId = 'austa-notification-consumers';
-  } else {
-    baseConfig.consumer = {
-      groupId: 'austa-notification-consumers',
-      ...DEFAULT_CONSUMER_CONFIG,
-    };
-  }
-  
-  // Subscribe to notification topics from all journeys
-  const defaultSubscriptions: KafkaSubscribeConfig[] = [
-    { topic: 'austa.notifications.health', journey: 'health' },
-    { topic: 'austa.notifications.care', journey: 'care' },
-    { topic: 'austa.notifications.plan', journey: 'plan' },
-    { topic: 'austa.notifications.user', journey: 'common' },
-    { topic: 'austa.notifications.achievements', journey: 'common' },
-    { topic: 'austa.notifications.dlq', journey: 'common' }, // Dead letter queue for failed notifications
-  ];
-  
-  baseConfig.subscribe = baseConfig.subscribe || [];
-  
-  // Add default subscriptions if they don't already exist
-  for (const sub of defaultSubscriptions) {
-    if (!baseConfig.subscribe.some(existing => existing.topic === sub.topic)) {
-      baseConfig.subscribe.push(sub);
-    }
-  }
-  
-  // Configure retry settings for notification service
-  if (!baseConfig.client.retry) {
-    baseConfig.client.retry = { ...DEFAULT_CLIENT_CONFIG.retry };
-  }
-  
-  // Notifications need more aggressive retry settings
-  baseConfig.client.retry.retries = 10;
-  baseConfig.client.retry.maxRetryTime = 60000; // 1 minute
-  
-  // Merge with additional configuration if provided
-  if (additionalConfig) {
-    return mergeKafkaConfigs(baseConfig, additionalConfig);
-  }
-  
-  return baseConfig;
-}
-
-/**
- * Creates Kafka configuration for the API gateway
- * This configuration is primarily for producing events, not consuming
- * @param additionalConfig Additional configuration to merge
- * @returns API gateway Kafka configuration
- */
-export function createApiGatewayKafkaConfig(additionalConfig?: Partial<KafkaConfig>): KafkaConfig {
-  // Load base configuration from environment
-  const baseConfig = loadKafkaConfigFromEnv();
-  
-  // Set API gateway-specific client ID
-  baseConfig.client.clientId = 'austa-api-gateway';
-  
-  // API Gateway primarily produces events, not consumes them
-  // So we focus on producer configuration
-  if (!baseConfig.producer) {
-    baseConfig.producer = { ...DEFAULT_PRODUCER_CONFIG };
-  }
-  
-  // Ensure we have acknowledgement from all replicas for reliability
-  baseConfig.producer.acks = 'all';
-  
-  // Configure retry settings for API gateway
-  if (!baseConfig.client.retry) {
-    baseConfig.client.retry = { ...DEFAULT_CLIENT_CONFIG.retry };
-  }
-  
-  // API Gateway needs reliable event production
-  baseConfig.client.retry.retries = 5;
-  baseConfig.client.retry.maxRetryTime = 30000; // 30 seconds
-  
-  // Merge with additional configuration if provided
-  if (additionalConfig) {
-    return mergeKafkaConfigs(baseConfig, additionalConfig);
-  }
-  
-  return baseConfig;
-}
-
-/**
- * Merges two Kafka configurations
- * @param baseConfig Base Kafka configuration
- * @param overrideConfig Override Kafka configuration
- * @returns Merged Kafka configuration
- */
-export function mergeKafkaConfigs(baseConfig: KafkaConfig, overrideConfig: Partial<KafkaConfig>): KafkaConfig {
-  return {
-    ...baseConfig,
-    ...overrideConfig,
-    client: {
-      ...baseConfig.client,
-      ...overrideConfig.client,
-      retry: {
-        ...baseConfig.client.retry,
-        ...overrideConfig.client?.retry,
-      },
-    },
-    consumer: overrideConfig.consumer || baseConfig.consumer ? {
-      ...baseConfig.consumer,
-      ...overrideConfig.consumer,
-    } : undefined,
-    producer: overrideConfig.producer || baseConfig.producer ? {
-      ...baseConfig.producer,
-      ...overrideConfig.producer,
-    } : undefined,
-    run: overrideConfig.run || baseConfig.run ? {
-      ...baseConfig.run,
-      ...overrideConfig.run,
-    } : undefined,
-    subscribe: [
-      ...(baseConfig.subscribe || []),
-      ...(overrideConfig.subscribe || []),
-    ],
-  };
-}
-
-/**
- * Creates Kafka configuration for testing purposes
- * This configuration uses in-memory Kafka for unit tests
- * @param serviceName Name of the service being tested
- * @returns Test Kafka configuration
- */
-export function createTestKafkaConfig(serviceName: string): KafkaConfig {
-  return {
-    client: {
-      clientId: `test-${serviceName}`,
-      brokers: ['localhost:9092'], // This should be overridden by test setup
-      connectionTimeout: 1000,
-      requestTimeout: 5000,
-      retry: {
-        initialRetryTime: 100,
-        maxRetryTime: 1000,
-        factor: 0.1,
-        multiplier: 1.5,
-        retries: 3,
-      },
-    },
-    consumer: {
-      groupId: `test-${serviceName}-group`,
-      maxBytes: 10485760, // 10MB
-      minBytes: 1,
-      maxWaitTimeInMs: 1000,
-      readUncommitted: true,
-      allowAutoTopicCreation: true,
-    },
-    producer: {
-      allowAutoTopicCreation: true,
-      compression: 'none',
-      metadataMaxAge: 30000, // 30 seconds
-      acks: 1, // Only wait for leader acknowledgement in tests
-    },
-    run: {
-      autoCommit: true,
-      autoCommitInterval: 1000,
-      batchSize: 10,
-      concurrency: 5,
-      partitionsConsumedConcurrently: 1,
-    },
-  };
 }

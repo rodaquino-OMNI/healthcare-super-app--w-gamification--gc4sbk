@@ -1,1196 +1,869 @@
 /**
  * @file kafka-events.fixtures.ts
- * @description Provides specialized fixtures for unit testing Kafka integration in the events package.
- * Includes mock Kafka messages, consumer records, and producer payloads that simulate the Kafka
- * message structure for different event types. These fixtures are essential for testing the events
- * package's Kafka producers, consumers, and message transformers.
- *
- * @module events/test/unit/fixtures
+ * @description Provides specialized fixtures for testing Kafka integration in the events package.
+ * Includes mock Kafka messages, consumer records, and producer payloads that simulate the
+ * Kafka message structure for different event types.
  */
 
-import { EventType } from '../../../src/dto/event-types.enum';
-import { TOPICS } from '../../../src/constants/topics.constants';
-import { ERROR_CODES } from '../../../src/constants/errors.constants';
+import { KafkaMessage, KafkaHeaders, KafkaProducerRecord, KafkaEventMessage, KafkaDeadLetterQueueMessage } from '../../../src/kafka/kafka.types';
+import { IKafkaMessage, IKafkaHeaders, IKafkaProducerRecord } from '../../../src/kafka/kafka.interfaces';
+import { BaseEvent, EventMetadata } from '../../../src/interfaces/base-event.interface';
+import { JourneyType } from '@austa/interfaces/common/dto/journey.dto';
+import { KAFKA_HEADERS, JOURNEY_EVENT_TOPICS, HEALTH_EVENT_TOPICS, CARE_EVENT_TOPICS, PLAN_EVENT_TOPICS, GAMIFICATION_TOPICS, DLQ_TOPICS } from '../../../src/kafka/kafka.constants';
 
-// Import from the main fixtures to avoid duplication
-import {
-  KafkaHeader,
-  KafkaMessage,
-  KafkaMessageWithError,
-  KafkaConsumerGroupOffset,
-  createBuffer,
-  createKafkaHeader,
-  createKafkaMessage,
-  createKafkaMessageWithError,
-  createConsumerGroupOffset,
-} from '../../../test/fixtures/kafka-events';
+// ===================================================
+// Helper Functions
+// ===================================================
 
 /**
- * Interface representing a Kafka consumer record as received by a consumer.
+ * Creates a mock event ID for testing
+ * @returns A mock event ID
  */
-export interface KafkaConsumerRecord {
-  topic: string;
-  partition: number;
-  message: KafkaMessage;
-  heartbeat?: () => Promise<void>;
-  pause?: () => void;
-  resume?: () => void;
-  commitOffset?: () => Promise<void>;
-  uncommittedOffset?: () => number;
+export function createMockEventId(): string {
+  return `event-${Math.random().toString(36).substring(2, 15)}`;
 }
 
 /**
- * Interface representing a Kafka producer payload for sending messages.
+ * Creates a mock correlation ID for testing
+ * @returns A mock correlation ID
  */
-export interface KafkaProducerPayload {
-  topic: string;
-  messages: {
-    key?: Buffer | string | null;
-    value: Buffer | string | object;
-    headers?: Record<string, string | Buffer | null>;
-    partition?: number;
-    timestamp?: string;
-  }[];
-  acks?: number;
-  timeout?: number;
-  compression?: number;
+export function createMockCorrelationId(): string {
+  return `corr-${Math.random().toString(36).substring(2, 15)}`;
 }
 
 /**
- * Interface representing a malformed Kafka message for testing error handling.
+ * Creates a mock user ID for testing
+ * @returns A mock user ID
  */
-export interface MalformedKafkaMessage extends Omit<KafkaMessage, 'value'> {
-  value: Buffer | null;
-  malformedReason: string;
-  expectedError: string;
+export function createMockUserId(): string {
+  return `user-${Math.floor(Math.random() * 10000)}`;
 }
 
 /**
- * Creates a Kafka consumer record for testing consumer functionality.
- * 
- * @param message The Kafka message
- * @param options Additional options for the consumer record
- * @returns A KafkaConsumerRecord object
+ * Creates a mock timestamp for testing
+ * @returns A mock ISO timestamp
  */
-export function createConsumerRecord(
-  message: KafkaMessage,
-  options: {
-    heartbeatFn?: () => Promise<void>;
-    pauseFn?: () => void;
-    resumeFn?: () => void;
-    commitOffsetFn?: () => Promise<void>;
-    uncommittedOffsetFn?: () => number;
-  } = {}
-): KafkaConsumerRecord {
+export function createMockTimestamp(): string {
+  return new Date().toISOString();
+}
+
+/**
+ * Creates standard event metadata for testing
+ * @param overrides Optional overrides for specific metadata fields
+ * @returns Event metadata object
+ */
+export function createMockEventMetadata(overrides: Partial<EventMetadata> = {}): EventMetadata {
   return {
-    topic: message.topic,
-    partition: message.partition,
-    message,
-    heartbeat: options.heartbeatFn || (() => Promise.resolve()),
-    pause: options.pauseFn || (() => {}),
-    resume: options.resumeFn || (() => {}),
-    commitOffset: options.commitOffsetFn || (() => Promise.resolve()),
-    uncommittedOffset: options.uncommittedOffsetFn || (() => parseInt(message.offset, 10)),
+    correlationId: createMockCorrelationId(),
+    traceId: `trace-${Math.random().toString(36).substring(2, 15)}`,
+    spanId: `span-${Math.random().toString(36).substring(2, 15)}`,
+    priority: 'medium',
+    ...overrides
   };
 }
 
 /**
- * Creates a Kafka producer payload for testing producer functionality.
- * 
- * @param topic The Kafka topic
- * @param messages The messages to send
- * @param options Additional options for the producer payload
- * @returns A KafkaProducerPayload object
+ * Creates standard Kafka headers for testing
+ * @param event The event to create headers for
+ * @returns Kafka headers object
  */
-export function createProducerPayload(
-  topic: string,
-  messages: Array<{
-    key?: string | null;
-    value: object;
-    headers?: Record<string, string | object | null>;
-    partition?: number;
-    timestamp?: string;
-  }>,
+export function createMockKafkaHeaders(event: BaseEvent): KafkaHeaders {
+  return {
+    [KAFKA_HEADERS.CORRELATION_ID]: Buffer.from(event.metadata?.correlationId || createMockCorrelationId()),
+    [KAFKA_HEADERS.SOURCE_SERVICE]: Buffer.from(event.source),
+    [KAFKA_HEADERS.EVENT_TYPE]: Buffer.from(event.type),
+    [KAFKA_HEADERS.EVENT_VERSION]: Buffer.from(event.version),
+    [KAFKA_HEADERS.USER_ID]: event.userId ? Buffer.from(event.userId) : undefined,
+    [KAFKA_HEADERS.JOURNEY]: event.journey ? Buffer.from(event.journey) : undefined,
+    [KAFKA_HEADERS.TIMESTAMP]: Buffer.from(event.timestamp)
+  };
+}
+
+// ===================================================
+// Base Event Fixtures
+// ===================================================
+
+/**
+ * Creates a base event fixture for testing
+ * @param type Event type
+ * @param source Source service
+ * @param payload Event payload
+ * @param options Additional options
+ * @returns A base event fixture
+ */
+export function createMockBaseEvent<T = any>(
+  type: string,
+  source: string,
+  payload: T,
   options: {
-    acks?: number;
-    timeout?: number;
-    compression?: number;
+    userId?: string;
+    journey?: JourneyType;
+    metadata?: EventMetadata;
+    eventId?: string;
+    timestamp?: string;
+    version?: string;
   } = {}
-): KafkaProducerPayload {
+): BaseEvent<T> {
+  return {
+    eventId: options.eventId || createMockEventId(),
+    type,
+    timestamp: options.timestamp || createMockTimestamp(),
+    version: options.version || '1.0.0',
+    source,
+    journey: options.journey,
+    userId: options.userId || createMockUserId(),
+    payload,
+    metadata: options.metadata || createMockEventMetadata()
+  };
+}
+
+/**
+ * Creates a malformed base event for testing error scenarios
+ * @param missingFields Fields to omit from the event
+ * @returns A malformed base event
+ */
+export function createMalformedBaseEvent(missingFields: string[] = []): any {
+  const baseEvent = createMockBaseEvent('TEST_EVENT', 'test-service', { data: 'test' });
+  
+  const malformedEvent = { ...baseEvent };
+  
+  for (const field of missingFields) {
+    delete malformedEvent[field];
+  }
+  
+  return malformedEvent;
+}
+
+// ===================================================
+// Journey-Specific Event Fixtures
+// ===================================================
+
+/**
+ * Health journey event fixtures
+ */
+export const healthEventFixtures = {
+  /**
+   * Health metric recorded event
+   */
+  metricRecorded: createMockBaseEvent(
+    'HEALTH_METRIC_RECORDED',
+    'health-service',
+    {
+      userId: createMockUserId(),
+      metricType: 'HEART_RATE',
+      value: 75,
+      unit: 'bpm',
+      recordedAt: createMockTimestamp(),
+      deviceId: 'device-123'
+    },
+    { journey: 'HEALTH' }
+  ),
+  
+  /**
+   * Health goal achieved event
+   */
+  goalAchieved: createMockBaseEvent(
+    'HEALTH_GOAL_ACHIEVED',
+    'health-service',
+    {
+      userId: createMockUserId(),
+      goalId: 'goal-123',
+      goalType: 'STEPS',
+      targetValue: 10000,
+      achievedValue: 10250,
+      achievedAt: createMockTimestamp()
+    },
+    { journey: 'HEALTH' }
+  ),
+  
+  /**
+   * Device connected event
+   */
+  deviceConnected: createMockBaseEvent(
+    'DEVICE_CONNECTED',
+    'health-service',
+    {
+      userId: createMockUserId(),
+      deviceId: 'device-123',
+      deviceType: 'Smartwatch',
+      manufacturer: 'Apple',
+      model: 'Watch Series 7',
+      connectedAt: createMockTimestamp()
+    },
+    { journey: 'HEALTH' }
+  )
+};
+
+/**
+ * Care journey event fixtures
+ */
+export const careEventFixtures = {
+  /**
+   * Appointment booked event
+   */
+  appointmentBooked: createMockBaseEvent(
+    'APPOINTMENT_BOOKED',
+    'care-service',
+    {
+      userId: createMockUserId(),
+      appointmentId: 'appt-123',
+      providerId: 'provider-456',
+      specialtyId: 'specialty-789',
+      scheduledAt: new Date(Date.now() + 86400000).toISOString(), // Tomorrow
+      bookedAt: createMockTimestamp(),
+      appointmentType: 'IN_PERSON'
+    },
+    { journey: 'CARE' }
+  ),
+  
+  /**
+   * Medication adherence event
+   */
+  medicationTaken: createMockBaseEvent(
+    'MEDICATION_TAKEN',
+    'care-service',
+    {
+      userId: createMockUserId(),
+      medicationId: 'med-123',
+      medicationName: 'Aspirin',
+      dosage: '100mg',
+      takenAt: createMockTimestamp(),
+      scheduledFor: createMockTimestamp()
+    },
+    { journey: 'CARE' }
+  ),
+  
+  /**
+   * Telemedicine session completed event
+   */
+  telemedicineCompleted: createMockBaseEvent(
+    'TELEMEDICINE_COMPLETED',
+    'care-service',
+    {
+      userId: createMockUserId(),
+      sessionId: 'session-123',
+      providerId: 'provider-456',
+      startedAt: new Date(Date.now() - 1800000).toISOString(), // 30 minutes ago
+      endedAt: createMockTimestamp(),
+      duration: 1800, // 30 minutes in seconds
+      rating: 4
+    },
+    { journey: 'CARE' }
+  )
+};
+
+/**
+ * Plan journey event fixtures
+ */
+export const planEventFixtures = {
+  /**
+   * Claim submitted event
+   */
+  claimSubmitted: createMockBaseEvent(
+    'CLAIM_SUBMITTED',
+    'plan-service',
+    {
+      userId: createMockUserId(),
+      claimId: 'claim-123',
+      claimType: 'MEDICAL',
+      amount: 150.75,
+      serviceDate: new Date(Date.now() - 604800000).toISOString(), // 1 week ago
+      submittedAt: createMockTimestamp(),
+      providerId: 'provider-456'
+    },
+    { journey: 'PLAN' }
+  ),
+  
+  /**
+   * Benefit used event
+   */
+  benefitUsed: createMockBaseEvent(
+    'BENEFIT_USED',
+    'plan-service',
+    {
+      userId: createMockUserId(),
+      benefitId: 'benefit-123',
+      benefitType: 'DENTAL',
+      usedAt: createMockTimestamp(),
+      providerId: 'provider-456',
+      amountUsed: 75.50
+    },
+    { journey: 'PLAN' }
+  ),
+  
+  /**
+   * Plan selected event
+   */
+  planSelected: createMockBaseEvent(
+    'PLAN_SELECTED',
+    'plan-service',
+    {
+      userId: createMockUserId(),
+      planId: 'plan-123',
+      planType: 'PREMIUM',
+      startDate: new Date(Date.now() + 2592000000).toISOString(), // 30 days from now
+      selectedAt: createMockTimestamp(),
+      annualCost: 3600.00
+    },
+    { journey: 'PLAN' }
+  )
+};
+
+/**
+ * Gamification event fixtures
+ */
+export const gamificationEventFixtures = {
+  /**
+   * Achievement unlocked event
+   */
+  achievementUnlocked: createMockBaseEvent(
+    'ACHIEVEMENT_UNLOCKED',
+    'gamification-engine',
+    {
+      userId: createMockUserId(),
+      achievementId: 'achievement-123',
+      achievementType: 'health-check-streak',
+      level: 2,
+      title: 'Monitor de Saúde',
+      description: 'Registre suas métricas de saúde por 7 dias consecutivos',
+      xpAwarded: 150,
+      unlockedAt: createMockTimestamp()
+    },
+    { journey: 'HEALTH' }
+  ),
+  
+  /**
+   * Quest completed event
+   */
+  questCompleted: createMockBaseEvent(
+    'QUEST_COMPLETED',
+    'gamification-engine',
+    {
+      userId: createMockUserId(),
+      questId: 'quest-123',
+      questTitle: 'Semana Saudável',
+      xpAwarded: 300,
+      rewardId: 'reward-456',
+      completedAt: createMockTimestamp(),
+      startedAt: new Date(Date.now() - 604800000).toISOString() // 1 week ago
+    },
+    { journey: 'HEALTH' }
+  ),
+  
+  /**
+   * Level up event
+   */
+  levelUp: createMockBaseEvent(
+    'LEVEL_UP',
+    'gamification-engine',
+    {
+      userId: createMockUserId(),
+      previousLevel: 3,
+      newLevel: 4,
+      totalXp: 2500,
+      xpForNextLevel: 3000,
+      achievedAt: createMockTimestamp(),
+      unlockedRewards: ['reward-123', 'reward-456']
+    },
+    { journey: 'HEALTH' }
+  )
+};
+
+// ===================================================
+// Kafka Message Fixtures
+// ===================================================
+
+/**
+ * Creates a Kafka message fixture for testing
+ * @param event The event to create a message for
+ * @param topic The Kafka topic
+ * @param partition Optional partition number
+ * @param offset Optional offset in the partition
+ * @returns A Kafka message fixture
+ */
+export function createMockKafkaMessage<T extends BaseEvent>(
+  event: T,
+  topic: string,
+  partition: number = 0,
+  offset: string = '0'
+): KafkaEventMessage<T> {
   return {
     topic,
-    messages: messages.map(msg => ({
-      key: msg.key ? (typeof msg.key === 'string' ? msg.key : createBuffer(msg.key)) : null,
-      value: typeof msg.value === 'string' ? msg.value : createBuffer(msg.value),
-      headers: msg.headers,
-      partition: msg.partition,
-      timestamp: msg.timestamp,
-    })),
-    acks: options.acks !== undefined ? options.acks : 1,
-    timeout: options.timeout || 30000,
-    compression: options.compression || 0,
+    partition,
+    offset,
+    key: event.userId ? Buffer.from(event.userId) : null,
+    value: event,
+    headers: createMockKafkaHeaders(event),
+    timestamp: event.timestamp
   };
 }
 
 /**
- * Creates a malformed Kafka message for testing error handling.
- * 
- * @param basedOn The base Kafka message to modify
- * @param malformedReason The reason the message is malformed
- * @param expectedError The expected error code
- * @returns A MalformedKafkaMessage object
+ * Creates a Kafka message with a string value instead of an object
+ * @param event The event to serialize
+ * @param topic The Kafka topic
+ * @returns A Kafka message with serialized event
  */
-export function createMalformedMessage(
-  basedOn: KafkaMessage,
-  malformedReason: string,
-  expectedError: string
-): MalformedKafkaMessage {
+export function createMockSerializedKafkaMessage<T extends BaseEvent>(
+  event: T,
+  topic: string
+): KafkaMessage {
   return {
-    ...basedOn,
-    malformedReason,
-    expectedError,
+    topic,
+    partition: 0,
+    offset: '0',
+    key: event.userId ? Buffer.from(event.userId) : null,
+    value: Buffer.from(JSON.stringify(event)),
+    headers: createMockKafkaHeaders(event),
+    timestamp: event.timestamp
   };
 }
 
-// ===== CONSUMER RECORD FIXTURES =====
+/**
+ * Creates a malformed Kafka message for testing error scenarios
+ * @param topic The Kafka topic
+ * @param errorType Type of malformation to create
+ * @returns A malformed Kafka message
+ */
+export function createMalformedKafkaMessage(
+  topic: string,
+  errorType: 'null-value' | 'invalid-json' | 'missing-headers' | 'wrong-schema'
+): KafkaMessage {
+  const baseEvent = createMockBaseEvent('TEST_EVENT', 'test-service', { data: 'test' });
+  
+  switch (errorType) {
+    case 'null-value':
+      return {
+        topic,
+        partition: 0,
+        offset: '0',
+        key: Buffer.from('test-key'),
+        value: null,
+        headers: createMockKafkaHeaders(baseEvent),
+        timestamp: createMockTimestamp()
+      };
+    
+    case 'invalid-json':
+      return {
+        topic,
+        partition: 0,
+        offset: '0',
+        key: Buffer.from('test-key'),
+        value: Buffer.from('{"this":"is not valid JSON'),
+        headers: createMockKafkaHeaders(baseEvent),
+        timestamp: createMockTimestamp()
+      };
+    
+    case 'missing-headers':
+      return {
+        topic,
+        partition: 0,
+        offset: '0',
+        key: Buffer.from('test-key'),
+        value: Buffer.from(JSON.stringify(baseEvent)),
+        headers: {},
+        timestamp: createMockTimestamp()
+      };
+    
+    case 'wrong-schema':
+      const wrongSchema = {
+        id: 'not-an-event-id',
+        message: 'This is not a valid event',
+        data: { random: 'data' }
+      };
+      
+      return {
+        topic,
+        partition: 0,
+        offset: '0',
+        key: Buffer.from('test-key'),
+        value: Buffer.from(JSON.stringify(wrongSchema)),
+        headers: createMockKafkaHeaders(baseEvent),
+        timestamp: createMockTimestamp()
+      };
+  }
+}
+
+// ===================================================
+// Kafka Consumer Record Fixtures
+// ===================================================
 
 /**
- * Collection of consumer record fixtures for health events.
+ * Health journey Kafka message fixtures
  */
-export const healthConsumerRecords = {
-  /**
-   * Consumer record for a health metric event.
-   */
-  metricRecorded: createConsumerRecord(
-    createKafkaMessage(
-      TOPICS.HEALTH.METRICS,
-      'user-123',
-      {
-        type: EventType.HEALTH_METRIC_RECORDED,
-        payload: {
-          metricType: 'HEART_RATE',
-          value: 72,
-          unit: 'bpm',
-          timestamp: '2023-04-15T10:30:00Z',
-          source: 'manual',
-        },
-        metadata: {
-          eventId: '550e8400-e29b-41d4-a716-446655440000',
-          correlationId: '550e8400-e29b-41d4-a716-446655440001',
-          timestamp: '2023-04-15T10:30:00Z',
-          origin: {
-            service: 'health-service',
-            instance: 'health-service-pod-1234',
-            component: 'metric-processor',
-          },
-          version: {
-            major: '1',
-            minor: '0',
-            patch: '0',
-          },
-        },
-      },
-      {
-        headers: {
-          'event-type': EventType.HEALTH_METRIC_RECORDED,
-          'user-id': 'user-123',
-          'correlation-id': '550e8400-e29b-41d4-a716-446655440001',
-        },
-      }
-    ),
-    {
-      heartbeatFn: jest.fn().mockResolvedValue(undefined),
-      commitOffsetFn: jest.fn().mockResolvedValue(undefined),
-      uncommittedOffsetFn: jest.fn().mockReturnValue(0),
-    }
+export const healthKafkaMessageFixtures = {
+  metricRecorded: createMockKafkaMessage(
+    healthEventFixtures.metricRecorded,
+    HEALTH_EVENT_TOPICS.METRICS,
+    0,
+    '1000'
   ),
-
-  /**
-   * Consumer record for a health goal achieved event.
-   */
-  goalAchieved: createConsumerRecord(
-    createKafkaMessage(
-      TOPICS.HEALTH.GOALS,
-      'user-123',
-      {
-        type: EventType.HEALTH_GOAL_ACHIEVED,
-        payload: {
-          goalId: 'goal-123',
-          goalType: 'steps',
-          targetValue: 10000,
-          achievedValue: 10250,
-          completedAt: '2023-04-15T20:00:00Z',
-        },
-        metadata: {
-          eventId: '550e8400-e29b-41d4-a716-446655440007',
-          correlationId: '550e8400-e29b-41d4-a716-446655440008',
-          timestamp: '2023-04-15T20:00:00Z',
-          origin: {
-            service: 'health-service',
-            instance: 'health-service-pod-1234',
-            component: 'goal-tracker',
-          },
-          version: {
-            major: '1',
-            minor: '0',
-            patch: '0',
-          },
-        },
-      },
-      {
-        headers: {
-          'event-type': EventType.HEALTH_GOAL_ACHIEVED,
-          'user-id': 'user-123',
-          'correlation-id': '550e8400-e29b-41d4-a716-446655440008',
-        },
-      }
-    ),
-    {
-      heartbeatFn: jest.fn().mockResolvedValue(undefined),
-      commitOffsetFn: jest.fn().mockResolvedValue(undefined),
-      uncommittedOffsetFn: jest.fn().mockReturnValue(0),
-    }
-  ),
-};
-
-/**
- * Collection of consumer record fixtures for care events.
- */
-export const careConsumerRecords = {
-  /**
-   * Consumer record for a care appointment booked event.
-   */
-  appointmentBooked: createConsumerRecord(
-    createKafkaMessage(
-      TOPICS.CARE.APPOINTMENTS,
-      'user-456',
-      {
-        type: EventType.CARE_APPOINTMENT_BOOKED,
-        payload: {
-          appointmentId: 'appt-789',
-          providerId: 'provider-123',
-          specialtyType: 'Cardiologia',
-          appointmentType: 'in_person',
-          scheduledAt: '2023-05-20T14:00:00Z',
-          bookedAt: '2023-04-15T11:45:00Z',
-        },
-        metadata: {
-          eventId: '550e8400-e29b-41d4-a716-446655440002',
-          correlationId: '550e8400-e29b-41d4-a716-446655440003',
-          timestamp: '2023-04-15T11:45:00Z',
-          origin: {
-            service: 'care-service',
-            instance: 'care-service-pod-5678',
-            component: 'appointment-scheduler',
-          },
-          version: {
-            major: '1',
-            minor: '0',
-            patch: '0',
-          },
-        },
-      },
-      {
-        headers: {
-          'event-type': EventType.CARE_APPOINTMENT_BOOKED,
-          'user-id': 'user-456',
-          'correlation-id': '550e8400-e29b-41d4-a716-446655440003',
-        },
-      }
-    ),
-    {
-      heartbeatFn: jest.fn().mockResolvedValue(undefined),
-      commitOffsetFn: jest.fn().mockResolvedValue(undefined),
-      uncommittedOffsetFn: jest.fn().mockReturnValue(0),
-    }
-  ),
-
-  /**
-   * Consumer record for a care medication taken event.
-   */
-  medicationTaken: createConsumerRecord(
-    createKafkaMessage(
-      TOPICS.CARE.MEDICATIONS,
-      'user-456',
-      {
-        type: EventType.CARE_MEDICATION_TAKEN,
-        payload: {
-          medicationId: 'med-123',
-          medicationName: 'Atorvastatina',
-          dosage: '20mg',
-          takenAt: '2023-04-15T08:00:00Z',
-          adherence: 'on_time',
-        },
-        metadata: {
-          eventId: '550e8400-e29b-41d4-a716-446655440012',
-          correlationId: '550e8400-e29b-41d4-a716-446655440013',
-          timestamp: '2023-04-15T08:00:00Z',
-          origin: {
-            service: 'care-service',
-            instance: 'care-service-pod-5678',
-            component: 'medication-tracker',
-          },
-          version: {
-            major: '1',
-            minor: '0',
-            patch: '0',
-          },
-        },
-      },
-      {
-        headers: {
-          'event-type': EventType.CARE_MEDICATION_TAKEN,
-          'user-id': 'user-456',
-          'correlation-id': '550e8400-e29b-41d4-a716-446655440013',
-        },
-      }
-    ),
-    {
-      heartbeatFn: jest.fn().mockResolvedValue(undefined),
-      commitOffsetFn: jest.fn().mockResolvedValue(undefined),
-      uncommittedOffsetFn: jest.fn().mockReturnValue(0),
-    }
-  ),
-};
-
-/**
- * Collection of consumer record fixtures for plan events.
- */
-export const planConsumerRecords = {
-  /**
-   * Consumer record for a plan claim submitted event.
-   */
-  claimSubmitted: createConsumerRecord(
-    createKafkaMessage(
-      TOPICS.PLAN.CLAIMS,
-      'user-789',
-      {
-        type: EventType.PLAN_CLAIM_SUBMITTED,
-        payload: {
-          claimId: 'claim-456',
-          claimType: 'medical',
-          providerId: 'provider-789',
-          serviceDate: '2023-04-10T09:30:00Z',
-          amount: 150.75,
-          submittedAt: '2023-04-15T13:20:00Z',
-        },
-        metadata: {
-          eventId: '550e8400-e29b-41d4-a716-446655440004',
-          correlationId: '550e8400-e29b-41d4-a716-446655440005',
-          timestamp: '2023-04-15T13:20:00Z',
-          origin: {
-            service: 'plan-service',
-            instance: 'plan-service-pod-9012',
-            component: 'claim-processor',
-          },
-          version: {
-            major: '1',
-            minor: '0',
-            patch: '0',
-          },
-        },
-      },
-      {
-        headers: {
-          'event-type': EventType.PLAN_CLAIM_SUBMITTED,
-          'user-id': 'user-789',
-          'correlation-id': '550e8400-e29b-41d4-a716-446655440005',
-        },
-      }
-    ),
-    {
-      heartbeatFn: jest.fn().mockResolvedValue(undefined),
-      commitOffsetFn: jest.fn().mockResolvedValue(undefined),
-      uncommittedOffsetFn: jest.fn().mockReturnValue(0),
-    }
-  ),
-
-  /**
-   * Consumer record for a plan benefit utilized event.
-   */
-  benefitUtilized: createConsumerRecord(
-    createKafkaMessage(
-      TOPICS.PLAN.BENEFITS,
-      'user-789',
-      {
-        type: EventType.PLAN_BENEFIT_UTILIZED,
-        payload: {
-          benefitId: 'benefit-123',
-          benefitType: 'wellness',
-          providerId: 'provider-456',
-          utilizationDate: '2023-04-15T15:30:00Z',
-          savingsAmount: 50.00,
-        },
-        metadata: {
-          eventId: '550e8400-e29b-41d4-a716-446655440015',
-          correlationId: '550e8400-e29b-41d4-a716-446655440016',
-          timestamp: '2023-04-15T15:30:00Z',
-          origin: {
-            service: 'plan-service',
-            instance: 'plan-service-pod-9012',
-            component: 'benefit-tracker',
-          },
-          version: {
-            major: '1',
-            minor: '0',
-            patch: '0',
-          },
-        },
-      },
-      {
-        headers: {
-          'event-type': EventType.PLAN_BENEFIT_UTILIZED,
-          'user-id': 'user-789',
-          'correlation-id': '550e8400-e29b-41d4-a716-446655440016',
-        },
-      }
-    ),
-    {
-      heartbeatFn: jest.fn().mockResolvedValue(undefined),
-      commitOffsetFn: jest.fn().mockResolvedValue(undefined),
-      uncommittedOffsetFn: jest.fn().mockReturnValue(0),
-    }
-  ),
-};
-
-// ===== PRODUCER PAYLOAD FIXTURES =====
-
-/**
- * Collection of producer payload fixtures for health events.
- */
-export const healthProducerPayloads = {
-  /**
-   * Producer payload for a health metric event.
-   */
-  metricRecorded: createProducerPayload(
-    TOPICS.HEALTH.METRICS,
-    [
-      {
-        key: 'user-123',
-        value: {
-          type: EventType.HEALTH_METRIC_RECORDED,
-          payload: {
-            metricType: 'HEART_RATE',
-            value: 72,
-            unit: 'bpm',
-            timestamp: '2023-04-15T10:30:00Z',
-            source: 'manual',
-          },
-          metadata: {
-            eventId: '550e8400-e29b-41d4-a716-446655440000',
-            correlationId: '550e8400-e29b-41d4-a716-446655440001',
-            timestamp: '2023-04-15T10:30:00Z',
-            origin: {
-              service: 'health-service',
-              instance: 'health-service-pod-1234',
-              component: 'metric-processor',
-            },
-            version: {
-              major: '1',
-              minor: '0',
-              patch: '0',
-            },
-          },
-        },
-        headers: {
-          'event-type': EventType.HEALTH_METRIC_RECORDED,
-          'user-id': 'user-123',
-          'correlation-id': '550e8400-e29b-41d4-a716-446655440001',
-        },
-      },
-    ],
-    { acks: -1 } // Require acknowledgment from all replicas
-  ),
-
-  /**
-   * Producer payload for a health goal achieved event.
-   */
-  goalAchieved: createProducerPayload(
-    TOPICS.HEALTH.GOALS,
-    [
-      {
-        key: 'user-123',
-        value: {
-          type: EventType.HEALTH_GOAL_ACHIEVED,
-          payload: {
-            goalId: 'goal-123',
-            goalType: 'steps',
-            targetValue: 10000,
-            achievedValue: 10250,
-            completedAt: '2023-04-15T20:00:00Z',
-          },
-          metadata: {
-            eventId: '550e8400-e29b-41d4-a716-446655440007',
-            correlationId: '550e8400-e29b-41d4-a716-446655440008',
-            timestamp: '2023-04-15T20:00:00Z',
-            origin: {
-              service: 'health-service',
-              instance: 'health-service-pod-1234',
-              component: 'goal-tracker',
-            },
-            version: {
-              major: '1',
-              minor: '0',
-              patch: '0',
-            },
-          },
-        },
-        headers: {
-          'event-type': EventType.HEALTH_GOAL_ACHIEVED,
-          'user-id': 'user-123',
-          'correlation-id': '550e8400-e29b-41d4-a716-446655440008',
-        },
-      },
-    ],
-    { acks: -1 }
-  ),
-};
-
-/**
- * Collection of producer payload fixtures for care events.
- */
-export const careProducerPayloads = {
-  /**
-   * Producer payload for a care appointment booked event.
-   */
-  appointmentBooked: createProducerPayload(
-    TOPICS.CARE.APPOINTMENTS,
-    [
-      {
-        key: 'user-456',
-        value: {
-          type: EventType.CARE_APPOINTMENT_BOOKED,
-          payload: {
-            appointmentId: 'appt-789',
-            providerId: 'provider-123',
-            specialtyType: 'Cardiologia',
-            appointmentType: 'in_person',
-            scheduledAt: '2023-05-20T14:00:00Z',
-            bookedAt: '2023-04-15T11:45:00Z',
-          },
-          metadata: {
-            eventId: '550e8400-e29b-41d4-a716-446655440002',
-            correlationId: '550e8400-e29b-41d4-a716-446655440003',
-            timestamp: '2023-04-15T11:45:00Z',
-            origin: {
-              service: 'care-service',
-              instance: 'care-service-pod-5678',
-              component: 'appointment-scheduler',
-            },
-            version: {
-              major: '1',
-              minor: '0',
-              patch: '0',
-            },
-          },
-        },
-        headers: {
-          'event-type': EventType.CARE_APPOINTMENT_BOOKED,
-          'user-id': 'user-456',
-          'correlation-id': '550e8400-e29b-41d4-a716-446655440003',
-        },
-      },
-    ],
-    { acks: -1 }
-  ),
-
-  /**
-   * Producer payload for a care medication taken event.
-   */
-  medicationTaken: createProducerPayload(
-    TOPICS.CARE.MEDICATIONS,
-    [
-      {
-        key: 'user-456',
-        value: {
-          type: EventType.CARE_MEDICATION_TAKEN,
-          payload: {
-            medicationId: 'med-123',
-            medicationName: 'Atorvastatina',
-            dosage: '20mg',
-            takenAt: '2023-04-15T08:00:00Z',
-            adherence: 'on_time',
-          },
-          metadata: {
-            eventId: '550e8400-e29b-41d4-a716-446655440012',
-            correlationId: '550e8400-e29b-41d4-a716-446655440013',
-            timestamp: '2023-04-15T08:00:00Z',
-            origin: {
-              service: 'care-service',
-              instance: 'care-service-pod-5678',
-              component: 'medication-tracker',
-            },
-            version: {
-              major: '1',
-              minor: '0',
-              patch: '0',
-            },
-          },
-        },
-        headers: {
-          'event-type': EventType.CARE_MEDICATION_TAKEN,
-          'user-id': 'user-456',
-          'correlation-id': '550e8400-e29b-41d4-a716-446655440013',
-        },
-      },
-    ],
-    { acks: -1 }
-  ),
-};
-
-/**
- * Collection of producer payload fixtures for plan events.
- */
-export const planProducerPayloads = {
-  /**
-   * Producer payload for a plan claim submitted event.
-   */
-  claimSubmitted: createProducerPayload(
-    TOPICS.PLAN.CLAIMS,
-    [
-      {
-        key: 'user-789',
-        value: {
-          type: EventType.PLAN_CLAIM_SUBMITTED,
-          payload: {
-            claimId: 'claim-456',
-            claimType: 'medical',
-            providerId: 'provider-789',
-            serviceDate: '2023-04-10T09:30:00Z',
-            amount: 150.75,
-            submittedAt: '2023-04-15T13:20:00Z',
-          },
-          metadata: {
-            eventId: '550e8400-e29b-41d4-a716-446655440004',
-            correlationId: '550e8400-e29b-41d4-a716-446655440005',
-            timestamp: '2023-04-15T13:20:00Z',
-            origin: {
-              service: 'plan-service',
-              instance: 'plan-service-pod-9012',
-              component: 'claim-processor',
-            },
-            version: {
-              major: '1',
-              minor: '0',
-              patch: '0',
-            },
-          },
-        },
-        headers: {
-          'event-type': EventType.PLAN_CLAIM_SUBMITTED,
-          'user-id': 'user-789',
-          'correlation-id': '550e8400-e29b-41d4-a716-446655440005',
-        },
-      },
-    ],
-    { acks: -1 }
-  ),
-};
-
-// ===== ERROR SCENARIO FIXTURES =====
-
-/**
- * Collection of malformed message fixtures for testing error handling.
- */
-export const malformedMessages = {
-  /**
-   * Malformed health metric event with invalid JSON.
-   */
-  invalidJson: createMalformedMessage(
-    {
-      ...healthConsumerRecords.metricRecorded.message,
-      value: Buffer.from('{"type":"HEALTH_METRIC_RECORDED","payload":{"metricType":"HEART_RATE","value":72,"unit":"bpm","timestamp":"2023-04-15T10:30:00Z","source":"manual"},"metadata":{'),
-    },
-    'Incomplete JSON string',
-    ERROR_CODES.MESSAGE_DESERIALIZATION_FAILED
-  ),
-
-  /**
-   * Malformed health metric event with missing required fields.
-   */
-  missingRequiredFields: createMalformedMessage(
-    {
-      ...healthConsumerRecords.metricRecorded.message,
-      value: Buffer.from(JSON.stringify({
-        type: EventType.HEALTH_METRIC_RECORDED,
-        payload: {
-          // Missing metricType
-          value: 72,
-          unit: 'bpm',
-          timestamp: '2023-04-15T10:30:00Z',
-          source: 'manual',
-        },
-        // Missing metadata
-      })),
-    },
-    'Missing required fields: metricType in payload, metadata',
-    ERROR_CODES.SCHEMA_VALIDATION_FAILED
-  ),
-
-  /**
-   * Malformed health metric event with invalid field types.
-   */
-  invalidFieldTypes: createMalformedMessage(
-    {
-      ...healthConsumerRecords.metricRecorded.message,
-      value: Buffer.from(JSON.stringify({
-        type: EventType.HEALTH_METRIC_RECORDED,
-        payload: {
-          metricType: 'HEART_RATE',
-          value: 'seventy-two', // Should be a number
-          unit: 'bpm',
-          timestamp: '2023-04-15T10:30:00Z',
-          source: 'manual',
-        },
-        metadata: {
-          eventId: '550e8400-e29b-41d4-a716-446655440000',
-          correlationId: '550e8400-e29b-41d4-a716-446655440001',
-          timestamp: '2023-04-15T10:30:00Z',
-          origin: {
-            service: 'health-service',
-            instance: 'health-service-pod-1234',
-            component: 'metric-processor',
-          },
-          version: {
-            major: '1',
-            minor: '0',
-            patch: '0',
-          },
-        },
-      })),
-    },
-    'Invalid field type: value should be a number',
-    ERROR_CODES.SCHEMA_VALIDATION_FAILED
-  ),
-
-  /**
-   * Malformed care appointment event with invalid date format.
-   */
-  invalidDateFormat: createMalformedMessage(
-    {
-      ...careConsumerRecords.appointmentBooked.message,
-      value: Buffer.from(JSON.stringify({
-        type: EventType.CARE_APPOINTMENT_BOOKED,
-        payload: {
-          appointmentId: 'appt-789',
-          providerId: 'provider-123',
-          specialtyType: 'Cardiologia',
-          appointmentType: 'in_person',
-          scheduledAt: '20/05/2023', // Invalid ISO date format
-          bookedAt: '2023-04-15T11:45:00Z',
-        },
-        metadata: {
-          eventId: '550e8400-e29b-41d4-a716-446655440002',
-          correlationId: '550e8400-e29b-41d4-a716-446655440003',
-          timestamp: '2023-04-15T11:45:00Z',
-          origin: {
-            service: 'care-service',
-            instance: 'care-service-pod-5678',
-            component: 'appointment-scheduler',
-          },
-          version: {
-            major: '1',
-            minor: '0',
-            patch: '0',
-          },
-        },
-      })),
-    },
-    'Invalid date format: scheduledAt should be ISO 8601',
-    ERROR_CODES.SCHEMA_VALIDATION_FAILED
-  ),
-};
-
-/**
- * Collection of serialization failure fixtures for testing error handling.
- */
-export const serializationFailures = {
-  /**
-   * Circular reference that cannot be serialized to JSON.
-   */
-  circularReference: (() => {
-    const obj: any = {
-      type: EventType.HEALTH_METRIC_RECORDED,
-      payload: {
-        metricType: 'HEART_RATE',
-        value: 72,
-        unit: 'bpm',
-        timestamp: '2023-04-15T10:30:00Z',
-        source: 'manual',
-      },
-      metadata: {
-        eventId: '550e8400-e29b-41d4-a716-446655440000',
-        correlationId: '550e8400-e29b-41d4-a716-446655440001',
-        timestamp: '2023-04-15T10:30:00Z',
-      },
-    };
-    // Create circular reference
-    obj.metadata.circular = obj;
-    return obj;
-  })(),
-
-  /**
-   * Object with functions that cannot be serialized to JSON.
-   */
-  objectWithFunctions: {
-    type: EventType.HEALTH_METRIC_RECORDED,
-    payload: {
-      metricType: 'HEART_RATE',
-      value: 72,
-      unit: 'bpm',
-      timestamp: '2023-04-15T10:30:00Z',
-      source: 'manual',
-      calculate: function() { return this.value * 2; }, // Function cannot be serialized
-    },
-    metadata: {
-      eventId: '550e8400-e29b-41d4-a716-446655440000',
-      correlationId: '550e8400-e29b-41d4-a716-446655440001',
-      timestamp: '2023-04-15T10:30:00Z',
-    },
-  },
-};
-
-// ===== RETRY MECHANISM FIXTURES =====
-
-/**
- * Collection of retry mechanism fixtures for testing exponential backoff.
- */
-export const retryMechanismFixtures = {
-  /**
-   * Retry configuration with exponential backoff.
-   */
-  retryConfig: {
-    initialRetryMs: 100,
-    maxRetryMs: 10000,
-    factor: 2,
-    retries: 5,
-    randomizationFactor: 0.2,
-  },
-
-  /**
-   * Expected retry delays with exponential backoff.
-   */
-  expectedRetryDelays: [
-    { attempt: 1, minDelayMs: 80, maxDelayMs: 120 },    // 100ms ± 20%
-    { attempt: 2, minDelayMs: 160, maxDelayMs: 240 },   // 200ms ± 20%
-    { attempt: 3, minDelayMs: 320, maxDelayMs: 480 },   // 400ms ± 20%
-    { attempt: 4, minDelayMs: 640, maxDelayMs: 960 },   // 800ms ± 20%
-    { attempt: 5, minDelayMs: 1280, maxDelayMs: 1920 }, // 1600ms ± 20%
-  ],
-
-  /**
-   * Retry attempts with different error types.
-   */
-  retryAttemptsByErrorType: {
-    // Network errors should be retried with full backoff
-    networkError: [
-      { errorCode: ERROR_CODES.BROKER_CONNECTION_ERROR, attempt: 1, delayMs: 100 },
-      { errorCode: ERROR_CODES.BROKER_CONNECTION_ERROR, attempt: 2, delayMs: 200 },
-      { errorCode: ERROR_CODES.BROKER_CONNECTION_ERROR, attempt: 3, delayMs: 400 },
-      { errorCode: ERROR_CODES.BROKER_CONNECTION_ERROR, attempt: 4, delayMs: 800 },
-      { errorCode: ERROR_CODES.BROKER_CONNECTION_ERROR, attempt: 5, delayMs: 1600 },
-    ],
-
-    // Validation errors should not be retried
-    validationError: [
-      { errorCode: ERROR_CODES.SCHEMA_VALIDATION_FAILED, attempt: 1, delayMs: 0, shouldRetry: false },
-    ],
-
-    // Processing errors should be retried with limited attempts
-    processingError: [
-      { errorCode: ERROR_CODES.CONSUMER_PROCESSING_FAILED, attempt: 1, delayMs: 100 },
-      { errorCode: ERROR_CODES.CONSUMER_PROCESSING_FAILED, attempt: 2, delayMs: 200 },
-      { errorCode: ERROR_CODES.CONSUMER_PROCESSING_FAILED, attempt: 3, delayMs: 400, shouldRetry: false },
-    ],
-  },
-
-  /**
-   * Kafka message with retry metadata in headers.
-   */
-  messageWithRetryHeaders: createKafkaMessage(
-    TOPICS.HEALTH.METRICS,
-    'user-123',
-    {
-      type: EventType.HEALTH_METRIC_RECORDED,
-      payload: {
-        metricType: 'HEART_RATE',
-        value: 72,
-        unit: 'bpm',
-        timestamp: '2023-04-15T10:30:00Z',
-        source: 'manual',
-      },
-      metadata: {
-        eventId: '550e8400-e29b-41d4-a716-446655440000',
-        correlationId: '550e8400-e29b-41d4-a716-446655440001',
-        timestamp: '2023-04-15T10:30:00Z',
-        origin: {
-          service: 'health-service',
-          instance: 'health-service-pod-1234',
-          component: 'metric-processor',
-        },
-        version: {
-          major: '1',
-          minor: '0',
-          patch: '0',
-        },
-        context: {
-          retry: {
-            count: 2,
-            maxRetries: 5,
-            reason: ERROR_CODES.CONSUMER_PROCESSING_FAILED,
-            originalTimestamp: '2023-04-15T10:29:50Z',
-          },
-        },
-      },
-    },
-    {
-      headers: {
-        'event-type': EventType.HEALTH_METRIC_RECORDED,
-        'user-id': 'user-123',
-        'correlation-id': '550e8400-e29b-41d4-a716-446655440001',
-        'retry-count': '2',
-        'retry-reason': ERROR_CODES.CONSUMER_PROCESSING_FAILED,
-        'original-timestamp': '2023-04-15T10:29:50Z',
-      },
-    }
-  ),
-};
-
-// ===== DEAD LETTER QUEUE FIXTURES =====
-
-/**
- * Collection of dead letter queue fixtures for testing failed event handling.
- */
-export const deadLetterQueueFixtures = {
-  /**
-   * Dead letter queue topic names.
-   */
-  topics: {
-    health: `${TOPICS.HEALTH.EVENTS}.dlq`,
-    care: `${TOPICS.CARE.EVENTS}.dlq`,
-    plan: `${TOPICS.PLAN.EVENTS}.dlq`,
-    gamification: `${TOPICS.GAMIFICATION.EVENTS}.dlq`,
-  },
-
-  /**
-   * Failed health metric event due to schema validation.
-   */
-  failedHealthMetric: createKafkaMessageWithError(
-    healthConsumerRecords.metricRecorded.message,
-    ERROR_CODES.SCHEMA_VALIDATION_FAILED,
-    'Invalid metric value: must be a positive number',
-    3,
-    3
-  ),
-
-  /**
-   * Failed care appointment event due to processing error.
-   */
-  failedCareAppointment: createKafkaMessageWithError(
-    careConsumerRecords.appointmentBooked.message,
-    ERROR_CODES.CONSUMER_PROCESSING_FAILED,
-    'Provider not found: provider-123',
-    2,
-    3
-  ),
-
-  /**
-   * Failed plan claim event due to deserialization error.
-   */
-  failedPlanClaim: createKafkaMessageWithError(
-    planConsumerRecords.claimSubmitted.message,
-    ERROR_CODES.MESSAGE_DESERIALIZATION_FAILED,
-    'Invalid JSON format in message payload',
+  
+  goalAchieved: createMockKafkaMessage(
+    healthEventFixtures.goalAchieved,
+    HEALTH_EVENT_TOPICS.GOALS,
     1,
-    3
+    '2000'
   ),
-
-  /**
-   * Producer payload for sending a message to the dead letter queue.
-   */
-  dlqProducerPayload: createProducerPayload(
-    `${TOPICS.HEALTH.EVENTS}.dlq`,
-    [
-      {
-        key: 'user-123',
-        value: {
-          originalMessage: {
-            topic: TOPICS.HEALTH.METRICS,
-            partition: 0,
-            offset: '0',
-            timestamp: '2023-04-15T10:30:00Z',
-            headers: {
-              'event-type': EventType.HEALTH_METRIC_RECORDED,
-              'user-id': 'user-123',
-              'correlation-id': '550e8400-e29b-41d4-a716-446655440001',
-            },
-          },
-          error: {
-            code: ERROR_CODES.SCHEMA_VALIDATION_FAILED,
-            message: 'Invalid metric value: must be a positive number',
-            retriesAttempted: 3,
-            maxRetries: 3,
-            timestamp: '2023-04-15T10:30:05Z',
-          },
-        },
-        headers: {
-          'original-topic': TOPICS.HEALTH.METRICS,
-          'error-code': ERROR_CODES.SCHEMA_VALIDATION_FAILED,
-          'retry-exhausted': 'true',
-          'user-id': 'user-123',
-        },
-      },
-    ],
-    { acks: -1 }
-  ),
+  
+  deviceConnected: createMockKafkaMessage(
+    healthEventFixtures.deviceConnected,
+    HEALTH_EVENT_TOPICS.DEVICES,
+    2,
+    '3000'
+  )
 };
-
-// ===== AUDIT AND LOGGING FIXTURES =====
 
 /**
- * Collection of audit and logging fixtures for testing the event audit system.
+ * Care journey Kafka message fixtures
  */
-export const auditAndLoggingFixtures = {
-  /**
-   * Audit log entry for a successful event processing.
-   */
-  successfulEventAudit: {
-    eventId: '550e8400-e29b-41d4-a716-446655440000',
-    correlationId: '550e8400-e29b-41d4-a716-446655440001',
-    eventType: EventType.HEALTH_METRIC_RECORDED,
-    topic: TOPICS.HEALTH.METRICS,
-    partition: 0,
-    offset: '0',
-    timestamp: '2023-04-15T10:30:00Z',
-    processingStartedAt: '2023-04-15T10:30:01Z',
-    processingCompletedAt: '2023-04-15T10:30:01.050Z',
-    processingDurationMs: 50,
-    userId: 'user-123',
-    status: 'SUCCESS',
-    origin: {
-      service: 'health-service',
-      instance: 'health-service-pod-1234',
-      component: 'metric-processor',
-    },
-  },
-
-  /**
-   * Audit log entry for a failed event processing.
-   */
-  failedEventAudit: {
-    eventId: '550e8400-e29b-41d4-a716-446655440004',
-    correlationId: '550e8400-e29b-41d4-a716-446655440005',
-    eventType: EventType.PLAN_CLAIM_SUBMITTED,
-    topic: TOPICS.PLAN.CLAIMS,
-    partition: 0,
-    offset: '0',
-    timestamp: '2023-04-15T13:20:00Z',
-    processingStartedAt: '2023-04-15T13:20:01Z',
-    processingCompletedAt: '2023-04-15T13:20:01.150Z',
-    processingDurationMs: 150,
-    userId: 'user-789',
-    status: 'FAILED',
-    error: {
-      code: ERROR_CODES.CONSUMER_PROCESSING_FAILED,
-      message: 'Provider not found: provider-789',
-      retriesAttempted: 0,
-      maxRetries: 3,
-    },
-    origin: {
-      service: 'plan-service',
-      instance: 'plan-service-pod-9012',
-      component: 'claim-processor',
-    },
-  },
-
-  /**
-   * Audit log entry for a retried event processing.
-   */
-  retriedEventAudit: {
-    eventId: '550e8400-e29b-41d4-a716-446655440012',
-    correlationId: '550e8400-e29b-41d4-a716-446655440013',
-    eventType: EventType.CARE_MEDICATION_TAKEN,
-    topic: TOPICS.CARE.MEDICATIONS,
-    partition: 0,
-    offset: '0',
-    timestamp: '2023-04-15T08:00:00Z',
-    processingStartedAt: '2023-04-15T08:00:01Z',
-    processingCompletedAt: '2023-04-15T08:00:01.200Z',
-    processingDurationMs: 200,
-    userId: 'user-456',
-    status: 'RETRIED',
-    error: {
-      code: ERROR_CODES.CONSUMER_PROCESSING_FAILED,
-      message: 'Database connection timeout',
-      retriesAttempted: 1,
-      maxRetries: 3,
-      nextRetryAt: '2023-04-15T08:00:11Z', // 10 seconds later
-    },
-    origin: {
-      service: 'care-service',
-      instance: 'care-service-pod-5678',
-      component: 'medication-tracker',
-    },
-  },
-
-  /**
-   * Audit log entry for a dead-lettered event processing.
-   */
-  deadLetteredEventAudit: {
-    eventId: '550e8400-e29b-41d4-a716-446655440007',
-    correlationId: '550e8400-e29b-41d4-a716-446655440008',
-    eventType: EventType.HEALTH_GOAL_ACHIEVED,
-    topic: TOPICS.HEALTH.GOALS,
-    partition: 0,
-    offset: '0',
-    timestamp: '2023-04-15T20:00:00Z',
-    processingStartedAt: '2023-04-15T20:00:01Z',
-    processingCompletedAt: '2023-04-15T20:00:01.100Z',
-    processingDurationMs: 100,
-    userId: 'user-123',
-    status: 'DEAD_LETTERED',
-    error: {
-      code: ERROR_CODES.SCHEMA_VALIDATION_FAILED,
-      message: 'Invalid goal type: must be one of [steps, weight, sleep, heart_rate]',
-      retriesAttempted: 0,
-      maxRetries: 0, // No retries for validation errors
-      deadLetterQueueTopic: `${TOPICS.HEALTH.GOALS}.dlq`,
-    },
-    origin: {
-      service: 'health-service',
-      instance: 'health-service-pod-1234',
-      component: 'goal-tracker',
-    },
-  },
+export const careKafkaMessageFixtures = {
+  appointmentBooked: createMockKafkaMessage(
+    careEventFixtures.appointmentBooked,
+    CARE_EVENT_TOPICS.APPOINTMENTS,
+    0,
+    '1000'
+  ),
+  
+  medicationTaken: createMockKafkaMessage(
+    careEventFixtures.medicationTaken,
+    CARE_EVENT_TOPICS.MEDICATIONS,
+    1,
+    '2000'
+  ),
+  
+  telemedicineCompleted: createMockKafkaMessage(
+    careEventFixtures.telemedicineCompleted,
+    CARE_EVENT_TOPICS.TELEMEDICINE,
+    2,
+    '3000'
+  )
 };
 
-// Export all fixtures
-export default {
-  // Consumer record fixtures
-  healthConsumerRecords,
-  careConsumerRecords,
-  planConsumerRecords,
+/**
+ * Plan journey Kafka message fixtures
+ */
+export const planKafkaMessageFixtures = {
+  claimSubmitted: createMockKafkaMessage(
+    planEventFixtures.claimSubmitted,
+    PLAN_EVENT_TOPICS.CLAIMS,
+    0,
+    '1000'
+  ),
   
-  // Producer payload fixtures
-  healthProducerPayloads,
-  careProducerPayloads,
-  planProducerPayloads,
+  benefitUsed: createMockKafkaMessage(
+    planEventFixtures.benefitUsed,
+    PLAN_EVENT_TOPICS.BENEFITS,
+    1,
+    '2000'
+  ),
   
-  // Error scenario fixtures
-  malformedMessages,
-  serializationFailures,
+  planSelected: createMockKafkaMessage(
+    planEventFixtures.planSelected,
+    PLAN_EVENT_TOPICS.PLANS,
+    2,
+    '3000'
+  )
+};
+
+/**
+ * Gamification Kafka message fixtures
+ */
+export const gamificationKafkaMessageFixtures = {
+  achievementUnlocked: createMockKafkaMessage(
+    gamificationEventFixtures.achievementUnlocked,
+    GAMIFICATION_TOPICS.ACHIEVEMENT,
+    0,
+    '1000'
+  ),
   
-  // Retry mechanism fixtures
-  retryMechanismFixtures,
+  questCompleted: createMockKafkaMessage(
+    gamificationEventFixtures.questCompleted,
+    GAMIFICATION_TOPICS.QUEST,
+    1,
+    '2000'
+  ),
   
-  // Dead letter queue fixtures
-  deadLetterQueueFixtures,
+  levelUp: createMockKafkaMessage(
+    gamificationEventFixtures.levelUp,
+    GAMIFICATION_TOPICS.PROFILE,
+    2,
+    '3000'
+  )
+};
+
+/**
+ * Serialized Kafka message fixtures (with Buffer values)
+ */
+export const serializedKafkaMessageFixtures = {
+  healthMetricRecorded: createMockSerializedKafkaMessage(
+    healthEventFixtures.metricRecorded,
+    HEALTH_EVENT_TOPICS.METRICS
+  ),
   
-  // Audit and logging fixtures
-  auditAndLoggingFixtures,
+  appointmentBooked: createMockSerializedKafkaMessage(
+    careEventFixtures.appointmentBooked,
+    CARE_EVENT_TOPICS.APPOINTMENTS
+  ),
   
-  // Helper functions
-  createConsumerRecord,
-  createProducerPayload,
-  createMalformedMessage,
+  claimSubmitted: createMockSerializedKafkaMessage(
+    planEventFixtures.claimSubmitted,
+    PLAN_EVENT_TOPICS.CLAIMS
+  ),
+  
+  achievementUnlocked: createMockSerializedKafkaMessage(
+    gamificationEventFixtures.achievementUnlocked,
+    GAMIFICATION_TOPICS.ACHIEVEMENT
+  )
+};
+
+/**
+ * Malformed Kafka message fixtures for testing error scenarios
+ */
+export const malformedKafkaMessageFixtures = {
+  nullValue: createMalformedKafkaMessage(HEALTH_EVENT_TOPICS.METRICS, 'null-value'),
+  invalidJson: createMalformedKafkaMessage(CARE_EVENT_TOPICS.APPOINTMENTS, 'invalid-json'),
+  missingHeaders: createMalformedKafkaMessage(PLAN_EVENT_TOPICS.CLAIMS, 'missing-headers'),
+  wrongSchema: createMalformedKafkaMessage(GAMIFICATION_TOPICS.ACHIEVEMENT, 'wrong-schema')
+};
+
+// ===================================================
+// Kafka Producer Record Fixtures
+// ===================================================
+
+/**
+ * Creates a Kafka producer record fixture for testing
+ * @param event The event to create a producer record for
+ * @param topic The Kafka topic
+ * @returns A Kafka producer record fixture
+ */
+export function createMockKafkaProducerRecord<T extends BaseEvent>(
+  event: T,
+  topic: string
+): KafkaProducerRecord<T> {
+  return {
+    topic,
+    messages: [
+      {
+        key: event.userId ? event.userId : undefined,
+        value: event,
+        headers: createMockKafkaHeaders(event),
+        timestamp: event.timestamp
+      }
+    ],
+    acks: 1,
+    timeout: 30000
+  };
+}
+
+/**
+ * Health journey Kafka producer record fixtures
+ */
+export const healthProducerRecordFixtures = {
+  metricRecorded: createMockKafkaProducerRecord(
+    healthEventFixtures.metricRecorded,
+    HEALTH_EVENT_TOPICS.METRICS
+  ),
+  
+  goalAchieved: createMockKafkaProducerRecord(
+    healthEventFixtures.goalAchieved,
+    HEALTH_EVENT_TOPICS.GOALS
+  ),
+  
+  deviceConnected: createMockKafkaProducerRecord(
+    healthEventFixtures.deviceConnected,
+    HEALTH_EVENT_TOPICS.DEVICES
+  )
+};
+
+/**
+ * Care journey Kafka producer record fixtures
+ */
+export const careProducerRecordFixtures = {
+  appointmentBooked: createMockKafkaProducerRecord(
+    careEventFixtures.appointmentBooked,
+    CARE_EVENT_TOPICS.APPOINTMENTS
+  ),
+  
+  medicationTaken: createMockKafkaProducerRecord(
+    careEventFixtures.medicationTaken,
+    CARE_EVENT_TOPICS.MEDICATIONS
+  ),
+  
+  telemedicineCompleted: createMockKafkaProducerRecord(
+    careEventFixtures.telemedicineCompleted,
+    CARE_EVENT_TOPICS.TELEMEDICINE
+  )
+};
+
+/**
+ * Plan journey Kafka producer record fixtures
+ */
+export const planProducerRecordFixtures = {
+  claimSubmitted: createMockKafkaProducerRecord(
+    planEventFixtures.claimSubmitted,
+    PLAN_EVENT_TOPICS.CLAIMS
+  ),
+  
+  benefitUsed: createMockKafkaProducerRecord(
+    planEventFixtures.benefitUsed,
+    PLAN_EVENT_TOPICS.BENEFITS
+  ),
+  
+  planSelected: createMockKafkaProducerRecord(
+    planEventFixtures.planSelected,
+    PLAN_EVENT_TOPICS.PLANS
+  )
+};
+
+/**
+ * Gamification Kafka producer record fixtures
+ */
+export const gamificationProducerRecordFixtures = {
+  achievementUnlocked: createMockKafkaProducerRecord(
+    gamificationEventFixtures.achievementUnlocked,
+    GAMIFICATION_TOPICS.ACHIEVEMENT
+  ),
+  
+  questCompleted: createMockKafkaProducerRecord(
+    gamificationEventFixtures.questCompleted,
+    GAMIFICATION_TOPICS.QUEST
+  ),
+  
+  levelUp: createMockKafkaProducerRecord(
+    gamificationEventFixtures.levelUp,
+    GAMIFICATION_TOPICS.PROFILE
+  )
+};
+
+// ===================================================
+// Dead Letter Queue Fixtures
+// ===================================================
+
+/**
+ * Creates a dead letter queue message fixture for testing
+ * @param originalMessage The original message that failed processing
+ * @param error The error that caused the failure
+ * @param attempts Number of processing attempts made
+ * @returns A dead letter queue message fixture
+ */
+export function createMockDLQMessage<T extends BaseEvent>(
+  originalMessage: KafkaEventMessage<T>,
+  error: Error,
+  attempts: number = 3
+): KafkaDeadLetterQueueMessage<T> {
+  return {
+    originalMessage,
+    error: {
+      message: error.message,
+      name: error.name,
+      stack: error.stack,
+      code: 'ERR_PROCESSING_FAILED',
+      details: {
+        eventType: originalMessage.value.type,
+        eventId: originalMessage.value.eventId
+      }
+    },
+    attempts,
+    timestamp: new Date().toISOString(),
+    consumerGroup: 'test-consumer-group',
+    metadata: {
+      originalTopic: originalMessage.topic,
+      retryable: false
+    }
+  };
+}
+
+/**
+ * Dead letter queue message fixtures
+ */
+export const dlqMessageFixtures = {
+  healthMetricFailed: createMockDLQMessage(
+    healthKafkaMessageFixtures.metricRecorded,
+    new Error('Failed to process health metric: Invalid value'),
+    3
+  ),
+  
+  appointmentFailed: createMockDLQMessage(
+    careKafkaMessageFixtures.appointmentBooked,
+    new Error('Failed to process appointment: Provider not found'),
+    3
+  ),
+  
+  claimFailed: createMockDLQMessage(
+    planKafkaMessageFixtures.claimSubmitted,
+    new Error('Failed to process claim: Invalid claim amount'),
+    3
+  ),
+  
+  achievementFailed: createMockDLQMessage(
+    gamificationKafkaMessageFixtures.achievementUnlocked,
+    new Error('Failed to process achievement: Achievement already unlocked'),
+    3
+  )
+};
+
+/**
+ * Creates a Kafka message for a dead letter queue topic
+ * @param originalMessage The original message that failed processing
+ * @param error The error that caused the failure
+ * @param attempts Number of processing attempts made
+ * @returns A Kafka message for a DLQ topic
+ */
+export function createMockDLQKafkaMessage<T extends BaseEvent>(
+  originalMessage: KafkaEventMessage<T>,
+  error: Error,
+  attempts: number = 3
+): KafkaMessage {
+  const dlqMessage = createMockDLQMessage(originalMessage, error, attempts);
+  const dlqTopic = `${DLQ_TOPICS.HEALTH_EVENTS}`;
+  
+  // Add error information to headers
+  const dlqHeaders = {
+    ...originalMessage.headers,
+    [KAFKA_HEADERS.ERROR_MESSAGE]: Buffer.from(error.message),
+    [KAFKA_HEADERS.ERROR_CODE]: Buffer.from('ERR_PROCESSING_FAILED'),
+    [KAFKA_HEADERS.ORIGINAL_TOPIC]: Buffer.from(originalMessage.topic),
+    [KAFKA_HEADERS.RETRY_COUNT]: Buffer.from(attempts.toString()),
+    [KAFKA_HEADERS.TIMESTAMP]: Buffer.from(new Date().toISOString())
+  };
+  
+  return {
+    topic: dlqTopic,
+    partition: 0,
+    offset: '0',
+    key: originalMessage.key,
+    value: Buffer.from(JSON.stringify(dlqMessage)),
+    headers: dlqHeaders,
+    timestamp: new Date().toISOString()
+  };
+}
+
+/**
+ * Dead letter queue Kafka message fixtures
+ */
+export const dlqKafkaMessageFixtures = {
+  healthMetricFailed: createMockDLQKafkaMessage(
+    healthKafkaMessageFixtures.metricRecorded,
+    new Error('Failed to process health metric: Invalid value'),
+    3
+  ),
+  
+  appointmentFailed: createMockDLQKafkaMessage(
+    careKafkaMessageFixtures.appointmentBooked,
+    new Error('Failed to process appointment: Provider not found'),
+    3
+  ),
+  
+  claimFailed: createMockDLQKafkaMessage(
+    planKafkaMessageFixtures.claimSubmitted,
+    new Error('Failed to process claim: Invalid claim amount'),
+    3
+  ),
+  
+  achievementFailed: createMockDLQKafkaMessage(
+    gamificationKafkaMessageFixtures.achievementUnlocked,
+    new Error('Failed to process achievement: Achievement already unlocked'),
+    3
+  )
 };

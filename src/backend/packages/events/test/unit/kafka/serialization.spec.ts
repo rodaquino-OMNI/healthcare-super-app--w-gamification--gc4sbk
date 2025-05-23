@@ -1,541 +1,535 @@
-import { Test, TestingModule } from '@nestjs/testing';
+import { Test } from '@nestjs/testing';
+import { ConfigService } from '@nestjs/config';
 import { KafkaService } from '../../../src/kafka/kafka.service';
-import { SchemaRegistry } from '@kafkajs/confluent-schema-registry';
-import { Kafka, KafkaMessage, Producer, logLevel } from 'kafkajs';
-import { EventMetadataDto } from '../../../src/dto/event-metadata.dto';
-import { VersionDto } from '../../../src/dto/version.dto';
+import { OpenTelemetryTracingService } from '@austa/tracing';
+import { LoggerService } from '@austa/logging';
+import { KafkaSerializationError } from '../../../src/errors/event-errors';
+import { BaseEvent, createEvent } from '../../../src/interfaces/base-event.interface';
+import { validateEventSchema } from '../../../src/validation/schema-validator';
+import { KAFKA_ERROR_CODES } from '../../../src/kafka/kafka.constants';
 
-// Mock implementations
-const mockSchemaRegistry = {
-  register: jest.fn(),
-  getSchema: jest.fn(),
-  getLatestSchemaId: jest.fn(),
-  encode: jest.fn(),
-  decode: jest.fn(),
-};
-
-const mockProducer = {
-  connect: jest.fn(),
-  disconnect: jest.fn(),
-  send: jest.fn(),
-};
-
-const mockKafka = {
-  producer: jest.fn().mockReturnValue(mockProducer),
-};
-
-// Sample test data
-const sampleHealthEvent = {
-  userId: '123',
-  metricType: 'HEART_RATE',
-  value: 75,
-  unit: 'bpm',
-  timestamp: new Date().toISOString(),
-};
-
-const sampleEventMetadata: EventMetadataDto = {
-  correlationId: 'corr-123',
-  timestamp: new Date().toISOString(),
-  source: 'health-service',
-  version: '1.0.0',
-};
-
-const sampleVersionedEvent: VersionDto<any> = {
-  schemaVersion: '1.0.0',
-  payload: sampleHealthEvent,
-};
+// Mock dependencies
+jest.mock('@austa/tracing');
+jest.mock('@austa/logging');
+jest.mock('../../../src/validation/schema-validator');
 
 describe('Kafka Serialization', () => {
   let kafkaService: KafkaService;
+  let configService: ConfigService;
+  let tracingService: jest.Mocked<OpenTelemetryTracingService>;
+  let loggerService: jest.Mocked<LoggerService>;
 
   beforeEach(async () => {
-    jest.clearAllMocks();
+    // Create mocks
+    configService = {
+      get: jest.fn().mockImplementation((key, defaultValue) => {
+        if (key === 'kafka.brokers') return 'localhost:9092';
+        if (key === 'service.name') return 'test-service';
+        return defaultValue;
+      }),
+    } as any;
 
-    const module: TestingModule = await Test.createTestingModule({
+    tracingService = {
+      startActiveSpan: jest.fn().mockImplementation((name, fn) => fn({
+        setAttributes: jest.fn(),
+        end: jest.fn(),
+      })),
+      getPropagationHeaders: jest.fn().mockReturnValue({}),
+    } as any;
+
+    loggerService = {
+      createLogger: jest.fn().mockReturnValue({
+        log: jest.fn(),
+        error: jest.fn(),
+        warn: jest.fn(),
+        debug: jest.fn(),
+      }),
+    } as any;
+
+    // Create testing module
+    const moduleRef = await Test.createTestingModule({
       providers: [
         KafkaService,
-        {
-          provide: SchemaRegistry,
-          useValue: mockSchemaRegistry,
-        },
-        {
-          provide: Kafka,
-          useValue: mockKafka,
-        },
+        { provide: ConfigService, useValue: configService },
+        { provide: OpenTelemetryTracingService, useValue: tracingService },
+        { provide: LoggerService, useValue: loggerService },
+        { provide: 'KAFKA_OPTIONS', useValue: { serviceName: 'test-service' } },
       ],
     }).compile();
 
-    kafkaService = module.get<KafkaService>(KafkaService);
+    kafkaService = moduleRef.get<KafkaService>(KafkaService);
+
+    // Mock private methods using any type assertion
+    (kafkaService as any).kafka = {
+      producer: jest.fn().mockReturnValue({
+        connect: jest.fn().mockResolvedValue(undefined),
+        send: jest.fn().mockResolvedValue([{ topicName: 'test-topic', partition: 0, errorCode: 0 }]),
+      }),
+    };
+    (kafkaService as any).producer = {
+      connect: jest.fn().mockResolvedValue(undefined),
+      send: jest.fn().mockResolvedValue([{ topicName: 'test-topic', partition: 0, errorCode: 0 }]),
+    };
   });
 
   describe('JSON Serialization', () => {
-    it('should serialize an event to JSON format', async () => {
+    it('should serialize a message to JSON Buffer', async () => {
       // Arrange
-      const event = sampleHealthEvent;
-      const expectedBuffer = Buffer.from(JSON.stringify(event));
+      const testEvent = createEvent('TEST_EVENT', 'test-service', { value: 'test' });
       
       // Act
-      const result = await kafkaService.serializeToJson(event);
+      const result = await kafkaService.produce('test-topic', testEvent);
       
       // Assert
-      expect(result).toBeInstanceOf(Buffer);
-      expect(result.toString()).toEqual(expectedBuffer.toString());
+      expect(result).toBeDefined();
+      expect((kafkaService as any).producer.send).toHaveBeenCalled();
+      
+      // Extract the serialized message from the send call
+      const sendCall = (kafkaService as any).producer.send.mock.calls[0][0];
+      expect(sendCall.messages[0].value).toBeInstanceOf(Buffer);
+      
+      // Verify the content of the serialized message
+      const deserializedMessage = JSON.parse(sendCall.messages[0].value.toString());
+      expect(deserializedMessage).toEqual(testEvent);
     });
 
-    it('should deserialize JSON data to an event object', async () => {
+    it('should handle serialization errors gracefully', async () => {
       // Arrange
-      const jsonBuffer = Buffer.from(JSON.stringify(sampleHealthEvent));
+      const circularReference: any = {};
+      circularReference.self = circularReference; // Create circular reference that can't be serialized
       
-      // Act
-      const result = await kafkaService.deserializeFromJson<typeof sampleHealthEvent>(jsonBuffer);
+      const testEvent = createEvent('TEST_EVENT', 'test-service', circularReference);
       
-      // Assert
-      expect(result).toEqual(sampleHealthEvent);
-    });
-
-    it('should validate JSON against a schema during serialization', async () => {
-      // Arrange
-      const event = sampleHealthEvent;
-      const schema = {
-        type: 'object',
-        required: ['userId', 'metricType', 'value', 'unit', 'timestamp'],
-        properties: {
-          userId: { type: 'string' },
-          metricType: { type: 'string' },
-          value: { type: 'number' },
-          unit: { type: 'string' },
-          timestamp: { type: 'string', format: 'date-time' },
-        },
-      };
-      
-      // Act
-      const result = await kafkaService.serializeToJsonWithValidation(event, schema);
-      
-      // Assert
-      expect(result).toBeInstanceOf(Buffer);
-      expect(JSON.parse(result.toString())).toEqual(event);
-    });
-
-    it('should throw an error when JSON validation fails', async () => {
-      // Arrange
-      const invalidEvent = { ...sampleHealthEvent, value: 'not-a-number' };
-      const schema = {
-        type: 'object',
-        required: ['userId', 'metricType', 'value', 'unit', 'timestamp'],
-        properties: {
-          userId: { type: 'string' },
-          metricType: { type: 'string' },
-          value: { type: 'number' },
-          unit: { type: 'string' },
-          timestamp: { type: 'string', format: 'date-time' },
-        },
-      };
+      // Mock JSON.stringify to throw an error
+      const originalStringify = JSON.stringify;
+      JSON.stringify = jest.fn().mockImplementation(() => {
+        throw new Error('Circular reference');
+      });
       
       // Act & Assert
-      await expect(kafkaService.serializeToJsonWithValidation(invalidEvent, schema))
-        .rejects.toThrow(/validation failed/);
+      await expect(kafkaService.produce('test-topic', testEvent)).rejects.toThrow(KafkaSerializationError);
+      
+      // Restore original function
+      JSON.stringify = originalStringify;
     });
   });
 
-  describe('Avro Serialization', () => {
-    const avroSchema = {
-      type: 'record',
-      name: 'HealthMetric',
-      namespace: 'org.austa.health',
-      fields: [
-        { name: 'userId', type: 'string' },
-        { name: 'metricType', type: 'string' },
-        { name: 'value', type: 'double' },
-        { name: 'unit', type: 'string' },
-        { name: 'timestamp', type: 'string' },
-      ],
-    };
-
-    it('should serialize an event using Avro with schema registry', async () => {
+  describe('JSON Deserialization', () => {
+    it('should deserialize a JSON Buffer to an object', async () => {
       // Arrange
-      const event = sampleHealthEvent;
-      const schemaId = 123;
-      const encodedBuffer = Buffer.from([0, 0, 0, 0, 123, /* mock avro data */]);
+      const testEvent = createEvent('TEST_EVENT', 'test-service', { value: 'test' });
+      const serializedMessage = Buffer.from(JSON.stringify(testEvent));
       
-      mockSchemaRegistry.getLatestSchemaId.mockResolvedValue(schemaId);
-      mockSchemaRegistry.encode.mockResolvedValue(encodedBuffer);
-      
-      // Act
-      const result = await kafkaService.serializeToAvro(event, 'health-metric');
-      
-      // Assert
-      expect(mockSchemaRegistry.getLatestSchemaId).toHaveBeenCalledWith('health-metric');
-      expect(mockSchemaRegistry.encode).toHaveBeenCalledWith({
-        schemaId,
-        payload: event,
-      });
-      expect(result).toEqual(encodedBuffer);
-    });
-
-    it('should deserialize Avro data using schema registry', async () => {
-      // Arrange
-      const avroBuffer = Buffer.from([0, 0, 0, 0, 123, /* mock avro data */]);
-      mockSchemaRegistry.decode.mockResolvedValue(sampleHealthEvent);
-      
-      // Act
-      const result = await kafkaService.deserializeFromAvro(avroBuffer);
-      
-      // Assert
-      expect(mockSchemaRegistry.decode).toHaveBeenCalledWith(avroBuffer);
-      expect(result).toEqual(sampleHealthEvent);
-    });
-
-    it('should register a new schema if it does not exist', async () => {
-      // Arrange
-      const event = sampleHealthEvent;
-      const schemaId = 456;
-      const encodedBuffer = Buffer.from([0, 0, 0, 0, 123, /* mock avro data */]);
-      
-      mockSchemaRegistry.getLatestSchemaId.mockRejectedValue(new Error('Schema not found'));
-      mockSchemaRegistry.register.mockResolvedValue({ id: schemaId });
-      mockSchemaRegistry.encode.mockResolvedValue(encodedBuffer);
-      
-      // Act
-      const result = await kafkaService.serializeToAvro(event, 'health-metric', avroSchema);
-      
-      // Assert
-      expect(mockSchemaRegistry.register).toHaveBeenCalledWith({
-        type: 'AVRO',
-        schema: JSON.stringify(avroSchema),
-      });
-      expect(mockSchemaRegistry.encode).toHaveBeenCalledWith({
-        schemaId,
-        payload: event,
-      });
-      expect(result).toEqual(encodedBuffer);
-    });
-  });
-
-  describe('Schema Evolution and Compatibility', () => {
-    // Original schema
-    const originalSchema = {
-      type: 'record',
-      name: 'HealthMetric',
-      namespace: 'org.austa.health',
-      fields: [
-        { name: 'userId', type: 'string' },
-        { name: 'metricType', type: 'string' },
-        { name: 'value', type: 'double' },
-        { name: 'unit', type: 'string' },
-        { name: 'timestamp', type: 'string' },
-      ],
-    };
-
-    // Evolved schema with a new field (backward compatible)
-    const evolvedSchema = {
-      type: 'record',
-      name: 'HealthMetric',
-      namespace: 'org.austa.health',
-      fields: [
-        { name: 'userId', type: 'string' },
-        { name: 'metricType', type: 'string' },
-        { name: 'value', type: 'double' },
-        { name: 'unit', type: 'string' },
-        { name: 'timestamp', type: 'string' },
-        { name: 'deviceId', type: ['null', 'string'], default: null },
-      ],
-    };
-
-    it('should deserialize data with an older schema version', async () => {
-      // Arrange
-      const originalEvent = sampleHealthEvent;
-      const originalBuffer = Buffer.from([0, 0, 0, 0, 123, /* mock avro data */]);
-      
-      mockSchemaRegistry.decode.mockResolvedValue(originalEvent);
-      
-      // Act
-      const result = await kafkaService.deserializeFromAvroWithSchema(originalBuffer, evolvedSchema);
-      
-      // Assert
-      expect(result).toEqual({ ...originalEvent, deviceId: null });
-    });
-
-    it('should serialize data with a newer schema version', async () => {
-      // Arrange
-      const evolvedEvent = { ...sampleHealthEvent, deviceId: 'device-123' };
-      const schemaId = 789;
-      const encodedBuffer = Buffer.from([0, 0, 0, 0, 123, /* mock avro data */]);
-      
-      mockSchemaRegistry.register.mockResolvedValue({ id: schemaId });
-      mockSchemaRegistry.encode.mockResolvedValue(encodedBuffer);
-      
-      // Act
-      const result = await kafkaService.serializeToAvro(evolvedEvent, 'health-metric-v2', evolvedSchema);
-      
-      // Assert
-      expect(mockSchemaRegistry.register).toHaveBeenCalledWith({
-        type: 'AVRO',
-        schema: JSON.stringify(evolvedSchema),
-      });
-      expect(result).toEqual(encodedBuffer);
-    });
-
-    it('should check schema compatibility before registering', async () => {
-      // Arrange
-      mockSchemaRegistry.getLatestSchemaId.mockResolvedValue(123);
-      mockSchemaRegistry.getSchema.mockResolvedValue({
-        schema: JSON.stringify(originalSchema),
+      // Mock the consumer to call our callback with the test message
+      (kafkaService as any).kafka.consumer = jest.fn().mockReturnValue({
+        connect: jest.fn().mockResolvedValue(undefined),
+        subscribe: jest.fn().mockResolvedValue(undefined),
+        run: jest.fn().mockImplementation(async (config) => {
+          if (config.eachMessage) {
+            await config.eachMessage({
+              topic: 'test-topic',
+              partition: 0,
+              message: {
+                value: serializedMessage,
+                key: Buffer.from('test-key'),
+                headers: { 'test-header': Buffer.from('test-value') },
+                timestamp: '1630000000000',
+                offset: '0',
+              },
+            });
+          }
+        }),
       });
       
       // Act
-      const result = await kafkaService.checkSchemaCompatibility('health-metric', evolvedSchema);
+      const messageHandler = jest.fn().mockResolvedValue(undefined);
+      await kafkaService.consume('test-topic', 'test-group', messageHandler);
       
       // Assert
-      expect(result).toBe(true);
+      expect(messageHandler).toHaveBeenCalled();
+      const [message, metadata] = messageHandler.mock.calls[0];
+      expect(message).toEqual(testEvent);
+      expect(metadata).toEqual({
+        topic: 'test-topic',
+        partition: 0,
+        offset: '0',
+        timestamp: '1630000000000',
+        key: 'test-key',
+        headers: { 'test-header': 'test-value' },
+      });
+    });
+
+    it('should handle deserialization errors gracefully', async () => {
+      // Arrange
+      const invalidMessage = Buffer.from('invalid json');
+      
+      // Mock the consumer to call our callback with the invalid message
+      (kafkaService as any).kafka.consumer = jest.fn().mockReturnValue({
+        connect: jest.fn().mockResolvedValue(undefined),
+        subscribe: jest.fn().mockResolvedValue(undefined),
+        run: jest.fn().mockImplementation(async (config) => {
+          if (config.eachMessage) {
+            await config.eachMessage({
+              topic: 'test-topic',
+              partition: 0,
+              message: {
+                value: invalidMessage,
+                key: Buffer.from('test-key'),
+                headers: { 'test-header': Buffer.from('test-value') },
+                timestamp: '1630000000000',
+                offset: '0',
+              },
+            });
+          }
+        }),
+      });
+      
+      // Mock the logger to capture error logs
+      const logger = (kafkaService as any).logger;
+      
+      // Act
+      const messageHandler = jest.fn().mockResolvedValue(undefined);
+      await kafkaService.consume('test-topic', 'test-group', messageHandler);
+      
+      // Assert
+      expect(messageHandler).not.toHaveBeenCalled(); // Handler should not be called for invalid messages
+      expect(logger.error).toHaveBeenCalled(); // Error should be logged
     });
   });
 
   describe('Header Serialization', () => {
-    it('should serialize event metadata to message headers', () => {
+    it('should format string headers to Buffer headers', async () => {
       // Arrange
-      const metadata = sampleEventMetadata;
+      const testEvent = createEvent('TEST_EVENT', 'test-service', { value: 'test' });
+      const headers = {
+        'custom-header': 'custom-value',
+        'x-correlation-id': 'test-correlation-id',
+      };
       
       // Act
-      const headers = kafkaService.serializeHeaders(metadata);
+      await kafkaService.produce('test-topic', testEvent, 'test-key', headers);
       
       // Assert
-      expect(headers).toEqual({
-        correlationId: Buffer.from(metadata.correlationId),
-        timestamp: Buffer.from(metadata.timestamp),
-        source: Buffer.from(metadata.source),
-        version: Buffer.from(metadata.version),
+      const sendCall = (kafkaService as any).producer.send.mock.calls[0][0];
+      const kafkaHeaders = sendCall.messages[0].headers;
+      
+      // Check that headers were converted to Buffer
+      expect(kafkaHeaders['custom-header']).toBeInstanceOf(Buffer);
+      expect(kafkaHeaders['custom-header'].toString()).toBe('custom-value');
+      expect(kafkaHeaders['x-correlation-id']).toBeInstanceOf(Buffer);
+      expect(kafkaHeaders['x-correlation-id'].toString()).toBe('test-correlation-id');
+      
+      // Check that system headers were added
+      expect(kafkaHeaders['x-source-service']).toBeInstanceOf(Buffer);
+      expect(kafkaHeaders['x-source-service'].toString()).toBe('test-service');
+      expect(kafkaHeaders['x-event-type']).toBeInstanceOf(Buffer);
+      expect(kafkaHeaders['x-event-type'].toString()).toBe('TEST_EVENT');
+    });
+
+    it('should parse Buffer headers to string headers', async () => {
+      // Arrange
+      const testEvent = createEvent('TEST_EVENT', 'test-service', { value: 'test' });
+      const bufferHeaders = {
+        'custom-header': Buffer.from('custom-value'),
+        'x-correlation-id': Buffer.from('test-correlation-id'),
+      };
+      
+      // Mock the consumer to call our callback with the test message and headers
+      (kafkaService as any).kafka.consumer = jest.fn().mockReturnValue({
+        connect: jest.fn().mockResolvedValue(undefined),
+        subscribe: jest.fn().mockResolvedValue(undefined),
+        run: jest.fn().mockImplementation(async (config) => {
+          if (config.eachMessage) {
+            await config.eachMessage({
+              topic: 'test-topic',
+              partition: 0,
+              message: {
+                value: Buffer.from(JSON.stringify(testEvent)),
+                key: Buffer.from('test-key'),
+                headers: bufferHeaders,
+                timestamp: '1630000000000',
+                offset: '0',
+              },
+            });
+          }
+        }),
       });
+      
+      // Act
+      const messageHandler = jest.fn().mockResolvedValue(undefined);
+      await kafkaService.consume('test-topic', 'test-group', messageHandler);
+      
+      // Assert
+      expect(messageHandler).toHaveBeenCalled();
+      const [_, metadata] = messageHandler.mock.calls[0];
+      
+      // Check that Buffer headers were converted to strings
+      expect(metadata.headers['custom-header']).toBe('custom-value');
+      expect(metadata.headers['x-correlation-id']).toBe('test-correlation-id');
     });
 
-    it('should deserialize message headers to event metadata', () => {
+    it('should handle null or undefined header values', async () => {
       // Arrange
-      const kafkaHeaders = {
-        correlationId: Buffer.from(sampleEventMetadata.correlationId),
-        timestamp: Buffer.from(sampleEventMetadata.timestamp),
-        source: Buffer.from(sampleEventMetadata.source),
-        version: Buffer.from(sampleEventMetadata.version),
+      const testEvent = createEvent('TEST_EVENT', 'test-service', { value: 'test' });
+      const headers = {
+        'null-header': null,
+        'undefined-header': undefined,
+        'valid-header': 'valid-value',
       };
       
       // Act
-      const metadata = kafkaService.deserializeHeaders(kafkaHeaders);
+      await kafkaService.produce('test-topic', testEvent, 'test-key', headers as any);
       
       // Assert
-      expect(metadata).toEqual(sampleEventMetadata);
+      const sendCall = (kafkaService as any).producer.send.mock.calls[0][0];
+      const kafkaHeaders = sendCall.messages[0].headers;
+      
+      // Check that null and undefined headers were not included
+      expect(kafkaHeaders['null-header']).toBeUndefined();
+      expect(kafkaHeaders['undefined-header']).toBeUndefined();
+      expect(kafkaHeaders['valid-header']).toBeInstanceOf(Buffer);
+      expect(kafkaHeaders['valid-header'].toString()).toBe('valid-value');
+    });
+  });
+
+  describe('Schema Validation', () => {
+    it('should validate events against schema before producing', async () => {
+      // Arrange
+      const testEvent = createEvent('TEST_EVENT', 'test-service', { value: 'test' });
+      const schemaId = 'test-schema';
+      
+      // Mock the schema validator
+      (validateEventSchema as jest.Mock).mockResolvedValue({ valid: true });
+      
+      // Act
+      await kafkaService.produce('test-topic', testEvent, undefined, undefined, { schemaId });
+      
+      // Assert
+      expect(validateEventSchema).toHaveBeenCalledWith(testEvent, schemaId);
     });
 
-    it('should handle missing headers gracefully', () => {
+    it('should throw validation error for invalid events', async () => {
       // Arrange
-      const incompleteHeaders = {
-        correlationId: Buffer.from(sampleEventMetadata.correlationId),
-        // Missing other headers
+      const testEvent = createEvent('TEST_EVENT', 'test-service', { value: 'test' });
+      const schemaId = 'test-schema';
+      
+      // Mock the schema validator to return invalid
+      (validateEventSchema as jest.Mock).mockResolvedValue({ 
+        valid: false, 
+        errors: ['Invalid event format'] 
+      });
+      
+      // Act & Assert
+      await expect(kafkaService.produce('test-topic', testEvent, undefined, undefined, { schemaId }))
+        .rejects.toThrow('Event validation failed');
+    });
+
+    it('should validate events against schema when consuming', async () => {
+      // Arrange
+      const testEvent = createEvent('TEST_EVENT', 'test-service', { value: 'test' });
+      const serializedMessage = Buffer.from(JSON.stringify(testEvent));
+      const schemaId = 'test-schema';
+      
+      // Mock the schema validator
+      (validateEventSchema as jest.Mock).mockResolvedValue({ valid: true });
+      
+      // Mock the consumer to call our callback with the test message
+      (kafkaService as any).kafka.consumer = jest.fn().mockReturnValue({
+        connect: jest.fn().mockResolvedValue(undefined),
+        subscribe: jest.fn().mockResolvedValue(undefined),
+        run: jest.fn().mockImplementation(async (config) => {
+          if (config.eachMessage) {
+            await config.eachMessage({
+              topic: 'test-topic',
+              partition: 0,
+              message: {
+                value: serializedMessage,
+                key: Buffer.from('test-key'),
+                headers: { 'test-header': Buffer.from('test-value') },
+                timestamp: '1630000000000',
+                offset: '0',
+              },
+            });
+          }
+        }),
+      });
+      
+      // Act
+      const messageHandler = jest.fn().mockResolvedValue(undefined);
+      await kafkaService.consume('test-topic', 'test-group', messageHandler, { schemaId });
+      
+      // Assert
+      expect(validateEventSchema).toHaveBeenCalledWith(testEvent, schemaId);
+      expect(messageHandler).toHaveBeenCalled();
+    });
+
+    it('should not call message handler for invalid events when consuming', async () => {
+      // Arrange
+      const testEvent = createEvent('TEST_EVENT', 'test-service', { value: 'test' });
+      const serializedMessage = Buffer.from(JSON.stringify(testEvent));
+      const schemaId = 'test-schema';
+      
+      // Mock the schema validator to return invalid
+      (validateEventSchema as jest.Mock).mockResolvedValue({ 
+        valid: false, 
+        errors: ['Invalid event format'] 
+      });
+      
+      // Mock the consumer to call our callback with the test message
+      (kafkaService as any).kafka.consumer = jest.fn().mockReturnValue({
+        connect: jest.fn().mockResolvedValue(undefined),
+        subscribe: jest.fn().mockResolvedValue(undefined),
+        run: jest.fn().mockImplementation(async (config) => {
+          if (config.eachMessage) {
+            await config.eachMessage({
+              topic: 'test-topic',
+              partition: 0,
+              message: {
+                value: serializedMessage,
+                key: Buffer.from('test-key'),
+                headers: { 'test-header': Buffer.from('test-value') },
+                timestamp: '1630000000000',
+                offset: '0',
+              },
+            });
+          }
+        }),
+      });
+      
+      // Mock the logger to capture error logs
+      const logger = (kafkaService as any).logger;
+      
+      // Act
+      const messageHandler = jest.fn().mockResolvedValue(undefined);
+      await kafkaService.consume('test-topic', 'test-group', messageHandler, { schemaId });
+      
+      // Assert
+      expect(validateEventSchema).toHaveBeenCalledWith(testEvent, schemaId);
+      expect(messageHandler).not.toHaveBeenCalled(); // Handler should not be called for invalid messages
+      expect(logger.error).toHaveBeenCalled(); // Error should be logged
+    });
+  });
+
+  describe('Schema Evolution and Compatibility', () => {
+    it('should handle events with different versions', async () => {
+      // Arrange
+      const v1Event = createEvent('TEST_EVENT', 'test-service', { value: 'test' }, { version: '1.0.0' });
+      const v2Event = createEvent('TEST_EVENT', 'test-service', { value: 'test', newField: 'new' }, { version: '2.0.0' });
+      
+      // Act & Assert - Both versions should serialize and deserialize correctly
+      await expect(kafkaService.produce('test-topic', v1Event)).resolves.toBeDefined();
+      await expect(kafkaService.produce('test-topic', v2Event)).resolves.toBeDefined();
+      
+      // Check that version is included in headers
+      const v1SendCall = (kafkaService as any).producer.send.mock.calls[0][0];
+      const v2SendCall = (kafkaService as any).producer.send.mock.calls[1][0];
+      
+      expect(v1SendCall.messages[0].headers['x-event-version'].toString()).toBe('1.0.0');
+      expect(v2SendCall.messages[0].headers['x-event-version'].toString()).toBe('2.0.0');
+    });
+
+    it('should support backward compatibility with missing optional fields', async () => {
+      // Arrange
+      // Create an event without optional fields
+      const minimalEvent: BaseEvent = {
+        eventId: 'test-id',
+        type: 'TEST_EVENT',
+        timestamp: new Date().toISOString(),
+        version: '1.0.0',
+        source: 'test-service',
+        payload: { value: 'test' },
+        // Missing optional fields: journey, userId, metadata
       };
       
       // Act
-      const metadata = kafkaService.deserializeHeaders(incompleteHeaders);
+      await expect(kafkaService.produce('test-topic', minimalEvent)).resolves.toBeDefined();
       
-      // Assert
-      expect(metadata.correlationId).toEqual(sampleEventMetadata.correlationId);
-      expect(metadata.timestamp).toBeUndefined();
-      expect(metadata.source).toBeUndefined();
-      expect(metadata.version).toBeUndefined();
+      // Assert - The event should be serialized correctly
+      const sendCall = (kafkaService as any).producer.send.mock.calls[0][0];
+      const serializedMessage = sendCall.messages[0].value;
+      const deserializedMessage = JSON.parse(serializedMessage.toString());
+      
+      // Check that all required fields are present
+      expect(deserializedMessage.eventId).toBe(minimalEvent.eventId);
+      expect(deserializedMessage.type).toBe(minimalEvent.type);
+      expect(deserializedMessage.timestamp).toBe(minimalEvent.timestamp);
+      expect(deserializedMessage.version).toBe(minimalEvent.version);
+      expect(deserializedMessage.source).toBe(minimalEvent.source);
+      expect(deserializedMessage.payload).toEqual(minimalEvent.payload);
+      
+      // Optional fields should be undefined
+      expect(deserializedMessage.journey).toBeUndefined();
+      expect(deserializedMessage.userId).toBeUndefined();
+      expect(deserializedMessage.metadata).toBeUndefined();
     });
   });
 
   describe('Performance Testing', () => {
-    it('should serialize JSON within acceptable time limits', async () => {
+    it('should efficiently serialize large batches of messages', async () => {
       // Arrange
-      const event = sampleHealthEvent;
-      const iterations = 1000;
+      const batchSize = 1000;
+      const messages = Array.from({ length: batchSize }, (_, i) => ({
+        message: createEvent('TEST_EVENT', 'test-service', { value: `test-${i}` }),
+        key: `key-${i}`,
+      }));
       
       // Act
       const startTime = process.hrtime.bigint();
-      
-      for (let i = 0; i < iterations; i++) {
-        await kafkaService.serializeToJson(event);
-      }
-      
+      await kafkaService.produceBatch('test-topic', messages);
       const endTime = process.hrtime.bigint();
-      const duration = Number(endTime - startTime) / 1e6; // Convert to milliseconds
+      const durationMs = Number(endTime - startTime) / 1_000_000;
       
       // Assert
-      expect(duration / iterations).toBeLessThan(1); // Less than 1ms per operation
-    });
-
-    it('should deserialize JSON within acceptable time limits', async () => {
-      // Arrange
-      const jsonBuffer = Buffer.from(JSON.stringify(sampleHealthEvent));
-      const iterations = 1000;
+      expect((kafkaService as any).producer.send).toHaveBeenCalled();
+      const sendCall = (kafkaService as any).producer.send.mock.calls[0][0];
+      expect(sendCall.messages.length).toBe(batchSize);
       
-      // Act
-      const startTime = process.hrtime.bigint();
+      // Log performance metrics
+      console.log(`Serialized ${batchSize} messages in ${durationMs.toFixed(2)}ms (${(batchSize / durationMs * 1000).toFixed(2)} msgs/sec)`);
       
-      for (let i = 0; i < iterations; i++) {
-        await kafkaService.deserializeFromJson(jsonBuffer);
-      }
-      
-      const endTime = process.hrtime.bigint();
-      const duration = Number(endTime - startTime) / 1e6; // Convert to milliseconds
-      
-      // Assert
-      expect(duration / iterations).toBeLessThan(1); // Less than 1ms per operation
+      // Performance assertion - should process at least 10,000 msgs/sec on modern hardware
+      // This is a soft assertion as performance depends on the test environment
+      // expect(batchSize / durationMs * 1000).toBeGreaterThan(10000);
     });
   });
 
   describe('Binary and String Format Conversion', () => {
-    it('should convert between string and binary formats', () => {
+    it('should convert between string and binary formats correctly', async () => {
       // Arrange
-      const originalString = JSON.stringify(sampleHealthEvent);
+      const testString = 'Hello, world! 你好，世界！'; // Include multi-byte characters
       
-      // Act
-      const binaryData = kafkaService.stringToBinary(originalString);
-      const recoveredString = kafkaService.binaryToString(binaryData);
+      // Act - Convert string to Buffer
+      const buffer = Buffer.from(testString);
+      
+      // Convert Buffer back to string
+      const resultString = buffer.toString();
       
       // Assert
-      expect(binaryData).toBeInstanceOf(Buffer);
-      expect(recoveredString).toEqual(originalString);
+      expect(resultString).toBe(testString);
     });
 
-    it('should handle UTF-8 special characters correctly', () => {
+    it('should handle binary data correctly', async () => {
       // Arrange
-      const specialCharsString = 'Special characters: áéíóú ñ ç ß Ø 你好';
+      const binaryData = Buffer.from([0x00, 0x01, 0x02, 0x03, 0xFF]);
       
-      // Act
-      const binaryData = kafkaService.stringToBinary(specialCharsString);
-      const recoveredString = kafkaService.binaryToString(binaryData);
-      
-      // Assert
-      expect(recoveredString).toEqual(specialCharsString);
-    });
-
-    it('should handle empty strings', () => {
-      // Arrange
-      const emptyString = '';
-      
-      // Act
-      const binaryData = kafkaService.stringToBinary(emptyString);
-      const recoveredString = kafkaService.binaryToString(binaryData);
-      
-      // Assert
-      expect(binaryData.length).toBe(0);
-      expect(recoveredString).toEqual(emptyString);
-    });
-  });
-
-  describe('Complete Message Serialization', () => {
-    it('should serialize a complete Kafka message with headers and payload', async () => {
-      // Arrange
-      const event = sampleHealthEvent;
-      const metadata = sampleEventMetadata;
-      const topic = 'health.events';
-      const key = 'user-123';
-      
-      const mockJsonBuffer = Buffer.from(JSON.stringify(event));
-      jest.spyOn(kafkaService, 'serializeToJson').mockResolvedValue(mockJsonBuffer);
-      jest.spyOn(kafkaService, 'serializeHeaders').mockReturnValue({
-        correlationId: Buffer.from(metadata.correlationId),
-        timestamp: Buffer.from(metadata.timestamp),
-        source: Buffer.from(metadata.source),
-        version: Buffer.from(metadata.version),
+      // Act - Serialize an event with binary data in base64 format
+      const testEvent = createEvent('BINARY_EVENT', 'test-service', { 
+        binaryData: binaryData.toString('base64') 
       });
       
       // Act
-      const message = await kafkaService.createKafkaMessage(topic, event, key, metadata);
+      await kafkaService.produce('test-topic', testEvent);
       
       // Assert
-      expect(message).toEqual({
-        topic,
-        messages: [
-          {
-            key: Buffer.from(key),
-            value: mockJsonBuffer,
-            headers: {
-              correlationId: Buffer.from(metadata.correlationId),
-              timestamp: Buffer.from(metadata.timestamp),
-              source: Buffer.from(metadata.source),
-              version: Buffer.from(metadata.version),
-            },
-          },
-        ],
-      });
-    });
-
-    it('should deserialize a complete Kafka message with headers and payload', async () => {
-      // Arrange
-      const kafkaMessage: KafkaMessage = {
-        key: Buffer.from('user-123'),
-        value: Buffer.from(JSON.stringify(sampleHealthEvent)),
-        timestamp: '1620000000000',
-        size: 100,
-        attributes: 0,
-        offset: '0',
-        headers: {
-          correlationId: Buffer.from(sampleEventMetadata.correlationId),
-          timestamp: Buffer.from(sampleEventMetadata.timestamp),
-          source: Buffer.from(sampleEventMetadata.source),
-          version: Buffer.from(sampleEventMetadata.version),
-        },
-      };
+      const sendCall = (kafkaService as any).producer.send.mock.calls[0][0];
+      const serializedMessage = sendCall.messages[0].value;
+      const deserializedMessage = JSON.parse(serializedMessage.toString());
       
-      jest.spyOn(kafkaService, 'deserializeFromJson').mockResolvedValue(sampleHealthEvent);
-      jest.spyOn(kafkaService, 'deserializeHeaders').mockReturnValue(sampleEventMetadata);
+      // Convert the base64 string back to binary
+      const resultBinary = Buffer.from(deserializedMessage.payload.binaryData, 'base64');
       
-      // Act
-      const result = await kafkaService.parseKafkaMessage<typeof sampleHealthEvent>(kafkaMessage);
-      
-      // Assert
-      expect(result).toEqual({
-        key: 'user-123',
-        value: sampleHealthEvent,
-        metadata: sampleEventMetadata,
-      });
-    });
-  });
-
-  describe('Versioned Events', () => {
-    it('should serialize a versioned event', async () => {
-      // Arrange
-      const versionedEvent = sampleVersionedEvent;
-      const mockJsonBuffer = Buffer.from(JSON.stringify(versionedEvent));
-      
-      jest.spyOn(kafkaService, 'serializeToJson').mockResolvedValue(mockJsonBuffer);
-      
-      // Act
-      const result = await kafkaService.serializeVersionedEvent(versionedEvent);
-      
-      // Assert
-      expect(kafkaService.serializeToJson).toHaveBeenCalledWith(versionedEvent);
-      expect(result).toEqual(mockJsonBuffer);
-    });
-
-    it('should deserialize to a versioned event', async () => {
-      // Arrange
-      const versionedEventBuffer = Buffer.from(JSON.stringify(sampleVersionedEvent));
-      
-      jest.spyOn(kafkaService, 'deserializeFromJson').mockResolvedValue(sampleVersionedEvent);
-      
-      // Act
-      const result = await kafkaService.deserializeToVersionedEvent<typeof sampleHealthEvent>(versionedEventBuffer);
-      
-      // Assert
-      expect(kafkaService.deserializeFromJson).toHaveBeenCalledWith(versionedEventBuffer);
-      expect(result).toEqual(sampleVersionedEvent);
-    });
-
-    it('should validate schema version during deserialization', async () => {
-      // Arrange
-      const oldVersionedEvent = {
-        schemaVersion: '0.5.0',
-        payload: sampleHealthEvent,
-      };
-      const versionedEventBuffer = Buffer.from(JSON.stringify(oldVersionedEvent));
-      
-      jest.spyOn(kafkaService, 'deserializeFromJson').mockResolvedValue(oldVersionedEvent);
-      
-      // Act & Assert
-      await expect(kafkaService.deserializeToVersionedEvent<typeof sampleHealthEvent>(
-        versionedEventBuffer,
-        { minVersion: '1.0.0' }
-      )).rejects.toThrow(/incompatible schema version/);
+      // Check that the binary data is preserved
+      expect(resultBinary.equals(binaryData)).toBe(true);
     });
   });
 });

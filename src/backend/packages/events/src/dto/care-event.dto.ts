@@ -1,108 +1,197 @@
-import { IsNotEmpty, IsString, IsObject, IsUUID, IsOptional, IsEnum, IsISO8601, ValidateNested, IsBoolean, IsArray, ArrayMinSize, ArrayMaxSize, IsInt, Min, Max } from 'class-validator';
+import { IsNotEmpty, IsString, IsObject, IsUUID, IsOptional, IsNumber, IsEnum, IsBoolean, IsISO8601, IsArray, ValidateNested, Min, Max, IsPositive, Length, ArrayMinSize } from 'class-validator';
 import { Type } from 'class-transformer';
-import { ProcessEventDto } from '../../../gamification-engine/src/events/dto/process-event.dto';
+import { ProcessEventDto } from './base-event.dto';
+import { AppointmentEventDto } from './appointment-event.dto';
+import { MedicationEventDto } from './medication-event.dto';
 
 /**
- * Enum defining the types of care providers available in the system.
+ * Enum for telemedicine session states
  */
-export enum CareProviderType {
-  GENERAL_PRACTITIONER = 'general_practitioner',
-  SPECIALIST = 'specialist',
-  NURSE = 'nurse',
-  THERAPIST = 'therapist',
-  NUTRITIONIST = 'nutritionist',
-  PSYCHOLOGIST = 'psychologist',
-  OTHER = 'other'
-}
-
-/**
- * Enum defining the possible appointment status values.
- */
-export enum AppointmentStatus {
+export enum TelemedicineSessionState {
   SCHEDULED = 'scheduled',
-  CHECKED_IN = 'checked_in',
+  WAITING = 'waiting',
   IN_PROGRESS = 'in_progress',
   COMPLETED = 'completed',
   CANCELLED = 'cancelled',
-  NO_SHOW = 'no_show',
-  RESCHEDULED = 'rescheduled'
-}
-
-/**
- * Enum defining the possible telemedicine session types.
- */
-export enum TelemedicineSessionType {
-  VIDEO = 'video',
-  AUDIO = 'audio',
-  CHAT = 'chat'
-}
-
-/**
- * Enum defining the possible medication adherence status values.
- */
-export enum MedicationAdherenceStatus {
-  TAKEN = 'taken',
-  SKIPPED = 'skipped',
   MISSED = 'missed',
-  DELAYED = 'delayed'
+  TECHNICAL_ISSUES = 'technical_issues'
 }
 
 /**
- * Enum defining the possible care plan progress status values.
+ * Enum for care plan types
+ */
+export enum CarePlanType {
+  CHRONIC_DISEASE = 'chronic_disease',
+  PREVENTIVE = 'preventive',
+  REHABILITATION = 'rehabilitation',
+  MENTAL_HEALTH = 'mental_health',
+  MATERNITY = 'maternity',
+  POST_SURGERY = 'post_surgery',
+  WELLNESS = 'wellness',
+  CUSTOM = 'custom'
+}
+
+/**
+ * Enum for care plan progress status
  */
 export enum CarePlanProgressStatus {
   NOT_STARTED = 'not_started',
   IN_PROGRESS = 'in_progress',
+  ON_TRACK = 'on_track',
+  BEHIND = 'behind',
+  AHEAD = 'ahead',
   COMPLETED = 'completed',
-  OVERDUE = 'overdue',
-  CANCELLED = 'cancelled'
+  ABANDONED = 'abandoned'
 }
 
 /**
- * DTO for provider information in care events.
+ * DTO for provider information in care events
  */
-export class ProviderInfoDto {
+export class CareProviderInfoDto {
+  /**
+   * The unique identifier of the healthcare provider
+   */
   @IsNotEmpty()
   @IsUUID()
-  id: string;
+  providerId: string;
 
+  /**
+   * The name of the healthcare provider
+   */
   @IsNotEmpty()
   @IsString()
-  name: string;
+  providerName: string;
 
+  /**
+   * The specialization of the healthcare provider
+   */
   @IsNotEmpty()
-  @IsEnum(CareProviderType)
-  type: CareProviderType;
+  @IsString()
+  specialization: string;
 
+  /**
+   * Optional provider rating (1-5)
+   */
   @IsOptional()
-  @IsString()
-  specialization?: string;
+  @IsNumber()
+  @Min(1)
+  @Max(5)
+  rating?: number;
 }
 
 /**
- * DTO for location information in care events.
+ * DTO for technical details in telemedicine sessions
  */
-export class LocationInfoDto {
+export class TechnicalDetailsDto {
+  /**
+   * The platform used for the telemedicine session
+   * @example "AUSTA Telemedicine"
+   */
   @IsNotEmpty()
   @IsString()
-  name: string;
+  platform: string;
 
+  /**
+   * The connection quality rating (1-5)
+   */
   @IsOptional()
-  @IsString()
-  address?: string;
+  @IsNumber()
+  @Min(1)
+  @Max(5)
+  connectionQuality?: number;
 
+  /**
+   * Whether video was enabled during the session
+   */
   @IsOptional()
   @IsBoolean()
-  isVirtual?: boolean;
+  videoEnabled?: boolean;
+
+  /**
+   * Whether audio was enabled during the session
+   */
+  @IsOptional()
+  @IsBoolean()
+  audioEnabled?: boolean;
+
+  /**
+   * The device type used by the patient
+   * @example "mobile", "desktop", "tablet"
+   */
+  @IsOptional()
+  @IsString()
+  deviceType?: string;
+
+  /**
+   * Any technical issues encountered
+   */
+  @IsOptional()
+  @IsString()
+  technicalIssues?: string;
 }
 
 /**
- * Base DTO for all care journey events.
- * Extends the ProcessEventDto with care-specific properties.
+ * DTO for care plan activity
+ */
+export class CarePlanActivityDto {
+  /**
+   * The unique identifier of the activity
+   */
+  @IsNotEmpty()
+  @IsUUID()
+  activityId: string;
+
+  /**
+   * The name of the activity
+   */
+  @IsNotEmpty()
+  @IsString()
+  name: string;
+
+  /**
+   * The type of activity
+   * @example "exercise", "medication", "appointment", "measurement"
+   */
+  @IsNotEmpty()
+  @IsString()
+  type: string;
+
+  /**
+   * The status of the activity
+   * @example "completed", "pending", "overdue"
+   */
+  @IsNotEmpty()
+  @IsString()
+  status: string;
+
+  /**
+   * The scheduled date for the activity
+   */
+  @IsNotEmpty()
+  @IsISO8601()
+  scheduledDate: string;
+
+  /**
+   * The completion date for the activity (if completed)
+   */
+  @IsOptional()
+  @IsISO8601()
+  completionDate?: string;
+
+  /**
+   * Optional notes about the activity
+   */
+  @IsOptional()
+  @IsString()
+  notes?: string;
+}
+
+/**
+ * Base DTO for care journey events
  */
 export class CareEventDto extends ProcessEventDto {
   /**
-   * The journey identifier, always set to 'care' for care journey events.
+   * The journey identifier - always 'care' for care journey events
    */
   @IsNotEmpty()
   @IsString()
@@ -110,250 +199,269 @@ export class CareEventDto extends ProcessEventDto {
 }
 
 /**
- * DTO for appointment booking events.
- * Used when a user books a new appointment with a healthcare provider.
- */
-export class AppointmentBookedEventDto extends CareEventDto {
-  /**
-   * The data associated with the appointment booking event.
-   */
-  @IsNotEmpty()
-  @ValidateNested()
-  @Type(() => AppointmentBookedDataDto)
-  data: AppointmentBookedDataDto;
-}
-
-/**
- * DTO for the data contained in an appointment booking event.
- */
-export class AppointmentBookedDataDto {
-  @IsNotEmpty()
-  @IsUUID()
-  appointmentId: string;
-
-  @IsNotEmpty()
-  @IsISO8601()
-  appointmentDate: string;
-
-  @IsNotEmpty()
-  @ValidateNested()
-  @Type(() => ProviderInfoDto)
-  provider: ProviderInfoDto;
-
-  @IsNotEmpty()
-  @ValidateNested()
-  @Type(() => LocationInfoDto)
-  location: LocationInfoDto;
-
-  @IsOptional()
-  @IsString()
-  reason?: string;
-
-  @IsNotEmpty()
-  @IsEnum(AppointmentStatus)
-  status: AppointmentStatus = AppointmentStatus.SCHEDULED;
-}
-
-/**
- * DTO for appointment status update events.
- * Used when an appointment's status changes (check-in, completion, cancellation, etc.).
- */
-export class AppointmentStatusUpdatedEventDto extends CareEventDto {
-  /**
-   * The data associated with the appointment status update event.
-   */
-  @IsNotEmpty()
-  @ValidateNested()
-  @Type(() => AppointmentStatusUpdatedDataDto)
-  data: AppointmentStatusUpdatedDataDto;
-}
-
-/**
- * DTO for the data contained in an appointment status update event.
- */
-export class AppointmentStatusUpdatedDataDto {
-  @IsNotEmpty()
-  @IsUUID()
-  appointmentId: string;
-
-  @IsNotEmpty()
-  @IsEnum(AppointmentStatus)
-  previousStatus: AppointmentStatus;
-
-  @IsNotEmpty()
-  @IsEnum(AppointmentStatus)
-  newStatus: AppointmentStatus;
-
-  @IsOptional()
-  @IsString()
-  notes?: string;
-
-  @IsNotEmpty()
-  @IsISO8601()
-  updatedAt: string;
-}
-
-/**
- * DTO for medication tracking events.
- * Used when a user logs taking, skipping, or missing medication.
- */
-export class MedicationTrackedEventDto extends CareEventDto {
-  /**
-   * The data associated with the medication tracking event.
-   */
-  @IsNotEmpty()
-  @ValidateNested()
-  @Type(() => MedicationTrackedDataDto)
-  data: MedicationTrackedDataDto;
-}
-
-/**
- * DTO for the data contained in a medication tracking event.
- */
-export class MedicationTrackedDataDto {
-  @IsNotEmpty()
-  @IsUUID()
-  medicationId: string;
-
-  @IsNotEmpty()
-  @IsString()
-  medicationName: string;
-
-  @IsNotEmpty()
-  @IsEnum(MedicationAdherenceStatus)
-  status: MedicationAdherenceStatus;
-
-  @IsNotEmpty()
-  @IsISO8601()
-  scheduledTime: string;
-
-  @IsNotEmpty()
-  @IsISO8601()
-  trackedAt: string;
-
-  @IsOptional()
-  @IsString()
-  notes?: string;
-}
-
-/**
- * DTO for telemedicine session events.
- * Used when a user starts, participates in, or completes a telemedicine session.
+ * DTO for telemedicine session events
  */
 export class TelemedicineSessionEventDto extends CareEventDto {
   /**
-   * The data associated with the telemedicine session event.
+   * The data associated with the telemedicine session event
    */
   @IsNotEmpty()
+  @IsObject()
   @ValidateNested()
   @Type(() => TelemedicineSessionDataDto)
   data: TelemedicineSessionDataDto;
 }
 
 /**
- * DTO for the data contained in a telemedicine session event.
+ * DTO for telemedicine session event data
  */
 export class TelemedicineSessionDataDto {
+  /**
+   * The session ID
+   */
   @IsNotEmpty()
   @IsUUID()
   sessionId: string;
 
+  /**
+   * The current state of the session
+   */
   @IsNotEmpty()
-  @ValidateNested()
-  @Type(() => ProviderInfoDto)
-  provider: ProviderInfoDto;
+  @IsEnum(TelemedicineSessionState)
+  state: TelemedicineSessionState;
 
-  @IsNotEmpty()
-  @IsEnum(TelemedicineSessionType)
-  sessionType: TelemedicineSessionType;
+  /**
+   * The previous state of the session (for state transitions)
+   */
+  @IsOptional()
+  @IsEnum(TelemedicineSessionState)
+  previousState?: TelemedicineSessionState;
 
+  /**
+   * The scheduled start time of the session
+   */
   @IsNotEmpty()
   @IsISO8601()
-  startTime: string;
+  scheduledStartTime: string;
 
+  /**
+   * The actual start time of the session (if started)
+   */
+  @IsOptional()
+  @IsISO8601()
+  actualStartTime?: string;
+
+  /**
+   * The end time of the session (if completed)
+   */
   @IsOptional()
   @IsISO8601()
   endTime?: string;
 
+  /**
+   * The duration of the session in minutes (if completed)
+   */
   @IsOptional()
-  @IsInt()
-  @Min(0)
-  @Max(600)
+  @IsNumber()
+  @IsPositive()
   durationMinutes?: number;
 
-  @IsOptional()
-  @IsString()
-  notes?: string;
-}
-
-/**
- * DTO for care plan progress events.
- * Used when a user makes progress on their care plan or completes care plan items.
- */
-export class CarePlanProgressEventDto extends CareEventDto {
   /**
-   * The data associated with the care plan progress event.
+   * Information about the healthcare provider
    */
   @IsNotEmpty()
   @ValidateNested()
-  @Type(() => CarePlanProgressDataDto)
-  data: CarePlanProgressDataDto;
+  @Type(() => CareProviderInfoDto)
+  provider: CareProviderInfoDto;
+
+  /**
+   * The reason for the session
+   */
+  @IsNotEmpty()
+  @IsString()
+  reason: string;
+
+  /**
+   * Technical details about the session
+   */
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => TechnicalDetailsDto)
+  technicalDetails?: TechnicalDetailsDto;
+
+  /**
+   * Whether this is a follow-up session
+   */
+  @IsOptional()
+  @IsBoolean()
+  isFollowUp?: boolean;
+
+  /**
+   * The ID of the previous session (if this is a follow-up)
+   */
+  @IsOptional()
+  @IsUUID()
+  previousSessionId?: string;
+
+  /**
+   * Optional notes about the session
+   */
+  @IsOptional()
+  @IsString()
+  notes?: string;
+
+  /**
+   * Whether a prescription was issued during the session
+   */
+  @IsOptional()
+  @IsBoolean()
+  prescriptionIssued?: boolean;
+
+  /**
+   * Whether a follow-up session was recommended
+   */
+  @IsOptional()
+  @IsBoolean()
+  followUpRecommended?: boolean;
 }
 
 /**
- * DTO for the data contained in a care plan progress event.
+ * DTO for care plan events
  */
-export class CarePlanProgressDataDto {
+export class CarePlanEventDto extends CareEventDto {
+  /**
+   * The data associated with the care plan event
+   */
+  @IsNotEmpty()
+  @IsObject()
+  @ValidateNested()
+  @Type(() => CarePlanDataDto)
+  data: CarePlanDataDto;
+}
+
+/**
+ * DTO for care plan event data
+ */
+export class CarePlanDataDto {
+  /**
+   * The care plan ID
+   */
   @IsNotEmpty()
   @IsUUID()
   carePlanId: string;
 
-  @IsNotEmpty()
-  @IsArray()
-  @ArrayMinSize(1)
-  @ArrayMaxSize(50)
-  @ValidateNested({ each: true })
-  @Type(() => CarePlanItemDto)
-  items: CarePlanItemDto[];
-
-  @IsNotEmpty()
-  @IsInt()
-  @Min(0)
-  @Max(100)
-  overallProgress: number;
-
-  @IsNotEmpty()
-  @IsISO8601()
-  updatedAt: string;
-}
-
-/**
- * DTO for individual care plan items in a care plan progress event.
- */
-export class CarePlanItemDto {
-  @IsNotEmpty()
-  @IsUUID()
-  itemId: string;
-
+  /**
+   * The care plan name
+   */
   @IsNotEmpty()
   @IsString()
-  title: string;
+  name: string;
 
+  /**
+   * The care plan type
+   */
   @IsNotEmpty()
-  @IsEnum(CarePlanProgressStatus)
-  status: CarePlanProgressStatus;
+  @IsEnum(CarePlanType)
+  type: CarePlanType;
 
-  @IsOptional()
-  @IsInt()
-  @Min(0)
-  @Max(100)
-  progress?: number;
+  /**
+   * The care plan start date
+   */
+  @IsNotEmpty()
+  @IsISO8601()
+  startDate: string;
 
+  /**
+   * The care plan end date (if applicable)
+   */
   @IsOptional()
   @IsISO8601()
-  dueDate?: string;
+  endDate?: string;
 
+  /**
+   * The current progress status of the care plan
+   */
+  @IsNotEmpty()
+  @IsEnum(CarePlanProgressStatus)
+  progressStatus: CarePlanProgressStatus;
+
+  /**
+   * The previous progress status (for status transitions)
+   */
+  @IsOptional()
+  @IsEnum(CarePlanProgressStatus)
+  previousProgressStatus?: CarePlanProgressStatus;
+
+  /**
+   * The progress percentage (0-100)
+   */
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Max(100)
+  progressPercentage?: number;
+
+  /**
+   * The healthcare provider who created or is managing the care plan
+   */
+  @IsNotEmpty()
+  @ValidateNested()
+  @Type(() => CareProviderInfoDto)
+  provider: CareProviderInfoDto;
+
+  /**
+   * The condition or reason for the care plan
+   */
+  @IsNotEmpty()
+  @IsString()
+  condition: string;
+
+  /**
+   * The list of activities in the care plan
+   */
+  @IsOptional()
+  @IsArray()
+  @ArrayMinSize(0)
+  @ValidateNested({ each: true })
+  @Type(() => CarePlanActivityDto)
+  activities?: CarePlanActivityDto[];
+
+  /**
+   * The number of completed activities
+   */
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  completedActivities?: number;
+
+  /**
+   * The total number of activities
+   */
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  totalActivities?: number;
+
+  /**
+   * Optional notes about the care plan
+   */
   @IsOptional()
   @IsString()
   notes?: string;
+
+  /**
+   * Whether the care plan is active
+   */
+  @IsOptional()
+  @IsBoolean()
+  isActive?: boolean;
 }
+
+/**
+ * Type representing all possible care event DTOs
+ */
+export type CareJourneyEventDto =
+  | TelemedicineSessionEventDto
+  | CarePlanEventDto
+  | { type: string; data: AppointmentEventDto }
+  | { type: string; data: MedicationEventDto };

@@ -1,820 +1,686 @@
 /**
- * Utility functions for transforming event payloads between different formats, structures, or versions.
- * Enables schema evolution by providing migration paths between different event versions,
- * ensuring backward compatibility while allowing the event schema to evolve.
+ * @file payload-transformer.ts
+ * @description Provides utility functions for transforming event payloads between different formats,
+ * structures, or versions. This module enables schema evolution by providing migration paths
+ * between different event versions, ensuring backward compatibility while allowing the event
+ * schema to evolve.
  */
-import { EventVersion } from '../interfaces/event-versioning.interface';
-import { ValidationResult } from '../interfaces/event-validation.interface';
+
+import { Logger } from '@nestjs/common';
 import { EventTypes } from '../dto/event-types.enum';
-import { versionDetector } from '../versioning/version-detector';
-import { compatibilityChecker } from '../versioning/compatibility-checker';
-import { TransformationError } from '../versioning/errors';
+import { IVersionedEvent } from '../interfaces/event-versioning.interface';
+import { VersionDetectionError, VersionMigrationError } from '../versioning/errors';
+import { VersionDetector } from '../versioning/version-detector';
+import { SchemaVersion, TransformDirection, TransformOptions } from '../versioning/types';
+import { CompatibilityChecker } from '../versioning/compatibility-checker';
+import { SchemaMigrator } from '../versioning/schema-migrator';
 
-// ===== Types and Interfaces =====
+// Private logger instance for the transformer
+const logger = new Logger('PayloadTransformer');
 
 /**
- * Represents a function that transforms a payload from one version to another
+ * Interface for event payload transformers
  */
-export type TransformFunction<T = any, R = any> = (payload: T, options?: TransformOptions) => R;
+export interface IPayloadTransformer<T = any, R = any> {
+  /**
+   * Transform a payload from one version to another
+   * @param payload The source payload to transform
+   * @param options Transformation options
+   * @returns The transformed payload
+   */
+  transform(payload: T, options?: TransformOptions): R;
 
-/**
- * Options for transformation operations
- */
-export interface TransformOptions {
-  /** Source version of the payload */
-  sourceVersion?: EventVersion;
-  /** Target version to transform to */
-  targetVersion?: EventVersion;
-  /** Whether to validate the transformed payload */
-  validate?: boolean;
-  /** Additional context for the transformation */
-  context?: Record<string, any>;
-  /** Journey context for journey-specific transformations */
-  journeyContext?: 'health' | 'care' | 'plan';
+  /**
+   * Check if this transformer can handle the given payload and options
+   * @param payload The payload to check
+   * @param options Transformation options
+   * @returns True if this transformer can handle the payload
+   */
+  canTransform(payload: T, options?: TransformOptions): boolean;
+
+  /**
+   * Get the source version this transformer handles
+   */
+  getSourceVersion(): SchemaVersion;
+
+  /**
+   * Get the target version this transformer produces
+   */
+  getTargetVersion(): SchemaVersion;
 }
 
 /**
- * Registry of transformation functions for different event types and versions
+ * Base class for implementing payload transformers
  */
-interface TransformRegistry {
-  [eventType: string]: {
-    [sourceVersion: string]: {
-      [targetVersion: string]: TransformFunction;
-    };
-  };
-}
+export abstract class BasePayloadTransformer<T = any, R = any> implements IPayloadTransformer<T, R> {
+  protected readonly sourceVersion: SchemaVersion;
+  protected readonly targetVersion: SchemaVersion;
+  protected readonly eventType: EventTypes;
 
-/**
- * Result of a transformation operation
- */
-export interface TransformResult<T = any> {
-  /** The transformed payload */
-  payload: T;
-  /** Source version of the original payload */
-  sourceVersion: EventVersion;
-  /** Target version the payload was transformed to */
-  targetVersion: EventVersion;
-  /** Whether the transformation was successful */
-  success: boolean;
-  /** Validation result if validation was performed */
-  validation?: ValidationResult;
-  /** Any warnings generated during transformation */
-  warnings?: string[];
-}
-
-// ===== Transformation Registry =====
-
-/**
- * Registry of transformation functions for different event types and versions
- */
-const transformRegistry: TransformRegistry = {};
-
-/**
- * Registers a transformation function for a specific event type and version pair
- * @param eventType The type of event this transformation applies to
- * @param sourceVersion The source version of the payload
- * @param targetVersion The target version to transform to
- * @param transformFn The function that performs the transformation
- */
-export function registerTransform(
-  eventType: string,
-  sourceVersion: EventVersion,
-  targetVersion: EventVersion,
-  transformFn: TransformFunction,
-): void {
-  // Initialize the registry structure if it doesn't exist
-  if (!transformRegistry[eventType]) {
-    transformRegistry[eventType] = {};
+  /**
+   * Create a new payload transformer
+   * @param eventType The event type this transformer handles
+   * @param sourceVersion The source version this transformer handles
+   * @param targetVersion The target version this transformer produces
+   */
+  constructor(eventType: EventTypes, sourceVersion: SchemaVersion, targetVersion: SchemaVersion) {
+    this.eventType = eventType;
+    this.sourceVersion = sourceVersion;
+    this.targetVersion = targetVersion;
   }
-  
-  if (!transformRegistry[eventType][sourceVersion]) {
-    transformRegistry[eventType][sourceVersion] = {};
-  }
-  
-  // Register the transformation function
-  transformRegistry[eventType][sourceVersion][targetVersion] = transformFn;
-}
 
-/**
- * Gets a transformation function for a specific event type and version pair
- * @param eventType The type of event
- * @param sourceVersion The source version of the payload
- * @param targetVersion The target version to transform to
- * @returns The transformation function or undefined if not found
- */
-export function getTransform(
-  eventType: string,
-  sourceVersion: EventVersion,
-  targetVersion: EventVersion,
-): TransformFunction | undefined {
-  if (
-    !transformRegistry[eventType] ||
-    !transformRegistry[eventType][sourceVersion] ||
-    !transformRegistry[eventType][sourceVersion][targetVersion]
-  ) {
-    return undefined;
-  }
-  
-  return transformRegistry[eventType][sourceVersion][targetVersion];
-}
+  /**
+   * Transform a payload from the source version to the target version
+   * @param payload The source payload to transform
+   * @param options Transformation options
+   * @returns The transformed payload
+   */
+  abstract transform(payload: T, options?: TransformOptions): R;
 
-// ===== Generic Transformation Utilities =====
-
-/**
- * Transforms a payload from one version to another
- * @param eventType The type of event
- * @param payload The payload to transform
- * @param options Transformation options
- * @returns The transformed payload and metadata
- */
-export function transformPayload<T = any, R = any>(
-  eventType: string,
-  payload: T,
-  options: TransformOptions = {},
-): TransformResult<R> {
-  const warnings: string[] = [];
-  
-  // Detect source version if not provided
-  const sourceVersion = options.sourceVersion || versionDetector.detectVersion(payload);
-  if (!sourceVersion) {
-    throw new TransformationError(
-      'Could not detect source version for payload',
-      { eventType, payload },
-    );
-  }
-  
-  // Use latest compatible version if target version not specified
-  const targetVersion = options.targetVersion || getLatestCompatibleVersion(eventType, sourceVersion);
-  if (!targetVersion) {
-    throw new TransformationError(
-      'Could not determine target version for transformation',
-      { eventType, sourceVersion },
-    );
-  }
-  
-  // If source and target versions are the same, return the original payload
-  if (sourceVersion === targetVersion) {
-    return {
-      payload: payload as unknown as R,
-      sourceVersion,
-      targetVersion,
-      success: true,
-      warnings,
-    };
-  }
-  
-  // Get the transformation function
-  const transformFn = getTransform(eventType, sourceVersion, targetVersion);
-  
-  // If no direct transformation exists, try to find a path through intermediate versions
-  if (!transformFn) {
-    const transformPath = findTransformPath(eventType, sourceVersion, targetVersion);
-    if (transformPath && transformPath.length > 0) {
-      return executeTransformPath(eventType, payload, transformPath, options);
+  /**
+   * Check if this transformer can handle the given payload and options
+   * @param payload The payload to check
+   * @param options Transformation options
+   * @returns True if this transformer can handle the payload
+   */
+  canTransform(payload: any, options?: TransformOptions): boolean {
+    // Check if the payload is for the correct event type
+    if (payload.type !== this.eventType) {
+      return false;
     }
-    
-    throw new TransformationError(
-      `No transformation path found from ${sourceVersion} to ${targetVersion} for event type ${eventType}`,
-      { eventType, sourceVersion, targetVersion },
-    );
-  }
-  
-  // Execute the transformation
-  try {
-    const transformedPayload = transformFn(payload, options);
-    
-    // Validate the transformed payload if requested
-    let validationResult: ValidationResult | undefined;
-    if (options.validate) {
-      // Validation would be implemented here
-      // validationResult = validatePayload(eventType, transformedPayload, targetVersion);
-    }
-    
-    return {
-      payload: transformedPayload as R,
-      sourceVersion,
-      targetVersion,
-      success: true,
-      validation: validationResult,
-      warnings,
-    };
-  } catch (error) {
-    throw new TransformationError(
-      `Error transforming payload from ${sourceVersion} to ${targetVersion} for event type ${eventType}`,
-      { eventType, sourceVersion, targetVersion, error },
-    );
-  }
-}
 
-/**
- * Finds a path of transformations to get from source version to target version
- * @param eventType The type of event
- * @param sourceVersion The source version of the payload
- * @param targetVersion The target version to transform to
- * @returns An array of version pairs representing the transformation path
- */
-function findTransformPath(
-  eventType: string,
-  sourceVersion: EventVersion,
-  targetVersion: EventVersion,
-): Array<{ source: EventVersion; target: EventVersion }> | null {
-  // Simple breadth-first search to find a transformation path
-  const visited = new Set<EventVersion>([sourceVersion]);
-  const queue: Array<{ version: EventVersion; path: Array<{ source: EventVersion; target: EventVersion }> }> = [
-    { version: sourceVersion, path: [] },
-  ];
-  
-  while (queue.length > 0) {
-    const { version, path } = queue.shift()!;
-    
-    // Check if we have transformations from this version
-    const transformsFromVersion = transformRegistry[eventType]?.[version] || {};
-    
-    // Check each possible next step in the path
-    for (const nextVersion of Object.keys(transformsFromVersion)) {
-      if (nextVersion === targetVersion) {
-        // Found a path to the target
-        return [...path, { source: version, target: nextVersion }];
-      }
-      
-      if (!visited.has(nextVersion)) {
-        visited.add(nextVersion);
-        queue.push({
-          version: nextVersion,
-          path: [...path, { source: version, target: nextVersion }],
-        });
-      }
+    // Get the source version from the payload or options
+    const sourceVersion = this.getPayloadVersion(payload, options);
+    if (!sourceVersion) {
+      return false;
     }
-  }
-  
-  // No path found
-  return null;
-}
 
-/**
- * Executes a series of transformations along a path
- * @param eventType The type of event
- * @param payload The initial payload
- * @param path The path of transformations to execute
- * @param options Transformation options
- * @returns The final transformed payload and metadata
- */
-function executeTransformPath<T = any, R = any>(
-  eventType: string,
-  payload: T,
-  path: Array<{ source: EventVersion; target: EventVersion }>,
-  options: TransformOptions = {},
-): TransformResult<R> {
-  let currentPayload = payload;
-  let currentSourceVersion = path[0].source;
-  const warnings: string[] = [];
-  
-  // Apply each transformation in the path
-  for (const { source, target } of path) {
-    const transformFn = getTransform(eventType, source, target);
-    if (!transformFn) {
-      throw new TransformationError(
-        `Missing transformation function in path from ${source} to ${target} for event type ${eventType}`,
-        { eventType, source, target },
-      );
+    // Check if the source version matches what this transformer handles
+    return sourceVersion === this.sourceVersion;
+  }
+
+  /**
+   * Get the source version this transformer handles
+   */
+  getSourceVersion(): SchemaVersion {
+    return this.sourceVersion;
+  }
+
+  /**
+   * Get the target version this transformer produces
+   */
+  getTargetVersion(): SchemaVersion {
+    return this.targetVersion;
+  }
+
+  /**
+   * Get the version from a payload or options
+   * @param payload The payload to check
+   * @param options Transformation options
+   * @returns The detected version or undefined if not found
+   */
+  protected getPayloadVersion(payload: any, options?: TransformOptions): SchemaVersion | undefined {
+    // First check options for explicit version
+    if (options?.sourceVersion) {
+      return options.sourceVersion;
     }
-    
+
+    // Then check if payload has a version property
+    if (payload.version) {
+      return payload.version;
+    }
+
+    // Finally try to detect the version from the payload structure
     try {
-      currentPayload = transformFn(currentPayload, options);
+      return VersionDetector.detectVersion(payload);
     } catch (error) {
-      throw new TransformationError(
-        `Error in transformation path from ${source} to ${target} for event type ${eventType}`,
-        { eventType, source, target, error },
+      logger.debug(`Could not detect version for payload: ${error.message}`);
+      return undefined;
+    }
+  }
+}
+
+/**
+ * Registry for payload transformers
+ */
+export class PayloadTransformerRegistry {
+  private static transformers: IPayloadTransformer[] = [];
+
+  /**
+   * Register a transformer with the registry
+   * @param transformer The transformer to register
+   */
+  static register(transformer: IPayloadTransformer): void {
+    this.transformers.push(transformer);
+    logger.debug(
+      `Registered transformer from ${transformer.getSourceVersion()} to ${transformer.getTargetVersion()}`
+    );
+  }
+
+  /**
+   * Find a transformer that can handle the given payload and options
+   * @param payload The payload to transform
+   * @param options Transformation options
+   * @returns The transformer or undefined if none found
+   */
+  static findTransformer<T = any, R = any>(
+    payload: T,
+    options?: TransformOptions
+  ): IPayloadTransformer<T, R> | undefined {
+    return this.transformers.find((transformer) => transformer.canTransform(payload, options)) as
+      | IPayloadTransformer<T, R>
+      | undefined;
+  }
+
+  /**
+   * Find all transformers for a specific event type and source version
+   * @param eventType The event type to find transformers for
+   * @param sourceVersion The source version to find transformers for
+   * @returns Array of matching transformers
+   */
+  static findTransformersForType(
+    eventType: EventTypes,
+    sourceVersion: SchemaVersion
+  ): IPayloadTransformer[] {
+    return this.transformers.filter(
+      (transformer) =>
+        (payload) => payload.type === eventType && transformer.getSourceVersion() === sourceVersion
+    );
+  }
+
+  /**
+   * Clear all registered transformers
+   */
+  static clear(): void {
+    this.transformers = [];
+    logger.debug('Cleared all registered transformers');
+  }
+}
+
+/**
+ * Utility functions for transforming event payloads
+ */
+export class PayloadTransformer {
+  /**
+   * Transform a payload from its current version to the target version
+   * @param payload The payload to transform
+   * @param targetVersion The target version to transform to
+   * @param options Additional transformation options
+   * @returns The transformed payload
+   * @throws VersionDetectionError if the source version cannot be detected
+   * @throws VersionMigrationError if no transformation path exists
+   */
+  static transform<T = any, R = any>(
+    payload: T,
+    targetVersion: SchemaVersion,
+    options?: TransformOptions
+  ): R {
+    // Get the source version
+    const sourceVersion = this.getPayloadVersion(payload, options);
+    if (!sourceVersion) {
+      throw new VersionDetectionError('Could not detect source version for payload');
+    }
+
+    // If source and target versions are the same, return the payload as is
+    if (sourceVersion === targetVersion) {
+      return payload as unknown as R;
+    }
+
+    // Find a direct transformer
+    const transformer = PayloadTransformerRegistry.findTransformer<T, R>(payload, {
+      ...options,
+      sourceVersion,
+      targetVersion,
+    });
+
+    if (transformer) {
+      return transformer.transform(payload, { ...options, targetVersion });
+    }
+
+    // If no direct transformer, try to find a migration path
+    const migrationPath = SchemaMigrator.findMigrationPath(sourceVersion, targetVersion);
+    if (!migrationPath || migrationPath.length === 0) {
+      throw new VersionMigrationError(
+        `No migration path found from ${sourceVersion} to ${targetVersion}`
       );
     }
-  }
-  
-  // Validate the final transformed payload if requested
-  let validationResult: ValidationResult | undefined;
-  if (options.validate) {
-    // Validation would be implemented here
-    // validationResult = validatePayload(eventType, currentPayload, path[path.length - 1].target);
-  }
-  
-  return {
-    payload: currentPayload as unknown as R,
-    sourceVersion: path[0].source,
-    targetVersion: path[path.length - 1].target,
-    success: true,
-    validation: validationResult,
-    warnings,
-  };
-}
 
-/**
- * Gets the latest compatible version for an event type from a source version
- * @param eventType The type of event
- * @param sourceVersion The source version to find compatibility for
- * @returns The latest compatible version or undefined if none found
- */
-function getLatestCompatibleVersion(eventType: string, sourceVersion: EventVersion): EventVersion | undefined {
-  // Get all available target versions for this event type and source version
-  const availableVersions = Object.keys(transformRegistry[eventType]?.[sourceVersion] || {});
-  
-  // If no transformations are registered, return the source version
-  if (availableVersions.length === 0) {
-    return sourceVersion;
+    // Apply each transformation in the path
+    let currentPayload: any = payload;
+    for (let i = 0; i < migrationPath.length; i++) {
+      const currentSourceVersion = i === 0 ? sourceVersion : migrationPath[i - 1].targetVersion;
+      const currentTargetVersion = migrationPath[i].targetVersion;
+
+      const stepTransformer = PayloadTransformerRegistry.findTransformer(currentPayload, {
+        ...options,
+        sourceVersion: currentSourceVersion,
+        targetVersion: currentTargetVersion,
+      });
+
+      if (!stepTransformer) {
+        throw new VersionMigrationError(
+          `Missing transformer from ${currentSourceVersion} to ${currentTargetVersion}`
+        );
+      }
+
+      currentPayload = stepTransformer.transform(currentPayload, {
+        ...options,
+        targetVersion: currentTargetVersion,
+      });
+    }
+
+    return currentPayload as R;
   }
-  
-  // Find the latest compatible version
-  let latestVersion: EventVersion | undefined;
-  for (const version of availableVersions) {
-    if (!latestVersion || compatibilityChecker.isNewer(version, latestVersion)) {
-      latestVersion = version;
+
+  /**
+   * Get the version from a payload or options
+   * @param payload The payload to check
+   * @param options Transformation options
+   * @returns The detected version or undefined if not found
+   */
+  private static getPayloadVersion<T>(payload: T, options?: TransformOptions): SchemaVersion | undefined {
+    // First check options for explicit version
+    if (options?.sourceVersion) {
+      return options.sourceVersion;
+    }
+
+    // Then check if payload has a version property
+    if ((payload as any).version) {
+      return (payload as any).version;
+    }
+
+    // Finally try to detect the version from the payload structure
+    try {
+      return VersionDetector.detectVersion(payload);
+    } catch (error) {
+      logger.debug(`Could not detect version for payload: ${error.message}`);
+      return undefined;
     }
   }
-  
-  return latestVersion;
-}
 
-// ===== Field Mapping Utilities =====
+  /**
+   * Check if a payload can be transformed to the target version
+   * @param payload The payload to check
+   * @param targetVersion The target version to check
+   * @param options Additional options
+   * @returns True if the payload can be transformed
+   */
+  static canTransform<T = any>(
+    payload: T,
+    targetVersion: SchemaVersion,
+    options?: TransformOptions
+  ): boolean {
+    try {
+      // Get the source version
+      const sourceVersion = this.getPayloadVersion(payload, options);
+      if (!sourceVersion) {
+        return false;
+      }
 
-/**
- * Maps fields from one object structure to another based on a mapping definition
- * @param source The source object to map from
- * @param fieldMap The mapping of source fields to target fields
- * @returns A new object with the mapped fields
- */
-export function mapFields<T extends Record<string, any>, R extends Record<string, any>>(
-  source: T,
-  fieldMap: Record<string, string | ((source: T) => any)>,
-): R {
-  const result = {} as R;
-  
-  for (const [targetField, sourceField] of Object.entries(fieldMap)) {
-    if (typeof sourceField === 'function') {
-      // Use the function to compute the value
-      result[targetField as keyof R] = sourceField(source);
-    } else if (sourceField.includes('.')) {
-      // Handle nested fields with dot notation
-      const parts = sourceField.split('.');
-      let value = source;
-      let valid = true;
-      
-      for (const part of parts) {
-        if (value && typeof value === 'object' && part in value) {
-          value = value[part];
-        } else {
-          valid = false;
-          break;
-        }
+      // If source and target versions are the same, return true
+      if (sourceVersion === targetVersion) {
+        return true;
       }
-      
-      if (valid) {
-        result[targetField as keyof R] = value;
+
+      // Check if a direct transformer exists
+      const transformer = PayloadTransformerRegistry.findTransformer(payload, {
+        ...options,
+        sourceVersion,
+        targetVersion,
+      });
+
+      if (transformer) {
+        return true;
       }
-    } else if (sourceField in source) {
-      // Direct field mapping
-      result[targetField as keyof R] = source[sourceField];
+
+      // Check if a migration path exists
+      const migrationPath = SchemaMigrator.findMigrationPath(sourceVersion, targetVersion);
+      return !!migrationPath && migrationPath.length > 0;
+    } catch (error) {
+      logger.debug(`Error checking if payload can be transformed: ${error.message}`);
+      return false;
     }
   }
-  
-  return result;
 }
 
 /**
- * Safely gets a value from an object using a path string (e.g., 'user.profile.name')
- * @param obj The object to get the value from
- * @param path The path to the value
- * @param defaultValue The default value to return if the path doesn't exist
- * @returns The value at the path or the default value
+ * Utility functions for mapping fields between different payload structures
  */
-export function getValueByPath<T = any>(
-  obj: Record<string, any>,
-  path: string,
-  defaultValue?: T,
-): T | undefined {
-  const parts = path.split('.');
-  let current = obj;
-  
-  for (const part of parts) {
-    if (current && typeof current === 'object' && part in current) {
+export class FieldMapper {
+  /**
+   * Map a field from one object to another with optional transformation
+   * @param source The source object
+   * @param target The target object to map to
+   * @param sourceField The field name in the source object
+   * @param targetField The field name in the target object (defaults to sourceField)
+   * @param transform Optional transformation function to apply to the value
+   * @returns The target object with the mapped field
+   */
+  static mapField<S, T>(
+    source: S,
+    target: T,
+    sourceField: keyof S,
+    targetField: keyof T = sourceField as unknown as keyof T,
+    transform?: (value: any) => any
+  ): T {
+    if (source[sourceField] !== undefined) {
+      const value = transform ? transform(source[sourceField]) : source[sourceField];
+      (target as any)[targetField] = value;
+    }
+    return target;
+  }
+
+  /**
+   * Map multiple fields from one object to another
+   * @param source The source object
+   * @param target The target object to map to
+   * @param fieldMap Map of source field names to target field names
+   * @param transforms Optional map of transformation functions to apply to specific fields
+   * @returns The target object with all mapped fields
+   */
+  static mapFields<S, T>(
+    source: S,
+    target: T,
+    fieldMap: Record<keyof S, keyof T>,
+    transforms?: Partial<Record<keyof S, (value: any) => any>>
+  ): T {
+    for (const sourceField in fieldMap) {
+      const targetField = fieldMap[sourceField];
+      const transform = transforms?.[sourceField];
+      this.mapField(source, target, sourceField, targetField, transform);
+    }
+    return target;
+  }
+
+  /**
+   * Get a value from a nested path in an object
+   * @param obj The object to get the value from
+   * @param path The path to the value, using dot notation (e.g., 'user.profile.name')
+   * @param defaultValue Optional default value to return if the path doesn't exist
+   * @returns The value at the path or the default value
+   */
+  static getNestedValue(obj: any, path: string, defaultValue?: any): any {
+    const parts = path.split('.');
+    let current = obj;
+
+    for (const part of parts) {
+      if (current === null || current === undefined || typeof current !== 'object') {
+        return defaultValue;
+      }
       current = current[part];
-    } else {
-      return defaultValue;
     }
+
+    return current !== undefined ? current : defaultValue;
   }
-  
-  return current as T;
+
+  /**
+   * Set a value at a nested path in an object
+   * @param obj The object to set the value in
+   * @param path The path to set, using dot notation (e.g., 'user.profile.name')
+   * @param value The value to set
+   * @returns The modified object
+   */
+  static setNestedValue(obj: any, path: string, value: any): any {
+    const parts = path.split('.');
+    let current = obj;
+
+    for (let i = 0; i < parts.length - 1; i++) {
+      const part = parts[i];
+      if (current[part] === undefined) {
+        current[part] = {};
+      }
+      current = current[part];
+    }
+
+    current[parts[parts.length - 1]] = value;
+    return obj;
+  }
 }
 
 /**
- * Sets a value in an object using a path string (e.g., 'user.profile.name')
- * @param obj The object to set the value in
- * @param path The path to set the value at
- * @param value The value to set
- * @returns The modified object
+ * Base class for health journey event transformers
  */
-export function setValueByPath<T extends Record<string, any>>(
-  obj: T,
-  path: string,
-  value: any,
-): T {
-  const parts = path.split('.');
-  let current = obj;
-  
-  // Navigate to the parent of the final property
-  for (let i = 0; i < parts.length - 1; i++) {
-    const part = parts[i];
-    if (!(part in current) || current[part] === null) {
-      current[part] = {};
-    }
-    current = current[part];
-  }
-  
-  // Set the value on the final property
-  const finalPart = parts[parts.length - 1];
-  current[finalPart] = value;
-  
-  return obj;
-}
-
-// ===== Journey-Specific Transformers =====
-
-/**
- * Namespace for Health journey event transformers
- */
-export namespace HealthTransformers {
+export abstract class HealthEventTransformer<T = any, R = any> extends BasePayloadTransformer<T, R> {
   /**
-   * Transforms a health metric event from v1.0.0 to v1.1.0
-   * - Adds source field for metric recording
-   * - Restructures value field to support multiple values
+   * Create a new health event transformer
+   * @param eventType The specific health event type
+   * @param sourceVersion The source version this transformer handles
+   * @param targetVersion The target version this transformer produces
    */
-  export function transformHealthMetricV1toV1_1(payload: any, options?: TransformOptions): any {
-    // Clone the payload to avoid modifying the original
-    const result = { ...payload };
-    
-    // Transform the data structure
-    if (result.data) {
-      // Add source field if missing
-      if (!result.data.source) {
-        result.data.source = 'manual';
-      }
-      
-      // Restructure value field to support multiple values
-      if (result.data.value !== undefined && !result.data.values) {
-        result.data.values = [{
-          value: result.data.value,
-          timestamp: result.data.timestamp || result.timestamp,
-          unit: result.data.unit,
-        }];
-        
-        // Keep the original value for backward compatibility
-        // but mark it as deprecated in metadata
-        if (!result.metadata) {
-          result.metadata = {};
-        }
-        if (!result.metadata.deprecatedFields) {
-          result.metadata.deprecatedFields = [];
-        }
-        result.metadata.deprecatedFields.push('data.value');
-      }
+  constructor(eventType: EventTypes, sourceVersion: SchemaVersion, targetVersion: SchemaVersion) {
+    super(eventType, sourceVersion, targetVersion);
+  }
+
+  /**
+   * Common transformation logic for health events
+   * @param payload The source payload
+   * @returns Partially transformed payload with common fields mapped
+   */
+  protected transformCommonFields(payload: any): any {
+    const result: any = {
+      type: payload.type,
+      userId: payload.userId,
+      timestamp: payload.timestamp,
+      version: this.targetVersion,
+    };
+
+    // Map common metadata if present
+    if (payload.metadata) {
+      result.metadata = { ...payload.metadata };
     }
-    
-    // Update version
-    result.version = '1.1.0';
-    
+
     return result;
   }
-  
-  /**
-   * Transforms a health goal event from v1.0.0 to v1.1.0
-   * - Adds category field for goal classification
-   * - Restructures progress tracking
-   */
-  export function transformHealthGoalV1toV1_1(payload: any, options?: TransformOptions): any {
-    // Clone the payload to avoid modifying the original
-    const result = { ...payload };
-    
-    // Transform the data structure
-    if (result.data) {
-      // Add category field if missing
-      if (!result.data.category) {
-        // Infer category from goal type
-        switch (result.data.type) {
-          case 'steps':
-          case 'distance':
-          case 'activeMinutes':
-            result.data.category = 'activity';
-            break;
-          case 'weight':
-          case 'bmi':
-            result.data.category = 'body';
-            break;
-          case 'bloodPressure':
-          case 'heartRate':
-          case 'bloodGlucose':
-            result.data.category = 'vitals';
-            break;
-          default:
-            result.data.category = 'other';
-        }
-      }
-      
-      // Restructure progress tracking
-      if (result.data.progress !== undefined && !result.data.progressHistory) {
-        result.data.progressHistory = [{
-          value: result.data.progress,
-          timestamp: result.data.updatedAt || result.timestamp,
-        }];
-      }
-    }
-    
-    // Update version
-    result.version = '1.1.0';
-    
-    return result;
-  }
-  
-  // Register the health transformers
-  registerTransform(EventTypes.HEALTH_METRIC_RECORDED, '1.0.0', '1.1.0', transformHealthMetricV1toV1_1);
-  registerTransform(EventTypes.HEALTH_GOAL_PROGRESS, '1.0.0', '1.1.0', transformHealthGoalV1toV1_1);
-  registerTransform(EventTypes.HEALTH_GOAL_ACHIEVED, '1.0.0', '1.1.0', transformHealthGoalV1toV1_1);
 }
 
 /**
- * Namespace for Care journey event transformers
+ * Base class for care journey event transformers
  */
-export namespace CareTransformers {
+export abstract class CareEventTransformer<T = any, R = any> extends BasePayloadTransformer<T, R> {
   /**
-   * Transforms an appointment event from v1.0.0 to v1.1.0
-   * - Adds location details
-   * - Enhances provider information
+   * Create a new care event transformer
+   * @param eventType The specific care event type
+   * @param sourceVersion The source version this transformer handles
+   * @param targetVersion The target version this transformer produces
    */
-  export function transformAppointmentV1toV1_1(payload: any, options?: TransformOptions): any {
-    // Clone the payload to avoid modifying the original
-    const result = { ...payload };
-    
-    // Transform the data structure
-    if (result.data) {
-      // Add location details if missing
-      if (!result.data.location && result.data.provider) {
-        result.data.location = {
-          id: result.data.provider.locationId || 'unknown',
-          name: result.data.provider.locationName || 'Unknown Location',
-          address: result.data.provider.address,
-          type: result.data.appointmentType === 'virtual' ? 'virtual' : 'physical',
-        };
-      }
-      
-      // Enhance provider information
-      if (result.data.provider && !result.data.provider.specialty) {
-        result.data.provider.specialty = result.data.specialtyRequired || 'General';
-      }
-      
-      // Add appointment mode if missing
-      if (!result.data.mode && result.data.appointmentType) {
-        result.data.mode = result.data.appointmentType === 'virtual' ? 'telemedicine' : 'in-person';
-      }
+  constructor(eventType: EventTypes, sourceVersion: SchemaVersion, targetVersion: SchemaVersion) {
+    super(eventType, sourceVersion, targetVersion);
+  }
+
+  /**
+   * Common transformation logic for care events
+   * @param payload The source payload
+   * @returns Partially transformed payload with common fields mapped
+   */
+  protected transformCommonFields(payload: any): any {
+    const result: any = {
+      type: payload.type,
+      userId: payload.userId,
+      timestamp: payload.timestamp,
+      version: this.targetVersion,
+    };
+
+    // Map common metadata if present
+    if (payload.metadata) {
+      result.metadata = { ...payload.metadata };
     }
-    
-    // Update version
-    result.version = '1.1.0';
-    
+
     return result;
   }
-  
-  /**
-   * Transforms a medication event from v1.0.0 to v1.1.0
-   * - Adds medication details
-   * - Enhances adherence tracking
-   */
-  export function transformMedicationV1toV1_1(payload: any, options?: TransformOptions): any {
-    // Clone the payload to avoid modifying the original
-    const result = { ...payload };
-    
-    // Transform the data structure
-    if (result.data) {
-      // Add medication details if missing
-      if (result.data.medicationId && !result.data.medication) {
-        result.data.medication = {
-          id: result.data.medicationId,
-          name: result.data.medicationName || 'Unknown Medication',
-          dosage: result.data.dosage,
-          frequency: result.data.frequency,
-          instructions: result.data.instructions,
-        };
-      }
-      
-      // Enhance adherence tracking
-      if (result.data.status && !result.data.adherence) {
-        result.data.adherence = {
-          status: result.data.status,
-          timestamp: result.data.takenAt || result.timestamp,
-          scheduled: result.data.scheduledAt,
-          delay: result.data.scheduledAt && result.data.takenAt
-            ? new Date(result.data.takenAt).getTime() - new Date(result.data.scheduledAt).getTime()
-            : 0,
-        };
-      }
-    }
-    
-    // Update version
-    result.version = '1.1.0';
-    
-    return result;
-  }
-  
-  // Register the care transformers
-  registerTransform(EventTypes.APPOINTMENT_BOOKED, '1.0.0', '1.1.0', transformAppointmentV1toV1_1);
-  registerTransform(EventTypes.APPOINTMENT_COMPLETED, '1.0.0', '1.1.0', transformAppointmentV1toV1_1);
-  registerTransform(EventTypes.APPOINTMENT_CANCELLED, '1.0.0', '1.1.0', transformAppointmentV1toV1_1);
-  registerTransform(EventTypes.MEDICATION_TAKEN, '1.0.0', '1.1.0', transformMedicationV1toV1_1);
-  registerTransform(EventTypes.MEDICATION_SKIPPED, '1.0.0', '1.1.0', transformMedicationV1toV1_1);
 }
 
 /**
- * Namespace for Plan journey event transformers
+ * Base class for plan journey event transformers
  */
-export namespace PlanTransformers {
+export abstract class PlanEventTransformer<T = any, R = any> extends BasePayloadTransformer<T, R> {
   /**
-   * Transforms a claim event from v1.0.0 to v1.1.0
-   * - Adds claim category
-   * - Enhances financial details
+   * Create a new plan event transformer
+   * @param eventType The specific plan event type
+   * @param sourceVersion The source version this transformer handles
+   * @param targetVersion The target version this transformer produces
    */
-  export function transformClaimV1toV1_1(payload: any, options?: TransformOptions): any {
-    // Clone the payload to avoid modifying the original
-    const result = { ...payload };
-    
-    // Transform the data structure
-    if (result.data) {
-      // Add claim category if missing
-      if (!result.data.category && result.data.type) {
-        // Infer category from claim type
-        switch (result.data.type) {
-          case 'medical':
-          case 'consultation':
-          case 'procedure':
-          case 'hospitalization':
-            result.data.category = 'medical';
-            break;
-          case 'dental':
-          case 'vision':
-          case 'pharmacy':
-            result.data.category = result.data.type;
-            break;
-          default:
-            result.data.category = 'other';
-        }
-      }
-      
-      // Enhance financial details
-      if (result.data.amount && !result.data.financialDetails) {
-        result.data.financialDetails = {
-          totalAmount: result.data.amount,
-          currency: result.data.currency || 'BRL',
-          coveredAmount: result.data.coveredAmount || 0,
-          patientResponsibility: result.data.patientResponsibility || 0,
-        };
-        
-        // Calculate patient responsibility if not provided
-        if (!result.data.patientResponsibility && result.data.coveredAmount) {
-          result.data.financialDetails.patientResponsibility = 
-            result.data.amount - result.data.coveredAmount;
-        }
-      }
-      
-      // Add documents array if missing
-      if (result.data.documentUrl && !result.data.documents) {
-        result.data.documents = [{
-          type: 'receipt',
-          url: result.data.documentUrl,
-          uploadedAt: result.data.uploadedAt || result.timestamp,
-        }];
-      }
+  constructor(eventType: EventTypes, sourceVersion: SchemaVersion, targetVersion: SchemaVersion) {
+    super(eventType, sourceVersion, targetVersion);
+  }
+
+  /**
+   * Common transformation logic for plan events
+   * @param payload The source payload
+   * @returns Partially transformed payload with common fields mapped
+   */
+  protected transformCommonFields(payload: any): any {
+    const result: any = {
+      type: payload.type,
+      userId: payload.userId,
+      timestamp: payload.timestamp,
+      version: this.targetVersion,
+    };
+
+    // Map common metadata if present
+    if (payload.metadata) {
+      result.metadata = { ...payload.metadata };
     }
-    
-    // Update version
-    result.version = '1.1.0';
-    
+
     return result;
   }
-  
-  /**
-   * Transforms a benefit event from v1.0.0 to v1.1.0
-   * - Adds benefit category
-   * - Enhances usage tracking
-   */
-  export function transformBenefitV1toV1_1(payload: any, options?: TransformOptions): any {
-    // Clone the payload to avoid modifying the original
-    const result = { ...payload };
-    
-    // Transform the data structure
-    if (result.data) {
-      // Add benefit category if missing
-      if (!result.data.category && result.data.type) {
-        // Infer category from benefit type
-        switch (result.data.type) {
-          case 'discount':
-          case 'cashback':
-          case 'reward':
-            result.data.category = 'financial';
-            break;
-          case 'wellness':
-          case 'fitness':
-          case 'nutrition':
-            result.data.category = 'wellness';
-            break;
-          case 'telemedicine':
-          case 'checkup':
-          case 'screening':
-            result.data.category = 'medical';
-            break;
-          default:
-            result.data.category = 'other';
-        }
-      }
-      
-      // Enhance usage tracking
-      if (result.data.used !== undefined && !result.data.usage) {
-        result.data.usage = {
-          used: result.data.used,
-          available: result.data.available || 0,
-          total: result.data.total || 0,
-          history: result.data.usageHistory || [],
-        };
-        
-        // Add current usage to history if not present
-        if (Array.isArray(result.data.usage.history) && !result.data.usageHistory) {
-          result.data.usage.history.push({
-            amount: result.data.used,
-            timestamp: result.timestamp,
-            description: result.data.description || 'Benefit used',
-          });
-        }
-      }
-    }
-    
-    // Update version
-    result.version = '1.1.0';
-    
-    return result;
-  }
-  
-  // Register the plan transformers
-  registerTransform(EventTypes.CLAIM_SUBMITTED, '1.0.0', '1.1.0', transformClaimV1toV1_1);
-  registerTransform(EventTypes.CLAIM_APPROVED, '1.0.0', '1.1.0', transformClaimV1toV1_1);
-  registerTransform(EventTypes.CLAIM_REJECTED, '1.0.0', '1.1.0', transformClaimV1toV1_1);
-  registerTransform(EventTypes.BENEFIT_USED, '1.0.0', '1.1.0', transformBenefitV1toV1_1);
-  registerTransform(EventTypes.BENEFIT_REDEEMED, '1.0.0', '1.1.0', transformBenefitV1toV1_1);
 }
 
-// ===== Automatic Transformation =====
+/**
+ * Example implementation of a health metric event transformer from v1.0.0 to v1.1.0
+ */
+export class HealthMetricEventV1toV1_1Transformer extends HealthEventTransformer {
+  constructor() {
+    super(EventTypes.HEALTH_METRIC_RECORDED, '1.0.0', '1.1.0');
+  }
+
+  transform(payload: any, options?: TransformOptions): any {
+    // Start with common fields
+    const result = this.transformCommonFields(payload);
+
+    // Copy the data object
+    result.data = { ...payload.data };
+
+    // Transform specific fields for v1.1.0
+    // In v1.1.0, we added a 'source' field and renamed 'value' to 'metricValue'
+    FieldMapper.mapField(payload.data, result.data, 'value', 'metricValue' as any);
+    
+    // Add default source if not present
+    if (!result.data.source) {
+      result.data.source = 'manual';
+    }
+
+    return result;
+  }
+}
 
 /**
- * Automatically transforms an event payload to the specified version
- * @param event The event object containing type and payload
- * @param targetVersion The target version to transform to (defaults to latest)
- * @param options Additional transformation options
- * @returns The transformed event
+ * Example implementation of an appointment event transformer from v1.0.0 to v1.1.0
  */
-export function autoTransformEvent<T extends { type: string; payload: any }>(  
-  event: T,
-  targetVersion?: EventVersion,
-  options: Omit<TransformOptions, 'targetVersion'> = {},
-): T {
-  if (!event || !event.type || !event.payload) {
-    throw new TransformationError(
-      'Invalid event object provided for transformation',
-      { event },
-    );
+export class AppointmentEventV1toV1_1Transformer extends CareEventTransformer {
+  constructor() {
+    super(EventTypes.APPOINTMENT_BOOKED, '1.0.0', '1.1.0');
   }
-  
-  // Detect the source version
-  const sourceVersion = versionDetector.detectVersion(event.payload);
-  if (!sourceVersion) {
-    throw new TransformationError(
-      'Could not detect source version for event payload',
-      { event },
-    );
+
+  transform(payload: any, options?: TransformOptions): any {
+    // Start with common fields
+    const result = this.transformCommonFields(payload);
+
+    // Copy the data object
+    result.data = { ...payload.data };
+
+    // Transform specific fields for v1.1.0
+    // In v1.1.0, we added a 'status' field and restructured provider information
+    if (result.data.provider) {
+      // Restructure provider information
+      const provider = result.data.provider;
+      result.data.provider = {
+        id: provider.id || provider.providerId,
+        name: provider.name,
+        specialization: provider.specialization,
+        contactInfo: {
+          email: provider.email,
+          phone: provider.phone,
+        },
+      };
+    }
+
+    // Add status field if not present
+    if (!result.data.status) {
+      result.data.status = 'scheduled';
+    }
+
+    return result;
   }
-  
-  // If target version is not specified and source version is detected,
-  // no transformation is needed
-  if (!targetVersion) {
-    return event;
+}
+
+/**
+ * Example implementation of a claim event transformer from v1.0.0 to v1.1.0
+ */
+export class ClaimEventV1toV1_1Transformer extends PlanEventTransformer {
+  constructor() {
+    super(EventTypes.CLAIM_SUBMITTED, '1.0.0', '1.1.0');
   }
-  
-  // If source and target versions are the same, no transformation is needed
-  if (sourceVersion === targetVersion) {
-    return event;
+
+  transform(payload: any, options?: TransformOptions): any {
+    // Start with common fields
+    const result = this.transformCommonFields(payload);
+
+    // Copy the data object
+    result.data = { ...payload.data };
+
+    // Transform specific fields for v1.1.0
+    // In v1.1.0, we restructured the amount field to include currency
+    if (typeof result.data.amount === 'number') {
+      result.data.amount = {
+        value: result.data.amount,
+        currency: 'BRL', // Default currency for AUSTA
+      };
+    }
+
+    // Add tracking information if not present
+    if (!result.data.tracking) {
+      result.data.tracking = {
+        submittedAt: payload.timestamp,
+        status: 'pending',
+      };
+    }
+
+    return result;
   }
-  
-  // Transform the payload
-  const transformResult = transformPayload(
-    event.type,
-    event.payload,
-    { ...options, sourceVersion, targetVersion },
-  );
-  
-  // Return the transformed event
-  return {
-    ...event,
-    payload: transformResult.payload,
-  };
+}
+
+// Register the example transformers
+PayloadTransformerRegistry.register(new HealthMetricEventV1toV1_1Transformer());
+PayloadTransformerRegistry.register(new AppointmentEventV1toV1_1Transformer());
+PayloadTransformerRegistry.register(new ClaimEventV1toV1_1Transformer());
+
+/**
+ * Helper function to transform an event payload to the latest version
+ * @param payload The event payload to transform
+ * @returns The transformed payload in the latest version
+ */
+export function transformToLatest<T = any, R = any>(payload: T): R {
+  // Determine the event type
+  const eventType = (payload as any).type;
+  if (!eventType) {
+    throw new Error('Event payload must have a type property');
+  }
+
+  // Get the latest version for this event type
+  // This would typically come from a schema registry or configuration
+  // For this example, we'll use a hardcoded latest version
+  const latestVersion = '1.1.0';
+
+  // Transform the payload to the latest version
+  return PayloadTransformer.transform(payload, latestVersion);
+}
+
+/**
+ * Helper function to transform an event payload to a specific version
+ * @param payload The event payload to transform
+ * @param targetVersion The target version to transform to
+ * @returns The transformed payload in the target version
+ */
+export function transformToVersion<T = any, R = any>(payload: T, targetVersion: SchemaVersion): R {
+  return PayloadTransformer.transform(payload, targetVersion);
 }
