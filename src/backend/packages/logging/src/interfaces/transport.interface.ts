@@ -1,166 +1,156 @@
 /**
- * @file transport.interface.ts
+ * @file Transport Interface
  * @description Defines the Transport interface that all log transport implementations must implement
- * to handle the actual writing of log entries to various destinations. This interface includes methods
- * for initializing, writing logs, and managing the transport lifecycle.
- */
-
-import { LogLevel } from './log-level.enum';
-import { TransportConfig } from './log-config.interface';
-
-/**
- * Represents a structured log entry to be written by a transport
- */
-export interface LogEntry {
-  /**
-   * Log level of the entry
-   */
-  level: LogLevel;
-
-  /**
-   * Timestamp of when the log entry was created
-   */
-  timestamp: Date;
-
-  /**
-   * Log message
-   */
-  message: string;
-
-  /**
-   * Optional error object or stack trace
-   */
-  error?: Error | string;
-
-  /**
-   * Context information for the log entry
-   */
-  context?: Record<string, any>;
-
-  /**
-   * Trace ID for distributed tracing
-   */
-  traceId?: string;
-
-  /**
-   * Service name that generated the log
-   */
-  service?: string;
-
-  /**
-   * Journey identifier (health, care, plan)
-   */
-  journey?: string;
-
-  /**
-   * Additional metadata for the log entry
-   */
-  meta?: Record<string, any>;
-}
-
-/**
- * Represents a batch of log entries to be written together
- */
-export interface LogBatch {
-  /**
-   * Array of log entries in the batch
-   */
-  entries: LogEntry[];
-
-  /**
-   * Optional callback to be called when the batch is written
-   */
-  callback?: (error?: Error) => void;
-}
-
-/**
- * Interface that all log transport implementations must implement
  * to handle the actual writing of log entries to various destinations.
+ *
+ * @module @austa/logging/interfaces
+ */
+
+import { LogEntry } from './log-entry.interface';
+
+/**
+ * Configuration options for a log transport.
+ * Each transport implementation can extend this interface with its own specific options.
+ */
+export interface TransportConfig {
+  /**
+   * Name of the transport for identification purposes.
+   */
+  name: string;
+
+  /**
+   * Whether the transport is enabled.
+   * @default true
+   */
+  enabled?: boolean;
+
+  /**
+   * Maximum number of log entries to batch before writing.
+   * Set to 0 to disable batching.
+   * @default 0
+   */
+  batchSize?: number;
+
+  /**
+   * Maximum time in milliseconds to wait before flushing the batch.
+   * Only applicable if batchSize > 0.
+   * @default 1000
+   */
+  flushInterval?: number;
+
+  /**
+   * Number of retry attempts for failed write operations.
+   * @default 3
+   */
+  retryAttempts?: number;
+
+  /**
+   * Base delay in milliseconds between retry attempts.
+   * Actual delay will use exponential backoff strategy.
+   * @default 100
+   */
+  retryDelay?: number;
+
+  /**
+   * Whether to throw errors when write operations fail after all retries.
+   * If false, errors will be logged but not thrown.
+   * @default false
+   */
+  throwOnError?: boolean;
+}
+
+/**
+ * Result of a write operation to a transport.
+ */
+export interface WriteResult {
+  /**
+   * Whether the write operation was successful.
+   */
+  success: boolean;
+
+  /**
+   * Number of log entries successfully written.
+   */
+  entriesWritten: number;
+
+  /**
+   * Error that occurred during the write operation, if any.
+   */
+  error?: Error;
+
+  /**
+   * Additional metadata about the write operation.
+   */
+  metadata?: Record<string, any>;
+}
+
+/**
+ * Interface that all log transport implementations must implement.
+ * A transport is responsible for writing log entries to a specific destination,
+ * such as the console, a file, or a remote logging service.
  */
 export interface Transport {
   /**
-   * Unique identifier for the transport instance
+   * The name of the transport.
    */
-  readonly id: string;
+  readonly name: string;
 
   /**
-   * Transport type identifier
+   * The configuration of the transport.
    */
-  readonly type: string;
+  readonly config: TransportConfig;
 
   /**
-   * Minimum log level this transport will process
-   */
-  readonly level: LogLevel;
-
-  /**
-   * Whether the transport is currently active
-   */
-  readonly active: boolean;
-
-  /**
-   * Initializes the transport with the provided configuration
-   * Must be called before any log entries can be written
+   * Initializes the transport.
+   * This method is called once when the transport is created.
+   * Use this method to set up connections, create resources, or perform other initialization tasks.
    * 
-   * @param config Transport configuration
-   * @returns Promise that resolves when initialization is complete
-   * @throws Error if initialization fails
+   * @returns A promise that resolves when initialization is complete.
+   * @throws If initialization fails.
    */
-  initialize(config: TransportConfig): Promise<void>;
+  initialize(): Promise<void>;
 
   /**
-   * Writes a single log entry to the transport destination
+   * Writes a single log entry to the transport destination.
    * 
-   * @param entry Log entry to write
-   * @returns Promise that resolves when the write is complete
-   * @throws Error if the write operation fails
+   * @param entry The log entry to write.
+   * @returns A promise that resolves with the result of the write operation.
    */
-  write(entry: LogEntry): Promise<void>;
+  write(entry: LogEntry): Promise<WriteResult>;
 
   /**
-   * Writes a batch of log entries to the transport destination
-   * Implementations should optimize for batch processing when possible
+   * Writes multiple log entries to the transport destination in a batch.
+   * This method is optional and can be implemented for better performance when writing multiple entries.
+   * If not implemented, the default implementation will call write() for each entry.
    * 
-   * @param batch Batch of log entries to write
-   * @returns Promise that resolves when all entries in the batch are written
-   * @throws Error if the batch write operation fails
+   * @param entries The log entries to write.
+   * @returns A promise that resolves with the result of the batch write operation.
    */
-  writeBatch(batch: LogBatch): Promise<void>;
+  writeBatch?(entries: LogEntry[]): Promise<WriteResult>;
 
   /**
-   * Flushes any buffered log entries to ensure they are written
-   * Should be called before application shutdown
+   * Flushes any buffered log entries to the transport destination.
+   * This method is called when the logger needs to ensure all entries are written,
+   * such as before application shutdown.
    * 
-   * @returns Promise that resolves when all buffered entries are written
-   * @throws Error if the flush operation fails
+   * @returns A promise that resolves when all buffered entries have been written.
    */
   flush(): Promise<void>;
 
   /**
-   * Closes the transport and releases any resources
-   * Must be called when the transport is no longer needed
+   * Closes the transport, releasing any resources it holds.
+   * This method is called when the transport is no longer needed,
+   * typically during application shutdown.
    * 
-   * @returns Promise that resolves when the transport is closed
-   * @throws Error if the close operation fails
+   * @returns A promise that resolves when the transport has been closed.
    */
   close(): Promise<void>;
 
   /**
-   * Checks if a log entry should be processed by this transport
-   * based on its level and other criteria
+   * Checks if the transport is healthy and able to write log entries.
+   * This method can be used for health checks and monitoring.
    * 
-   * @param entry Log entry to check
-   * @returns True if the entry should be processed, false otherwise
+   * @returns A promise that resolves with true if the transport is healthy, false otherwise.
    */
-  shouldProcess(entry: LogEntry): boolean;
-
-  /**
-   * Handles transport-specific errors
-   * Implementations should provide appropriate error handling and recovery
-   * 
-   * @param error Error that occurred during transport operations
-   * @param context Additional context about the operation that failed
-   * @returns Promise that resolves when error handling is complete
-   */
-  handleError(error: Error, context?: Record<string, any>): Promise<void>;
+  isHealthy(): Promise<boolean>;
 }
