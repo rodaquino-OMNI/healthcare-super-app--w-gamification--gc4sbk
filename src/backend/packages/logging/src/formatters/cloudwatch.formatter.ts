@@ -1,179 +1,229 @@
-import { Injectable } from '@nestjs/common';
+import { LogEntry, JourneyType } from '../interfaces/log-entry.interface';
+import { LogLevel } from '../interfaces/log-level.enum';
 import { JsonFormatter } from './json.formatter';
-import { LogEntry } from './formatter.interface';
 
 /**
- * CloudWatchFormatter extends the JsonFormatter with specific optimizations for AWS CloudWatch Logs.
- * 
- * It ensures logs are properly formatted for CloudWatch Logs Insights queries and adds AWS-specific
- * metadata fields for enhanced filtering and analysis. This formatter is optimized for use with
- * CloudWatch Logs Insights and provides better query capabilities in the AWS Console.
- *
- * Key features:
- * - Adds AWS-specific metadata fields for enhanced filtering
- * - Formats timestamps in a CloudWatch-optimized format
- * - Structures errors for better CloudWatch error detection
- * - Optimizes field names for CloudWatch Logs Insights queries
- * - Ensures compatibility with CloudWatch Logs Insights query syntax
- * 
- * Best practices implemented:
- * - Uses standardized field names for better query performance
- * - Structures logs for optimal CloudWatch Logs Insights filtering
- * - Formats timestamps in ISO format for proper time-based queries
- * - Adds journey-specific context for cross-service correlation
- * - Includes trace IDs for distributed tracing integration
+ * CloudWatch formatter that extends the JSON formatter with CloudWatch-specific optimizations.
+ * This formatter ensures logs are properly formatted for CloudWatch Logs Insights queries
+ * and adds AWS-specific metadata fields for enhanced filtering and analysis.
  */
-@Injectable()
 export class CloudWatchFormatter extends JsonFormatter {
   /**
-   * Formats a log entry for CloudWatch Logs with specific optimizations.
-   * 
-   * @param entry The log entry to format
-   * @returns A formatted string ready for CloudWatch Logs
+   * AWS region where the logs are being sent
    */
-  format(entry: LogEntry): string {
-    // Create a copy of the entry to avoid modifying the original
-    const cloudWatchEntry = { ...entry };
+  private readonly region: string;
 
-    // Add AWS-specific metadata fields for enhanced filtering
-    // These fields are optimized for CloudWatch Logs Insights queries
-    cloudWatchEntry.aws = {
-      // Add service name for filtering across multiple services
-      // This enables queries like: filter aws.service = "auth-service"
-      service: cloudWatchEntry.context?.service || 'austa-service',
-      
-      // Add environment for filtering across environments
-      // This enables queries like: filter aws.environment = "production"
-      environment: process.env.NODE_ENV || 'development',
-      
-      // Add region for multi-region deployments
-      // This enables queries like: filter aws.region = "us-east-1"
-      region: process.env.AWS_REGION || 'us-east-1',
-      
-      // Add journey context for journey-specific filtering
-      // This enables queries like: filter aws.journey = "health"
-      journey: cloudWatchEntry.context?.journey || 'unknown',
-    };
+  /**
+   * AWS account ID where the logs are being sent
+   */
+  private readonly accountId: string;
 
-    // Format timestamp for CloudWatch indexing
-    // CloudWatch works best with ISO strings for timestamp fields
-    // This ensures proper time-based queries and visualization
-    cloudWatchEntry.timestamp = new Date(cloudWatchEntry.timestamp || Date.now()).toISOString();
-
-    // Add log level as a top-level field for easier filtering
-    // This enables queries like: filter level = "ERROR"
-    cloudWatchEntry.logLevel = cloudWatchEntry.level;
-
-    // Enhance error formatting for CloudWatch error detection
-    if (cloudWatchEntry.error) {
-      // Ensure error is properly structured for CloudWatch error detection
-      cloudWatchEntry.error = this.formatErrorForCloudWatch(cloudWatchEntry.error);
-    }
-
-    // Add request context in a CloudWatch-friendly format
-    if (cloudWatchEntry.context?.request) {
-      cloudWatchEntry.request = {
-        // Request ID for correlation across logs
-        // This enables queries like: filter request.id = "abc-123"
-        id: cloudWatchEntry.context.request.id,
-        
-        // HTTP method for filtering by request type
-        // This enables queries like: filter request.method = "POST"
-        method: cloudWatchEntry.context.request.method,
-        
-        // Request path for endpoint-specific filtering
-        // This enables queries like: filter request.path like "/api/health"
-        path: cloudWatchEntry.context.request.path,
-        
-        // Add user ID for user-specific filtering
-        // This enables queries like: filter request.userId = "user-123"
-        userId: cloudWatchEntry.context.request.userId,
-        
-        // Add duration for performance analysis
-        // This enables queries like: filter request.duration > 1000
-        duration: cloudWatchEntry.context.request.duration,
-      };
-    }
-
-    // Add trace context for distributed tracing correlation
-    if (cloudWatchEntry.context?.trace) {
-      cloudWatchEntry.trace = {
-        // Trace ID for correlation across services
-        // This enables queries like: filter trace.id = "trace-123"
-        id: cloudWatchEntry.context.trace.id,
-        
-        // Span ID for operation-specific tracing
-        // This enables queries like: filter trace.spanId = "span-123"
-        spanId: cloudWatchEntry.context.trace.spanId,
-        
-        // Parent span ID for trace hierarchy
-        // This enables queries like: filter trace.parentSpanId = "parent-span-123"
-        parentSpanId: cloudWatchEntry.context.trace.parentSpanId,
-      };
-    }
-
-    // Use the parent JsonFormatter to convert to JSON string
-    return super.format(cloudWatchEntry);
+  /**
+   * Creates a new CloudWatch formatter
+   * @param region AWS region where the logs are being sent
+   * @param accountId AWS account ID where the logs are being sent
+   */
+  constructor(region?: string, accountId?: string) {
+    super();
+    this.region = region || process.env.AWS_REGION || 'us-east-1';
+    this.accountId = accountId || process.env.AWS_ACCOUNT_ID || '';
   }
 
   /**
-   * Formats an error object for optimal CloudWatch error detection and analysis.
-   * Structures errors to be easily queryable in CloudWatch Logs Insights.
-   * 
-   * @param error The error object to format
-   * @returns A CloudWatch-optimized error object
+   * Prepares the log entry for CloudWatch-specific formatting
+   * @param entry The log entry to prepare
+   * @returns A plain object ready for JSON serialization with CloudWatch optimizations
    */
-  private formatErrorForCloudWatch(error: any): any {
-    if (!error) {
-      return null;
-    }
+  protected override prepareEntry(entry: LogEntry): Record<string, any> {
+    // Start with the base JSON formatting
+    const formattedEntry = super.prepareEntry(entry);
 
-    // If it's already a string, return it
-    if (typeof error === 'string') {
-      return error;
-    }
-
-    // Create a structured error object optimized for CloudWatch
-    // This structure enables powerful error filtering and analysis
-    const formattedError: any = {
-      // Error message for text-based filtering
-      // This enables queries like: filter error.message like "database connection"
-      message: error.message || 'Unknown error',
-      
-      // Error name/type for categorization
-      // This enables queries like: filter error.name = "ValidationError"
-      name: error.name || 'Error',
-      
-      // CloudWatch has special handling for the 'stack' field
-      // This enables better error tracing in CloudWatch
-      stack: error.stack || '',
+    // Add CloudWatch-specific fields with @ prefix for better querying
+    formattedEntry['@timestamp'] = entry.timestamp.toISOString();
+    formattedEntry['@message'] = entry.message;
+    
+    // Convert log level to a format that's easier to filter in CloudWatch
+    formattedEntry['@level'] = this.formatLogLevel(entry.level);
+    
+    // Add AWS-specific metadata
+    formattedEntry['@aws'] = {
+      region: this.region,
+      accountId: this.accountId,
+      service: entry.serviceName || 'austa-superapp',
     };
 
-    // Add error code if available for filtering
-    // This enables queries like: filter error.code = "RESOURCE_NOT_FOUND"
-    if (error.code) {
-      formattedError.code = error.code;
+    // Add request context in a CloudWatch-friendly format
+    if (entry.requestId || entry.userId || entry.sessionId) {
+      formattedEntry['@request'] = {};
+      
+      if (entry.requestId) {
+        formattedEntry['@request'].id = entry.requestId;
+      }
+      
+      if (entry.userId) {
+        formattedEntry['@request'].userId = entry.userId;
+      }
+      
+      if (entry.sessionId) {
+        formattedEntry['@request'].sessionId = entry.sessionId;
+      }
+
+      if (entry.clientIp) {
+        formattedEntry['@request'].clientIp = entry.clientIp;
+      }
+
+      if (entry.userAgent) {
+        formattedEntry['@request'].userAgent = entry.userAgent;
+      }
     }
 
-    // Add status code if available for HTTP errors
-    // This enables queries like: filter error.statusCode = 404
-    if (error.statusCode) {
-      formattedError.statusCode = error.statusCode;
+    // Add trace information in a CloudWatch-friendly format
+    if (entry.traceId || entry.spanId || entry.parentSpanId) {
+      formattedEntry['@trace'] = {};
+      
+      if (entry.traceId) {
+        formattedEntry['@trace'].traceId = entry.traceId;
+      }
+      
+      if (entry.spanId) {
+        formattedEntry['@trace'].spanId = entry.spanId;
+      }
+      
+      if (entry.parentSpanId) {
+        formattedEntry['@trace'].parentSpanId = entry.parentSpanId;
+      }
     }
 
-    // Add additional error details if available
-    // This enables deeper error analysis in CloudWatch
-    if (error.details) {
-      formattedError.details = error.details;
+    // Add journey information in a CloudWatch-friendly format
+    if (entry.journey) {
+      formattedEntry['@journey'] = {
+        type: entry.journey.type,
+      };
+
+      if (entry.journey.resourceId) {
+        formattedEntry['@journey'].resourceId = entry.journey.resourceId;
+      }
+
+      if (entry.journey.action) {
+        formattedEntry['@journey'].action = entry.journey.action;
+      }
+
+      // Add journey-specific fields for better filtering
+      this.addJourneySpecificFields(formattedEntry, entry);
     }
 
-    // Add journey context if available
-    // This enables journey-specific error filtering
-    // This enables queries like: filter error.journey = "health"
-    if (error.journey) {
-      formattedError.journey = error.journey;
+    // Format error information for CloudWatch error detection
+    if (entry.error) {
+      formattedEntry['@error'] = {
+        message: entry.error.message,
+        name: entry.error.name || 'Error',
+      };
+
+      if (entry.error.code) {
+        formattedEntry['@error'].code = entry.error.code;
+      }
+
+      if (entry.error.stack) {
+        // Format stack trace for better readability in CloudWatch
+        formattedEntry['@error'].stack = this.formatStackTrace(entry.error.stack);
+      }
+
+      // Add error classification for better filtering
+      if (entry.error.isTransient !== undefined) {
+        formattedEntry['@error'].isTransient = entry.error.isTransient;
+      }
+
+      if (entry.error.isClientError !== undefined) {
+        formattedEntry['@error'].isClientError = entry.error.isClientError;
+      }
+
+      if (entry.error.isExternalError !== undefined) {
+        formattedEntry['@error'].isExternalError = entry.error.isExternalError;
+      }
     }
 
-    return formattedError;
+    return formattedEntry;
+  }
+
+  /**
+   * Formats the log level for CloudWatch Logs Insights compatibility
+   * @param level The log level to format
+   * @returns The formatted log level string
+   */
+  private formatLogLevel(level: LogLevel): string {
+    // Convert log level to uppercase string for better filtering
+    return level.toString().toUpperCase();
+  }
+
+  /**
+   * Formats a stack trace for better readability in CloudWatch
+   * @param stack The stack trace to format
+   * @returns The formatted stack trace
+   */
+  private formatStackTrace(stack: string): string {
+    // Replace newlines with a special character that CloudWatch can display properly
+    return stack.replace(/\n/g, '\r\n');
+  }
+
+  /**
+   * Adds journey-specific fields to the formatted entry
+   * @param formattedEntry The formatted entry to add fields to
+   * @param entry The original log entry
+   */
+  private addJourneySpecificFields(formattedEntry: Record<string, any>, entry: LogEntry): void {
+    if (!entry.journey) return;
+
+    // Add journey-specific fields based on journey type
+    switch (entry.journey.type) {
+      case JourneyType.HEALTH:
+        if (entry.journey.data) {
+          // Add health-specific fields
+          if (entry.journey.data.metricId) {
+            formattedEntry['@journey'].metricId = entry.journey.data.metricId;
+          }
+          if (entry.journey.data.goalId) {
+            formattedEntry['@journey'].goalId = entry.journey.data.goalId;
+          }
+          if (entry.journey.data.deviceId) {
+            formattedEntry['@journey'].deviceId = entry.journey.data.deviceId;
+          }
+        }
+        break;
+
+      case JourneyType.CARE:
+        if (entry.journey.data) {
+          // Add care-specific fields
+          if (entry.journey.data.appointmentId) {
+            formattedEntry['@journey'].appointmentId = entry.journey.data.appointmentId;
+          }
+          if (entry.journey.data.providerId) {
+            formattedEntry['@journey'].providerId = entry.journey.data.providerId;
+          }
+          if (entry.journey.data.medicationId) {
+            formattedEntry['@journey'].medicationId = entry.journey.data.medicationId;
+          }
+        }
+        break;
+
+      case JourneyType.PLAN:
+        if (entry.journey.data) {
+          // Add plan-specific fields
+          if (entry.journey.data.planId) {
+            formattedEntry['@journey'].planId = entry.journey.data.planId;
+          }
+          if (entry.journey.data.benefitId) {
+            formattedEntry['@journey'].benefitId = entry.journey.data.benefitId;
+          }
+          if (entry.journey.data.claimId) {
+            formattedEntry['@journey'].claimId = entry.journey.data.claimId;
+          }
+        }
+        break;
+    }
+
+    // Add journey data as a separate field for complex queries
+    if (entry.journey.data && Object.keys(entry.journey.data).length > 0) {
+      formattedEntry['@journey'].data = this.sanitizeObject(entry.journey.data);
+    }
   }
 }
