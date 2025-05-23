@@ -1,125 +1,88 @@
-import { Injectable } from '@nestjs/common';
+import { LoggerService } from '@nestjs/common';
+import { SpanStatusCode } from '@opentelemetry/api';
 
 /**
- * Interface representing a mock span for testing purposes
+ * Mock implementation of TracingService for testing purposes.
+ * Simulates the behavior of the actual TracingService without requiring
+ * telemetry infrastructure.
  */
-export interface MockSpan {
-  name: string;
-  status: 'OK' | 'ERROR';
-  startTime: Date;
-  endTime?: Date;
-  error?: Error;
-  isRecording: boolean;
-}
-
-/**
- * Mock implementation of the TracingService for testing purposes.
- * This mock simulates the behavior of the actual TracingService without requiring
- * actual telemetry infrastructure.
- */
-@Injectable()
 export class MockTracingService {
-  /**
-   * Collection of spans created during testing
-   */
-  public spans: MockSpan[] = [];
+  // Track created spans for verification in tests
+  public createdSpans: { name: string; status: SpanStatusCode; error?: Error }[] = [];
 
   /**
-   * Flag to simulate recording state
+   * Creates a mock TracingService instance for testing
+   * @param logger Optional logger service for logging messages
    */
-  private isRecording = true;
+  constructor(private logger?: LoggerService) {}
 
   /**
-   * Creates and simulates a new span for tracing a specific operation.
+   * Creates and simulates a span for tracing a specific operation.
+   * Records the span information for test verification.
+   * 
    * @param name The name of the span to create
-   * @param fn The function to execute within the span context
+   * @param fn The function to execute within the simulated span context
    * @returns The result of the function execution
    */
   async createSpan<T>(name: string, fn: () => Promise<T>): Promise<T> {
-    // Create a mock span
-    const span: MockSpan = {
-      name,
-      status: 'OK',
-      startTime: new Date(),
-      isRecording: this.isRecording,
-    };
-    
-    // Add the span to our collection for later verification
-    this.spans.push(span);
+    // Create a span entry with initial status
+    const spanEntry = { name, status: SpanStatusCode.UNSET };
+    this.createdSpans.push(spanEntry);
     
     try {
       // Execute the provided function
       const result = await fn();
       
-      // If the function completes successfully, set the span status to OK
-      if (span.isRecording) {
-        span.status = 'OK';
-      }
+      // Update span status to OK on success
+      spanEntry.status = SpanStatusCode.OK;
       
       return result;
     } catch (error) {
-      // If the function throws an error, set the span status to ERROR and record the exception
-      if (span.isRecording) {
-        span.status = 'ERROR';
-        span.error = error;
+      // Update span status to ERROR and record the exception
+      spanEntry.status = SpanStatusCode.ERROR;
+      spanEntry.error = error;
+      
+      // Log the error if a logger is provided
+      if (this.logger) {
+        this.logger.error(`Error in span ${name}: ${error.message}`, error.stack, 'MockTracing');
       }
       
-      // Re-throw the error to maintain the same behavior as the real service
       throw error;
-    } finally {
-      // Always end the span regardless of success or failure
-      span.endTime = new Date();
     }
   }
 
   /**
-   * Clears all recorded spans
+   * Clears the recorded spans history.
+   * Useful for resetting the mock between tests.
    */
-  reset(): void {
-    this.spans = [];
+  clearSpans(): void {
+    this.createdSpans = [];
   }
 
   /**
-   * Sets whether spans should record or not
-   * @param recording Whether spans should record
+   * Utility method to find spans by name
+   * @param name The name of the span to find
+   * @returns Array of spans matching the name
    */
-  setRecording(recording: boolean): void {
-    this.isRecording = recording;
+  findSpansByName(name: string): { name: string; status: SpanStatusCode; error?: Error }[] {
+    return this.createdSpans.filter(span => span.name === name);
   }
 
   /**
-   * Gets spans by name
-   * @param name The name of spans to retrieve
-   * @returns Array of spans with the given name
+   * Utility method to check if a span with a specific name exists
+   * @param name The name of the span to check
+   * @returns Boolean indicating if the span exists
    */
-  getSpansByName(name: string): MockSpan[] {
-    return this.spans.filter(span => span.name === name);
+  hasSpan(name: string): boolean {
+    return this.createdSpans.some(span => span.name === name);
   }
 
   /**
-   * Gets spans by status
-   * @param status The status of spans to retrieve
-   * @returns Array of spans with the given status
+   * Utility method to check if a span with a specific name has an error
+   * @param name The name of the span to check
+   * @returns Boolean indicating if the span has an error
    */
-  getSpansByStatus(status: 'OK' | 'ERROR'): MockSpan[] {
-    return this.spans.filter(span => span.status === status);
-  }
-
-  /**
-   * Gets spans that have errors
-   * @returns Array of spans with errors
-   */
-  getErrorSpans(): MockSpan[] {
-    return this.spans.filter(span => span.error !== undefined);
-  }
-
-  /**
-   * Gets the duration of a span in milliseconds
-   * @param span The span to get the duration for
-   * @returns The duration in milliseconds, or undefined if the span hasn't ended
-   */
-  getSpanDuration(span: MockSpan): number | undefined {
-    if (!span.endTime) return undefined;
-    return span.endTime.getTime() - span.startTime.getTime();
+  hasErrorInSpan(name: string): boolean {
+    return this.createdSpans.some(span => span.name === name && span.status === SpanStatusCode.ERROR);
   }
 }
