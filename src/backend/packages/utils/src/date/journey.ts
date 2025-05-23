@@ -1,211 +1,145 @@
 /**
- * Journey-specific date formatting utilities
- * 
- * This module provides date formatting functions tailored to the specific needs of each
- * journey (Health, Care, Plan) in the AUSTA SuperApp. Each journey has unique date
- * formatting requirements based on its domain and user experience needs.
- * 
- * @packageDocumentation
+ * @file Journey-specific Date Utilities
+ * @description Provides date formatting utilities tailored to the specific needs of each journey
+ * (Health, Care, Plan) in the AUSTA SuperApp. These utilities ensure consistent date representation
+ * across all journey contexts.
  */
 
-import { format, isValid } from 'date-fns';
-import { ptBR, enUS } from 'date-fns/locale';
+import { formatDate, formatDateTime } from './format';
+import { isValidDate } from './validation';
+import { DEFAULT_LOCALE, JOURNEY_DATE_FORMATS } from './constants';
 
 /**
- * Enum representing the three main journey types in the AUSTA SuperApp
+ * Enum representing the three main journeys in the AUSTA SuperApp
  */
 export enum JourneyType {
-  /** Health journey ("Minha Saúde") - Focused on health metrics and monitoring */
   HEALTH = 'health',
-  
-  /** Care journey ("Cuidar-me Agora") - Focused on appointments and medical care */
   CARE = 'care',
-  
-  /** Plan journey ("Meu Plano & Benefícios") - Focused on insurance plans and benefits */
   PLAN = 'plan'
 }
 
 /**
- * Map of locale identifiers to date-fns locale objects
+ * Error thrown when an invalid journey identifier is provided
  */
-const LOCALE_MAP = {
-  'pt-BR': ptBR,
-  'en-US': enUS
-};
-
-/**
- * Default locale to use when none is specified
- */
-const DEFAULT_LOCALE = 'pt-BR';
-
-/**
- * Error message for invalid journey type
- */
-const INVALID_JOURNEY_ERROR = 'Invalid journey type provided. Must be one of: health, care, plan';
-
-/**
- * Journey-specific date format mapping
- */
-const JOURNEY_DATE_FORMATS: Record<JourneyType, string> = {
-  [JourneyType.HEALTH]: 'dd/MM/yyyy HH:mm', // Health journey uses detailed format with time for metrics
-  [JourneyType.CARE]: 'EEE, dd MMM yyyy',    // Care journey uses appointment-friendly format
-  [JourneyType.PLAN]: 'dd/MM/yyyy'           // Plan journey uses formal date format for claims and documents
-};
-
-/**
- * Validates if a date is valid
- * 
- * @param date - The date to validate
- * @returns True if the date is valid, false otherwise
- */
-const isValidDate = (date: any): boolean => {
-  if (date === null || date === undefined) {
-    return false;
+export class InvalidJourneyError extends Error {
+  constructor(journeyId: string) {
+    super(`Invalid journey identifier: ${journeyId}. Expected one of: ${Object.values(JourneyType).join(', ')}`);
+    this.name = 'InvalidJourneyError';
   }
-  
-  if (date instanceof Date) {
-    return isValid(date);
-  }
-  
-  if (typeof date === 'string' || typeof date === 'number') {
-    const dateObj = new Date(date);
-    return isValid(dateObj);
-  }
-  
-  return false;
-};
-
-/**
- * Validates and normalizes a journey type string to a valid JourneyType enum value
- * 
- * @param journeyId - The journey identifier to validate
- * @returns The normalized JourneyType enum value
- * @throws Error if the journey type is invalid
- */
-const validateJourneyType = (journeyId: string): JourneyType => {
-  const normalizedJourneyId = journeyId.toLowerCase();
-  
-  // Check if the normalized journey ID is a valid JourneyType
-  if (Object.values(JourneyType).includes(normalizedJourneyId as JourneyType)) {
-    return normalizedJourneyId as JourneyType;
-  }
-  
-  throw new Error(INVALID_JOURNEY_ERROR);
-};
+}
 
 /**
  * Formats a date according to journey-specific requirements
  * 
- * Each journey in the AUSTA SuperApp has specific date formatting needs:
- * - Health journey ("Minha Saúde"): Detailed format with time for precise health metrics
- * - Care journey ("Cuidar-me Agora"): Appointment-friendly format with day of week
- * - Plan journey ("Meu Plano & Benefícios"): Formal date format for claims and documents
- * 
- * @example
- * // Health journey date formatting (with time)
- * formatJourneyDate(new Date(), JourneyType.HEALTH); // "25/05/2023 14:30"
- * 
- * @example
- * // Care journey date formatting (with day of week)
- * formatJourneyDate(new Date(), JourneyType.CARE); // "Qui, 25 Mai 2023"
- * 
- * @example
- * // Plan journey date formatting (formal)
- * formatJourneyDate(new Date(), JourneyType.PLAN); // "25/05/2023"
- * 
- * @param date - The date to format
- * @param journeyType - The journey type or identifier string
+ * @param date - The date to format (can be Date object, string, or number)
+ * @param journeyType - The journey type (health, care, plan)
  * @param locale - The locale to use for formatting (defaults to pt-BR)
  * @returns Journey-specific formatted date string
- * @throws Error if the journey type is invalid
+ * @throws {InvalidJourneyError} If an invalid journey identifier is provided
+ * 
+ * @example
+ * // Health journey - formats with time (for metrics tracking)
+ * formatJourneyDate(new Date(), JourneyType.HEALTH); // '15/05/2023 14:30'
+ * 
+ * @example
+ * // Care journey - formats with day name (for appointments)
+ * formatJourneyDate(new Date(), JourneyType.CARE); // 'Seg, 15 Mai 2023'
+ * 
+ * @example
+ * // Plan journey - formats with standard date (for claims and documents)
+ * formatJourneyDate(new Date(), JourneyType.PLAN); // '15/05/2023'
  */
 export const formatJourneyDate = (
   date: Date | string | number,
   journeyType: JourneyType | string,
   locale: string = DEFAULT_LOCALE
 ): string => {
-  // Validate date
   if (!isValidDate(date)) {
     return '';
   }
   
-  // Convert date to Date object if it's a string or number
   const dateObj = typeof date === 'string' || typeof date === 'number' ? new Date(date) : date;
   
-  // Get locale object
-  const localeObj = LOCALE_MAP[locale] || LOCALE_MAP[DEFAULT_LOCALE];
+  // Normalize journey type to string for comparison
+  const journeyId = typeof journeyType === 'string' ? journeyType.toLowerCase() : journeyType;
   
-  try {
-    // Validate and normalize journey type
-    const normalizedJourneyType = typeof journeyType === 'string' 
-      ? validateJourneyType(journeyType)
-      : journeyType;
-    
-    // Get format string for the journey type
-    const formatStr = JOURNEY_DATE_FORMATS[normalizedJourneyType];
-    
-    // Format the date
-    return format(dateObj, formatStr, { locale: localeObj });
-  } catch (error) {
-    if (error instanceof Error && error.message === INVALID_JOURNEY_ERROR) {
-      throw error;
-    }
-    
-    // For other errors, return empty string
-    return '';
+  // Journey-specific formats
+  switch (journeyId) {
+    case JourneyType.HEALTH:
+      // Health journey uses detailed format with time for metrics
+      return formatDateTime(dateObj, JOURNEY_DATE_FORMATS.health, locale);
+      
+    case JourneyType.CARE:
+      // Care journey uses appointment-friendly format
+      return formatDate(dateObj, JOURNEY_DATE_FORMATS.care, locale);
+      
+    case JourneyType.PLAN:
+      // Plan journey uses formal date format for claims and documents
+      return formatDate(dateObj, JOURNEY_DATE_FORMATS.plan, locale);
+      
+    default:
+      throw new InvalidJourneyError(String(journeyId));
   }
 };
 
 /**
- * Formats a date for the Health journey ("Minha Saúde")
+ * Formats a date range according to journey-specific requirements
+ * 
+ * @param startDate - The start date of the range
+ * @param endDate - The end date of the range
+ * @param journeyType - The journey type (health, care, plan)
+ * @param locale - The locale to use for formatting (defaults to pt-BR)
+ * @returns Journey-specific formatted date range string
+ * @throws {InvalidJourneyError} If an invalid journey identifier is provided
  * 
  * @example
- * // Format a date for the Health journey
- * formatHealthDate(new Date()); // "25/05/2023 14:30"
+ * // Health journey date range
+ * formatJourneyDateRange(new Date('2023-05-01'), new Date('2023-05-15'), JourneyType.HEALTH);
+ * // '01/05/2023 00:00 - 15/05/2023 00:00'
  * 
- * @param date - The date to format
- * @param locale - The locale to use for formatting (defaults to pt-BR)
- * @returns Health journey formatted date string
+ * @example
+ * // Care journey date range
+ * formatJourneyDateRange(new Date('2023-05-01'), new Date('2023-05-15'), JourneyType.CARE);
+ * // 'Seg, 01 Mai 2023 - Seg, 15 Mai 2023'
  */
-export const formatHealthDate = (
-  date: Date | string | number,
+export const formatJourneyDateRange = (
+  startDate: Date | string | number,
+  endDate: Date | string | number,
+  journeyType: JourneyType | string,
   locale: string = DEFAULT_LOCALE
 ): string => {
-  return formatJourneyDate(date, JourneyType.HEALTH, locale);
+  if (!isValidDate(startDate) || !isValidDate(endDate)) {
+    return '';
+  }
+  
+  const formattedStartDate = formatJourneyDate(startDate, journeyType, locale);
+  const formattedEndDate = formatJourneyDate(endDate, journeyType, locale);
+  
+  return `${formattedStartDate} - ${formattedEndDate}`;
 };
 
 /**
- * Formats a date for the Care journey ("Cuidar-me Agora")
+ * Gets the appropriate date format string for a specific journey
  * 
- * @example
- * // Format a date for the Care journey
- * formatCareDate(new Date()); // "Qui, 25 Mai 2023"
- * 
- * @param date - The date to format
- * @param locale - The locale to use for formatting (defaults to pt-BR)
- * @returns Care journey formatted date string
+ * @param journeyType - The journey type (health, care, plan)
+ * @returns The date format string for the specified journey
+ * @throws {InvalidJourneyError} If an invalid journey identifier is provided
  */
-export const formatCareDate = (
-  date: Date | string | number,
-  locale: string = DEFAULT_LOCALE
-): string => {
-  return formatJourneyDate(date, JourneyType.CARE, locale);
-};
-
-/**
- * Formats a date for the Plan journey ("Meu Plano & Benefícios")
- * 
- * @example
- * // Format a date for the Plan journey
- * formatPlanDate(new Date()); // "25/05/2023"
- * 
- * @param date - The date to format
- * @param locale - The locale to use for formatting (defaults to pt-BR)
- * @returns Plan journey formatted date string
- */
-export const formatPlanDate = (
-  date: Date | string | number,
-  locale: string = DEFAULT_LOCALE
-): string => {
-  return formatJourneyDate(date, JourneyType.PLAN, locale);
+export const getJourneyDateFormat = (journeyType: JourneyType | string): string => {
+  // Normalize journey type to string for comparison
+  const journeyId = typeof journeyType === 'string' ? journeyType.toLowerCase() : journeyType;
+  
+  switch (journeyId) {
+    case JourneyType.HEALTH:
+      return JOURNEY_DATE_FORMATS.health;
+      
+    case JourneyType.CARE:
+      return JOURNEY_DATE_FORMATS.care;
+      
+    case JourneyType.PLAN:
+      return JOURNEY_DATE_FORMATS.plan;
+      
+    default:
+      throw new InvalidJourneyError(String(journeyId));
+  }
 };
