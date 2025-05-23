@@ -1,20 +1,34 @@
-import axios, { AxiosError, AxiosInstance, AxiosRequestConfig, AxiosResponse } from 'axios';
+/**
+ * @file Internal API Client
+ * @description Specialized HTTP client utilities for internal service-to-service communication
+ * within the microservice architecture.
+ */
+
+import axios, { AxiosInstance, AxiosRequestConfig, AxiosError } from 'axios';
 import { createSecureHttpClient } from './security';
+import { v4 as uuidv4 } from 'uuid';
+import { Logger } from '@austa/logging';
+
+// Initialize logger
+const logger = new Logger({ service: 'internal-api-client' });
 
 /**
- * Represents the journey types in the AUSTA SuperApp
+ * Journey types supported by the AUSTA SuperApp
  */
-export enum JourneyType {
-  HEALTH = 'health',
-  CARE = 'care',
-  PLAN = 'plan',
-  GAMIFICATION = 'gamification',
-  NOTIFICATION = 'notification',
-  AUTH = 'auth',
+export type JourneyType = 'health' | 'care' | 'plan' | 'common';
+
+/**
+ * Extended Axios request config with retry information
+ */
+export interface InternalRequestConfig extends AxiosRequestConfig {
+  /**
+   * Current retry attempt count
+   */
+  retryCount?: number;
 }
 
 /**
- * Configuration options for the internal API client
+ * Configuration options for internal API client
  */
 export interface InternalApiClientOptions {
   /**
@@ -28,494 +42,250 @@ export interface InternalApiClientOptions {
   headers?: Record<string, string>;
   
   /**
-   * Request timeout in milliseconds (default: 10000)
+   * Request timeout in milliseconds
+   * @default 10000
    */
   timeout?: number;
   
   /**
    * Journey context for the client
+   * @default 'common'
    */
-  journeyContext?: {
-    /**
-     * The journey type this client is associated with
-     */
-    journeyType: JourneyType;
-    
-    /**
-     * Additional journey-specific context
-     */
-    context?: Record<string, any>;
-  };
+  journey?: JourneyType;
   
   /**
-   * Retry configuration
+   * Whether to enable automatic retries for failed requests
+   * @default true
    */
-  retry?: {
-    /**
-     * Maximum number of retry attempts (default: 3)
-     */
-    maxRetries?: number;
-    
-    /**
-     * Base delay in milliseconds for exponential backoff (default: 300)
-     */
-    baseDelayMs?: number;
-    
-    /**
-     * HTTP status codes that should trigger a retry
-     */
-    retryStatusCodes?: number[];
-    
-    /**
-     * Whether to retry on network errors (default: true)
-     */
-    retryNetworkErrors?: boolean;
-  };
+  enableRetry?: boolean;
   
   /**
-   * Circuit breaker configuration
+   * Maximum number of retry attempts
+   * @default 3
    */
-  circuitBreaker?: {
-    /**
-     * Whether to enable circuit breaker (default: true)
-     */
-    enabled?: boolean;
-    
-    /**
-     * Number of failures before opening the circuit (default: 5)
-     */
-    failureThreshold?: number;
-    
-    /**
-     * Time in milliseconds to keep the circuit open (default: 30000)
-     */
-    resetTimeoutMs?: number;
-  };
+  maxRetries?: number;
   
   /**
-   * Tracing configuration
+   * Base delay between retries in milliseconds
+   * @default 300
    */
-  tracing?: {
-    /**
-     * Whether to enable distributed tracing (default: true)
-     */
-    enabled?: boolean;
-    
-    /**
-     * Name of the service making the request
-     */
-    serviceName?: string;
-  };
+  retryDelay?: number;
+  
+  /**
+   * Whether to enable distributed tracing
+   * @default true
+   */
+  enableTracing?: boolean;
 }
 
 /**
- * Default retry status codes that should trigger a retry
+ * Default configuration for internal API clients
  */
-const DEFAULT_RETRY_STATUS_CODES = [408, 429, 500, 502, 503, 504];
+const DEFAULT_OPTIONS: Partial<InternalApiClientOptions> = {
+  timeout: 10000,
+  journey: 'common',
+  enableRetry: true,
+  maxRetries: 3,
+  retryDelay: 300,
+  enableTracing: true
+};
 
 /**
- * Circuit breaker state
+ * HTTP methods that are safe to retry
  */
-interface CircuitBreakerState {
-  failures: number;
-  lastFailureTime: number;
-  isOpen: boolean;
-}
+export const RETRYABLE_METHODS = ['get', 'head', 'options', 'delete', 'put'];
 
 /**
- * Circuit breaker states for different services
+ * Status codes that should trigger a retry
  */
-const circuitBreakerStates: Record<string, CircuitBreakerState> = {};
+export const RETRYABLE_STATUS_CODES = [
+  408, // Request Timeout
+  429, // Too Many Requests
+  500, // Internal Server Error
+  502, // Bad Gateway
+  503, // Service Unavailable
+  504  // Gateway Timeout
+];
 
 /**
- * Creates a secure axios instance with predefined config for internal API calls
- * with enhanced features for service-to-service communication.
+ * Determines if an error is retryable based on its type and status code
  * 
- * @param options - Configuration options for the internal API client
- * @returns A configured Axios instance with security measures, retry logic, and error handling
+ * @param error - The error to check
+ * @param config - The request configuration
+ * @returns Whether the request should be retried
  */
-export function createInternalApiClient(options: InternalApiClientOptions): AxiosInstance {
-  const {
-    baseURL,
-    headers = {},
-    timeout = 10000,
-    journeyContext,
-    retry = {
-      maxRetries: 3,
-      baseDelayMs: 300,
-      retryStatusCodes: DEFAULT_RETRY_STATUS_CODES,
-      retryNetworkErrors: true,
-    },
-    circuitBreaker = {
-      enabled: true,
-      failureThreshold: 5,
-      resetTimeoutMs: 30000,
-    },
-    tracing = {
-      enabled: true,
-      serviceName: 'unknown-service',
-    },
-  } = options;
-
-  // Create a secure axios instance
-  const securityClient = createSecureHttpClient();
-  const instance = axios.create();
-  
-  // Add URL validation interceptor for SSRF protection
-  instance.interceptors.request.use(config => {
-    if (config.url) {
-      securityClient.validateUrl(config.url, config.baseURL);
-    }
-    return config;
-  });
-  
-  // Set default configuration
-  instance.defaults.baseURL = baseURL;
-  instance.defaults.timeout = timeout;
-  
-  // Set default headers with journey context
-  const defaultHeaders: Record<string, string> = {
-    'Content-Type': 'application/json',
-    ...headers,
-  };
-  
-  // Add journey context headers if provided
-  if (journeyContext) {
-    defaultHeaders['X-Journey-Type'] = journeyContext.journeyType;
-    
-    // Add additional context as headers if provided
-    if (journeyContext.context) {
-      Object.entries(journeyContext.context).forEach(([key, value]) => {
-        if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
-          defaultHeaders[`X-Journey-${key}`] = String(value);
-        }
-      });
-    }
+export function isRetryableError(error: AxiosError, config: AxiosRequestConfig): boolean {
+  // Don't retry if the request method is not retryable
+  if (config.method && !RETRYABLE_METHODS.includes(config.method.toLowerCase())) {
+    return false;
   }
   
-  // Set the default headers
-  instance.defaults.headers.common = defaultHeaders;
-  
-  // Generate a unique identifier for this service endpoint for circuit breaker state
-  const serviceKey = `${baseURL}-${journeyContext?.journeyType || 'unknown'}`;
-  
-  // Initialize circuit breaker state if it doesn't exist
-  if (circuitBreaker.enabled && !circuitBreakerStates[serviceKey]) {
-    circuitBreakerStates[serviceKey] = {
-      failures: 0,
-      lastFailureTime: 0,
-      isOpen: false,
-    };
+  // Retry network errors (no response)
+  if (!error.response) {
+    return true;
   }
   
-  // Add request interceptor for circuit breaker and tracing
-  instance.interceptors.request.use(
-    async (config) => {
-      // Check if circuit is open
-      if (circuitBreaker.enabled && circuitBreakerStates[serviceKey]?.isOpen) {
-        const state = circuitBreakerStates[serviceKey];
-        const now = Date.now();
-        
-        // Check if circuit should be reset (half-open)
-        if (now - state.lastFailureTime > circuitBreaker.resetTimeoutMs) {
-          // Reset to half-open state
-          state.isOpen = false;
-          state.failures = 0;
-        } else {
-          // Circuit is still open, reject the request
-          return Promise.reject(new Error(`Circuit breaker is open for ${serviceKey}`));
-        }
-      }
-      
-      // Add tracing headers if enabled
-      if (tracing.enabled) {
-        // Add correlation ID if not already present
-        if (!config.headers['X-Correlation-ID']) {
-          config.headers['X-Correlation-ID'] = generateCorrelationId();
-        }
-        
-        // Add service name
-        config.headers['X-Source-Service'] = tracing.serviceName;
-      }
-      
-      return config;
-    },
-    (error) => Promise.reject(error)
-  );
-  
-  // Add response interceptor for retry logic and circuit breaker
-  instance.interceptors.response.use(
-    // Success handler
-    (response) => {
-      // Reset circuit breaker on success
-      if (circuitBreaker.enabled && circuitBreakerStates[serviceKey]) {
-        circuitBreakerStates[serviceKey].failures = 0;
-        circuitBreakerStates[serviceKey].isOpen = false;
-      }
-      
-      return response;
-    },
-    // Error handler
-    async (error: AxiosError) => {
-      // Get the config and response from the error
-      const config = error.config as AxiosRequestConfig & { _retryCount?: number };
-      const status = error.response?.status;
-      
-      // Initialize retry count if not present
-      if (config._retryCount === undefined) {
-        config._retryCount = 0;
-      }
-      
-      // Check if we should retry the request
-      const shouldRetry = (
-        // Check if we have retries left
-        config._retryCount < retry.maxRetries &&
-        // Check if it's a network error or a retryable status code
-        ((retry.retryNetworkErrors && !error.response) ||
-         (status && retry.retryStatusCodes.includes(status)))
-      );
-      
-      // Update circuit breaker state
-      if (circuitBreaker.enabled && circuitBreakerStates[serviceKey]) {
-        const state = circuitBreakerStates[serviceKey];
-        
-        // Increment failure count
-        state.failures += 1;
-        state.lastFailureTime = Date.now();
-        
-        // Check if circuit should be opened
-        if (state.failures >= circuitBreaker.failureThreshold) {
-          state.isOpen = true;
-        }
-      }
-      
-      // Retry the request if needed
-      if (shouldRetry) {
-        config._retryCount += 1;
-        
-        // Calculate delay with exponential backoff
-        const delay = calculateRetryDelay(
-          config._retryCount,
-          retry.baseDelayMs,
-          status === 429 ? getRetryAfterMs(error.response) : undefined
-        );
-        
-        // Wait for the delay
-        await new Promise((resolve) => setTimeout(resolve, delay));
-        
-        // Retry the request
-        return instance(config);
-      }
-      
-      // Enhance error with journey context
-      if (journeyContext) {
-        enhanceErrorWithJourneyContext(error, journeyContext);
-      }
-      
-      return Promise.reject(error);
-    }
-  );
-  
-  return instance;
+  // Retry specific status codes
+  return RETRYABLE_STATUS_CODES.includes(error.response.status);
 }
 
 /**
- * Generates a correlation ID for distributed tracing
+ * Calculate exponential backoff delay with jitter
  * 
- * @returns A unique correlation ID
+ * @param retryCount - Current retry attempt number
+ * @param baseDelay - Base delay in milliseconds
+ * @returns Delay in milliseconds before next retry
  */
-function generateCorrelationId(): string {
-  return `${Date.now()}-${Math.random().toString(36).substring(2, 15)}`;
-}
-
-/**
- * Calculates the retry delay using exponential backoff
- * 
- * @param retryCount - The current retry attempt number
- * @param baseDelayMs - The base delay in milliseconds
- * @param retryAfterMs - Optional retry-after time from server
- * @returns The delay in milliseconds
- */
-function calculateRetryDelay(
-  retryCount: number,
-  baseDelayMs: number,
-  retryAfterMs?: number
-): number {
-  // If retry-after header is present, use that value
-  if (retryAfterMs) {
-    return retryAfterMs;
-  }
+export function calculateBackoffDelay(retryCount: number, baseDelay: number): number {
+  // Exponential backoff: baseDelay * 2^retryCount
+  const exponentialDelay = baseDelay * Math.pow(2, retryCount);
   
-  // Calculate exponential backoff with jitter
-  const exponentialDelay = baseDelayMs * Math.pow(2, retryCount - 1);
-  const jitter = Math.random() * 0.2 * exponentialDelay; // 20% jitter
+  // Add jitter (±20%) to prevent retry storms
+  const jitter = exponentialDelay * 0.2 * (Math.random() - 0.5);
   
   return exponentialDelay + jitter;
 }
 
 /**
- * Extracts retry-after time from response headers
+ * Creates a secure axios instance with predefined config for internal API calls
+ * with journey-specific configuration, retry logic, and distributed tracing.
  * 
- * @param response - The Axios response object
- * @returns The retry-after time in milliseconds, or undefined if not present
+ * @param options - Configuration options for the internal API client
+ * @returns A configured Axios instance with security measures and retry logic
  */
-function getRetryAfterMs(response?: AxiosResponse): number | undefined {
-  if (!response || !response.headers) return undefined;
+export function createInternalApiClient(options: InternalApiClientOptions): AxiosInstance {
+  // Merge default options with provided options
+  const config: InternalApiClientOptions = {
+    ...DEFAULT_OPTIONS,
+    ...options
+  };
   
-  const retryAfter = response.headers['retry-after'];
-  if (!retryAfter) return undefined;
+  // Create a secure HTTP client
+  const instance = createSecureHttpClient();
   
-  // If retry-after is a number, it's in seconds
-  if (!isNaN(Number(retryAfter))) {
-    return Number(retryAfter) * 1000;
+  // Configure base URL and default headers
+  instance.defaults.baseURL = config.baseURL;
+  instance.defaults.headers.common = {
+    'Content-Type': 'application/json',
+    'X-Journey-Context': config.journey,
+    ...config.headers
+  };
+  
+  // Set timeout
+  instance.defaults.timeout = config.timeout;
+  
+  // Add request interceptor for distributed tracing
+  if (config.enableTracing) {
+    instance.interceptors.request.use(request => {
+      // Generate correlation ID if not already present
+      if (!request.headers['X-Correlation-ID']) {
+        request.headers['X-Correlation-ID'] = uuidv4();
+      }
+      
+      // Add journey context if not already present
+      if (!request.headers['X-Journey-Context'] && config.journey) {
+        request.headers['X-Journey-Context'] = config.journey;
+      }
+      
+      return request;
+    });
   }
   
-  // If it's a date, calculate the difference
-  const retryDate = new Date(retryAfter);
-  if (!isNaN(retryDate.getTime())) {
-    return Math.max(0, retryDate.getTime() - Date.now());
+  // Add retry logic
+  if (config.enableRetry) {
+    // Add retry count to request config
+    instance.interceptors.request.use(request => {
+      (request as InternalRequestConfig).retryCount = (request as InternalRequestConfig).retryCount || 0;
+      return request;
+    });
+    
+    // Add response interceptor for retry logic
+    instance.interceptors.response.use(undefined, async (error: AxiosError) => {
+      const { config: requestConfig } = error;
+      
+      // If there's no config, we can't retry
+      if (!requestConfig) {
+        return Promise.reject(error);
+      }
+      
+      // Get current retry count
+      const retryCount = (requestConfig as InternalRequestConfig).retryCount || 0;
+      
+      // Check if we should retry
+      if (retryCount >= (config.maxRetries || 3) || !isRetryableError(error, requestConfig)) {
+        // Log failed request after all retries
+        if (retryCount > 0) {
+          logger.warn(`Request to ${requestConfig.url} failed after ${retryCount} retries`, {
+            journey: config.journey,
+            correlationId: requestConfig.headers?.['X-Correlation-ID'],
+            status: error.response?.status,
+            errorMessage: error.message
+          });
+        }
+        return Promise.reject(error);
+      }
+      
+      // Increment retry count
+      (requestConfig as InternalRequestConfig).retryCount = retryCount + 1;
+      
+      // Calculate delay with exponential backoff
+      const delay = calculateBackoffDelay(retryCount, config.retryDelay || 300);
+      
+      // Log retry attempt
+      logger.info(`Retrying request to ${requestConfig.url}`, {
+        attempt: retryCount + 1,
+        maxRetries: config.maxRetries,
+        delay,
+        journey: config.journey,
+        correlationId: requestConfig.headers?.['X-Correlation-ID']
+      });
+      
+      // Wait for the calculated delay
+      await new Promise(resolve => setTimeout(resolve, delay));
+      
+      // Retry the request
+      return instance(requestConfig);
+    });
   }
   
-  return undefined;
-}
-
-/**
- * Enhances an error with journey context information
- * 
- * @param error - The Axios error object
- * @param journeyContext - The journey context
- */
-function enhanceErrorWithJourneyContext(
-  error: AxiosError,
-  journeyContext: InternalApiClientOptions['journeyContext']
-): void {
-  if (!error || !journeyContext) return;
+  // Add error context enhancement
+  instance.interceptors.response.use(undefined, (error: AxiosError) => {
+    if (error.response) {
+      // Create enhanced error object with journey context
+      const enhancedError = error as AxiosError & {
+        journeyContext?: JourneyType;
+        correlationId?: string;
+        retryCount?: number;
+      };
+      
+      // Add journey context
+      enhancedError.journeyContext = config.journey;
+      
+      // Add correlation ID from response headers if available
+      const correlationId = error.response.headers['x-correlation-id'] || 
+                           error.config?.headers?.['X-Correlation-ID'];
+      if (correlationId) {
+        enhancedError.correlationId = correlationId as string;
+      }
+      
+      // Add retry count if available
+      if (error.config) {
+        enhancedError.retryCount = (error.config as InternalRequestConfig).retryCount;
+      }
+      
+      // Log error with context
+      logger.error(`Service communication error: ${error.message}`, {
+        journey: config.journey,
+        correlationId: enhancedError.correlationId,
+        status: error.response.status,
+        url: error.config?.url,
+        method: error.config?.method,
+        retryCount: enhancedError.retryCount
+      });
+    }
+    
+    return Promise.reject(error);
+  });
   
-  // Add journey context to the error object
-  (error as any).journeyContext = journeyContext;
-  
-  // Enhance error message with journey information
-  if (error.message) {
-    error.message = `[${journeyContext.journeyType.toUpperCase()}] ${error.message}`;
-  }
-}
-
-/**
- * Creates a journey-specific internal API client for the Health journey
- * 
- * @param baseURL - The base URL for the API
- * @param options - Additional configuration options
- * @returns A configured Axios instance for the Health journey
- */
-export function createHealthJourneyClient(
-  baseURL: string,
-  options: Omit<InternalApiClientOptions, 'baseURL' | 'journeyContext'> = {}
-): AxiosInstance {
-  return createInternalApiClient({
-    baseURL,
-    journeyContext: {
-      journeyType: JourneyType.HEALTH,
-    },
-    ...options,
-  });
-}
-
-/**
- * Creates a journey-specific internal API client for the Care journey
- * 
- * @param baseURL - The base URL for the API
- * @param options - Additional configuration options
- * @returns A configured Axios instance for the Care journey
- */
-export function createCareJourneyClient(
-  baseURL: string,
-  options: Omit<InternalApiClientOptions, 'baseURL' | 'journeyContext'> = {}
-): AxiosInstance {
-  return createInternalApiClient({
-    baseURL,
-    journeyContext: {
-      journeyType: JourneyType.CARE,
-    },
-    ...options,
-  });
-}
-
-/**
- * Creates a journey-specific internal API client for the Plan journey
- * 
- * @param baseURL - The base URL for the API
- * @param options - Additional configuration options
- * @returns A configured Axios instance for the Plan journey
- */
-export function createPlanJourneyClient(
-  baseURL: string,
-  options: Omit<InternalApiClientOptions, 'baseURL' | 'journeyContext'> = {}
-): AxiosInstance {
-  return createInternalApiClient({
-    baseURL,
-    journeyContext: {
-      journeyType: JourneyType.PLAN,
-    },
-    ...options,
-  });
-}
-
-/**
- * Creates a journey-specific internal API client for the Gamification engine
- * 
- * @param baseURL - The base URL for the API
- * @param options - Additional configuration options
- * @returns A configured Axios instance for the Gamification engine
- */
-export function createGamificationClient(
-  baseURL: string,
-  options: Omit<InternalApiClientOptions, 'baseURL' | 'journeyContext'> = {}
-): AxiosInstance {
-  return createInternalApiClient({
-    baseURL,
-    journeyContext: {
-      journeyType: JourneyType.GAMIFICATION,
-    },
-    ...options,
-  });
-}
-
-/**
- * Creates a journey-specific internal API client for the Notification service
- * 
- * @param baseURL - The base URL for the API
- * @param options - Additional configuration options
- * @returns A configured Axios instance for the Notification service
- */
-export function createNotificationClient(
-  baseURL: string,
-  options: Omit<InternalApiClientOptions, 'baseURL' | 'journeyContext'> = {}
-): AxiosInstance {
-  return createInternalApiClient({
-    baseURL,
-    journeyContext: {
-      journeyType: JourneyType.NOTIFICATION,
-    },
-    ...options,
-  });
-}
-
-/**
- * Creates a journey-specific internal API client for the Auth service
- * 
- * @param baseURL - The base URL for the API
- * @param options - Additional configuration options
- * @returns A configured Axios instance for the Auth service
- */
-export function createAuthClient(
-  baseURL: string,
-  options: Omit<InternalApiClientOptions, 'baseURL' | 'journeyContext'> = {}
-): AxiosInstance {
-  return createInternalApiClient({
-    baseURL,
-    journeyContext: {
-      journeyType: JourneyType.AUTH,
-    },
-    ...options,
-  });
+  return instance;
 }
