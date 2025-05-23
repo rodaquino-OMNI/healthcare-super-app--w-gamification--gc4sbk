@@ -1,423 +1,373 @@
 /**
- * @file Journey Context Fixtures
- * @description Sample journey context objects for the three main journeys (Health, Care, and Plan)
- * with realistic metadata and identifiers for testing journey-specific log enrichment.
+ * Test fixtures for journey contexts used in E2E tests.
+ * Contains sample journey context objects for the three main journeys
+ * (Health, Care, and Plan) with realistic metadata and identifiers.
  */
 
-import { JourneyContext, JourneyType } from '../../../src/context/journey-context.interface';
-import { LogLevel } from '../../../src/interfaces/log-level.enum';
+import { JourneyType } from '../../../src/context/context.constants';
+import { JourneyContext } from '../../../src/context/journey-context.interface';
+import { UserContext } from '../../../src/context/user-context.interface';
+import { LoggingContext } from '../../../src/context/context.interface';
 
 /**
- * Base context properties shared across all journey contexts
+ * Base context with common properties used by all journey contexts
  */
-const baseContext = {
-  correlationId: '8f7d9b2e-3f4a-4b5c-9d8e-7f6a5b4c3d2e',
-  timestamp: new Date().toISOString(),
-  applicationName: 'austa-superapp',
+const baseContext: LoggingContext = {
+  correlationId: '550e8400-e29b-41d4-a716-446655440000',
+  requestId: 'req_b3d9b8b0-3a1d-4b5e-9c1a-8a7d5b6a8b7d',
+  userId: 'usr_a7d5b6a8-b7d9-4b5e-9c1a-3a1d8a7d5b6a',
+  sessionId: 'sess_9c1a3a1d-8a7d-5b6a-8b7d-9b5e4b5e9c1a',
   serviceName: 'test-service',
+  component: 'JourneyContextTest',
   environment: 'test',
-  logLevel: LogLevel.INFO,
-  hostname: 'test-host',
+  timestamp: new Date('2023-06-15T10:30:00Z'),
+  traceId: 'trace_e29b41d4-a716-4466-5544-b3d9b8b03a1d',
+  spanId: 'span_5544b3d9-b8b0-3a1d-4b5e-9c1a8a7d5b6a',
+  traceSampled: true,
+  tags: ['test', 'e2e', 'journey-context'],
+  metadata: {
+    testRun: 'journey-context-e2e',
+    testSuite: 'logging-context'
+  }
 };
 
 /**
- * User session data shared across journey contexts
+ * Base user context with authentication information
  */
-const userSession = {
-  userId: 'usr_7f8e9d6c5b4a3f2e1d',
-  authStatus: 'authenticated',
-  sessionId: 'sess_9d8e7f6a5b4c3d2e1f',
-  deviceId: 'dev_5b4c3d2e1f9d8e7f6a',
-  ipAddress: '192.168.1.100',
-  userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 14_7_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148',
+const baseUserContext: UserContext = {
+  ...baseContext,
+  userId: 'usr_a7d5b6a8-b7d9-4b5e-9c1a-3a1d8a7d5b6a',
+  isAuthenticated: true,
+  authMethod: 'jwt',
+  authTimestamp: new Date('2023-06-15T10:15:00Z'),
+  roles: ['user', 'patient'],
+  permissions: ['read:health', 'write:health', 'read:care', 'read:plan'],
+  preferredLanguage: 'pt-BR',
+  profile: {
+    displayName: 'João Silva',
+    email: 'joao.silva@example.com',
+    accountType: 'standard',
+    createdAt: new Date('2023-01-10T08:30:00Z'),
+    onboardingCompleted: true
+  },
+  device: {
+    type: 'mobile',
+    os: 'Android 13',
+    appVersion: '2.5.0',
+    deviceId: 'android-a7d5b6a8b7d9'
+  }
 };
 
 /**
  * Health Journey Context
- * Contains health-specific attributes like metrics, goals, and device data
+ * Represents a user tracking health metrics and goals in the "Minha Saúde" journey
  */
 export const healthJourneyContext: JourneyContext = {
-  ...baseContext,
+  ...baseUserContext,
   journeyType: JourneyType.HEALTH,
-  journeyState: {
-    journeySessionId: 'health_sess_3f4a5b6c7d8e9f0a1b2c',
-    currentStep: 'health-dashboard',
-    previousStep: 'health-metrics-input',
-    stepDuration: 4500,
-    activeMetric: 'blood-pressure',
-    activeGoal: 'weight-loss-10kg',
-    connectedDevices: ['fitbit-versa-3', 'withings-scale'],
-    lastSyncTime: new Date(Date.now() - 3600000).toISOString(),
-  },
-  journeyFeatureFlags: {
-    enableHealthInsights: true,
-    showDetailedMetrics: true,
-    enableDeviceSync: true,
-    betaFeatures: false,
-  },
-  journeyPerformance: {
-    timeToInteractive: 1250,
-    actionDuration: 350,
-    apiCallCount: 5,
-    renderTime: 780,
-    dataLoadTime: 450,
-  },
-  businessTransaction: {
-    transactionId: 'health_tx_9f8e7d6c5b4a3f2e1d0c',
-    transactionType: 'health-metric-recording',
-    status: 'completed',
-    startedAt: new Date(Date.now() - 60000).toISOString(),
-    updatedAt: new Date().toISOString(),
-    metadata: {
-      metricType: 'blood-pressure',
-      metricValue: '120/80',
-      metricUnit: 'mmHg',
-      recordingMethod: 'manual-entry',
+  resourceId: 'health_metric_550e8400e29b',
+  action: 'record-health-metric',
+  step: 'metric-input',
+  flowId: 'health-tracking-flow',
+  transactionId: 'tx_health_550e8400e29b41d4',
+  journeyData: {
+    metricType: 'blood_pressure',
+    metricValue: {
+      systolic: 120,
+      diastolic: 80
     },
+    metricUnit: 'mmHg',
+    recordedAt: new Date('2023-06-15T10:25:00Z'),
+    source: 'manual_entry',
+    relatedGoalId: 'goal_bp_normal_range',
+    previousMetrics: [
+      {
+        date: new Date('2023-06-14T10:00:00Z'),
+        systolic: 122,
+        diastolic: 82
+      },
+      {
+        date: new Date('2023-06-13T09:30:00Z'),
+        systolic: 125,
+        diastolic: 85
+      }
+    ],
+    connectedDevices: [
+      {
+        deviceId: 'dev_bp_monitor_123',
+        deviceType: 'blood_pressure_monitor',
+        manufacturer: 'Omron',
+        lastSyncDate: new Date('2023-06-14T18:30:00Z')
+      }
+    ]
   },
-  userInteraction: {
-    interactionType: 'form-submission',
-    interactionTarget: 'blood-pressure-form',
-    interactionResult: 'success',
-    interactionDuration: 8500,
-  },
-  // Additional health-specific context
-  healthMetrics: {
-    bloodPressure: { systolic: 120, diastolic: 80, timestamp: new Date(Date.now() - 3600000).toISOString() },
-    heartRate: { value: 72, timestamp: new Date(Date.now() - 7200000).toISOString() },
-    weight: { value: 75.5, unit: 'kg', timestamp: new Date(Date.now() - 86400000).toISOString() },
-    steps: { value: 8750, goal: 10000, timestamp: new Date(Date.now() - 1800000).toISOString() },
-    sleep: { duration: 7.5, quality: 'good', timestamp: new Date(Date.now() - 28800000).toISOString() },
-  },
-  healthGoals: [
-    { id: 'goal_1', type: 'weight', target: 70, unit: 'kg', progress: 0.65, dueDate: new Date(Date.now() + 2592000000).toISOString() },
-    { id: 'goal_2', type: 'steps', target: 10000, unit: 'steps/day', progress: 0.88, dueDate: new Date(Date.now() + 86400000).toISOString() },
-  ],
-  userProfile: {
-    ...userSession,
-    name: 'Maria Silva',
-    age: 42,
-    gender: 'female',
-    height: 165,
-    chronicConditions: ['hypertension'],
-    medications: ['lisinopril'],
-    preferences: { measurementSystem: 'metric', notifications: true },
-  },
+  journeyMetadata: {
+    version: '2.3.0',
+    isNewUser: false,
+    journeyStartTime: new Date('2023-06-15T10:20:00Z'),
+    featureFlags: {
+      enableHealthInsights: true,
+      enableDeviceSync: true,
+      showTrends: true
+    },
+    healthProfile: {
+      age: 42,
+      gender: 'male',
+      hasChronicConditions: true,
+      activeGoals: 3,
+      preferredMetrics: ['blood_pressure', 'weight', 'steps']
+    }
+  }
 };
 
 /**
  * Care Journey Context
- * Contains care-specific attributes like appointments, providers, and medications
+ * Represents a user booking a medical appointment in the "Cuidar-me Agora" journey
  */
 export const careJourneyContext: JourneyContext = {
-  ...baseContext,
+  ...baseUserContext,
   journeyType: JourneyType.CARE,
-  journeyState: {
-    journeySessionId: 'care_sess_5b6c7d8e9f0a1b2c3d4e',
-    currentStep: 'appointment-scheduling',
-    previousStep: 'provider-selection',
-    stepDuration: 6200,
-    selectedSpecialty: 'cardiology',
-    selectedProvider: 'dr-santos',
-    appointmentType: 'video-consultation',
+  resourceId: 'appointment_a716446655440000',
+  action: 'book-appointment',
+  step: 'provider-selection',
+  flowId: 'appointment-booking-flow',
+  transactionId: 'tx_care_a716446655440000',
+  journeyData: {
+    appointmentType: 'consultation',
+    specialtyId: 'specialty_cardiology',
+    specialtyName: 'Cardiologia',
+    providerId: 'provider_550e8400e29b41d4',
+    providerName: 'Dr. Carlos Mendes',
+    appointmentDate: new Date('2023-06-20T14:30:00Z'),
+    appointmentDuration: 30,
+    appointmentMode: 'in_person',
+    facilityId: 'facility_hospital_austa',
+    facilityName: 'Hospital AUSTA',
+    facilityAddress: 'Av. Murchid Homsi, 1385 - Vila Toninho, São José do Rio Preto - SP',
+    insuranceCoverage: true,
+    patientSymptoms: ['chest_pain', 'shortness_of_breath'],
+    previousAppointments: [
+      {
+        date: new Date('2023-03-15T10:00:00Z'),
+        providerId: 'provider_550e8400e29b41d4',
+        providerName: 'Dr. Carlos Mendes',
+        specialtyName: 'Cardiologia',
+        status: 'completed'
+      }
+    ]
   },
-  journeyFeatureFlags: {
-    enableTelemedicine: true,
-    showProviderRatings: true,
-    enablePrescriptionRefills: true,
-    betaFeatures: true,
-  },
-  journeyPerformance: {
-    timeToInteractive: 1450,
-    actionDuration: 520,
-    apiCallCount: 7,
-    renderTime: 920,
-    dataLoadTime: 630,
-  },
-  businessTransaction: {
-    transactionId: 'care_tx_7d6c5b4a3f2e1d0c9b8a',
-    transactionType: 'appointment-booking',
-    status: 'in-progress',
-    startedAt: new Date(Date.now() - 120000).toISOString(),
-    updatedAt: new Date().toISOString(),
-    metadata: {
-      providerId: 'prov_3f2e1d0c9b8a7f6e5d4c',
-      specialtyId: 'spec_cardiology',
-      appointmentType: 'video-consultation',
-      proposedDate: new Date(Date.now() + 172800000).toISOString(),
+  journeyMetadata: {
+    version: '2.1.0',
+    isNewUser: false,
+    journeyStartTime: new Date('2023-06-15T10:22:00Z'),
+    featureFlags: {
+      enableTelemedicine: true,
+      showProviderRatings: true,
+      enableFastBooking: true
     },
-  },
-  userInteraction: {
-    interactionType: 'calendar-selection',
-    interactionTarget: 'appointment-date-picker',
-    interactionResult: 'date-selected',
-    interactionDuration: 12500,
-  },
-  // Additional care-specific context
-  appointments: [
-    {
-      id: 'appt_9b8a7f6e5d4c3b2a1f0e',
-      providerId: 'prov_3f2e1d0c9b8a7f6e5d4c',
-      providerName: 'Dr. Carlos Santos',
-      specialty: 'Cardiology',
-      type: 'video-consultation',
-      status: 'scheduled',
-      dateTime: new Date(Date.now() + 172800000).toISOString(),
-      duration: 30,
-    },
-    {
-      id: 'appt_8a7f6e5d4c3b2a1f0e9d',
-      providerId: 'prov_2e1d0c9b8a7f6e5d4c3b',
-      providerName: 'Dra. Ana Oliveira',
-      specialty: 'Endocrinology',
-      type: 'in-person',
-      status: 'completed',
-      dateTime: new Date(Date.now() - 604800000).toISOString(),
-      duration: 45,
-    },
-  ],
-  medications: [
-    {
-      id: 'med_7f6e5d4c3b2a1f0e9d8c',
-      name: 'Lisinopril',
-      dosage: '10mg',
-      frequency: 'once daily',
-      startDate: new Date(Date.now() - 7776000000).toISOString(),
-      endDate: null,
-      refillsRemaining: 2,
-      prescribedBy: 'Dr. Carlos Santos',
-    },
-    {
-      id: 'med_6e5d4c3b2a1f0e9d8c7b',
-      name: 'Metformin',
-      dosage: '500mg',
-      frequency: 'twice daily',
-      startDate: new Date(Date.now() - 5184000000).toISOString(),
-      endDate: null,
-      refillsRemaining: 3,
-      prescribedBy: 'Dra. Ana Oliveira',
-    },
-  ],
-  userProfile: {
-    ...userSession,
-    name: 'Maria Silva',
-    preferredLanguage: 'pt-BR',
-    communicationPreferences: { email: true, sms: true, push: true },
-    emergencyContact: { name: 'João Silva', relationship: 'Spouse', phone: '+5511987654321' },
-  },
+    careProfile: {
+      preferredProviders: ['provider_550e8400e29b41d4'],
+      preferredFacilities: ['facility_hospital_austa'],
+      preferredAppointmentTimes: 'afternoon',
+      hasActiveTreatmentPlan: true,
+      medicationRemindersEnabled: true
+    }
+  }
 };
 
 /**
  * Plan Journey Context
- * Contains plan-specific attributes like insurance details, claims, and benefits
+ * Represents a user submitting an insurance claim in the "Meu Plano & Benefícios" journey
  */
 export const planJourneyContext: JourneyContext = {
-  ...baseContext,
+  ...baseUserContext,
   journeyType: JourneyType.PLAN,
-  journeyState: {
-    journeySessionId: 'plan_sess_7d8e9f0a1b2c3d4e5f6g',
-    currentStep: 'claim-submission',
-    previousStep: 'benefit-details',
-    stepDuration: 5800,
-    activeClaim: 'claim_5d4c3b2a1f0e9d8c7b6a',
-    selectedBenefit: 'benefit_prescription',
-    documentUploadStatus: 'in-progress',
-  },
-  journeyFeatureFlags: {
-    enableDigitalIDCard: true,
-    showNetworkProviders: true,
-    enableClaimTracking: true,
-    betaFeatures: false,
-  },
-  journeyPerformance: {
-    timeToInteractive: 1650,
-    actionDuration: 480,
-    apiCallCount: 6,
-    renderTime: 850,
-    dataLoadTime: 580,
-  },
-  businessTransaction: {
-    transactionId: 'plan_tx_5d4c3b2a1f0e9d8c7b6a',
-    transactionType: 'claim-submission',
-    status: 'in-progress',
-    startedAt: new Date(Date.now() - 300000).toISOString(),
-    updatedAt: new Date().toISOString(),
-    metadata: {
-      claimType: 'prescription-reimbursement',
-      claimAmount: 157.89,
-      serviceDate: new Date(Date.now() - 604800000).toISOString(),
-      documentCount: 2,
-    },
-  },
-  userInteraction: {
-    interactionType: 'file-upload',
-    interactionTarget: 'claim-receipt-upload',
-    interactionResult: 'upload-success',
-    interactionDuration: 15000,
-  },
-  // Additional plan-specific context
-  insurancePlan: {
-    id: 'plan_3b2a1f0e9d8c7b6a5f4e',
-    name: 'AUSTA Premium',
-    type: 'PPO',
-    effectiveDate: new Date(Date.now() - 31536000000).toISOString(),
-    expirationDate: new Date(Date.now() + 31536000000).toISOString(),
-    status: 'active',
-    memberId: 'MBR123456789',
-    groupNumber: 'GRP987654321',
-  },
-  claims: [
-    {
-      id: 'claim_5d4c3b2a1f0e9d8c7b6a',
-      type: 'prescription-reimbursement',
-      status: 'in-progress',
-      submissionDate: new Date(Date.now() - 300000).toISOString(),
-      serviceDate: new Date(Date.now() - 604800000).toISOString(),
-      amount: 157.89,
-      provider: 'Farmácia São Paulo',
-      documents: ['receipt.pdf', 'prescription.pdf'],
-    },
-    {
-      id: 'claim_4c3b2a1f0e9d8c7b6a5f',
-      type: 'specialist-visit',
-      status: 'approved',
-      submissionDate: new Date(Date.now() - 2592000000).toISOString(),
-      serviceDate: new Date(Date.now() - 2678400000).toISOString(),
-      amount: 350.00,
-      provider: 'Dr. Carlos Santos',
-      documents: ['invoice.pdf'],
-      approvalDate: new Date(Date.now() - 1296000000).toISOString(),
-      reimbursementAmount: 280.00,
-    },
-  ],
-  benefits: [
-    {
-      id: 'benefit_prescription',
-      name: 'Prescription Coverage',
-      coverage: '80% after deductible',
-      remainingDeductible: 150.00,
-      yearToDateSpending: 850.00,
-      annualLimit: 3000.00,
-    },
-    {
-      id: 'benefit_specialist',
-      name: 'Specialist Visits',
-      coverage: '80% after deductible',
-      remainingDeductible: 0.00,
-      yearToDateSpending: 1200.00,
-      annualLimit: 5000.00,
-    },
-    {
-      id: 'benefit_hospital',
-      name: 'Hospital Services',
-      coverage: '90% after deductible',
-      remainingDeductible: 500.00,
-      yearToDateSpending: 0.00,
-      annualLimit: 50000.00,
-    },
-  ],
-  userProfile: {
-    ...userSession,
-    name: 'Maria Silva',
-    dependents: [
-      { id: 'dep_1', name: 'João Silva', relationship: 'Spouse', dateOfBirth: '1978-05-15' },
-      { id: 'dep_2', name: 'Ana Silva', relationship: 'Child', dateOfBirth: '2010-08-22' },
+  resourceId: 'claim_41d4a716446655440000',
+  action: 'submit-claim',
+  step: 'document-upload',
+  flowId: 'claim-submission-flow',
+  transactionId: 'tx_plan_41d4a716446655440000',
+  journeyData: {
+    claimType: 'medical_reimbursement',
+    claimAmount: 350.75,
+    claimCurrency: 'BRL',
+    serviceDate: new Date('2023-06-10T15:45:00Z'),
+    serviceProvider: 'Clínica São Lucas',
+    serviceDescription: 'Consulta Dermatológica',
+    receiptNumber: 'REC-2023-06-10-1234',
+    documentCount: 2,
+    documents: [
+      {
+        documentId: 'doc_receipt_550e8400e29b',
+        documentType: 'receipt',
+        fileName: 'recibo_clinica_sao_lucas.pdf',
+        uploadStatus: 'completed'
+      },
+      {
+        documentId: 'doc_prescription_a716446655',
+        documentType: 'prescription',
+        fileName: 'receita_medica.jpg',
+        uploadStatus: 'in_progress'
+      }
     ],
-    billingAddress: {
-      street: 'Rua das Flores, 123',
-      city: 'São Paulo',
-      state: 'SP',
-      postalCode: '01234-567',
-      country: 'Brasil',
+    insurancePlan: {
+      planId: 'plan_premium_550e8400',
+      planName: 'AUSTA Premium',
+      memberNumber: 'MBR-123456789',
+      coverageLevel: 'comprehensive'
     },
+    previousClaims: [
+      {
+        claimId: 'claim_e29b41d4a71644665544',
+        submissionDate: new Date('2023-04-05T09:15:00Z'),
+        amount: 275.50,
+        status: 'approved'
+      }
+    ]
   },
+  journeyMetadata: {
+    version: '2.2.0',
+    isNewUser: false,
+    journeyStartTime: new Date('2023-06-15T10:25:00Z'),
+    featureFlags: {
+      enableDigitalCard: true,
+      enableClaimTracking: true,
+      showCoverageDetails: true
+    },
+    planProfile: {
+      planType: 'premium',
+      renewalDate: new Date('2023-12-31T23:59:59Z'),
+      dependents: 2,
+      hasPendingClaims: true,
+      preferredReimbursementMethod: 'bank_transfer'
+    }
+  }
 };
 
 /**
  * Cross-Journey Context
- * Represents a user flow that transitions between multiple journeys
+ * Represents a scenario that spans multiple journeys
+ * (e.g., a health metric triggering a care recommendation)
  */
 export const crossJourneyContext: JourneyContext = {
-  ...baseContext,
-  journeyType: JourneyType.HEALTH,  // Starting in Health journey
-  journeyState: {
-    journeySessionId: 'health_sess_3f4a5b6c7d8e9f0a1b2c',
-    currentStep: 'health-metric-alert',
-    previousStep: 'health-dashboard',
-    stepDuration: 2500,
-    alertType: 'high-blood-pressure',
-    alertSeverity: 'moderate',
-    recommendedAction: 'schedule-appointment',
-  },
-  crossJourneyContext: {
-    sourceJourney: JourneyType.HEALTH,
-    targetJourney: JourneyType.CARE,
-    flowId: 'cross_flow_9f0a1b2c3d4e5f6g7h8i',
-    startedAt: new Date().toISOString(),
-    metadata: {
-      reason: 'high-blood-pressure-alert',
-      sourceMetric: {
-        type: 'blood-pressure',
-        value: '160/95',
-        timestamp: new Date(Date.now() - 1800000).toISOString(),
-      },
-      recommendedSpecialty: 'cardiology',
+  ...baseUserContext,
+  journeyType: JourneyType.HEALTH, // Primary journey
+  resourceId: 'health_alert_550e8400e29b',
+  action: 'health-alert-care-recommendation',
+  flowId: 'health-to-care-flow',
+  isCrossJourney: true,
+  relatedJourneys: [JourneyType.CARE],
+  transactionId: 'tx_cross_550e8400e29b41d4',
+  journeyData: {
+    alertType: 'abnormal_metric',
+    metricType: 'blood_pressure',
+    metricValue: {
+      systolic: 160,
+      diastolic: 100
     },
+    alertSeverity: 'high',
+    recommendationType: 'schedule_appointment',
+    recommendedSpecialty: 'cardiology',
+    recommendedTimeframe: 'within_7_days',
+    relatedHealthMetricId: 'health_metric_550e8400e29b',
+    relatedCareAppointmentId: 'appointment_recommendation_550e',
+    userAction: 'viewed_recommendation'
   },
-  businessTransaction: {
-    transactionId: 'cross_tx_1b2c3d4e5f6g7h8i9j0k',
-    transactionType: 'health-alert-to-appointment',
-    status: 'in-progress',
-    startedAt: new Date(Date.now() - 60000).toISOString(),
-    updatedAt: new Date().toISOString(),
-    metadata: {
-      alertId: 'alert_7h8i9j0k1l2m3n4o5p6q',
-      metricType: 'blood-pressure',
-      metricValue: '160/95',
-      recommendedAction: 'schedule-appointment',
+  journeyMetadata: {
+    version: '2.4.0',
+    isNewUser: false,
+    journeyStartTime: new Date('2023-06-15T10:28:00Z'),
+    featureFlags: {
+      enableCrossJourneyRecommendations: true,
+      enableHealthAlerts: true,
+      enableOneClickAppointment: true
     },
-  },
-  userInteraction: {
-    interactionType: 'button-click',
-    interactionTarget: 'schedule-appointment-button',
-    interactionResult: 'navigation-to-care',
-    interactionDuration: 500,
-  },
-  userProfile: {
-    ...userSession,
-    name: 'Maria Silva',
-  },
-  // Health-specific context that triggered the cross-journey flow
-  healthMetrics: {
-    bloodPressure: { systolic: 160, diastolic: 95, timestamp: new Date(Date.now() - 1800000).toISOString() },
-  },
-  // Care-specific context for the target journey
-  targetJourneyData: {
-    recommendedProvider: {
-      id: 'prov_3f2e1d0c9b8a7f6e5d4c',
-      name: 'Dr. Carlos Santos',
-      specialty: 'Cardiology',
-      availability: [
-        new Date(Date.now() + 86400000).toISOString(),
-        new Date(Date.now() + 172800000).toISOString(),
-        new Date(Date.now() + 259200000).toISOString(),
-      ],
-    },
-    appointmentType: 'urgent-consultation',
-    insuranceCoverage: {
-      covered: true,
-      copay: 30.00,
-      requiresAuthorization: false,
-    },
-  },
+    crossJourneyData: {
+      originJourney: JourneyType.HEALTH,
+      targetJourney: JourneyType.CARE,
+      transitionTrigger: 'automatic_alert',
+      previousCrossJourneyEvents: 2
+    }
+  }
 };
 
 /**
- * Collection of all journey contexts for easy import
+ * Gamification Context
+ * Represents a user earning an achievement that spans multiple journeys
+ */
+export const gamificationContext: JourneyContext = {
+  ...baseUserContext,
+  journeyType: JourneyType.HEALTH, // Achievement earned in health journey
+  resourceId: 'achievement_consistent_tracker',
+  action: 'earn-achievement',
+  flowId: 'gamification-flow',
+  isCrossJourney: true,
+  relatedJourneys: [JourneyType.CARE, JourneyType.PLAN],
+  transactionId: 'tx_gamification_550e8400e29b41d4',
+  journeyData: {
+    achievementId: 'achievement_consistent_tracker',
+    achievementName: 'Rastreador Consistente',
+    achievementDescription: 'Registrou métricas de saúde por 7 dias consecutivos',
+    pointsEarned: 150,
+    currentLevel: 3,
+    progressToNextLevel: 0.65,
+    unlockedRewards: [
+      {
+        rewardId: 'reward_health_article_premium',
+        rewardType: 'content_access',
+        rewardName: 'Acesso a artigos premium sobre saúde'
+      }
+    ],
+    relatedActivities: [
+      {
+        activityId: 'health_metric_20230609',
+        journeyType: JourneyType.HEALTH,
+        timestamp: new Date('2023-06-09T08:30:00Z')
+      },
+      {
+        activityId: 'health_metric_20230610',
+        journeyType: JourneyType.HEALTH,
+        timestamp: new Date('2023-06-10T09:15:00Z')
+      },
+      {
+        activityId: 'appointment_20230611',
+        journeyType: JourneyType.CARE,
+        timestamp: new Date('2023-06-11T14:00:00Z')
+      },
+      // Additional days omitted for brevity
+    ]
+  },
+  journeyMetadata: {
+    version: '2.5.0',
+    isNewUser: false,
+    journeyStartTime: new Date('2023-06-15T10:29:00Z'),
+    featureFlags: {
+      enableAchievementNotifications: true,
+      showLeaderboard: true,
+      enableRewards: true
+    },
+    gamificationProfile: {
+      totalPoints: 2750,
+      achievementsEarned: 12,
+      currentStreak: 7,
+      longestStreak: 14,
+      leaderboardRank: 42
+    }
+  }
+};
+
+/**
+ * Collection of all journey contexts for easy export
  */
 export const journeyContexts = {
   health: healthJourneyContext,
   care: careJourneyContext,
   plan: planJourneyContext,
-  crossJourney: crossJourneyContext,
+  cross: crossJourneyContext,
+  gamification: gamificationContext
 };
+
+/**
+ * Default export for convenience
+ */
+export default journeyContexts;
