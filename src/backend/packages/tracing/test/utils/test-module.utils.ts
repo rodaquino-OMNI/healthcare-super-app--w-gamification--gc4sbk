@@ -1,39 +1,48 @@
 /**
  * @file test-module.utils.ts
  * @description Provides utilities for bootstrapping NestJS test modules with properly configured tracing
- * for different test scenarios. Includes functions to create test modules with real or mock TracingService,
- * configure test-specific tracing options, and integrate with LoggerService for correlation testing.
+ * for different test scenarios. These utilities help create realistic test environments that accurately
+ * represent production tracing behavior.
  */
 
-import { DynamicModule, ModuleMetadata, Provider, Type } from '@nestjs/common';
-import { Test, TestingModule, TestingModuleBuilder } from '@nestjs/testing';
+import { DynamicModule, Module, ModuleMetadata, Provider, Type } from '@nestjs/common';
+import { Test, TestingModule } from '@nestjs/testing';
 import { ConfigModule, ConfigService } from '@nestjs/config';
-import { Context, Span, SpanOptions, Tracer, TracerOptions } from '@opentelemetry/api';
-
-// Import interfaces from the tracing package
-import { TracerProvider } from '../../src/interfaces/tracer-provider.interface';
-import { TraceContext, JourneyContextInfo } from '../../src/interfaces/trace-context.interface';
-import { DEFAULT_SERVICE_NAME } from '../../src/constants/defaults';
-
-// Import interfaces from the logging package
-import { LogLevel } from '../../../logging/src/interfaces/log-level.enum';
-import { LoggerConfig } from '../../../logging/src/interfaces/log-config.interface';
+import { LoggerService } from '@austa/logging';
+import { 
+  TracingModule, 
+  TracingService, 
+  TracingOptions,
+  JourneyType,
+  JourneyContext,
+  createJourneyContext
+} from '../../src';
 
 /**
- * Options for configuring a test module with tracing
+ * Options for creating a test module with tracing capabilities
  */
 export interface TracingTestModuleOptions {
   /**
-   * Service name to use for the tracer
-   * @default 'test-service'
+   * Whether to use a real TracingService (true) or a mock (false)
+   * @default false
    */
-  serviceName?: string;
+  useRealTracer?: boolean;
 
   /**
-   * Whether to use a mock tracer instead of a real one
-   * @default true
+   * Custom tracing options to use for the test
    */
-  useMockTracer?: boolean;
+  tracingOptions?: TracingOptions;
+
+  /**
+   * Whether to include the LoggerService for trace-log correlation testing
+   * @default false
+   */
+  includeLogger?: boolean;
+
+  /**
+   * Journey type for journey-specific testing
+   */
+  journeyType?: JourneyType;
 
   /**
    * Additional providers to include in the test module
@@ -46,693 +55,553 @@ export interface TracingTestModuleOptions {
   imports?: Array<Type<any> | DynamicModule | Promise<DynamicModule>>;
 
   /**
-   * Additional module metadata to include in the test module
+   * Additional exports to include in the test module
    */
-  moduleMetadata?: ModuleMetadata;
+  exports?: Array<Type<any> | DynamicModule | Promise<DynamicModule>>;
 
   /**
-   * Journey type for journey-specific testing
+   * Environment variables to set for the test
    */
-  journeyType?: 'health' | 'care' | 'plan';
-
-  /**
-   * Journey ID for journey-specific testing
-   */
-  journeyId?: string;
-
-  /**
-   * User ID for journey-specific testing
-   */
-  userId?: string;
-
-  /**
-   * Session ID for journey-specific testing
-   */
-  sessionId?: string;
-
-  /**
-   * Request ID for journey-specific testing
-   */
-  requestId?: string;
-
-  /**
-   * Whether to enable trace-log correlation
-   * @default true
-   */
-  enableTraceLogCorrelation?: boolean;
-
-  /**
-   * Minimum log level for the test logger
-   * @default LogLevel.DEBUG
-   */
-  logLevel?: LogLevel;
-
-  /**
-   * Environment to simulate for the test
-   * @default 'test'
-   */
-  environment?: string;
-}
-
-/**
- * Mock implementation of the TracerProvider interface for testing
- */
-export class MockTracerProvider implements TracerProvider {
-  private spans: Span[] = [];
-  private currentSpan?: Span;
-  private currentContext: Context = {} as Context;
-
-  getTracer(name: string, options?: TracerOptions): Tracer {
-    return {
-      startSpan: (name: string, options?: SpanOptions) => {
-        const span = this.startSpan(null as unknown as Tracer, name, options);
-        return span;
-      },
-      startActiveSpan: (name: string, options: any, fn: (span: Span) => any) => {
-        const span = this.startSpan(null as unknown as Tracer, name, options);
-        this.currentSpan = span;
-        try {
-          return fn(span);
-        } finally {
-          span.end();
-          this.currentSpan = undefined;
-        }
-      },
-    } as unknown as Tracer;
-  }
-
-  startSpan(tracer: Tracer, name: string, options?: SpanOptions): Span {
-    const span = {
-      name,
-      spanContext: () => ({
-        traceId: 'mock-trace-id',
-        spanId: `mock-span-id-${this.spans.length + 1}`,
-        traceFlags: 1,
-        isRemote: false,
-      }),
-      setAttribute: jest.fn(),
-      setAttributes: jest.fn(),
-      addEvent: jest.fn(),
-      setStatus: jest.fn(),
-      updateName: jest.fn(),
-      end: jest.fn(),
-      isRecording: () => true,
-      recordException: jest.fn(),
-    } as unknown as Span;
-
-    this.spans.push(span);
-    return span;
-  }
-
-  async withSpan<T>(span: Span, fn: () => Promise<T>): Promise<T> {
-    this.currentSpan = span;
-    try {
-      return await fn();
-    } finally {
-      this.currentSpan = undefined;
-    }
-  }
-
-  getCurrentSpan(): Span | undefined {
-    return this.currentSpan;
-  }
-
-  setSpan(span: Span): Context {
-    this.currentSpan = span;
-    return this.currentContext;
-  }
-
-  getContext(): Context {
-    return this.currentContext;
-  }
-
-  async withContext<T>(context: Context, fn: () => Promise<T>): Promise<T> {
-    const previousContext = this.currentContext;
-    this.currentContext = context;
-    try {
-      return await fn();
-    } finally {
-      this.currentContext = previousContext;
-    }
-  }
-
-  /**
-   * Gets all spans created by this mock provider
-   * @returns Array of spans created during the test
-   */
-  getSpans(): Span[] {
-    return this.spans;
-  }
-
-  /**
-   * Clears all spans created by this mock provider
-   */
-  clearSpans(): void {
-    this.spans = [];
-  }
-}
-
-/**
- * Mock implementation of the TraceContext interface for testing
- */
-export class MockTraceContext implements TraceContext {
-  private context: Context = {} as Context;
-  private spanContext?: any;
-  private journeyContext?: JourneyContextInfo;
-  private attributes: Record<string, any> = {};
-
-  constructor(
-    private traceId: string = 'mock-trace-id',
-    private spanId: string = 'mock-span-id',
-    private traceFlags: number = 1,
-  ) {
-    this.spanContext = {
-      traceId,
-      spanId,
-      traceFlags,
-      isRemote: false,
-    };
-  }
-
-  getContext(): Context {
-    return this.context;
-  }
-
-  getSpanContext(): any {
-    return this.spanContext;
-  }
-
-  getTraceId(): string | undefined {
-    return this.traceId;
-  }
-
-  getSpanId(): string | undefined {
-    return this.spanId;
-  }
-
-  getTraceFlags(): number | undefined {
-    return this.traceFlags;
-  }
-
-  isSampled(): boolean {
-    return (this.traceFlags & 1) === 1;
-  }
-
-  extractFromHttpHeaders(): TraceContext {
-    return this;
-  }
-
-  injectIntoHttpHeaders(headers: Record<string, any>): Record<string, any> {
-    return {
-      ...headers,
-      'traceparent': `00-${this.traceId}-${this.spanId}-0${this.traceFlags}`,
-    };
-  }
-
-  extractFromKafkaMessage(): TraceContext {
-    return this;
-  }
-
-  injectIntoKafkaMessage(message: any): any {
-    return {
-      ...message,
-      headers: {
-        ...message.headers,
-        'traceparent': `00-${this.traceId}-${this.spanId}-0${this.traceFlags}`,
-      },
-    };
-  }
-
-  serialize(): string {
-    return JSON.stringify({
-      traceId: this.traceId,
-      spanId: this.spanId,
-      traceFlags: this.traceFlags,
-      journeyContext: this.journeyContext,
-      attributes: this.attributes,
-    });
-  }
-
-  deserialize(serialized: string): TraceContext {
-    const data = JSON.parse(serialized);
-    this.traceId = data.traceId;
-    this.spanId = data.spanId;
-    this.traceFlags = data.traceFlags;
-    this.journeyContext = data.journeyContext;
-    this.attributes = data.attributes || {};
-    return this;
-  }
-
-  withJourneyContext(journeyContext: JourneyContextInfo): TraceContext {
-    this.journeyContext = journeyContext;
-    return this;
-  }
-
-  getJourneyContext(): JourneyContextInfo | undefined {
-    return this.journeyContext;
-  }
-
-  withHealthJourney(journeyId: string, userId?: string, sessionId?: string, requestId?: string): TraceContext {
-    return this.withJourneyContext({
-      journeyType: 'health',
-      journeyId,
-      userId,
-      sessionId,
-      requestId,
-    });
-  }
-
-  withCareJourney(journeyId: string, userId?: string, sessionId?: string, requestId?: string): TraceContext {
-    return this.withJourneyContext({
-      journeyType: 'care',
-      journeyId,
-      userId,
-      sessionId,
-      requestId,
-    });
-  }
-
-  withPlanJourney(journeyId: string, userId?: string, sessionId?: string, requestId?: string): TraceContext {
-    return this.withJourneyContext({
-      journeyType: 'plan',
-      journeyId,
-      userId,
-      sessionId,
-      requestId,
-    });
-  }
-
-  getCorrelationInfo() {
-    return {
-      traceId: this.traceId,
-      spanId: this.spanId,
-      traceFlags: this.traceFlags,
-      isSampled: this.isSampled(),
-      journeyType: this.journeyContext?.journeyType,
-      journeyId: this.journeyContext?.journeyId,
-      userId: this.journeyContext?.userId,
-      sessionId: this.journeyContext?.sessionId,
-      requestId: this.journeyContext?.requestId,
-    };
-  }
-
-  createLogContext(additionalContext?: Record<string, any>): Record<string, any> {
-    return {
-      trace: {
-        traceId: this.traceId,
-        spanId: this.spanId,
-        sampled: this.isSampled(),
-      },
-      journey: this.journeyContext,
-      ...additionalContext,
-    };
-  }
-
-  withAttributes(attributes: Record<string, any>): TraceContext {
-    this.attributes = { ...this.attributes, ...attributes };
-    return this;
-  }
-
-  hasAttribute(key: string): boolean {
-    return key in this.attributes;
-  }
-
-  getAttribute(key: string): any {
-    return this.attributes[key];
-  }
-}
-
-/**
- * Mock implementation of the LoggerService for testing
- */
-export class MockLoggerService {
-  private logs: Array<{ level: string; message: string; context?: any }> = [];
-
-  log(message: string, context?: any): void {
-    this.logs.push({ level: 'info', message, context });
-  }
-
-  error(message: string, trace?: string, context?: any): void {
-    this.logs.push({ level: 'error', message, context: { ...context, trace } });
-  }
-
-  warn(message: string, context?: any): void {
-    this.logs.push({ level: 'warn', message, context });
-  }
-
-  debug(message: string, context?: any): void {
-    this.logs.push({ level: 'debug', message, context });
-  }
-
-  verbose(message: string, context?: any): void {
-    this.logs.push({ level: 'verbose', message, context });
-  }
-
-  /**
-   * Gets all logs captured by this mock logger
-   * @returns Array of logs captured during the test
-   */
-  getLogs(): Array<{ level: string; message: string; context?: any }> {
-    return this.logs;
-  }
-
-  /**
-   * Clears all logs captured by this mock logger
-   */
-  clearLogs(): void {
-    this.logs = [];
-  }
-
-  /**
-   * Finds logs that match the given criteria
-   * @param criteria Object with properties to match against logs
-   * @returns Array of matching logs
-   */
-  findLogs(criteria: { level?: string; message?: string | RegExp; context?: any }): Array<{ level: string; message: string; context?: any }> {
-    return this.logs.filter(log => {
-      if (criteria.level && log.level !== criteria.level) {
-        return false;
-      }
-      if (criteria.message) {
-        if (criteria.message instanceof RegExp) {
-          if (!criteria.message.test(log.message)) {
-            return false;
-          }
-        } else if (log.message !== criteria.message) {
-          return false;
-        }
-      }
-      if (criteria.context) {
-        for (const [key, value] of Object.entries(criteria.context)) {
-          if (!log.context || log.context[key] !== value) {
-            return false;
-          }
-        }
-      }
-      return true;
-    });
-  }
-
-  /**
-   * Checks if a log matching the given criteria exists
-   * @param criteria Object with properties to match against logs
-   * @returns True if a matching log exists, false otherwise
-   */
-  hasLog(criteria: { level?: string; message?: string | RegExp; context?: any }): boolean {
-    return this.findLogs(criteria).length > 0;
-  }
+  env?: Record<string, string>;
 }
 
 /**
  * Mock implementation of the TracingService for testing
  */
 export class MockTracingService {
-  private tracerProvider: MockTracerProvider;
-  private currentContext: MockTraceContext;
+  // Store spans for verification in tests
+  public readonly spans: Array<{ name: string, attributes: Record<string, any> }> = [];
+  
+  // Store the current span for context testing
+  private currentSpan: { name: string, attributes: Record<string, any> } | null = null;
 
-  constructor() {
-    this.tracerProvider = new MockTracerProvider();
-    this.currentContext = new MockTraceContext();
-  }
+  // Mock trace and span IDs for consistent testing
+  private readonly mockTraceId = '00000000000000000000000000000000';
+  private readonly mockSpanId = '0000000000000000';
 
-  getTracerProvider(): MockTracerProvider {
-    return this.tracerProvider;
-  }
-
-  getTracer(name?: string): Tracer {
-    return this.tracerProvider.getTracer(name || 'test-tracer');
-  }
-
-  startSpan(name: string, options?: SpanOptions): Span {
-    const tracer = this.getTracer();
-    return this.tracerProvider.startSpan(tracer, name, options);
-  }
-
-  getCurrentSpan(): Span | undefined {
-    return this.tracerProvider.getCurrentSpan();
-  }
-
-  getTraceContext(): MockTraceContext {
-    return this.currentContext;
-  }
-
-  createTraceContext(traceId?: string, spanId?: string, traceFlags?: number): MockTraceContext {
-    return new MockTraceContext(traceId, spanId, traceFlags);
-  }
-
-  withHealthJourney(journeyId: string, userId?: string, sessionId?: string, requestId?: string): MockTraceContext {
-    return this.currentContext.withHealthJourney(journeyId, userId, sessionId, requestId) as MockTraceContext;
-  }
-
-  withCareJourney(journeyId: string, userId?: string, sessionId?: string, requestId?: string): MockTraceContext {
-    return this.currentContext.withCareJourney(journeyId, userId, sessionId, requestId) as MockTraceContext;
-  }
-
-  withPlanJourney(journeyId: string, userId?: string, sessionId?: string, requestId?: string): MockTraceContext {
-    return this.currentContext.withPlanJourney(journeyId, userId, sessionId, requestId) as MockTraceContext;
+  /**
+   * Creates a new span for testing
+   * @param name The name of the span
+   * @param fn The function to execute within the span
+   * @param options Optional span options
+   * @returns The result of the function execution
+   */
+  async createSpan<T>(name: string, fn: () => Promise<T>, options?: any): Promise<T> {
+    const span = { 
+      name, 
+      attributes: { ...options?.attributes } 
+    };
+    
+    this.spans.push(span);
+    this.currentSpan = span;
+    
+    try {
+      return await fn();
+    } finally {
+      this.currentSpan = null;
+    }
   }
 
   /**
-   * Gets all spans created during the test
-   * @returns Array of spans created during the test
+   * Gets the current active span
+   * @returns The current span or undefined
    */
-  getSpans(): Span[] {
-    return this.tracerProvider.getSpans();
+  getCurrentSpan() {
+    return this.currentSpan ? { spanContext: () => this.createMockSpanContext() } : undefined;
   }
 
   /**
-   * Clears all spans created during the test
+   * Starts a new span
+   * @param name The name of the span
+   * @param options Optional span options
+   * @returns The newly created span
    */
-  clearSpans(): void {
-    this.tracerProvider.clearSpans();
+  startSpan(name: string, options?: any) {
+    const span = { 
+      name, 
+      attributes: { ...options?.attributes },
+      isRecording: () => true,
+      setAttribute: (key: string, value: any) => {
+        span.attributes[key] = value;
+        return span;
+      },
+      addEvent: (name: string, attributes?: Record<string, any>) => span,
+      setStatus: (status: { code: number, message?: string }) => span,
+      end: () => {},
+      recordException: (exception: Error) => {},
+      spanContext: () => this.createMockSpanContext()
+    };
+    
+    this.spans.push(span);
+    this.currentSpan = span;
+    
+    return span;
+  }
+
+  /**
+   * Extracts trace context from carrier object
+   * @param carrier The carrier object
+   * @returns A mock context
+   */
+  extractContext(carrier: any) {
+    return {};
+  }
+
+  /**
+   * Injects the current trace context into a carrier object
+   * @param carrier The carrier object
+   */
+  injectContext(carrier: any) {
+    carrier['traceparent'] = `00-${this.mockTraceId}-${this.mockSpanId}-01`;
+    return carrier;
+  }
+
+  /**
+   * Gets a correlation ID for linking traces, logs, and metrics
+   * @returns A mock correlation ID
+   */
+  getCorrelationId() {
+    return this.mockTraceId;
+  }
+
+  /**
+   * Gets correlation information from the current trace context
+   * @returns A mock correlation info object
+   */
+  getCorrelationInfo() {
+    return {
+      'trace.id': this.mockTraceId,
+      'span.id': this.mockSpanId,
+      'trace.sampled': true
+    };
+  }
+
+  /**
+   * Sets journey context on the current span
+   * @param journeyContext The journey context
+   */
+  setJourneyContext(journeyContext: JourneyContext) {
+    if (this.currentSpan) {
+      this.currentSpan.attributes['journey.type'] = journeyContext.journeyType;
+      this.currentSpan.attributes['journey.id'] = journeyContext.journeyId;
+    }
+  }
+
+  /**
+   * Adds an event to the current span
+   * @param name The name of the event
+   * @param attributes Optional attributes for the event
+   */
+  addEvent(name: string, attributes?: Record<string, unknown>) {
+    // Implementation not needed for most tests
+  }
+
+  /**
+   * Sets attributes on the current span
+   * @param attributes The attributes to add
+   */
+  setAttributes(attributes: Record<string, unknown>) {
+    if (this.currentSpan) {
+      Object.entries(attributes).forEach(([key, value]) => {
+        this.currentSpan!.attributes[key] = value;
+      });
+    }
+  }
+
+  /**
+   * Creates a mock span context for testing
+   * @returns A mock span context
+   */
+  private createMockSpanContext() {
+    return {
+      traceId: this.mockTraceId,
+      spanId: this.mockSpanId,
+      traceFlags: 1,
+      isRemote: false
+    };
+  }
+
+  /**
+   * Resets all stored spans and current span
+   * Useful for cleaning up between tests
+   */
+  reset() {
+    this.spans.length = 0;
+    this.currentSpan = null;
   }
 }
 
 /**
- * Creates a testing module with tracing configured according to the provided options
+ * Creates a test module with tracing capabilities
  * @param options Configuration options for the test module
- * @returns TestingModuleBuilder that can be further configured and compiled
+ * @returns A configured TestingModule
  */
-export function createTestingModuleWithTracing(options: TracingTestModuleOptions = {}): TestingModuleBuilder {
-  const {
-    serviceName = 'test-service',
-    useMockTracer = true,
-    providers = [],
-    imports = [],
-    moduleMetadata = {},
-    enableTraceLogCorrelation = true,
-    logLevel = LogLevel.DEBUG,
-    environment = 'test',
-  } = options;
-
-  // Create mock or real tracing providers based on options
-  const tracingProviders: Provider[] = [];
-  const loggerProviders: Provider[] = [];
-
-  if (useMockTracer) {
-    // Use mock implementations for testing
-    const mockTracingService = new MockTracingService();
-    const mockLoggerService = new MockLoggerService();
-
-    tracingProviders.push({
-      provide: 'TracingService',
-      useValue: mockTracingService,
+export async function createTracingTestModule(options: TracingTestModuleOptions = {}): Promise<TestingModule> {
+  // Set environment variables for the test
+  if (options.env) {
+    Object.entries(options.env).forEach(([key, value]) => {
+      process.env[key] = value;
     });
-
-    if (enableTraceLogCorrelation) {
-      loggerProviders.push({
-        provide: 'LoggerService',
-        useValue: mockLoggerService,
-      });
-    }
-  } else {
-    // Use real implementations with test configuration
-    tracingProviders.push({
-      provide: 'TracingService',
-      useFactory: (configService: ConfigService) => {
-        // This would be the real TracingService implementation
-        // but configured for testing purposes
-        return {
-          // Implement with real TracingService for integration testing
-        };
-      },
-      inject: [ConfigService],
-    });
-
-    if (enableTraceLogCorrelation) {
-      loggerProviders.push({
-        provide: 'LoggerService',
-        useFactory: (configService: ConfigService) => {
-          // This would be the real LoggerService implementation
-          // but configured for testing purposes
-          const loggerConfig: LoggerConfig = {
-            level: logLevel,
-            formatter: environment === 'production' ? 'json' : 'text',
-            context: {
-              service: serviceName,
-              environment,
-            },
-            enableTracing: true,
-            silent: false, // Enable logs during tests
-          };
-
-          return {
-            // Implement with real LoggerService for integration testing
-          };
-        },
-        inject: [ConfigService],
-      });
-    }
   }
 
-  // Create config for the test module
-  const configProvider: Provider = {
-    provide: ConfigService,
-    useValue: {
-      get: (key: string) => {
-        const config: Record<string, any> = {
-          'service.name': serviceName,
-          'tracing.enabled': true,
-          'tracing.serviceName': serviceName,
-          'environment': environment,
-          'logging.level': logLevel,
-        };
-        return config[key];
-      },
-    },
-  };
-
-  // Create the test module
-  return Test.createTestingModule({
+  // Create module metadata
+  const moduleMetadata: ModuleMetadata = {
     imports: [
       ConfigModule.forRoot({
         isGlobal: true,
         load: [() => ({
-          service: {
-            name: serviceName,
-          },
-          tracing: {
-            enabled: true,
-            serviceName,
-          },
-          environment,
-          logging: {
-            level: logLevel,
-          },
-        })],
+          tracing: options.tracingOptions || getDefaultTracingOptions(options.journeyType)
+        })]
       }),
-      ...imports,
-      ...(moduleMetadata.imports || []),
+      ...(options.imports || [])
     ],
     providers: [
-      configProvider,
-      ...tracingProviders,
-      ...loggerProviders,
-      ...providers,
-      ...(moduleMetadata.providers || []),
+      ...(options.providers || [])
     ],
-    controllers: [...(moduleMetadata.controllers || [])],
-    exports: [...(moduleMetadata.exports || [])],
+    exports: [
+      ...(options.exports || [])
+    ]
+  };
+
+  // Add TracingModule with appropriate configuration
+  if (options.useRealTracer) {
+    moduleMetadata.imports!.push(TracingModule.registerAsync());
+  } else {
+    // Use mock TracingService
+    moduleMetadata.providers!.push({
+      provide: TracingService,
+      useClass: MockTracingService
+    });
+  }
+
+  // Add LoggerService if requested
+  if (options.includeLogger) {
+    moduleMetadata.providers!.push({
+      provide: LoggerService,
+      useFactory: (tracingService: TracingService) => {
+        return new LoggerService({
+          serviceName: 'test-service',
+          logLevel: 'DEBUG',
+          transports: ['console'],
+          formatter: 'json'
+        }, tracingService);
+      },
+      inject: [TracingService]
+    });
+  }
+
+  // Create and return the test module
+  return Test.createTestingModule(moduleMetadata).compile();
+}
+
+/**
+ * Creates a test module specifically for Health journey testing
+ * @param options Configuration options for the test module
+ * @returns A configured TestingModule
+ */
+export async function createHealthJourneyTestModule(options: Omit<TracingTestModuleOptions, 'journeyType'> = {}): Promise<TestingModule> {
+  return createTracingTestModule({
+    ...options,
+    journeyType: JourneyType.HEALTH
   });
 }
 
 /**
- * Creates a testing module with mock tracing for unit tests
+ * Creates a test module specifically for Care journey testing
  * @param options Configuration options for the test module
- * @returns Promise resolving to a compiled TestingModule
+ * @returns A configured TestingModule
  */
-export async function createTestingModuleWithMockTracing(
-  options: TracingTestModuleOptions = {}
-): Promise<TestingModule> {
-  return createTestingModuleWithTracing({
+export async function createCareJourneyTestModule(options: Omit<TracingTestModuleOptions, 'journeyType'> = {}): Promise<TestingModule> {
+  return createTracingTestModule({
     ...options,
-    useMockTracer: true,
-  }).compile();
+    journeyType: JourneyType.CARE
+  });
 }
 
 /**
- * Creates a testing module with real tracing for integration tests
+ * Creates a test module specifically for Plan journey testing
  * @param options Configuration options for the test module
- * @returns Promise resolving to a compiled TestingModule
+ * @returns A configured TestingModule
  */
-export async function createTestingModuleWithRealTracing(
-  options: TracingTestModuleOptions = {}
-): Promise<TestingModule> {
-  return createTestingModuleWithTracing({
+export async function createPlanJourneyTestModule(options: Omit<TracingTestModuleOptions, 'journeyType'> = {}): Promise<TestingModule> {
+  return createTracingTestModule({
     ...options,
-    useMockTracer: false,
-  }).compile();
+    journeyType: JourneyType.PLAN
+  });
 }
 
 /**
- * Creates a testing module with journey-specific tracing configuration
- * @param journeyType Type of journey (health, care, plan)
- * @param options Additional configuration options for the test module
- * @returns Promise resolving to a compiled TestingModule
+ * Creates a test module for cross-journey testing
+ * @param options Configuration options for the test module
+ * @returns A configured TestingModule
  */
-export async function createJourneyTestingModule(
-  journeyType: 'health' | 'care' | 'plan',
-  options: Omit<TracingTestModuleOptions, 'journeyType'> = {}
-): Promise<TestingModule> {
-  const journeyId = options.journeyId || `test-${journeyType}-journey-${Date.now()}`;
-  
-  const module = await createTestingModuleWithTracing({
-    ...options,
-    journeyType,
-    journeyId,
-    serviceName: options.serviceName || `austa-${journeyType}-service`,
-  }).compile();
+export async function createCrossJourneyTestModule(options: TracingTestModuleOptions = {}): Promise<TestingModule> {
+  // For cross-journey testing, we use a special configuration that enables all journey types
+  const crossJourneyOptions: TracingOptions = {
+    service: {
+      name: 'cross-journey-test-service',
+      environment: 'test',
+      journey: 'shared'
+    },
+    journeyConfig: {
+      health: {
+        includeMetrics: true,
+        includeDeviceInfo: true
+      },
+      care: {
+        includeAppointments: true,
+        includeProviders: true
+      },
+      plan: {
+        includeClaims: true,
+        includeBenefits: true
+      }
+    },
+    sampling: {
+      rate: 1.0,
+      alwaysSampleErrors: true
+    },
+    exporter: {
+      type: 'console',
+      console: {
+        prettyPrint: true
+      }
+    },
+    debug: true
+  };
 
-  // Configure journey-specific context if using mock tracer
-  if (options.useMockTracer !== false) {
-    const tracingService = module.get<MockTracingService>('TracingService');
-    
-    // Set up the appropriate journey context based on journey type
-    switch (journeyType) {
-      case 'health':
-        tracingService.withHealthJourney(journeyId, options.userId, options.sessionId, options.requestId);
-        break;
-      case 'care':
-        tracingService.withCareJourney(journeyId, options.userId, options.sessionId, options.requestId);
-        break;
-      case 'plan':
-        tracingService.withPlanJourney(journeyId, options.userId, options.sessionId, options.requestId);
-        break;
-    }
+  return createTracingTestModule({
+    ...options,
+    tracingOptions: crossJourneyOptions
+  });
+}
+
+/**
+ * Creates a test module with trace-log correlation capabilities
+ * @param options Configuration options for the test module
+ * @returns A configured TestingModule
+ */
+export async function createTraceLogCorrelationTestModule(options: TracingTestModuleOptions = {}): Promise<TestingModule> {
+  return createTracingTestModule({
+    ...options,
+    includeLogger: true
+  });
+}
+
+/**
+ * Gets default tracing options based on journey type
+ * @param journeyType The journey type to configure for
+ * @returns Default tracing options for the specified journey type
+ */
+function getDefaultTracingOptions(journeyType?: JourneyType): TracingOptions {
+  const baseOptions: TracingOptions = {
+    service: {
+      name: 'test-service',
+      environment: 'test'
+    },
+    sampling: {
+      rate: 1.0,
+      alwaysSampleErrors: true
+    },
+    exporter: {
+      type: 'console',
+      console: {
+        prettyPrint: true
+      }
+    },
+    debug: true
+  };
+
+  if (!journeyType) {
+    return baseOptions;
   }
 
-  return module;
+  // Add journey-specific configuration
+  switch (journeyType) {
+    case JourneyType.HEALTH:
+      return {
+        ...baseOptions,
+        service: {
+          ...baseOptions.service,
+          journey: 'health'
+        },
+        journeyConfig: {
+          health: {
+            includeMetrics: true,
+            includeDeviceInfo: true
+          }
+        }
+      };
+    case JourneyType.CARE:
+      return {
+        ...baseOptions,
+        service: {
+          ...baseOptions.service,
+          journey: 'care'
+        },
+        journeyConfig: {
+          care: {
+            includeAppointments: true,
+            includeProviders: true
+          }
+        }
+      };
+    case JourneyType.PLAN:
+      return {
+        ...baseOptions,
+        service: {
+          ...baseOptions.service,
+          journey: 'plan'
+        },
+        journeyConfig: {
+          plan: {
+            includeClaims: true,
+            includeBenefits: true
+          }
+        }
+      };
+    default:
+      return baseOptions;
+  }
 }
 
 /**
- * Creates a testing module specifically for the Health journey
- * @param options Configuration options for the test module
- * @returns Promise resolving to a compiled TestingModule
+ * Creates a mock journey context for testing
+ * @param journeyType The journey type
+ * @param userId The user ID (defaults to 'test-user')
+ * @returns A journey context for testing
  */
-export async function createHealthJourneyTestingModule(
-  options: Omit<TracingTestModuleOptions, 'journeyType'> = {}
-): Promise<TestingModule> {
-  return createJourneyTestingModule('health', options);
+export function createTestJourneyContext(journeyType: JourneyType, userId: string = 'test-user'): JourneyContext {
+  return createJourneyContext(userId, journeyType);
 }
 
 /**
- * Creates a testing module specifically for the Care journey
- * @param options Configuration options for the test module
- * @returns Promise resolving to a compiled TestingModule
+ * Helper function to verify trace-log correlation in tests
+ * @param tracingService The tracing service instance
+ * @param loggerService The logger service instance
+ * @returns An object with utility methods for verification
  */
-export async function createCareJourneyTestingModule(
-  options: Omit<TracingTestModuleOptions, 'journeyType'> = {}
-): Promise<TestingModule> {
-  return createJourneyTestingModule('care', options);
+export function createTraceLogCorrelationTester(tracingService: TracingService, loggerService: LoggerService) {
+  return {
+    /**
+     * Verifies that a log message contains the correct trace context
+     * @param logSpy A spy on the logger method
+     * @param expectedMessage The expected log message
+     */
+    verifyLogHasTraceContext(logSpy: jest.SpyInstance, expectedMessage: string) {
+      expect(logSpy).toHaveBeenCalled();
+      
+      // Get the first call arguments
+      const callArgs = logSpy.mock.calls[0];
+      const message = callArgs[0];
+      
+      // Verify the message matches
+      expect(message).toBe(expectedMessage);
+      
+      // If we have a context object, verify it has trace information
+      if (callArgs.length > 1 && typeof callArgs[1] === 'object') {
+        const context = callArgs[1];
+        expect(context).toHaveProperty('trace.id');
+        expect(context).toHaveProperty('span.id');
+      }
+    },
+    
+    /**
+     * Creates a span and logs within it to test correlation
+     * @param spanName The name of the span to create
+     * @param logMessage The message to log
+     * @param logLevel The log level to use
+     */
+    async createSpanWithLog(spanName: string, logMessage: string, logLevel: 'debug' | 'log' | 'warn' | 'error' = 'log') {
+      return tracingService.createSpan(spanName, async () => {
+        loggerService[logLevel](logMessage, { testContext: true });
+        return true;
+      });
+    }
+  };
 }
 
 /**
- * Creates a testing module specifically for the Plan journey
+ * Helper function to create a test controller with tracing
+ * @param controller The controller class to create
  * @param options Configuration options for the test module
- * @returns Promise resolving to a compiled TestingModule
+ * @returns The controller instance and test module
  */
-export async function createPlanJourneyTestingModule(
-  options: Omit<TracingTestModuleOptions, 'journeyType'> = {}
-): Promise<TestingModule> {
-  return createJourneyTestingModule('plan', options);
+export async function createTestController<T>(controller: Type<T>, options: TracingTestModuleOptions = {}): Promise<{ controller: T, module: TestingModule }> {
+  const testModule = await createTracingTestModule({
+    ...options,
+    providers: [
+      controller,
+      ...(options.providers || [])
+    ]
+  });
+  
+  const controllerInstance = testModule.get<T>(controller);
+  return { controller: controllerInstance, module: testModule };
+}
+
+/**
+ * Helper function to create a test service with tracing
+ * @param service The service class to create
+ * @param options Configuration options for the test module
+ * @returns The service instance and test module
+ */
+export async function createTestService<T>(service: Type<T>, options: TracingTestModuleOptions = {}): Promise<{ service: T, module: TestingModule }> {
+  const testModule = await createTracingTestModule({
+    ...options,
+    providers: [
+      service,
+      ...(options.providers || [])
+    ]
+  });
+  
+  const serviceInstance = testModule.get<T>(service);
+  return { service: serviceInstance, module: testModule };
+}
+
+/**
+ * Helper function to reset the mock tracing service between tests
+ * @param module The test module containing the mock tracing service
+ */
+export function resetMockTracingService(module: TestingModule): void {
+  const tracingService = module.get<MockTracingService>(TracingService);
+  if (tracingService instanceof MockTracingService) {
+    tracingService.reset();
+  }
+}
+
+/**
+ * Helper function to get all spans recorded by the mock tracing service
+ * @param module The test module containing the mock tracing service
+ * @returns Array of recorded spans
+ */
+export function getRecordedSpans(module: TestingModule): Array<{ name: string, attributes: Record<string, any> }> {
+  const tracingService = module.get<MockTracingService>(TracingService);
+  if (tracingService instanceof MockTracingService) {
+    return tracingService.spans;
+  }
+  return [];
+}
+
+/**
+ * Helper function to find a specific span by name
+ * @param module The test module containing the mock tracing service
+ * @param spanName The name of the span to find
+ * @returns The found span or undefined
+ */
+export function findSpanByName(module: TestingModule, spanName: string): { name: string, attributes: Record<string, any> } | undefined {
+  const spans = getRecordedSpans(module);
+  return spans.find(span => span.name === spanName);
+}
+
+/**
+ * Helper function to verify a span has specific attributes
+ * @param span The span to verify
+ * @param attributes The attributes to check for
+ */
+export function verifySpanAttributes(span: { name: string, attributes: Record<string, any> }, attributes: Record<string, any>): void {
+  Object.entries(attributes).forEach(([key, value]) => {
+    expect(span.attributes).toHaveProperty(key);
+    expect(span.attributes[key]).toEqual(value);
+  });
 }
