@@ -1,441 +1,642 @@
+/**
+ * Utilities for capturing and inspecting spans during tests.
+ * 
+ * This module provides tools for capturing spans in memory during tests,
+ * analyzing their structure, attributes, and relationships, and verifying
+ * timing characteristics for performance testing.
+ */
+
 import {
+  BasicTracerProvider,
+  BatchSpanProcessor,
+  InMemorySpanExporter,
+  ReadableSpan,
+  SimpleSpanProcessor,
+  SpanProcessor
+} from '@opentelemetry/sdk-trace-base';
+import {
+  Context,
   Span,
   SpanKind,
-  SpanStatusCode,
-  context,
-  trace,
-  SpanContext,
+  SpanOptions,
   SpanStatus,
-  Attributes,
+  SpanStatusCode,
+  Tracer,
+  trace
 } from '@opentelemetry/api';
-import {
-  InMemorySpanExporter,
-  SimpleSpanProcessor,
-  ReadableSpan,
-  BatchSpanProcessor,
-} from '@opentelemetry/sdk-trace-base';
-import { NodeTracerProvider } from '@opentelemetry/sdk-trace-node';
 import { Resource } from '@opentelemetry/resources';
 import { SemanticResourceAttributes } from '@opentelemetry/semantic-conventions';
 
 /**
- * SpanCaptureManager provides utilities for capturing and analyzing spans during tests.
- * It sets up an in-memory span exporter and processor to capture spans without requiring
- * an actual OpenTelemetry backend.
+ * Options for configuring the SpanCapturer
  */
-export class SpanCaptureManager {
+export interface SpanCapturerOptions {
+  /** 
+   * The service name to use for the tracer provider 
+   * @default 'test-service'
+   */
+  serviceName?: string;
+  
+  /** 
+   * Whether to use batch processing instead of simple processing 
+   * @default false
+   */
+  useBatchProcessor?: boolean;
+  
+  /** 
+   * Maximum batch size when using batch processor 
+   * @default 512
+   */
+  maxBatchSize?: number;
+  
+  /** 
+   * Export batch timeout in milliseconds when using batch processor 
+   * @default 5000
+   */
+  exportTimeoutMillis?: number;
+  
+  /** 
+   * Schedule delay in milliseconds when using batch processor 
+   * @default 1000
+   */
+  scheduleDelayMillis?: number;
+}
+
+/**
+ * Filter options for querying captured spans
+ */
+export interface SpanFilterOptions {
+  /** Filter spans by name (exact match) */
+  name?: string;
+  
+  /** Filter spans by name (regular expression) */
+  nameRegex?: RegExp;
+  
+  /** Filter spans by kind */
+  kind?: SpanKind;
+  
+  /** Filter spans by status code */
+  statusCode?: SpanStatusCode;
+  
+  /** Filter spans by attribute key existence */
+  hasAttribute?: string;
+  
+  /** Filter spans by attribute key-value pair */
+  attributeEquals?: { key: string; value: string | number | boolean };
+  
+  /** Filter spans by parent span ID */
+  parentSpanId?: string;
+  
+  /** Filter root spans (spans without parents) */
+  rootSpansOnly?: boolean;
+  
+  /** Filter spans by minimum duration in milliseconds */
+  minDurationMillis?: number;
+  
+  /** Filter spans by maximum duration in milliseconds */
+  maxDurationMillis?: number;
+  
+  /** Filter spans that have errors */
+  hasError?: boolean;
+}
+
+/**
+ * Span relationship information for analyzing trace hierarchies
+ */
+export interface SpanRelationship {
+  /** The span being analyzed */
+  span: ReadableSpan;
+  
+  /** The parent span if it exists */
+  parent?: ReadableSpan;
+  
+  /** Child spans of this span */
+  children: ReadableSpan[];
+  
+  /** Depth in the trace tree (0 for root spans) */
+  depth: number;
+  
+  /** Total number of descendants (children, grandchildren, etc.) */
+  descendantCount: number;
+  
+  /** Total duration including all child operations in milliseconds */
+  totalDurationMillis: number;
+  
+  /** Self duration excluding child operations in milliseconds */
+  selfDurationMillis: number;
+}
+
+/**
+ * Performance timing analysis for a group of spans
+ */
+export interface SpanTimingAnalysis {
+  /** Total number of spans analyzed */
+  spanCount: number;
+  
+  /** Minimum duration in milliseconds */
+  minDurationMillis: number;
+  
+  /** Maximum duration in milliseconds */
+  maxDurationMillis: number;
+  
+  /** Average duration in milliseconds */
+  avgDurationMillis: number;
+  
+  /** Median duration in milliseconds */
+  medianDurationMillis: number;
+  
+  /** 95th percentile duration in milliseconds */
+  p95DurationMillis: number;
+  
+  /** 99th percentile duration in milliseconds */
+  p99DurationMillis: number;
+  
+  /** Standard deviation of durations in milliseconds */
+  stdDevDurationMillis: number;
+  
+  /** Total duration of all spans in milliseconds */
+  totalDurationMillis: number;
+}
+
+/**
+ * Utility class for capturing and analyzing spans during tests
+ */
+export class SpanCapturer {
   private exporter: InMemorySpanExporter;
-  private provider: NodeTracerProvider;
-  private processor: SimpleSpanProcessor;
-  private originalProvider: NodeTracerProvider | undefined;
-  private serviceName: string;
-
+  private processor: SpanProcessor;
+  private provider: BasicTracerProvider;
+  private tracer: Tracer;
+  
   /**
-   * Creates a new SpanCaptureManager instance.
-   * @param serviceName The name of the service to use for the tracer provider
+   * Creates a new SpanCapturer instance
+   * @param options Configuration options
    */
-  constructor(serviceName: string = 'test-service') {
-    this.serviceName = serviceName;
+  constructor(options: SpanCapturerOptions = {}) {
+    const {
+      serviceName = 'test-service',
+      useBatchProcessor = false,
+      maxBatchSize = 512,
+      exportTimeoutMillis = 5000,
+      scheduleDelayMillis = 1000
+    } = options;
+    
+    // Create an in-memory exporter for capturing spans
     this.exporter = new InMemorySpanExporter();
-    this.provider = new NodeTracerProvider({
+    
+    // Create the appropriate span processor based on options
+    if (useBatchProcessor) {
+      this.processor = new BatchSpanProcessor(this.exporter, {
+        maxExportBatchSize: maxBatchSize,
+        exportTimeoutMillis,
+        scheduledDelayMillis: scheduleDelayMillis
+      });
+    } else {
+      this.processor = new SimpleSpanProcessor(this.exporter);
+    }
+    
+    // Create a tracer provider with the processor
+    this.provider = new BasicTracerProvider({
       resource: new Resource({
-        [SemanticResourceAttributes.SERVICE_NAME]: this.serviceName,
-      }),
+        [SemanticResourceAttributes.SERVICE_NAME]: serviceName
+      })
     });
-    this.processor = new SimpleSpanProcessor(this.exporter);
+    
     this.provider.addSpanProcessor(this.processor);
-  }
-
-  /**
-   * Initializes the span capture manager by registering the tracer provider.
-   * This should be called before any spans are created that need to be captured.
-   */
-  init(): void {
-    // Store the original global provider if it exists
-    try {
-      this.originalProvider = trace.getTracerProvider() as NodeTracerProvider;
-    } catch (e) {
-      this.originalProvider = undefined;
-    }
-    
-    // Register our provider as the global provider
     this.provider.register();
-  }
-
-  /**
-   * Resets the span capture manager by clearing all captured spans.
-   */
-  reset(): void {
-    this.exporter.reset();
-  }
-
-  /**
-   * Restores the original tracer provider and cleans up resources.
-   * This should be called after tests are complete.
-   */
-  cleanup(): void {
-    // Restore the original provider if it exists
-    if (this.originalProvider) {
-      this.originalProvider.register();
-    }
     
-    // Shutdown our provider and processor
-    this.provider.shutdown();
+    // Get a tracer from the provider
+    this.tracer = this.provider.getTracer('span-capturer');
   }
-
+  
   /**
-   * Gets all captured spans.
-   * @returns An array of all captured spans
+   * Gets the tracer instance for creating spans
+   */
+  getTracer(): Tracer {
+    return this.tracer;
+  }
+  
+  /**
+   * Creates and starts a new span
+   * @param name The name of the span
+   * @param options Span options
+   * @param context Parent context (optional)
+   */
+  startSpan(name: string, options?: SpanOptions, context?: Context): Span {
+    return this.tracer.startSpan(name, options, context);
+  }
+  
+  /**
+   * Creates a span and automatically ends it after the callback completes
+   * @param name The name of the span
+   * @param callback Function to execute within the span
+   * @param options Span options
+   * @param context Parent context (optional)
+   */
+  async captureSpan<T>(
+    name: string,
+    callback: () => Promise<T> | T,
+    options?: SpanOptions,
+    context?: Context
+  ): Promise<T> {
+    const span = this.startSpan(name, options, context);
+    const ctx = trace.setSpan(context || trace.context(), span);
+    
+    try {
+      const result = await trace.with(ctx, callback);
+      span.setStatus({ code: SpanStatusCode.OK });
+      return result;
+    } catch (error) {
+      span.setStatus({
+        code: SpanStatusCode.ERROR,
+        message: error instanceof Error ? error.message : String(error)
+      });
+      span.recordException(error as Error);
+      throw error;
+    } finally {
+      span.end();
+    }
+  }
+  
+  /**
+   * Retrieves all captured spans
    */
   getSpans(): ReadableSpan[] {
     return this.exporter.getFinishedSpans();
   }
-
+  
   /**
-   * Finds spans by name.
-   * @param name The name of the spans to find
-   * @returns An array of spans with the specified name
+   * Clears all captured spans
    */
-  findSpansByName(name: string): ReadableSpan[] {
-    return this.getSpans().filter((span) => span.name === name);
+  clearSpans(): void {
+    this.exporter.reset();
   }
-
+  
   /**
-   * Finds spans by kind.
-   * @param kind The kind of spans to find
-   * @returns An array of spans with the specified kind
+   * Forces the processor to export all spans
    */
-  findSpansByKind(kind: SpanKind): ReadableSpan[] {
-    return this.getSpans().filter((span) => span.kind === kind);
+  async forceFlush(): Promise<void> {
+    await this.processor.forceFlush();
   }
-
+  
   /**
-   * Finds spans by attribute key and optional value.
-   * @param key The attribute key to search for
-   * @param value Optional attribute value to match
-   * @returns An array of spans with the specified attribute
+   * Shuts down the span capturer
    */
-  findSpansByAttribute(key: string, value?: unknown): ReadableSpan[] {
-    return this.getSpans().filter((span) => {
-      const attrValue = span.attributes[key];
-      return value !== undefined ? attrValue === value : attrValue !== undefined;
-    });
+  async shutdown(): Promise<void> {
+    await this.processor.shutdown();
   }
-
+  
   /**
-   * Finds spans by status code.
-   * @param statusCode The status code to search for
-   * @returns An array of spans with the specified status code
+   * Filters spans based on the provided criteria
+   * @param options Filter options
    */
-  findSpansByStatus(statusCode: SpanStatusCode): ReadableSpan[] {
-    return this.getSpans().filter((span) => span.status.code === statusCode);
-  }
-
-  /**
-   * Gets the root spans (spans without a parent).
-   * @returns An array of root spans
-   */
-  getRootSpans(): ReadableSpan[] {
-    return this.getSpans().filter((span) => {
-      return !span.parentSpanId;
-    });
-  }
-
-  /**
-   * Gets the child spans of a specific parent span.
-   * @param parentSpan The parent span
-   * @returns An array of child spans
-   */
-  getChildSpans(parentSpan: ReadableSpan): ReadableSpan[] {
-    return this.getSpans().filter((span) => {
-      return span.parentSpanId === parentSpan.spanContext().spanId;
-    });
-  }
-
-  /**
-   * Builds a span tree from the captured spans.
-   * @returns A tree structure representing the span hierarchy
-   */
-  buildSpanTree(): SpanTree {
-    const rootSpans = this.getRootSpans();
-    const tree: SpanTree = {
-      roots: [],
-    };
-
-    for (const rootSpan of rootSpans) {
-      tree.roots.push(this.buildSpanNode(rootSpan));
-    }
-
-    return tree;
-  }
-
-  /**
-   * Recursively builds a span node for the span tree.
-   * @param span The span to build a node for
-   * @returns A span node with its children
-   * @private
-   */
-  private buildSpanNode(span: ReadableSpan): SpanNode {
-    const children = this.getChildSpans(span);
-    const node: SpanNode = {
-      span,
-      children: [],
-    };
-
-    for (const child of children) {
-      node.children.push(this.buildSpanNode(child));
-    }
-
-    return node;
-  }
-
-  /**
-   * Analyzes the timing of spans to identify performance issues.
-   * @returns Timing analysis results
-   */
-  analyzeSpanTiming(): TimingAnalysisResult {
-    const spans = this.getSpans();
-    const result: TimingAnalysisResult = {
-      totalDuration: 0,
-      spanCount: spans.length,
-      averageDuration: 0,
-      maxDuration: 0,
-      minDuration: Number.MAX_SAFE_INTEGER,
-      spansByDuration: [],
-    };
-
-    if (spans.length === 0) {
-      result.minDuration = 0;
-      return result;
-    }
-
-    for (const span of spans) {
-      const duration = calculateSpanDuration(span);
-      result.totalDuration += duration;
-      result.maxDuration = Math.max(result.maxDuration, duration);
-      result.minDuration = Math.min(result.minDuration, duration);
-      result.spansByDuration.push({ span, duration });
-    }
-
-    result.averageDuration = result.totalDuration / spans.length;
-    result.spansByDuration.sort((a, b) => b.duration - a.duration);
-
-    return result;
-  }
-
-  /**
-   * Verifies that a span with the given name exists and has the expected attributes.
-   * @param name The name of the span to verify
-   * @param expectedAttributes The expected attributes of the span
-   * @returns The verified span or undefined if not found
-   */
-  verifySpan(name: string, expectedAttributes?: Record<string, unknown>): ReadableSpan | undefined {
-    const spans = this.findSpansByName(name);
-    if (spans.length === 0) {
-      return undefined;
-    }
-
-    if (!expectedAttributes) {
-      return spans[0];
-    }
-
-    for (const span of spans) {
-      let match = true;
-      for (const [key, value] of Object.entries(expectedAttributes)) {
-        if (span.attributes[key] !== value) {
-          match = false;
-          break;
-        }
-      }
-      if (match) {
-        return span;
-      }
-    }
-
-    return undefined;
-  }
-
-  /**
-   * Creates a tracer with the specified name.
-   * @param name The name of the tracer
-   * @returns A tracer instance
-   */
-  getTracer(name: string = 'test-tracer') {
-    return this.provider.getTracer(name);
-  }
-
-  /**
-   * Verifies the journey-specific spans for health journey.
-   * @param journeyId The ID of the health journey
-   * @returns An object containing verification results
-   */
-  verifyHealthJourneySpans(journeyId: string): JourneySpanVerificationResult {
-    return this.verifyJourneySpans('health', journeyId);
-  }
-
-  /**
-   * Verifies the journey-specific spans for care journey.
-   * @param journeyId The ID of the care journey
-   * @returns An object containing verification results
-   */
-  verifyCareJourneySpans(journeyId: string): JourneySpanVerificationResult {
-    return this.verifyJourneySpans('care', journeyId);
-  }
-
-  /**
-   * Verifies the journey-specific spans for plan journey.
-   * @param journeyId The ID of the plan journey
-   * @returns An object containing verification results
-   */
-  verifyPlanJourneySpans(journeyId: string): JourneySpanVerificationResult {
-    return this.verifyJourneySpans('plan', journeyId);
-  }
-
-  /**
-   * Verifies spans for a specific journey type.
-   * @param journeyType The type of journey ('health', 'care', or 'plan')
-   * @param journeyId The ID of the journey
-   * @returns An object containing verification results
-   * @private
-   */
-  private verifyJourneySpans(journeyType: 'health' | 'care' | 'plan', journeyId: string): JourneySpanVerificationResult {
-    const journeySpans = this.findSpansByAttribute('journey.type', journeyType);
-    const journeyIdSpans = journeySpans.filter(span => span.attributes['journey.id'] === journeyId);
+  filterSpans(options: SpanFilterOptions = {}): ReadableSpan[] {
+    let spans = this.getSpans();
     
-    const result: JourneySpanVerificationResult = {
-      journeyType,
-      journeyId,
-      valid: journeyIdSpans.length > 0,
-      spanCount: journeyIdSpans.length,
-      spans: journeyIdSpans,
-      errors: [],
-    };
-
-    // Check for required attributes on journey spans
-    for (const span of journeyIdSpans) {
-      const missingAttributes = [];
-      const requiredAttributes = ['journey.type', 'journey.id', 'journey.operation'];
-      
-      for (const attr of requiredAttributes) {
-        if (span.attributes[attr] === undefined) {
-          missingAttributes.push(attr);
-        }
-      }
-      
-      if (missingAttributes.length > 0) {
-        result.errors.push({
-          span,
-          message: `Missing required journey attributes: ${missingAttributes.join(', ')}`,
-        });
-        result.valid = false;
-      }
+    if (options.name) {
+      spans = spans.filter(span => span.name === options.name);
     }
-
-    return result;
+    
+    if (options.nameRegex) {
+      spans = spans.filter(span => options.nameRegex!.test(span.name));
+    }
+    
+    if (options.kind !== undefined) {
+      spans = spans.filter(span => span.kind === options.kind);
+    }
+    
+    if (options.statusCode !== undefined) {
+      spans = spans.filter(span => span.status.code === options.statusCode);
+    }
+    
+    if (options.hasAttribute) {
+      spans = spans.filter(span => 
+        span.attributes[options.hasAttribute!] !== undefined
+      );
+    }
+    
+    if (options.attributeEquals) {
+      const { key, value } = options.attributeEquals;
+      spans = spans.filter(span => span.attributes[key] === value);
+    }
+    
+    if (options.parentSpanId) {
+      spans = spans.filter(span => 
+        span.parentSpanId === options.parentSpanId
+      );
+    }
+    
+    if (options.rootSpansOnly) {
+      spans = spans.filter(span => !span.parentSpanId);
+    }
+    
+    if (options.minDurationMillis !== undefined) {
+      spans = spans.filter(span => {
+        const durationMillis = calculateDurationMillis(span);
+        return durationMillis >= options.minDurationMillis!;
+      });
+    }
+    
+    if (options.maxDurationMillis !== undefined) {
+      spans = spans.filter(span => {
+        const durationMillis = calculateDurationMillis(span);
+        return durationMillis <= options.maxDurationMillis!;
+      });
+    }
+    
+    if (options.hasError !== undefined) {
+      spans = spans.filter(span => 
+        (span.status.code === SpanStatusCode.ERROR) === options.hasError
+      );
+    }
+    
+    return spans;
+  }
+  
+  /**
+   * Finds a single span matching the filter criteria
+   * @param options Filter options
+   * @returns The matching span or undefined if not found
+   */
+  findSpan(options: SpanFilterOptions = {}): ReadableSpan | undefined {
+    const spans = this.filterSpans(options);
+    return spans.length > 0 ? spans[0] : undefined;
+  }
+  
+  /**
+   * Builds a tree of span relationships for analyzing trace hierarchies
+   * @param rootSpanId Optional root span ID to start from (if not provided, all root spans are processed)
+   */
+  buildSpanTree(rootSpanId?: string): SpanRelationship[] {
+    const spans = this.getSpans();
+    const spanMap = new Map<string, ReadableSpan>();
+    const relationships: SpanRelationship[] = [];
+    
+    // Build a map of span ID to span for quick lookup
+    spans.forEach(span => {
+      spanMap.set(span.spanContext().spanId, span);
+    });
+    
+    // Helper function to build the tree recursively
+    const buildTree = (span: ReadableSpan, depth: number): SpanRelationship => {
+      const spanId = span.spanContext().spanId;
+      const children = spans.filter(s => s.parentSpanId === spanId);
+      
+      // Calculate timing information
+      const spanDuration = calculateDurationMillis(span);
+      let childrenDuration = 0;
+      let descendantCount = children.length;
+      
+      // Process children recursively
+      const childRelationships = children.map(child => {
+        const childRelationship = buildTree(child, depth + 1);
+        childrenDuration += childRelationship.totalDurationMillis;
+        descendantCount += childRelationship.descendantCount;
+        return childRelationship;
+      });
+      
+      // Create the relationship object
+      const relationship: SpanRelationship = {
+        span,
+        parent: span.parentSpanId ? spanMap.get(span.parentSpanId) : undefined,
+        children: children,
+        depth,
+        descendantCount,
+        totalDurationMillis: spanDuration,
+        selfDurationMillis: Math.max(0, spanDuration - childrenDuration)
+      };
+      
+      relationships.push(relationship);
+      return relationship;
+    };
+    
+    // Start building the tree from the specified root or all root spans
+    if (rootSpanId) {
+      const rootSpan = spanMap.get(rootSpanId);
+      if (rootSpan) {
+        buildTree(rootSpan, 0);
+      }
+    } else {
+      // Process all root spans (spans without parents)
+      const rootSpans = spans.filter(span => !span.parentSpanId);
+      rootSpans.forEach(rootSpan => {
+        buildTree(rootSpan, 0);
+      });
+    }
+    
+    return relationships;
+  }
+  
+  /**
+   * Analyzes timing characteristics of a set of spans
+   * @param spans Spans to analyze (defaults to all captured spans)
+   */
+  analyzeTiming(spans?: ReadableSpan[]): SpanTimingAnalysis {
+    const targetSpans = spans || this.getSpans();
+    
+    if (targetSpans.length === 0) {
+      return {
+        spanCount: 0,
+        minDurationMillis: 0,
+        maxDurationMillis: 0,
+        avgDurationMillis: 0,
+        medianDurationMillis: 0,
+        p95DurationMillis: 0,
+        p99DurationMillis: 0,
+        stdDevDurationMillis: 0,
+        totalDurationMillis: 0
+      };
+    }
+    
+    // Calculate durations for all spans
+    const durations = targetSpans.map(calculateDurationMillis);
+    durations.sort((a, b) => a - b);
+    
+    // Calculate statistics
+    const spanCount = durations.length;
+    const minDurationMillis = durations[0];
+    const maxDurationMillis = durations[spanCount - 1];
+    const totalDurationMillis = durations.reduce((sum, duration) => sum + duration, 0);
+    const avgDurationMillis = totalDurationMillis / spanCount;
+    
+    // Calculate median and percentiles
+    const medianDurationMillis = calculatePercentile(durations, 50);
+    const p95DurationMillis = calculatePercentile(durations, 95);
+    const p99DurationMillis = calculatePercentile(durations, 99);
+    
+    // Calculate standard deviation
+    const variance = durations.reduce(
+      (sum, duration) => sum + Math.pow(duration - avgDurationMillis, 2),
+      0
+    ) / spanCount;
+    const stdDevDurationMillis = Math.sqrt(variance);
+    
+    return {
+      spanCount,
+      minDurationMillis,
+      maxDurationMillis,
+      avgDurationMillis,
+      medianDurationMillis,
+      p95DurationMillis,
+      p99DurationMillis,
+      stdDevDurationMillis,
+      totalDurationMillis
+    };
+  }
+  
+  /**
+   * Gets all spans with errors
+   */
+  getErrorSpans(): ReadableSpan[] {
+    return this.filterSpans({ hasError: true });
+  }
+  
+  /**
+   * Finds the slowest spans based on duration
+   * @param count Number of spans to return (default: 5)
+   * @param spans Spans to analyze (defaults to all captured spans)
+   */
+  getSlowestSpans(count: number = 5, spans?: ReadableSpan[]): ReadableSpan[] {
+    const targetSpans = spans || this.getSpans();
+    return [...targetSpans]
+      .sort((a, b) => calculateDurationMillis(b) - calculateDurationMillis(a))
+      .slice(0, count);
+  }
+  
+  /**
+   * Finds spans that match a specific journey context
+   * @param journeyType The journey type ('health', 'care', or 'plan')
+   * @param journeyId Optional journey ID to match
+   */
+  getJourneySpans(journeyType: 'health' | 'care' | 'plan', journeyId?: string): ReadableSpan[] {
+    const options: SpanFilterOptions = {
+      hasAttribute: `austa.journey.${journeyType}`
+    };
+    
+    if (journeyId) {
+      options.attributeEquals = {
+        key: `austa.journey.${journeyType}.id`,
+        value: journeyId
+      };
+    }
+    
+    return this.filterSpans(options);
   }
 }
 
 /**
- * Calculates the duration of a span in milliseconds.
- * @param span The span to calculate the duration for
- * @returns The duration in milliseconds
+ * Calculates the duration of a span in milliseconds
+ * @param span The span to calculate duration for
  */
-export function calculateSpanDuration(span: ReadableSpan): number {
+function calculateDurationMillis(span: ReadableSpan): number {
   const startTime = span.startTime;
   const endTime = span.endTime;
-  const durationNanos = endTime[0] * 1e9 + endTime[1] - (startTime[0] * 1e9 + startTime[1]);
-  return durationNanos / 1e6; // Convert to milliseconds
-}
-
-/**
- * Interface representing a span tree structure.
- */
-export interface SpanTree {
-  roots: SpanNode[];
-}
-
-/**
- * Interface representing a node in the span tree.
- */
-export interface SpanNode {
-  span: ReadableSpan;
-  children: SpanNode[];
-}
-
-/**
- * Interface representing the result of timing analysis.
- */
-export interface TimingAnalysisResult {
-  totalDuration: number;
-  spanCount: number;
-  averageDuration: number;
-  maxDuration: number;
-  minDuration: number;
-  spansByDuration: { span: ReadableSpan; duration: number }[];
-}
-
-/**
- * Interface representing the result of journey span verification.
- */
-export interface JourneySpanVerificationResult {
-  journeyType: 'health' | 'care' | 'plan';
-  journeyId: string;
-  valid: boolean;
-  spanCount: number;
-  spans: ReadableSpan[];
-  errors: { span: ReadableSpan; message: string }[];
-}
-
-/**
- * Creates a span capture manager for testing.
- * @param serviceName The name of the service to use for the tracer provider
- * @returns A configured SpanCaptureManager instance
- */
-export function createSpanCaptureManager(serviceName: string = 'test-service'): SpanCaptureManager {
-  const manager = new SpanCaptureManager(serviceName);
-  manager.init();
-  return manager;
-}
-
-/**
- * Helper function to create a test span with the specified attributes.
- * @param tracer The tracer to use for creating the span
- * @param name The name of the span
- * @param attributes The attributes to set on the span
- * @param kind The kind of span to create
- * @returns The created span
- */
-export function createTestSpan(
-  tracer: ReturnType<NodeTracerProvider['getTracer']>,
-  name: string,
-  attributes: Record<string, unknown> = {},
-  kind: SpanKind = SpanKind.INTERNAL
-): Span {
-  return tracer.startSpan(name, { attributes, kind });
-}
-
-/**
- * Helper function to create a journey-specific test span.
- * @param tracer The tracer to use for creating the span
- * @param journeyType The type of journey ('health', 'care', or 'plan')
- * @param journeyId The ID of the journey
- * @param operation The operation being performed in the journey
- * @param additionalAttributes Additional attributes to set on the span
- * @returns The created span
- */
-export function createJourneyTestSpan(
-  tracer: ReturnType<NodeTracerProvider['getTracer']>,
-  journeyType: 'health' | 'care' | 'plan',
-  journeyId: string,
-  operation: string,
-  additionalAttributes: Record<string, unknown> = {}
-): Span {
-  const attributes = {
-    'journey.type': journeyType,
-    'journey.id': journeyId,
-    'journey.operation': operation,
-    ...additionalAttributes,
-  };
   
-  return createTestSpan(tracer, `${journeyType}.${operation}`, attributes);
+  // Convert nanoseconds to milliseconds
+  const durationNanos = endTime[0] - startTime[0];
+  const durationMillis = durationNanos / 1_000_000;
+  
+  return durationMillis;
+}
+
+/**
+ * Calculates a percentile value from a sorted array of numbers
+ * @param sortedValues Sorted array of values
+ * @param percentile Percentile to calculate (0-100)
+ */
+function calculatePercentile(sortedValues: number[], percentile: number): number {
+  if (sortedValues.length === 0) return 0;
+  if (sortedValues.length === 1) return sortedValues[0];
+  
+  const index = (percentile / 100) * (sortedValues.length - 1);
+  const lower = Math.floor(index);
+  const upper = Math.ceil(index);
+  
+  if (lower === upper) return sortedValues[lower];
+  
+  const weight = index - lower;
+  return sortedValues[lower] * (1 - weight) + sortedValues[upper] * weight;
+}
+
+/**
+ * Creates a pre-configured SpanCapturer for testing
+ * @param options Configuration options
+ */
+export function createTestSpanCapturer(options: SpanCapturerOptions = {}): SpanCapturer {
+  return new SpanCapturer({
+    serviceName: 'test-service',
+    useBatchProcessor: false,
+    ...options
+  });
+}
+
+/**
+ * Utility to verify span attributes match expected values
+ * @param span The span to check
+ * @param expectedAttributes Map of expected attribute key-value pairs
+ * @returns Array of missing or mismatched attributes
+ */
+export function verifySpanAttributes(
+  span: ReadableSpan,
+  expectedAttributes: Record<string, string | number | boolean>
+): string[] {
+  const errors: string[] = [];
+  
+  for (const [key, expectedValue] of Object.entries(expectedAttributes)) {
+    const actualValue = span.attributes[key];
+    
+    if (actualValue === undefined) {
+      errors.push(`Missing attribute: ${key}`);
+    } else if (actualValue !== expectedValue) {
+      errors.push(`Attribute ${key} has value ${actualValue}, expected ${expectedValue}`);
+    }
+  }
+  
+  return errors;
+}
+
+/**
+ * Utility to verify span events match expected values
+ * @param span The span to check
+ * @param expectedEvents Array of expected event names
+ * @returns Array of missing events
+ */
+export function verifySpanEvents(
+  span: ReadableSpan,
+  expectedEvents: string[]
+): string[] {
+  const errors: string[] = [];
+  const actualEvents = span.events.map(event => event.name);
+  
+  for (const expectedEvent of expectedEvents) {
+    if (!actualEvents.includes(expectedEvent)) {
+      errors.push(`Missing event: ${expectedEvent}`);
+    }
+  }
+  
+  return errors;
+}
+
+/**
+ * Utility to verify span status
+ * @param span The span to check
+ * @param expectedStatus Expected status code
+ * @param expectedMessage Optional expected status message
+ * @returns Array of status mismatches
+ */
+export function verifySpanStatus(
+  span: ReadableSpan,
+  expectedStatus: SpanStatusCode,
+  expectedMessage?: string
+): string[] {
+  const errors: string[] = [];
+  
+  if (span.status.code !== expectedStatus) {
+    errors.push(`Status code is ${span.status.code}, expected ${expectedStatus}`);
+  }
+  
+  if (expectedMessage !== undefined && span.status.message !== expectedMessage) {
+    errors.push(`Status message is "${span.status.message}", expected "${expectedMessage}"`);
+  }
+  
+  return errors;
 }
