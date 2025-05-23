@@ -1,454 +1,525 @@
-/**
- * @file Test fixtures for integration testing of the tracing package
- * 
- * This file provides test fixtures and mock data for integration testing of the tracing package.
- * It contains sample span definitions, trace context objects, and configuration options for
- * testing tracing functionality across different components.
- */
-
-import { Context, SpanContext, SpanKind, SpanStatusCode, Tracer, trace } from '@opentelemetry/api';
-import { Resource } from '@opentelemetry/resources';
-import { SemanticResourceAttributes } from '@opentelemetry/semantic-conventions';
+import { SpanStatusCode, SpanKind, Context, Span, Tracer } from '@opentelemetry/api';
+import { ConfigService } from '@nestjs/config';
+import { LoggerService } from '@nestjs/common';
+import { TracingOptions } from '../../src/interfaces/tracing-options.interface';
+import { SpanOptions } from '../../src/interfaces/span-options.interface';
+import { TraceContext } from '../../src/interfaces/trace-context.interface';
+import { JourneyHealthContext, JourneyCareContext, JourneyPlanContext } from '../../src/interfaces/journey-context.interface';
 
 /**
- * Sample trace IDs for testing
+ * Mock trace ID for testing
  */
-export const TRACE_IDS = {
-  VALID: '0af7651916cd43dd8448eb211c80319c',
-  INVALID: '00000000000000000000000000000000',
-  HEALTH_JOURNEY: 'a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4',
-  CARE_JOURNEY: 'b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5',
-  PLAN_JOURNEY: 'c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6',
-};
+export const MOCK_TRACE_ID = '0af7651916cd43dd8448eb211c80319c';
 
 /**
- * Sample span IDs for testing
+ * Mock span ID for testing
  */
-export const SPAN_IDS = {
-  VALID: 'ff000000000000ff',
-  INVALID: '0000000000000000',
-  ROOT: 'abcdef0123456789',
-  CHILD: '0123456789abcdef',
-  HEALTH_JOURNEY: 'a1b2c3d4e5f6a1b2',
-  CARE_JOURNEY: 'b2c3d4e5f6a1b2c3',
-  PLAN_JOURNEY: 'c3d4e5f6a1b2c3d4',
-};
+export const MOCK_SPAN_ID = 'b7ad6b7169203331';
 
 /**
- * Sample span contexts for testing
+ * Mock parent span ID for testing parent-child relationships
  */
-export const SPAN_CONTEXTS: Record<string, SpanContext> = {
-  VALID: {
-    traceId: TRACE_IDS.VALID,
-    spanId: SPAN_IDS.VALID,
-    traceFlags: 1, // Sampled
-    isRemote: false,
-    traceState: trace.createTraceState('austa=journey-context'),
-  },
-  INVALID: {
-    traceId: TRACE_IDS.INVALID,
-    spanId: SPAN_IDS.INVALID,
-    traceFlags: 0, // Not sampled
-    isRemote: false,
-    traceState: undefined,
-  },
-  REMOTE: {
-    traceId: TRACE_IDS.VALID,
-    spanId: SPAN_IDS.VALID,
-    traceFlags: 1, // Sampled
-    isRemote: true,
-    traceState: trace.createTraceState('austa=remote-context'),
-  },
-  HEALTH_JOURNEY: {
-    traceId: TRACE_IDS.HEALTH_JOURNEY,
-    spanId: SPAN_IDS.HEALTH_JOURNEY,
-    traceFlags: 1, // Sampled
-    isRemote: false,
-    traceState: trace.createTraceState('austa=health-journey'),
-  },
-  CARE_JOURNEY: {
-    traceId: TRACE_IDS.CARE_JOURNEY,
-    spanId: SPAN_IDS.CARE_JOURNEY,
-    traceFlags: 1, // Sampled
-    isRemote: false,
-    traceState: trace.createTraceState('austa=care-journey'),
-  },
-  PLAN_JOURNEY: {
-    traceId: TRACE_IDS.PLAN_JOURNEY,
-    spanId: SPAN_IDS.PLAN_JOURNEY,
-    traceFlags: 1, // Sampled
-    isRemote: false,
-    traceState: trace.createTraceState('austa=plan-journey'),
-  },
-};
+export const MOCK_PARENT_SPAN_ID = 'c8be5de1a2104222';
 
 /**
- * Sample trace contexts for testing
+ * Mock correlation ID for connecting logs, traces, and metrics
  */
-export const TRACE_CONTEXTS: Record<string, Context> = {
-  // These will be initialized in the mockTraceContexts function
-  ROOT: {} as Context,
-  CHILD: {} as Context,
-  HEALTH_JOURNEY: {} as Context,
-  CARE_JOURNEY: {} as Context,
-  PLAN_JOURNEY: {} as Context,
-  REMOTE: {} as Context,
-};
+export const MOCK_CORRELATION_ID = 'corr-1234-5678-9abc-def0';
 
 /**
- * Sample span attributes for testing
+ * Mock user ID for testing user-specific traces
  */
-export const SPAN_ATTRIBUTES = {
-  COMMON: {
-    'service.name': 'austa-service',
-    'service.version': '1.0.0',
-    'deployment.environment': 'test',
-  },
-  HTTP: {
-    'http.method': 'GET',
-    'http.url': 'https://api.austa.health/v1/users',
-    'http.status_code': 200,
-    'http.flavor': '2.0',
-    'http.user_agent': 'AUSTA-SuperApp/1.0',
-  },
-  DATABASE: {
-    'db.system': 'postgresql',
-    'db.name': 'austa_db',
-    'db.user': 'austa_user',
-    'db.statement': 'SELECT * FROM users WHERE id = $1',
-    'db.operation': 'SELECT',
-  },
-  HEALTH_JOURNEY: {
-    'journey.type': 'health',
-    'journey.operation': 'fetch_metrics',
-    'health.metric_type': 'steps',
-    'health.device_id': 'fitbit-123456',
-    'health.user_id': 'user-789012',
-  },
-  CARE_JOURNEY: {
-    'journey.type': 'care',
-    'journey.operation': 'book_appointment',
-    'care.provider_id': 'provider-123456',
-    'care.appointment_type': 'consultation',
-    'care.user_id': 'user-789012',
-  },
-  PLAN_JOURNEY: {
-    'journey.type': 'plan',
-    'journey.operation': 'submit_claim',
-    'plan.claim_id': 'claim-123456',
-    'plan.coverage_type': 'medical',
-    'plan.user_id': 'user-789012',
-  },
-};
+export const MOCK_USER_ID = 'user-1234-5678-9abc-def0';
 
 /**
- * Sample span events for testing
+ * Mock request ID for testing HTTP request traces
  */
-export const SPAN_EVENTS = {
-  COMMON: [
-    { name: 'start_processing', attributes: { 'process.id': '12345' } },
-    { name: 'end_processing', attributes: { 'process.duration_ms': 150 } },
-  ],
-  ERROR: [
-    { name: 'error', attributes: { 'error.type': 'ConnectionError', 'error.message': 'Failed to connect to database' } },
-  ],
-  HEALTH_JOURNEY: [
-    { name: 'health_metrics_requested', attributes: { 'health.metric_type': 'steps', 'health.time_range': 'daily' } },
-    { name: 'device_connected', attributes: { 'health.device_id': 'fitbit-123456', 'health.connection_type': 'bluetooth' } },
-  ],
-  CARE_JOURNEY: [
-    { name: 'appointment_requested', attributes: { 'care.provider_id': 'provider-123456', 'care.appointment_type': 'consultation' } },
-    { name: 'slot_availability_checked', attributes: { 'care.available_slots': 5, 'care.date': '2023-06-15' } },
-  ],
-  PLAN_JOURNEY: [
-    { name: 'claim_submitted', attributes: { 'plan.claim_id': 'claim-123456', 'plan.amount': 150.75 } },
-    { name: 'coverage_verified', attributes: { 'plan.coverage_type': 'medical', 'plan.is_covered': true } },
-  ],
-};
+export const MOCK_REQUEST_ID = 'req-1234-5678-9abc-def0';
 
 /**
- * Sample error objects for testing error handling
+ * Mock service name for testing service-specific traces
  */
-export const ERROR_OBJECTS = {
-  GENERIC: new Error('An unexpected error occurred'),
-  DATABASE: new Error('Database connection failed: timeout after 30s'),
-  HTTP: new Error('HTTP request failed with status 500'),
-  VALIDATION: new Error('Invalid input: required field missing'),
-  HEALTH_JOURNEY: new Error('Failed to retrieve health metrics: device not connected'),
-  CARE_JOURNEY: new Error('Failed to book appointment: no available slots'),
-  PLAN_JOURNEY: new Error('Failed to submit claim: missing documentation'),
-};
+export const MOCK_SERVICE_NAME = 'test-service';
 
 /**
- * Sample configuration options for different tracing environments
+ * Mock span name for testing span creation
  */
-export const TRACING_CONFIG_OPTIONS = {
-  DEVELOPMENT: {
-    serviceName: 'austa-service-dev',
-    environment: 'development',
-    logLevel: 'debug',
-    sampleRate: 1.0, // Sample all traces
-    exporterOptions: {
-      url: 'http://localhost:4318/v1/traces',
-      headers: {},
-    },
-  },
-  TESTING: {
-    serviceName: 'austa-service-test',
-    environment: 'testing',
-    logLevel: 'info',
-    sampleRate: 1.0, // Sample all traces
-    exporterOptions: {
-      url: 'http://otel-collector:4318/v1/traces',
-      headers: {},
-    },
-  },
-  PRODUCTION: {
-    serviceName: 'austa-service',
-    environment: 'production',
-    logLevel: 'warn',
-    sampleRate: 0.1, // Sample 10% of traces
-    exporterOptions: {
-      url: 'https://otel-collector.austa.health/v1/traces',
-      headers: {
-        'X-API-Key': 'placeholder-api-key',
-      },
-    },
-  },
-  HEALTH_JOURNEY: {
-    serviceName: 'austa-health-journey',
-    environment: 'production',
-    logLevel: 'info',
-    sampleRate: 0.5, // Sample 50% of traces
-    exporterOptions: {
-      url: 'https://otel-collector.austa.health/v1/traces',
-      headers: {
-        'X-API-Key': 'placeholder-api-key',
-        'X-Journey-Type': 'health',
-      },
-    },
-  },
-  CARE_JOURNEY: {
-    serviceName: 'austa-care-journey',
-    environment: 'production',
-    logLevel: 'info',
-    sampleRate: 0.5, // Sample 50% of traces
-    exporterOptions: {
-      url: 'https://otel-collector.austa.health/v1/traces',
-      headers: {
-        'X-API-Key': 'placeholder-api-key',
-        'X-Journey-Type': 'care',
-      },
-    },
-  },
-  PLAN_JOURNEY: {
-    serviceName: 'austa-plan-journey',
-    environment: 'production',
-    logLevel: 'info',
-    sampleRate: 0.5, // Sample 50% of traces
-    exporterOptions: {
-      url: 'https://otel-collector.austa.health/v1/traces',
-      headers: {
-        'X-API-Key': 'placeholder-api-key',
-        'X-Journey-Type': 'plan',
-      },
-    },
-  },
-};
-
-/**
- * Sample resources for testing
- */
-export const RESOURCES = {
-  DEFAULT: new Resource({
-    [SemanticResourceAttributes.SERVICE_NAME]: 'austa-service',
-    [SemanticResourceAttributes.SERVICE_VERSION]: '1.0.0',
-    [SemanticResourceAttributes.DEPLOYMENT_ENVIRONMENT]: 'test',
-  }),
-  HEALTH_JOURNEY: new Resource({
-    [SemanticResourceAttributes.SERVICE_NAME]: 'austa-health-journey',
-    [SemanticResourceAttributes.SERVICE_VERSION]: '1.0.0',
-    [SemanticResourceAttributes.DEPLOYMENT_ENVIRONMENT]: 'test',
-    'journey.type': 'health',
-  }),
-  CARE_JOURNEY: new Resource({
-    [SemanticResourceAttributes.SERVICE_NAME]: 'austa-care-journey',
-    [SemanticResourceAttributes.SERVICE_VERSION]: '1.0.0',
-    [SemanticResourceAttributes.DEPLOYMENT_ENVIRONMENT]: 'test',
-    'journey.type': 'care',
-  }),
-  PLAN_JOURNEY: new Resource({
-    [SemanticResourceAttributes.SERVICE_NAME]: 'austa-plan-journey',
-    [SemanticResourceAttributes.SERVICE_VERSION]: '1.0.0',
-    [SemanticResourceAttributes.DEPLOYMENT_ENVIRONMENT]: 'test',
-    'journey.type': 'plan',
-  }),
-};
-
-/**
- * Mock span factory for creating test spans
- */
-export interface MockSpan {
-  name: string;
-  kind: SpanKind;
-  context: SpanContext;
-  parentContext?: SpanContext;
-  startTime: number;
-  endTime?: number;
-  attributes: Record<string, unknown>;
-  events: Array<{ name: string; attributes?: Record<string, unknown>; timestamp?: number }>;
-  status: { code: SpanStatusCode; message?: string };
-  isRecording: () => boolean;
-  recordException: (exception: Error) => void;
-  end: (endTime?: number) => void;
-}
+export const MOCK_SPAN_NAME = 'test-operation';
 
 /**
  * Creates a mock span for testing
+ * @param name The name of the span
+ * @param kind The kind of span (default: SpanKind.INTERNAL)
+ * @returns A mock span object
  */
-export function createMockSpan(options: {
-  name: string;
-  kind?: SpanKind;
-  context?: SpanContext;
-  parentContext?: SpanContext;
-  attributes?: Record<string, unknown>;
-  startTime?: number;
-  status?: { code: SpanStatusCode; message?: string };
-}): MockSpan {
-  const startTime = options.startTime || Date.now();
-  const context = options.context || SPAN_CONTEXTS.VALID;
-  
-  const span: MockSpan = {
-    name: options.name,
-    kind: options.kind || SpanKind.INTERNAL,
-    context,
-    parentContext: options.parentContext,
-    startTime,
-    attributes: options.attributes || {},
-    events: [],
-    status: options.status || { code: SpanStatusCode.UNSET },
-    isRecording: () => true,
-    recordException: (exception: Error) => {
-      span.events.push({
-        name: 'exception',
-        attributes: {
-          'exception.type': exception.name,
-          'exception.message': exception.message,
-          'exception.stacktrace': exception.stack,
-        },
-        timestamp: Date.now(),
-      });
-      span.status = { code: SpanStatusCode.ERROR, message: exception.message };
-    },
-    end: (endTime?: number) => {
-      span.endTime = endTime || Date.now();
-    },
-  };
-  
-  return span;
-}
+export const createMockSpan = (name: string = MOCK_SPAN_NAME, kind: SpanKind = SpanKind.INTERNAL): Span => {
+  return {
+    name,
+    spanContext: () => ({
+      traceId: MOCK_TRACE_ID,
+      spanId: MOCK_SPAN_ID,
+      traceFlags: 1,
+      isRemote: false,
+    }),
+    setAttribute: jest.fn().mockReturnThis(),
+    setAttributes: jest.fn().mockReturnThis(),
+    addEvent: jest.fn().mockReturnThis(),
+    setStatus: jest.fn().mockReturnThis(),
+    updateName: jest.fn().mockReturnThis(),
+    end: jest.fn(),
+    isRecording: jest.fn().mockReturnValue(true),
+    recordException: jest.fn().mockReturnThis(),
+  } as unknown as Span;
+};
 
 /**
- * Creates journey-specific mock spans for testing
+ * Creates a mock parent span for testing parent-child relationships
+ * @param name The name of the parent span
+ * @returns A mock parent span object
  */
-export function createJourneySpans(): Record<string, MockSpan> {
-  return {
-    HEALTH_ROOT: createMockSpan({
-      name: 'health.journey.start',
-      kind: SpanKind.SERVER,
-      context: SPAN_CONTEXTS.HEALTH_JOURNEY,
-      attributes: { ...SPAN_ATTRIBUTES.COMMON, ...SPAN_ATTRIBUTES.HEALTH_JOURNEY },
-    }),
-    HEALTH_CHILD: createMockSpan({
-      name: 'health.metrics.fetch',
-      kind: SpanKind.CLIENT,
-      context: { ...SPAN_CONTEXTS.HEALTH_JOURNEY, spanId: '1a2b3c4d5e6f7a8b' },
-      parentContext: SPAN_CONTEXTS.HEALTH_JOURNEY,
-      attributes: { ...SPAN_ATTRIBUTES.COMMON, ...SPAN_ATTRIBUTES.HEALTH_JOURNEY, 'health.metric_type': 'heart_rate' },
-    }),
-    CARE_ROOT: createMockSpan({
-      name: 'care.journey.start',
-      kind: SpanKind.SERVER,
-      context: SPAN_CONTEXTS.CARE_JOURNEY,
-      attributes: { ...SPAN_ATTRIBUTES.COMMON, ...SPAN_ATTRIBUTES.CARE_JOURNEY },
-    }),
-    CARE_CHILD: createMockSpan({
-      name: 'care.appointment.book',
-      kind: SpanKind.CLIENT,
-      context: { ...SPAN_CONTEXTS.CARE_JOURNEY, spanId: '2b3c4d5e6f7a8b9c' },
-      parentContext: SPAN_CONTEXTS.CARE_JOURNEY,
-      attributes: { ...SPAN_ATTRIBUTES.COMMON, ...SPAN_ATTRIBUTES.CARE_JOURNEY, 'care.appointment_date': '2023-06-15T10:00:00Z' },
-    }),
-    PLAN_ROOT: createMockSpan({
-      name: 'plan.journey.start',
-      kind: SpanKind.SERVER,
-      context: SPAN_CONTEXTS.PLAN_JOURNEY,
-      attributes: { ...SPAN_ATTRIBUTES.COMMON, ...SPAN_ATTRIBUTES.PLAN_JOURNEY },
-    }),
-    PLAN_CHILD: createMockSpan({
-      name: 'plan.claim.submit',
-      kind: SpanKind.CLIENT,
-      context: { ...SPAN_CONTEXTS.PLAN_JOURNEY, spanId: '3c4d5e6f7a8b9c0d' },
-      parentContext: SPAN_CONTEXTS.PLAN_JOURNEY,
-      attributes: { ...SPAN_ATTRIBUTES.COMMON, ...SPAN_ATTRIBUTES.PLAN_JOURNEY, 'plan.claim_amount': 250.75 },
-    }),
-    ERROR_SPAN: createMockSpan({
-      name: 'error.operation',
-      kind: SpanKind.INTERNAL,
-      context: SPAN_CONTEXTS.VALID,
-      attributes: { ...SPAN_ATTRIBUTES.COMMON, 'error.expected': true },
-      status: { code: SpanStatusCode.ERROR, message: 'Operation failed with an expected error' },
-    }),
-  };
-}
+export const createMockParentSpan = (name: string = 'parent-operation'): Span => {
+  const span = createMockSpan(name);
+  // Override the spanContext to use the parent span ID
+  (span.spanContext as jest.Mock) = jest.fn().mockReturnValue({
+    traceId: MOCK_TRACE_ID,
+    spanId: MOCK_PARENT_SPAN_ID,
+    traceFlags: 1,
+    isRemote: false,
+  });
+  return span;
+};
 
 /**
  * Creates a mock tracer for testing
+ * @returns A mock tracer object
  */
-export function createMockTracer(name: string = 'test-tracer'): Tracer {
+export const createMockTracer = (): Tracer => {
   return {
-    startSpan: (name, options) => createMockSpan({ name, ...options }),
-    startActiveSpan: (name, options, fn) => {
-      // Handle different function signature overloads
-      let spanOptions = {};
-      let callback: Function;
-      
-      if (typeof options === 'function') {
-        callback = options;
-      } else {
-        spanOptions = options || {};
-        callback = fn as Function;
-      }
-      
-      const span = createMockSpan({ name, ...spanOptions });
+    startSpan: jest.fn().mockImplementation((name, options) => createMockSpan(name)),
+    startActiveSpan: jest.fn().mockImplementation((name, options, context, fn) => {
+      const span = createMockSpan(name);
       try {
-        return callback(span);
+        return fn(span);
       } finally {
         span.end();
       }
-    },
+    }),
   } as unknown as Tracer;
-}
+};
 
 /**
- * Initializes mock trace contexts for testing
+ * Creates a mock context for testing
+ * @param spanId Optional span ID to include in the context
+ * @returns A mock context object
  */
-export function mockTraceContexts(): void {
-  // This function would normally use the actual Context API to create contexts
-  // For testing purposes, we're just creating objects with the necessary properties
-  
-  // In a real implementation, this would use something like:
-  // const rootContext = trace.setSpan(context.active(), rootSpan);
-  
-  TRACE_CONTEXTS.ROOT = { spanContext: SPAN_CONTEXTS.VALID } as unknown as Context;
-  TRACE_CONTEXTS.CHILD = { spanContext: { ...SPAN_CONTEXTS.VALID, spanId: SPAN_IDS.CHILD } } as unknown as Context;
-  TRACE_CONTEXTS.HEALTH_JOURNEY = { spanContext: SPAN_CONTEXTS.HEALTH_JOURNEY } as unknown as Context;
-  TRACE_CONTEXTS.CARE_JOURNEY = { spanContext: SPAN_CONTEXTS.CARE_JOURNEY } as unknown as Context;
-  TRACE_CONTEXTS.PLAN_JOURNEY = { spanContext: SPAN_CONTEXTS.PLAN_JOURNEY } as unknown as Context;
-  TRACE_CONTEXTS.REMOTE = { spanContext: SPAN_CONTEXTS.REMOTE } as unknown as Context;
-}
+export const createMockContext = (spanId: string = MOCK_SPAN_ID): Context => {
+  return {} as Context;
+};
 
 /**
- * Initialize mock contexts when this module is imported
+ * Creates a mock trace context for testing context propagation
+ * @param traceId Optional trace ID to include in the context
+ * @param spanId Optional span ID to include in the context
+ * @returns A mock trace context object
  */
-mockTraceContexts();
+export const createMockTraceContext = (traceId: string = MOCK_TRACE_ID, spanId: string = MOCK_SPAN_ID): TraceContext => {
+  return {
+    traceId,
+    spanId,
+    traceFlags: 1,
+    isRemote: false,
+    extract: jest.fn(),
+    inject: jest.fn(),
+    serialize: jest.fn().mockReturnValue(JSON.stringify({ traceId, spanId, traceFlags: 1 })),
+    deserialize: jest.fn(),
+  };
+};
+
+/**
+ * Creates mock HTTP headers with trace context for testing context propagation
+ * @param traceId Optional trace ID to include in the headers
+ * @param spanId Optional span ID to include in the headers
+ * @returns Mock HTTP headers with trace context
+ */
+export const createMockHttpHeadersWithTraceContext = (traceId: string = MOCK_TRACE_ID, spanId: string = MOCK_SPAN_ID): Record<string, string> => {
+  return {
+    'traceparent': `00-${traceId}-${spanId}-01`,
+    'x-correlation-id': MOCK_CORRELATION_ID,
+    'x-request-id': MOCK_REQUEST_ID,
+  };
+};
+
+/**
+ * Creates a mock Kafka message with trace context for testing context propagation
+ * @param traceId Optional trace ID to include in the message
+ * @param spanId Optional span ID to include in the message
+ * @returns Mock Kafka message with trace context
+ */
+export const createMockKafkaMessageWithTraceContext = (traceId: string = MOCK_TRACE_ID, spanId: string = MOCK_SPAN_ID): Record<string, any> => {
+  return {
+    headers: {
+      'traceparent': Buffer.from(`00-${traceId}-${spanId}-01`),
+      'x-correlation-id': Buffer.from(MOCK_CORRELATION_ID),
+      'x-request-id': Buffer.from(MOCK_REQUEST_ID),
+    },
+    key: 'test-key',
+    value: Buffer.from(JSON.stringify({ eventType: 'test-event', payload: { test: 'data' } })),
+    topic: 'test-topic',
+    partition: 0,
+    timestamp: Date.now(),
+    offset: '0',
+  };
+};
+
+/**
+ * Creates mock span options for testing span creation
+ * @param name Optional name for the span
+ * @param kind Optional kind for the span
+ * @returns Mock span options
+ */
+export const createMockSpanOptions = (name: string = MOCK_SPAN_NAME, kind: SpanKind = SpanKind.INTERNAL): SpanOptions => {
+  return {
+    name,
+    kind,
+    attributes: {
+      'service.name': MOCK_SERVICE_NAME,
+      'user.id': MOCK_USER_ID,
+      'request.id': MOCK_REQUEST_ID,
+      'correlation.id': MOCK_CORRELATION_ID,
+    },
+  };
+};
+
+/**
+ * Creates mock tracing options for testing tracing configuration
+ * @param serviceName Optional service name for the tracing configuration
+ * @returns Mock tracing options
+ */
+export const createMockTracingOptions = (serviceName: string = MOCK_SERVICE_NAME): TracingOptions => {
+  return {
+    serviceName,
+    enabled: true,
+    exporterType: 'console',
+    samplingRatio: 1.0,
+    logSpans: true,
+  };
+};
+
+/**
+ * Creates a mock config service for testing
+ * @param serviceName Optional service name to include in the configuration
+ * @returns A mock config service
+ */
+export const createMockConfigService = (serviceName: string = MOCK_SERVICE_NAME): ConfigService => {
+  return {
+    get: jest.fn().mockImplementation((key: string, defaultValue?: any) => {
+      if (key === 'service.name') {
+        return serviceName;
+      }
+      if (key === 'tracing.enabled') {
+        return true;
+      }
+      if (key === 'tracing.exporterType') {
+        return 'console';
+      }
+      if (key === 'tracing.samplingRatio') {
+        return 1.0;
+      }
+      if (key === 'tracing.logSpans') {
+        return true;
+      }
+      return defaultValue;
+    }),
+  } as unknown as ConfigService;
+};
+
+/**
+ * Creates a mock logger service for testing
+ * @returns A mock logger service
+ */
+export const createMockLoggerService = (): LoggerService => {
+  return {
+    log: jest.fn(),
+    error: jest.fn(),
+    warn: jest.fn(),
+    debug: jest.fn(),
+    verbose: jest.fn(),
+  } as unknown as LoggerService;
+};
+
+/**
+ * Creates a mock error for testing error handling
+ * @param message Optional error message
+ * @param code Optional error code
+ * @returns A mock error object
+ */
+export const createMockError = (message: string = 'Test error', code: string = 'TEST_ERROR'): Error => {
+  const error = new Error(message);
+  (error as any).code = code;
+  (error as any).statusCode = 500;
+  return error;
+};
+
+/**
+ * Creates a mock database error for testing error handling
+ * @param message Optional error message
+ * @returns A mock database error object
+ */
+export const createMockDatabaseError = (message: string = 'Database connection error'): Error => {
+  const error = createMockError(message, 'DB_ERROR');
+  (error as any).sqlState = '08006';
+  (error as any).table = 'users';
+  return error;
+};
+
+/**
+ * Creates a mock HTTP error for testing error handling
+ * @param message Optional error message
+ * @param statusCode Optional HTTP status code
+ * @returns A mock HTTP error object
+ */
+export const createMockHttpError = (message: string = 'HTTP request failed', statusCode: number = 500): Error => {
+  const error = createMockError(message, 'HTTP_ERROR');
+  (error as any).statusCode = statusCode;
+  (error as any).response = {
+    status: statusCode,
+    data: { message },
+  };
+  return error;
+};
+
+/**
+ * Creates a mock validation error for testing error handling
+ * @param message Optional error message
+ * @param field Optional field name that failed validation
+ * @returns A mock validation error object
+ */
+export const createMockValidationError = (message: string = 'Validation failed', field: string = 'email'): Error => {
+  const error = createMockError(message, 'VALIDATION_ERROR');
+  (error as any).statusCode = 400;
+  (error as any).errors = [{
+    field,
+    message: `${field} ${message.toLowerCase()}`,
+  }];
+  return error;
+};
+
+/**
+ * Creates a mock health journey context for testing health journey spans
+ * @param userId Optional user ID for the context
+ * @returns A mock health journey context
+ */
+export const createMockHealthJourneyContext = (userId: string = MOCK_USER_ID): JourneyHealthContext => {
+  return {
+    userId,
+    journeyType: 'health',
+    metricType: 'blood_pressure',
+    deviceId: 'device-1234',
+    goalId: 'goal-5678',
+    insightId: 'insight-9abc',
+  };
+};
+
+/**
+ * Creates a mock care journey context for testing care journey spans
+ * @param userId Optional user ID for the context
+ * @returns A mock care journey context
+ */
+export const createMockCareJourneyContext = (userId: string = MOCK_USER_ID): JourneyCareContext => {
+  return {
+    userId,
+    journeyType: 'care',
+    appointmentId: 'appointment-1234',
+    providerId: 'provider-5678',
+    medicationId: 'medication-9abc',
+    telemedicineSessionId: 'telemedicine-def0',
+  };
+};
+
+/**
+ * Creates a mock plan journey context for testing plan journey spans
+ * @param userId Optional user ID for the context
+ * @returns A mock plan journey context
+ */
+export const createMockPlanJourneyContext = (userId: string = MOCK_USER_ID): JourneyPlanContext => {
+  return {
+    userId,
+    journeyType: 'plan',
+    planId: 'plan-1234',
+    benefitId: 'benefit-5678',
+    claimId: 'claim-9abc',
+    documentId: 'document-def0',
+  };
+};
+
+/**
+ * Creates a mock span with health journey attributes for testing
+ * @param name Optional name for the span
+ * @returns A mock span with health journey attributes
+ */
+export const createMockHealthJourneySpan = (name: string = 'health-operation'): Span => {
+  const span = createMockSpan(name);
+  const healthContext = createMockHealthJourneyContext();
+  
+  // Add health journey specific attributes
+  span.setAttribute('journey.type', 'health');
+  span.setAttribute('journey.health.metric_type', healthContext.metricType);
+  span.setAttribute('journey.health.device_id', healthContext.deviceId);
+  span.setAttribute('journey.health.goal_id', healthContext.goalId);
+  span.setAttribute('journey.health.insight_id', healthContext.insightId);
+  
+  return span;
+};
+
+/**
+ * Creates a mock span with care journey attributes for testing
+ * @param name Optional name for the span
+ * @returns A mock span with care journey attributes
+ */
+export const createMockCareJourneySpan = (name: string = 'care-operation'): Span => {
+  const span = createMockSpan(name);
+  const careContext = createMockCareJourneyContext();
+  
+  // Add care journey specific attributes
+  span.setAttribute('journey.type', 'care');
+  span.setAttribute('journey.care.appointment_id', careContext.appointmentId);
+  span.setAttribute('journey.care.provider_id', careContext.providerId);
+  span.setAttribute('journey.care.medication_id', careContext.medicationId);
+  span.setAttribute('journey.care.telemedicine_session_id', careContext.telemedicineSessionId);
+  
+  return span;
+};
+
+/**
+ * Creates a mock span with plan journey attributes for testing
+ * @param name Optional name for the span
+ * @returns A mock span with plan journey attributes
+ */
+export const createMockPlanJourneySpan = (name: string = 'plan-operation'): Span => {
+  const span = createMockSpan(name);
+  const planContext = createMockPlanJourneyContext();
+  
+  // Add plan journey specific attributes
+  span.setAttribute('journey.type', 'plan');
+  span.setAttribute('journey.plan.plan_id', planContext.planId);
+  span.setAttribute('journey.plan.benefit_id', planContext.benefitId);
+  span.setAttribute('journey.plan.claim_id', planContext.claimId);
+  span.setAttribute('journey.plan.document_id', planContext.documentId);
+  
+  return span;
+};
+
+/**
+ * Creates a mock span with error attributes for testing error handling
+ * @param name Optional name for the span
+ * @param error Optional error to include in the span
+ * @returns A mock span with error attributes
+ */
+export const createMockErrorSpan = (name: string = 'error-operation', error: Error = createMockError()): Span => {
+  const span = createMockSpan(name);
+  
+  // Add error attributes
+  span.setStatus({ code: SpanStatusCode.ERROR });
+  span.setAttribute('error', true);
+  span.setAttribute('error.type', error.constructor.name);
+  span.setAttribute('error.message', error.message);
+  span.setAttribute('error.stack', error.stack || '');
+  
+  if ((error as any).code) {
+    span.setAttribute('error.code', (error as any).code);
+  }
+  
+  if ((error as any).statusCode) {
+    span.setAttribute('error.status_code', (error as any).statusCode);
+  }
+  
+  span.recordException(error);
+  
+  return span;
+};
+
+/**
+ * Creates a mock span with database operation attributes for testing
+ * @param name Optional name for the span
+ * @param operation Optional database operation type
+ * @param table Optional database table name
+ * @returns A mock span with database operation attributes
+ */
+export const createMockDatabaseSpan = (name: string = 'db-operation', operation: string = 'query', table: string = 'users'): Span => {
+  const span = createMockSpan(name);
+  
+  // Add database attributes
+  span.setAttribute('db.system', 'postgresql');
+  span.setAttribute('db.operation', operation);
+  span.setAttribute('db.name', 'austa_db');
+  span.setAttribute('db.table', table);
+  span.setAttribute('db.statement', `SELECT * FROM ${table} WHERE id = $1`);
+  span.setAttribute('db.user', 'austa_user');
+  
+  return span;
+};
+
+/**
+ * Creates a mock span with HTTP request attributes for testing
+ * @param name Optional name for the span
+ * @param method Optional HTTP method
+ * @param url Optional HTTP URL
+ * @param statusCode Optional HTTP status code
+ * @returns A mock span with HTTP request attributes
+ */
+export const createMockHttpSpan = (name: string = 'http-operation', method: string = 'GET', url: string = 'https://api.example.com/users', statusCode: number = 200): Span => {
+  const span = createMockSpan(name);
+  
+  // Add HTTP attributes
+  span.setAttribute('http.method', method);
+  span.setAttribute('http.url', url);
+  span.setAttribute('http.status_code', statusCode);
+  span.setAttribute('http.request.headers.user_agent', 'AUSTA-SuperApp/1.0');
+  span.setAttribute('http.response.headers.content_length', '1024');
+  
+  return span;
+};
+
+/**
+ * Creates a mock span with Kafka message attributes for testing
+ * @param name Optional name for the span
+ * @param topic Optional Kafka topic
+ * @param eventType Optional event type
+ * @returns A mock span with Kafka message attributes
+ */
+export const createMockKafkaSpan = (name: string = 'kafka-operation', topic: string = 'user-events', eventType: string = 'user.created'): Span => {
+  const span = createMockSpan(name);
+  
+  // Add Kafka attributes
+  span.setAttribute('messaging.system', 'kafka');
+  span.setAttribute('messaging.destination', topic);
+  span.setAttribute('messaging.destination_kind', 'topic');
+  span.setAttribute('messaging.operation', 'process');
+  span.setAttribute('messaging.kafka.consumer_group', 'austa-consumer-group');
+  span.setAttribute('messaging.kafka.client_id', 'austa-client');
+  span.setAttribute('messaging.kafka.partition', 0);
+  span.setAttribute('event.type', eventType);
+  
+  return span;
+};
+
+/**
+ * Creates a mock span with gamification event attributes for testing
+ * @param name Optional name for the span
+ * @param achievementId Optional achievement ID
+ * @param userId Optional user ID
+ * @returns A mock span with gamification event attributes
+ */
+export const createMockGamificationSpan = (name: string = 'gamification-operation', achievementId: string = 'achievement-1234', userId: string = MOCK_USER_ID): Span => {
+  const span = createMockSpan(name);
+  
+  // Add gamification attributes
+  span.setAttribute('gamification.achievement_id', achievementId);
+  span.setAttribute('gamification.user_id', userId);
+  span.setAttribute('gamification.points', 100);
+  span.setAttribute('gamification.level', 5);
+  span.setAttribute('gamification.journey_type', 'health');
+  span.setAttribute('gamification.event_type', 'achievement.unlocked');
+  
+  return span;
+};
