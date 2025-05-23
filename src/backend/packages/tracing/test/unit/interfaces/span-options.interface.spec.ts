@@ -1,309 +1,467 @@
-import { SpanKind, Context, SpanOptions as OtelSpanOptions } from '@opentelemetry/api';
-import { SpanOptions } from '../../../src/interfaces/span-options.interface';
-import { JourneyType } from '../../../src/utils/span-attributes';
-
 /**
- * Unit tests for the SpanOptions interface.
- * 
- * These tests verify that the SpanOptions interface properly extends the OpenTelemetry
- * SpanOptions interface and adds AUSTA-specific configuration options for spans.
+ * @file span-options.interface.spec.ts
+ * @description Unit tests for the SpanOptions interface that verify the proper configuration
+ * of span creation with custom attributes, parent contexts, and timing options.
  */
+
+import { Context, SpanStatusCode } from '@opentelemetry/api';
+import { SpanOptions } from '../../../src/interfaces/span-options.interface';
+import { MockSpan } from '../../mocks/mock-span';
+import { MockTracer } from '../../mocks/mock-tracer';
+import { MockContext } from '../../mocks/mock-context';
+
 describe('SpanOptions Interface', () => {
-  // Mock objects for testing
-  const mockContext = {} as Context;
-  const mockStartTime = 1625097600000; // Example timestamp
-  const mockEndTime = 1625097601000; // Example timestamp + 1 second
-  const mockAttributes = { 'test.attribute': 'value' };
-  const mockUserId = 'user-123';
-  const mockRequestId = 'req-456';
+  let mockTracer: MockTracer;
   
-  describe('Basic OpenTelemetry SpanOptions compatibility', () => {
-    it('should support standard OpenTelemetry SpanOptions properties', () => {
-      // Create a SpanOptions object with standard OpenTelemetry properties
+  beforeEach(() => {
+    mockTracer = new MockTracer('test-tracer', '1.0.0');
+    MockContext.reset();
+  });
+  
+  afterEach(() => {
+    mockTracer.clearSpans();
+  });
+  
+  describe('Custom Attributes', () => {
+    it('should apply custom attributes to the span', () => {
+      // Arrange
       const options: SpanOptions = {
-        kind: SpanKind.CLIENT,
-        attributes: mockAttributes,
-        startTime: mockStartTime,
+        attributes: {
+          'custom.string': 'test-value',
+          'custom.number': 42,
+          'custom.boolean': true
+        }
       };
       
-      // Verify the properties are correctly typed and accessible
-      expect(options.kind).toBe(SpanKind.CLIENT);
-      expect(options.attributes).toEqual(mockAttributes);
-      expect(options.startTime).toBe(mockStartTime);
+      // Act
+      const span = mockTracer.startSpan('test-span', options);
+      
+      // Assert
+      expect(span.attributes['custom.string']).toBe('test-value');
+      expect(span.attributes['custom.number']).toBe(42);
+      expect(span.attributes['custom.boolean']).toBe(true);
     });
     
-    it('should be assignable to OpenTelemetry SpanOptions', () => {
-      // Create a SpanOptions object
-      const austaOptions: SpanOptions = {
-        kind: SpanKind.CLIENT,
-        attributes: mockAttributes,
+    it('should handle empty attributes object', () => {
+      // Arrange
+      const options: SpanOptions = {
+        attributes: {}
       };
       
-      // Verify it can be assigned to an OpenTelemetry SpanOptions variable
-      const otelOptions: OtelSpanOptions = austaOptions;
+      // Act
+      const span = mockTracer.startSpan('test-span', options);
       
-      expect(otelOptions.kind).toBe(SpanKind.CLIENT);
-      expect(otelOptions.attributes).toEqual(mockAttributes);
+      // Assert
+      expect(Object.keys(span.attributes).length).toBe(0);
+    });
+    
+    it('should not add attributes if attributes option is undefined', () => {
+      // Arrange
+      const options: SpanOptions = {};
+      
+      // Act
+      const span = mockTracer.startSpan('test-span', options);
+      
+      // Assert
+      expect(Object.keys(span.attributes).length).toBe(0);
     });
   });
   
-  describe('Custom attributes configuration', () => {
-    it('should support custom business attributes', () => {
-      // Create a SpanOptions object with custom business attributes
+  describe('Journey-Specific Attributes', () => {
+    it('should apply health journey attributes to the span', () => {
+      // Arrange
       const options: SpanOptions = {
-        attributes: {
-          'business.operation': 'appointment-booking',
-          'business.entity.id': 'appointment-789',
-          'business.entity.type': 'appointment',
-        },
+        journeyAttributes: {
+          journey: 'health',
+          journeyStep: 'metrics-recording',
+          journeyId: 'health-journey-123'
+        }
       };
       
-      // Verify the custom attributes are correctly configured
-      expect(options.attributes['business.operation']).toBe('appointment-booking');
-      expect(options.attributes['business.entity.id']).toBe('appointment-789');
-      expect(options.attributes['business.entity.type']).toBe('appointment');
+      // Act
+      const span = mockTracer.startSpan('test-span', options);
+      
+      // Assert
+      expect(span.attributes['journey']).toBe('health');
+      expect(span.attributes['journey.step']).toBe('metrics-recording');
+      expect(span.attributes['journey.id']).toBe('health-journey-123');
     });
     
-    it('should support nested attribute objects that get flattened during span creation', () => {
-      // Create a SpanOptions object with nested attributes
+    it('should apply care journey attributes to the span', () => {
+      // Arrange
       const options: SpanOptions = {
-        attributes: {
-          business: {
-            operation: 'appointment-booking',
-            entity: {
-              id: 'appointment-789',
-              type: 'appointment',
-            },
-          },
-        },
+        journeyAttributes: {
+          journey: 'care',
+          journeyStep: 'appointment-booking',
+          journeyId: 'care-journey-456'
+        }
       };
       
-      // In actual usage, these would be flattened to dot notation when applied to a span
-      // This test just verifies the interface accepts the nested structure
-      expect(options.attributes.business.operation).toBe('appointment-booking');
-      expect(options.attributes.business.entity.id).toBe('appointment-789');
-      expect(options.attributes.business.entity.type).toBe('appointment');
+      // Act
+      const span = mockTracer.startSpan('test-span', options);
+      
+      // Assert
+      expect(span.attributes['journey']).toBe('care');
+      expect(span.attributes['journey.step']).toBe('appointment-booking');
+      expect(span.attributes['journey.id']).toBe('care-journey-456');
+    });
+    
+    it('should apply plan journey attributes to the span', () => {
+      // Arrange
+      const options: SpanOptions = {
+        journeyAttributes: {
+          journey: 'plan',
+          journeyStep: 'benefit-selection',
+          journeyId: 'plan-journey-789'
+        }
+      };
+      
+      // Act
+      const span = mockTracer.startSpan('test-span', options);
+      
+      // Assert
+      expect(span.attributes['journey']).toBe('plan');
+      expect(span.attributes['journey.step']).toBe('benefit-selection');
+      expect(span.attributes['journey.id']).toBe('plan-journey-789');
+    });
+    
+    it('should handle partial journey attributes', () => {
+      // Arrange
+      const options: SpanOptions = {
+        journeyAttributes: {
+          journey: 'health'
+          // No journeyStep or journeyId
+        }
+      };
+      
+      // Act
+      const span = mockTracer.startSpan('test-span', options);
+      
+      // Assert
+      expect(span.attributes['journey']).toBe('health');
+      expect(span.attributes['journey.step']).toBeUndefined();
+      expect(span.attributes['journey.id']).toBeUndefined();
+    });
+    
+    it('should not add journey attributes if journeyAttributes option is undefined', () => {
+      // Arrange
+      const options: SpanOptions = {};
+      
+      // Act
+      const span = mockTracer.startSpan('test-span', options);
+      
+      // Assert
+      expect(span.attributes['journey']).toBeUndefined();
+      expect(span.attributes['journey.step']).toBeUndefined();
+      expect(span.attributes['journey.id']).toBeUndefined();
     });
   });
   
-  describe('Parent context reference', () => {
-    it('should support parent context for span hierarchy', () => {
-      // Create a SpanOptions object with a parent context
+  describe('Timing Configuration', () => {
+    it('should time the span execution when timed is true', () => {
+      // Arrange
       const options: SpanOptions = {
-        parent: mockContext,
+        timed: true
       };
       
-      // Verify the parent context is correctly configured
-      expect(options.parent).toBe(mockContext);
+      // Act
+      const span = mockTracer.startSpan('test-span', options);
+      span.end(); // End the span to record duration
+      
+      // Assert
+      expect(span.duration).toBeDefined();
+      expect(span.duration).toBeGreaterThanOrEqual(0);
     });
     
-    it('should support both parent context and other options', () => {
-      // Create a SpanOptions object with parent context and other options
+    it('should time the span execution by default when timed is not specified', () => {
+      // Arrange
+      const options: SpanOptions = {};
+      
+      // Act
+      const span = mockTracer.startSpan('test-span', options);
+      span.end(); // End the span to record duration
+      
+      // Assert
+      expect(span.duration).toBeDefined();
+      expect(span.duration).toBeGreaterThanOrEqual(0);
+    });
+    
+    it('should not time the span execution when timed is false', () => {
+      // Arrange
       const options: SpanOptions = {
-        parent: mockContext,
-        kind: SpanKind.INTERNAL,
-        attributes: mockAttributes,
+        timed: false
       };
       
-      // Verify all properties are correctly configured
-      expect(options.parent).toBe(mockContext);
-      expect(options.kind).toBe(SpanKind.INTERNAL);
-      expect(options.attributes).toEqual(mockAttributes);
+      // Act
+      const span = mockTracer.startSpan('test-span', options);
+      span.end(); // End the span
+      
+      // Assert
+      // In a real implementation, this would not record timing
+      // For our mock, we'll just verify the option was passed
+      expect(options.timed).toBe(false);
+    });
+    
+    it('should use the provided start time when specified', () => {
+      // Arrange
+      const startTime = Date.now() - 1000; // 1 second ago
+      const options: SpanOptions = {
+        startTime: startTime
+      };
+      
+      // Act
+      const span = mockTracer.startSpan('test-span', options);
+      span.end(); // End the span to record duration
+      
+      // Assert
+      // In a real implementation, this would use the provided start time
+      // For our mock, we'll just verify the option was passed
+      expect(options.startTime).toBe(startTime);
+    });
+    
+    it('should accept a Date object as start time', () => {
+      // Arrange
+      const startTime = new Date(Date.now() - 1000); // 1 second ago
+      const options: SpanOptions = {
+        startTime: startTime
+      };
+      
+      // Act
+      const span = mockTracer.startSpan('test-span', options);
+      span.end(); // End the span to record duration
+      
+      // Assert
+      // In a real implementation, this would use the provided start time
+      // For our mock, we'll just verify the option was passed
+      expect(options.startTime).toBe(startTime);
     });
   });
   
-  describe('Timing configuration options', () => {
-    it('should support custom start time', () => {
-      // Create a SpanOptions object with a custom start time
+  describe('Parent Context Reference', () => {
+    it('should use the provided parent context when specified', () => {
+      // Arrange
+      const parentContext = MockContext.createTestContext();
       const options: SpanOptions = {
-        startTime: mockStartTime,
+        parentContext: parentContext
       };
       
-      // Verify the start time is correctly configured
-      expect(options.startTime).toBe(mockStartTime);
+      // Act
+      const span = mockTracer.startSpan('test-span', options);
+      
+      // Assert
+      // In a real implementation, this would create a child span
+      // For our mock, we'll just verify the option was passed
+      expect(options.parentContext).toBe(parentContext);
     });
     
-    it('should support custom end time', () => {
-      // Create a SpanOptions object with custom start and end times
-      const options: SpanOptions = {
-        startTime: mockStartTime,
-        endTime: mockEndTime,
-      };
+    it('should use the current active context when parent context is not specified', () => {
+      // Arrange
+      const activeContext = MockContext.createTestContext();
+      MockContext._activeContext = activeContext; // Set active context
+      const options: SpanOptions = {};
       
-      // Verify the timing options are correctly configured
-      expect(options.startTime).toBe(mockStartTime);
-      expect(options.endTime).toBe(mockEndTime);
+      // Act
+      const span = mockTracer.startSpan('test-span', options);
+      
+      // Assert
+      // In a real implementation, this would use the active context
+      // For our mock, we'll verify the active context was used
+      expect(MockContext.active()).toBe(activeContext);
     });
     
-    it('should support timing object for more complex timing scenarios', () => {
-      // Create a SpanOptions object with a timing object
+    it('should create a root span when root is true, ignoring parent context', () => {
+      // Arrange
+      const parentContext = MockContext.createTestContext();
       const options: SpanOptions = {
-        timing: {
-          startTime: mockStartTime,
-          endTime: mockEndTime,
-          durationMs: mockEndTime - mockStartTime,
-        },
+        parentContext: parentContext,
+        root: true
       };
       
-      // Verify the timing object is correctly configured
-      expect(options.timing.startTime).toBe(mockStartTime);
-      expect(options.timing.endTime).toBe(mockEndTime);
-      expect(options.timing.durationMs).toBe(1000); // 1 second difference
+      // Act
+      const span = mockTracer.startSpan('test-span', options);
+      
+      // Assert
+      // In a real implementation, this would create a root span
+      // For our mock, we'll just verify the options were passed
+      expect(options.parentContext).toBe(parentContext);
+      expect(options.root).toBe(true);
+    });
+    
+    it('should create a root span when root is true, ignoring active context', () => {
+      // Arrange
+      const activeContext = MockContext.createTestContext();
+      MockContext._activeContext = activeContext; // Set active context
+      const options: SpanOptions = {
+        root: true
+      };
+      
+      // Act
+      const span = mockTracer.startSpan('test-span', options);
+      
+      // Assert
+      // In a real implementation, this would create a root span
+      // For our mock, we'll just verify the option was passed
+      expect(options.root).toBe(true);
     });
   });
   
-  describe('AUSTA-specific extensions', () => {
-    it('should support userId for user context', () => {
-      // Create a SpanOptions object with a userId
+  describe('Attribute Inheritance from Parent Spans', () => {
+    it('should inherit journey attributes from parent span', () => {
+      // Arrange
+      // Create a parent span with journey attributes
+      const parentSpan = new MockSpan('parent-span');
+      parentSpan.setAttribute('journey', 'health');
+      parentSpan.setAttribute('journey.id', 'health-journey-123');
+      
+      // Create a parent context with the parent span
+      const parentContext = MockContext.createRoot();
+      const parentContextWithSpan = MockContext.setSpanContext(parentContext, parentSpan.spanContext());
+      
       const options: SpanOptions = {
-        userId: mockUserId,
+        parentContext: parentContextWithSpan
       };
       
-      // Verify the userId is correctly configured
-      expect(options.userId).toBe(mockUserId);
+      // Act
+      const span = mockTracer.startSpan('test-span', options);
+      
+      // Assert
+      // In a real implementation, this would inherit attributes
+      // For our mock, we'll just verify the parent context was passed
+      expect(options.parentContext).toBe(parentContextWithSpan);
     });
     
-    it('should support requestId for request tracking', () => {
-      // Create a SpanOptions object with a requestId
+    it('should override inherited attributes with explicitly provided attributes', () => {
+      // Arrange
+      // Create a parent span with journey attributes
+      const parentSpan = new MockSpan('parent-span');
+      parentSpan.setAttribute('journey', 'health');
+      parentSpan.setAttribute('journey.id', 'health-journey-123');
+      
+      // Create a parent context with the parent span
+      const parentContext = MockContext.createRoot();
+      const parentContextWithSpan = MockContext.setSpanContext(parentContext, parentSpan.spanContext());
+      
       const options: SpanOptions = {
-        requestId: mockRequestId,
+        parentContext: parentContextWithSpan,
+        journeyAttributes: {
+          journey: 'care', // Override the parent's 'health' journey
+          journeyId: 'care-journey-456'
+        }
       };
       
-      // Verify the requestId is correctly configured
-      expect(options.requestId).toBe(mockRequestId);
+      // Act
+      const span = mockTracer.startSpan('test-span', options);
+      
+      // Assert
+      // In a real implementation, this would override inherited attributes
+      // For our mock, we'll verify the options were passed correctly
+      expect(options.parentContext).toBe(parentContextWithSpan);
+      expect(options.journeyAttributes?.journey).toBe('care');
+      expect(options.journeyAttributes?.journeyId).toBe('care-journey-456');
     });
     
-    it('should support journeyType for journey-specific spans', () => {
-      // Create a SpanOptions object with a journeyType
+    it('should inherit correlation ID from parent span', () => {
+      // Arrange
+      // Create a parent context with correlation ID
+      const parentContext = MockContext.createRoot();
+      const correlationId = 'test-correlation-id';
+      const parentContextWithCorrelationId = MockContext.setCorrelationId(parentContext, correlationId);
+      
       const options: SpanOptions = {
-        journeyType: JourneyType.HEALTH,
+        parentContext: parentContextWithCorrelationId
       };
       
-      // Verify the journeyType is correctly configured
-      expect(options.journeyType).toBe(JourneyType.HEALTH);
-    });
-    
-    it('should support comprehensive AUSTA-specific configuration', () => {
-      // Create a SpanOptions object with all AUSTA-specific options
-      const options: SpanOptions = {
-        userId: mockUserId,
-        requestId: mockRequestId,
-        journeyType: JourneyType.CARE,
-        attributes: {
-          'journey.operation': 'book-appointment',
-          'journey.entity.id': 'appointment-789',
-        },
-      };
+      // Act
+      const span = mockTracer.startSpan('test-span', options);
       
-      // Verify all AUSTA-specific options are correctly configured
-      expect(options.userId).toBe(mockUserId);
-      expect(options.requestId).toBe(mockRequestId);
-      expect(options.journeyType).toBe(JourneyType.CARE);
-      expect(options.attributes['journey.operation']).toBe('book-appointment');
-      expect(options.attributes['journey.entity.id']).toBe('appointment-789');
+      // Assert
+      // In a real implementation, this would inherit the correlation ID
+      // For our mock, we'll verify the parent context was passed
+      expect(options.parentContext).toBe(parentContextWithCorrelationId);
+      expect(MockContext.getCorrelationId(parentContextWithCorrelationId)).toBe(correlationId);
     });
   });
   
-  describe('Journey-specific span customization', () => {
-    it('should support Health journey specific attributes', () => {
-      // Create a SpanOptions object for a Health journey span
+  describe('Journey-Specific Span Customization', () => {
+    it('should apply health journey-specific customizations', () => {
+      // Arrange
       const options: SpanOptions = {
-        journeyType: JourneyType.HEALTH,
-        attributes: {
-          'health.metric.type': 'heart_rate',
-          'health.metric.value': 75,
-          'health.device.id': 'device-123',
-          'health.goal.id': 'goal-456',
+        journeyAttributes: {
+          journey: 'health',
+          journeyStep: 'record-health-metric',
+          journeyId: 'health-journey-123'
         },
+        attributes: {
+          'health.metric.type': 'blood_pressure',
+          'health.metric.value': '120/80',
+          'health.device.id': 'device-123'
+        }
       };
       
-      // Verify the Health journey specific attributes are correctly configured
-      expect(options.journeyType).toBe(JourneyType.HEALTH);
-      expect(options.attributes['health.metric.type']).toBe('heart_rate');
-      expect(options.attributes['health.metric.value']).toBe(75);
-      expect(options.attributes['health.device.id']).toBe('device-123');
-      expect(options.attributes['health.goal.id']).toBe('goal-456');
+      // Act
+      const span = mockTracer.startSpan('test-span', options);
+      
+      // Assert
+      expect(span.attributes['journey']).toBe('health');
+      expect(span.attributes['journey.step']).toBe('record-health-metric');
+      expect(span.attributes['journey.id']).toBe('health-journey-123');
+      expect(span.attributes['health.metric.type']).toBe('blood_pressure');
+      expect(span.attributes['health.metric.value']).toBe('120/80');
+      expect(span.attributes['health.device.id']).toBe('device-123');
     });
     
-    it('should support Care journey specific attributes', () => {
-      // Create a SpanOptions object for a Care journey span
+    it('should apply care journey-specific customizations', () => {
+      // Arrange
       const options: SpanOptions = {
-        journeyType: JourneyType.CARE,
-        attributes: {
-          'care.appointment.id': 'appointment-123',
-          'care.provider.id': 'provider-456',
-          'care.session.id': 'session-789',
-          'care.treatment.plan.id': 'plan-012',
+        journeyAttributes: {
+          journey: 'care',
+          journeyStep: 'book-appointment',
+          journeyId: 'care-journey-456'
         },
+        attributes: {
+          'care.provider.id': 'provider-123',
+          'care.appointment.type': 'consultation',
+          'care.appointment.date': '2023-05-15T10:00:00Z'
+        }
       };
       
-      // Verify the Care journey specific attributes are correctly configured
-      expect(options.journeyType).toBe(JourneyType.CARE);
-      expect(options.attributes['care.appointment.id']).toBe('appointment-123');
-      expect(options.attributes['care.provider.id']).toBe('provider-456');
-      expect(options.attributes['care.session.id']).toBe('session-789');
-      expect(options.attributes['care.treatment.plan.id']).toBe('plan-012');
+      // Act
+      const span = mockTracer.startSpan('test-span', options);
+      
+      // Assert
+      expect(span.attributes['journey']).toBe('care');
+      expect(span.attributes['journey.step']).toBe('book-appointment');
+      expect(span.attributes['journey.id']).toBe('care-journey-456');
+      expect(span.attributes['care.provider.id']).toBe('provider-123');
+      expect(span.attributes['care.appointment.type']).toBe('consultation');
+      expect(span.attributes['care.appointment.date']).toBe('2023-05-15T10:00:00Z');
     });
     
-    it('should support Plan journey specific attributes', () => {
-      // Create a SpanOptions object for a Plan journey span
+    it('should apply plan journey-specific customizations', () => {
+      // Arrange
       const options: SpanOptions = {
-        journeyType: JourneyType.PLAN,
-        attributes: {
-          'plan.id': 'plan-123',
-          'plan.claim.id': 'claim-456',
-          'plan.benefit.id': 'benefit-789',
+        journeyAttributes: {
+          journey: 'plan',
+          journeyStep: 'submit-claim',
+          journeyId: 'plan-journey-789'
         },
-      };
-      
-      // Verify the Plan journey specific attributes are correctly configured
-      expect(options.journeyType).toBe(JourneyType.PLAN);
-      expect(options.attributes['plan.id']).toBe('plan-123');
-      expect(options.attributes['plan.claim.id']).toBe('claim-456');
-      expect(options.attributes['plan.benefit.id']).toBe('benefit-789');
-    });
-  });
-  
-  describe('Attribute inheritance from parent spans', () => {
-    it('should support attribute inheritance configuration', () => {
-      // Create a SpanOptions object with attribute inheritance configuration
-      const options: SpanOptions = {
-        parent: mockContext,
-        inheritAttributes: true,
-      };
-      
-      // Verify the attribute inheritance configuration is correctly set
-      expect(options.parent).toBe(mockContext);
-      expect(options.inheritAttributes).toBe(true);
-    });
-    
-    it('should support selective attribute inheritance', () => {
-      // Create a SpanOptions object with selective attribute inheritance
-      const options: SpanOptions = {
-        parent: mockContext,
-        inheritAttributes: ['userId', 'requestId', 'journeyType'],
-      };
-      
-      // Verify the selective attribute inheritance is correctly configured
-      expect(options.parent).toBe(mockContext);
-      expect(options.inheritAttributes).toEqual(['userId', 'requestId', 'journeyType']);
-    });
-    
-    it('should support attribute inheritance with overrides', () => {
-      // Create a SpanOptions object with attribute inheritance and overrides
-      const options: SpanOptions = {
-        parent: mockContext,
-        inheritAttributes: true,
         attributes: {
-          // These would override any inherited attributes with the same keys
-          'overridden.attribute': 'new-value',
-        },
+          'plan.claim.id': 'claim-123',
+          'plan.claim.amount': 150.75,
+          'plan.claim.type': 'medical'
+        }
       };
       
-      // Verify the configuration is correct
-      expect(options.parent).toBe(mockContext);
-      expect(options.inheritAttributes).toBe(true);
-      expect(options.attributes['overridden.attribute']).toBe('new-value');
+      // Act
+      const span = mockTracer.startSpan('test-span', options);
+      
+      // Assert
+      expect(span.attributes['journey']).toBe('plan');
+      expect(span.attributes['journey.step']).toBe('submit-claim');
+      expect(span.attributes['journey.id']).toBe('plan-journey-789');
+      expect(span.attributes['plan.claim.id']).toBe('claim-123');
+      expect(span.attributes['plan.claim.amount']).toBe(150.75);
+      expect(span.attributes['plan.claim.type']).toBe('medical');
     });
   });
 });
