@@ -1,719 +1,525 @@
-import { LogLevel } from '@nestjs/common';
+import { LogLevel } from '../../../src/interfaces/log-level.enum';
+import { LogEntry } from '../../../src/interfaces/log-entry.interface';
 import * as fs from 'fs';
 import * as path from 'path';
+import { Transport } from '../../../src/interfaces/transport.interface';
 
 /**
- * Interface representing a structured log entry
- */
-export interface LogEntry {
-  timestamp: string;
-  level: LogLevel;
-  message: string;
-  context?: string;
-  requestId?: string;
-  userId?: string;
-  journey?: string;
-  service?: string;
-  [key: string]: any; // Additional fields
-}
-
-/**
- * Options for configuring the log capture
+ * Interface for log capture options
  */
 export interface LogCaptureOptions {
+  /** Whether to capture logs in memory */
+  inMemory?: boolean;
   /** Whether to capture logs to a file */
-  captureToFile?: boolean;
-  /** Directory to store log files */
-  logDirectory?: string;
-  /** Filename for the log file */
-  logFilename?: string;
-  /** Whether to parse logs as JSON */
-  parseJson?: boolean;
-  /** Whether to capture console output */
-  captureConsole?: boolean;
-  /** Whether to also output captured logs to the original console */
-  passThrough?: boolean;
+  toFile?: boolean;
+  /** Path to the file where logs should be stored (if toFile is true) */
+  filePath?: string;
+  /** Minimum log level to capture */
+  minLevel?: LogLevel;
+  /** Maximum number of logs to keep in memory */
+  maxLogs?: number;
+  /** Whether to capture logs across service boundaries */
+  crossService?: boolean;
 }
 
 /**
- * Filter options for retrieving logs
+ * Default options for log capture
+ */
+const DEFAULT_OPTIONS: LogCaptureOptions = {
+  inMemory: true,
+  toFile: false,
+  filePath: './test-logs.json',
+  minLevel: LogLevel.DEBUG,
+  maxLogs: 1000,
+  crossService: false,
+};
+
+/**
+ * Interface for log filtering options
  */
 export interface LogFilterOptions {
-  level?: LogLevel | LogLevel[];
-  context?: string | RegExp;
-  message?: string | RegExp;
-  requestId?: string;
-  userId?: string;
+  /** Filter logs by level */
+  level?: LogLevel;
+  /** Filter logs by message content (substring match) */
+  message?: string;
+  /** Filter logs by context properties */
+  context?: Record<string, any>;
+  /** Filter logs by journey */
   journey?: string;
+  /** Filter logs by trace ID */
+  traceId?: string;
+  /** Filter logs by user ID */
+  userId?: string;
+  /** Filter logs by request ID */
+  requestId?: string;
+  /** Filter logs by service name */
   service?: string;
-  fromTimestamp?: Date;
-  toTimestamp?: Date;
-  limit?: number;
+  /** Filter logs by timestamp range */
+  timeRange?: {
+    start?: Date;
+    end?: Date;
+  };
 }
 
 /**
- * Utility class for capturing logs during e2e tests
+ * A transport implementation that captures logs for testing purposes
  */
-export class LogCapture {
+export class LogCaptureTransport implements Transport {
   private logs: LogEntry[] = [];
   private options: LogCaptureOptions;
-  private originalConsoleLog: typeof console.log;
-  private originalConsoleError: typeof console.error;
-  private originalConsoleWarn: typeof console.warn;
-  private originalConsoleDebug: typeof console.debug;
-  private originalConsoleInfo: typeof console.info;
-  private logFile: string | null = null;
+  private fileStream: fs.WriteStream | null = null;
 
   /**
-   * Creates a new LogCapture instance
-   * @param options Configuration options for log capture
+   * Creates a new LogCaptureTransport
+   * @param options Options for log capture
    */
   constructor(options: LogCaptureOptions = {}) {
-    this.options = {
-      captureToFile: false,
-      logDirectory: './logs',
-      logFilename: `test-logs-${new Date().toISOString().replace(/[:.]/g, '-')}.log`,
-      parseJson: true,
-      captureConsole: true,
-      passThrough: false,
-      ...options,
-    };
-
-    // Store original console methods
-    this.originalConsoleLog = console.log;
-    this.originalConsoleError = console.error;
-    this.originalConsoleWarn = console.warn;
-    this.originalConsoleDebug = console.debug;
-    this.originalConsoleInfo = console.info;
-
-    if (this.options.captureToFile) {
-      this.setupLogFile();
+    this.options = { ...DEFAULT_OPTIONS, ...options };
+    
+    if (this.options.toFile && this.options.filePath) {
+      const dir = path.dirname(this.options.filePath);
+      if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
+      }
+      this.fileStream = fs.createWriteStream(this.options.filePath, { flags: 'w' });
+      this.fileStream.write('[\n');
     }
   }
 
   /**
-   * Sets up the log file for file-based capture
+   * Writes a log entry to the capture storage
+   * @param entry The log entry to write
    */
-  private setupLogFile(): void {
-    if (!this.options.logDirectory || !this.options.logFilename) {
+  async write(entry: LogEntry): Promise<void> {
+    // Skip logs below the minimum level
+    if (entry.level < this.options.minLevel!) {
       return;
     }
 
-    try {
-      if (!fs.existsSync(this.options.logDirectory)) {
-        fs.mkdirSync(this.options.logDirectory, { recursive: true });
-      }
-
-      this.logFile = path.join(this.options.logDirectory, this.options.logFilename);
+    // Store in memory if enabled
+    if (this.options.inMemory) {
+      this.logs.push(entry);
       
-      // Create or clear the log file
-      fs.writeFileSync(this.logFile, '');
-    } catch (error) {
-      this.originalConsoleError('Error setting up log file:', error);
-      this.logFile = null;
-    }
-  }
-
-  /**
-   * Starts capturing logs
-   */
-  start(): void {
-    if (this.options.captureConsole) {
-      this.interceptConsoleMethods();
-    }
-  }
-
-  /**
-   * Stops capturing logs and restores original console methods
-   */
-  stop(): void {
-    if (this.options.captureConsole) {
-      this.restoreConsoleMethods();
-    }
-  }
-
-  /**
-   * Intercepts console methods to capture logs
-   */
-  private interceptConsoleMethods(): void {
-    console.log = (...args: any[]) => this.captureLog('log', args);
-    console.error = (...args: any[]) => this.captureLog('error', args);
-    console.warn = (...args: any[]) => this.captureLog('warn', args);
-    console.debug = (...args: any[]) => this.captureLog('debug', args);
-    console.info = (...args: any[]) => this.captureLog('info', args);
-  }
-
-  /**
-   * Restores original console methods
-   */
-  private restoreConsoleMethods(): void {
-    console.log = this.originalConsoleLog;
-    console.error = this.originalConsoleError;
-    console.warn = this.originalConsoleWarn;
-    console.debug = this.originalConsoleDebug;
-    console.info = this.originalConsoleInfo;
-  }
-
-  /**
-   * Captures a log entry from console methods
-   * @param level The log level
-   * @param args The arguments passed to the console method
-   */
-  private captureLog(level: string, args: any[]): void {
-    // Pass through to original console if enabled
-    if (this.options.passThrough) {
-      switch (level) {
-        case 'log':
-          this.originalConsoleLog(...args);
-          break;
-        case 'error':
-          this.originalConsoleError(...args);
-          break;
-        case 'warn':
-          this.originalConsoleWarn(...args);
-          break;
-        case 'debug':
-          this.originalConsoleDebug(...args);
-          break;
-        case 'info':
-          this.originalConsoleInfo(...args);
-          break;
+      // Trim logs if we exceed the maximum
+      if (this.logs.length > this.options.maxLogs!) {
+        this.logs = this.logs.slice(this.logs.length - this.options.maxLogs!);
       }
     }
-
-    // Process the log entry
-    const logEntry = this.processLogEntry(level as LogLevel, args);
-    this.logs.push(logEntry);
 
     // Write to file if enabled
-    if (this.options.captureToFile && this.logFile) {
-      try {
-        fs.appendFileSync(this.logFile, JSON.stringify(logEntry) + '\n');
-      } catch (error) {
-        this.originalConsoleError('Error writing to log file:', error);
-      }
+    if (this.options.toFile && this.fileStream) {
+      const needsComma = this.logs.length > 1;
+      this.fileStream.write(`${needsComma ? ',' : ''}\n${JSON.stringify(entry, null, 2)}`);
     }
   }
 
   /**
-   * Processes console arguments into a structured log entry
-   * @param level The log level
-   * @param args The arguments passed to the console method
-   * @returns A structured log entry
+   * Closes the transport and cleans up resources
    */
-  private processLogEntry(level: LogLevel, args: any[]): LogEntry {
-    const timestamp = new Date().toISOString();
-    let message = '';
-    let context = undefined;
-    let parsedData: Record<string, any> = {};
-
-    // Try to parse JSON logs if enabled
-    if (this.options.parseJson && args.length > 0 && typeof args[0] === 'string') {
-      try {
-        // Check if the first argument is a JSON string
-        parsedData = JSON.parse(args[0]);
-        
-        // Extract common fields from parsed JSON
-        message = parsedData.message || '';
-        context = parsedData.context;
-        
-        // Return the structured log entry with all fields from the JSON
-        return {
-          timestamp,
-          level,
-          message,
-          context,
-          ...parsedData
-        };
-      } catch (e) {
-        // Not a JSON string, continue with normal processing
-      }
+  async close(): Promise<void> {
+    if (this.fileStream) {
+      this.fileStream.write('\n]');
+      this.fileStream.end();
+      this.fileStream = null;
     }
-
-    // Handle non-JSON logs
-    if (args.length > 0) {
-      if (typeof args[0] === 'string') {
-        message = args[0];
-      } else {
-        message = args.map(arg => 
-          typeof arg === 'object' ? JSON.stringify(arg) : String(arg)
-        ).join(' ');
-      }
-    }
-
-    // Check for context in NestJS format (second argument)
-    if (args.length > 1 && typeof args[1] === 'string') {
-      context = args[1];
-    }
-
-    return {
-      timestamp,
-      level,
-      message,
-      context
-    };
   }
 
   /**
-   * Manually adds a log entry
-   * @param entry The log entry to add
+   * Gets all captured logs
    */
-  addLogEntry(entry: Partial<LogEntry>): void {
-    const fullEntry: LogEntry = {
-      timestamp: entry.timestamp || new Date().toISOString(),
-      level: entry.level || 'log' as LogLevel,
-      message: entry.message || '',
-      ...entry
-    };
-
-    this.logs.push(fullEntry);
-
-    // Write to file if enabled
-    if (this.options.captureToFile && this.logFile) {
-      try {
-        fs.appendFileSync(this.logFile, JSON.stringify(fullEntry) + '\n');
-      } catch (error) {
-        this.originalConsoleError('Error writing to log file:', error);
-      }
-    }
+  getLogs(): LogEntry[] {
+    return [...this.logs];
   }
 
   /**
    * Clears all captured logs
    */
-  clear(): void {
+  clearLogs(): void {
     this.logs = [];
     
-    // Clear log file if it exists
-    if (this.options.captureToFile && this.logFile) {
-      try {
-        fs.writeFileSync(this.logFile, '');
-      } catch (error) {
-        this.originalConsoleError('Error clearing log file:', error);
+    // Reset file if enabled
+    if (this.options.toFile && this.options.filePath) {
+      if (this.fileStream) {
+        this.fileStream.end();
       }
+      this.fileStream = fs.createWriteStream(this.options.filePath, { flags: 'w' });
+      this.fileStream.write('[\n');
     }
   }
 
   /**
-   * Gets all captured logs, optionally filtered
-   * @param filter Optional filter criteria
-   * @returns Filtered log entries
+   * Filters logs based on the provided options
+   * @param options Filter options
    */
-  getLogs(filter?: LogFilterOptions): LogEntry[] {
-    if (!filter) {
-      return [...this.logs];
-    }
-
+  filterLogs(options: LogFilterOptions): LogEntry[] {
     return this.logs.filter(log => {
-      // Filter by log level
-      if (filter.level) {
-        if (Array.isArray(filter.level)) {
-          if (!filter.level.includes(log.level)) {
-            return false;
-          }
-        } else if (log.level !== filter.level) {
-          return false;
-        }
-      }
-
-      // Filter by context
-      if (filter.context) {
-        if (filter.context instanceof RegExp) {
-          if (!log.context || !filter.context.test(log.context)) {
-            return false;
-          }
-        } else if (log.context !== filter.context) {
-          return false;
-        }
+      // Filter by level
+      if (options.level !== undefined && log.level !== options.level) {
+        return false;
       }
 
       // Filter by message
-      if (filter.message) {
-        if (filter.message instanceof RegExp) {
-          if (!filter.message.test(log.message)) {
+      if (options.message && !log.message.includes(options.message)) {
+        return false;
+      }
+
+      // Filter by context properties
+      if (options.context) {
+        for (const [key, value] of Object.entries(options.context)) {
+          if (!log.context || log.context[key] !== value) {
             return false;
           }
-        } else if (log.message !== filter.message) {
-          return false;
         }
-      }
-
-      // Filter by requestId
-      if (filter.requestId && log.requestId !== filter.requestId) {
-        return false;
-      }
-
-      // Filter by userId
-      if (filter.userId && log.userId !== filter.userId) {
-        return false;
       }
 
       // Filter by journey
-      if (filter.journey && log.journey !== filter.journey) {
+      if (options.journey && (!log.context || log.context.journey !== options.journey)) {
         return false;
       }
 
-      // Filter by service
-      if (filter.service && log.service !== filter.service) {
+      // Filter by trace ID
+      if (options.traceId && (!log.context || log.context.traceId !== options.traceId)) {
         return false;
       }
 
-      // Filter by timestamp range
-      if (filter.fromTimestamp) {
-        const logTime = new Date(log.timestamp).getTime();
-        if (logTime < filter.fromTimestamp.getTime()) {
+      // Filter by user ID
+      if (options.userId && (!log.context || log.context.userId !== options.userId)) {
+        return false;
+      }
+
+      // Filter by request ID
+      if (options.requestId && (!log.context || log.context.requestId !== options.requestId)) {
+        return false;
+      }
+
+      // Filter by service name
+      if (options.service && (!log.context || log.context.service !== options.service)) {
+        return false;
+      }
+
+      // Filter by time range
+      if (options.timeRange) {
+        const logTime = new Date(log.timestamp);
+        if (options.timeRange.start && logTime < options.timeRange.start) {
           return false;
         }
-      }
-
-      if (filter.toTimestamp) {
-        const logTime = new Date(log.timestamp).getTime();
-        if (logTime > filter.toTimestamp.getTime()) {
+        if (options.timeRange.end && logTime > options.timeRange.end) {
           return false;
         }
       }
 
       return true;
-    }).slice(0, filter.limit || this.logs.length);
-  }
-
-  /**
-   * Gets logs from a specific journey
-   * @param journey The journey name
-   * @param additionalFilters Additional filter criteria
-   * @returns Filtered log entries
-   */
-  getJourneyLogs(journey: string, additionalFilters?: Omit<LogFilterOptions, 'journey'>): LogEntry[] {
-    return this.getLogs({
-      journey,
-      ...additionalFilters
     });
   }
 
   /**
-   * Gets logs for a specific request
-   * @param requestId The request ID
-   * @param additionalFilters Additional filter criteria
-   * @returns Filtered log entries
+   * Checks if any log matches the provided filter options
+   * @param options Filter options
    */
-  getRequestLogs(requestId: string, additionalFilters?: Omit<LogFilterOptions, 'requestId'>): LogEntry[] {
-    return this.getLogs({
-      requestId,
-      ...additionalFilters
-    });
+  hasLog(options: LogFilterOptions): boolean {
+    return this.filterLogs(options).length > 0;
   }
 
   /**
-   * Gets logs for a specific user
-   * @param userId The user ID
-   * @param additionalFilters Additional filter criteria
-   * @returns Filtered log entries
+   * Gets the count of logs matching the provided filter options
+   * @param options Filter options
    */
-  getUserLogs(userId: string, additionalFilters?: Omit<LogFilterOptions, 'userId'>): LogEntry[] {
-    return this.getLogs({
-      userId,
-      ...additionalFilters
-    });
+  getLogCount(options: LogFilterOptions): number {
+    return this.filterLogs(options).length;
   }
 
   /**
-   * Gets logs from a specific service
-   * @param service The service name
-   * @param additionalFilters Additional filter criteria
-   * @returns Filtered log entries
+   * Gets the first log matching the provided filter options
+   * @param options Filter options
    */
-  getServiceLogs(service: string, additionalFilters?: Omit<LogFilterOptions, 'service'>): LogEntry[] {
-    return this.getLogs({
-      service,
-      ...additionalFilters
-    });
+  getFirstLog(options: LogFilterOptions): LogEntry | undefined {
+    const filtered = this.filterLogs(options);
+    return filtered.length > 0 ? filtered[0] : undefined;
   }
 
   /**
-   * Gets logs of a specific level
-   * @param level The log level or levels
-   * @param additionalFilters Additional filter criteria
-   * @returns Filtered log entries
+   * Gets the last log matching the provided filter options
+   * @param options Filter options
    */
-  getLevelLogs(level: LogLevel | LogLevel[], additionalFilters?: Omit<LogFilterOptions, 'level'>): LogEntry[] {
-    return this.getLogs({
-      level,
-      ...additionalFilters
-    });
-  }
-
-  /**
-   * Checks if logs contain entries matching the given filter
-   * @param filter Filter criteria
-   * @returns True if matching logs exist
-   */
-  hasLogs(filter: LogFilterOptions): boolean {
-    return this.getLogs(filter).length > 0;
-  }
-
-  /**
-   * Asserts that logs contain entries matching the given filter
-   * @param filter Filter criteria
-   * @param message Optional assertion message
-   * @throws Error if no matching logs are found
-   */
-  assertHasLogs(filter: LogFilterOptions, message?: string): void {
-    const logs = this.getLogs(filter);
-    if (logs.length === 0) {
-      throw new Error(message || `Expected logs matching filter ${JSON.stringify(filter)} but none were found`);
-    }
-  }
-
-  /**
-   * Asserts that logs do not contain entries matching the given filter
-   * @param filter Filter criteria
-   * @param message Optional assertion message
-   * @throws Error if matching logs are found
-   */
-  assertNoLogs(filter: LogFilterOptions, message?: string): void {
-    const logs = this.getLogs(filter);
-    if (logs.length > 0) {
-      throw new Error(
-        message || 
-        `Expected no logs matching filter ${JSON.stringify(filter)} but found ${logs.length}: ${JSON.stringify(logs)}`
-      );
-    }
-  }
-
-  /**
-   * Asserts that logs contain a specific number of entries matching the given filter
-   * @param filter Filter criteria
-   * @param count Expected count
-   * @param message Optional assertion message
-   * @throws Error if the count doesn't match
-   */
-  assertLogCount(filter: LogFilterOptions, count: number, message?: string): void {
-    const logs = this.getLogs(filter);
-    if (logs.length !== count) {
-      throw new Error(
-        message || 
-        `Expected ${count} logs matching filter ${JSON.stringify(filter)} but found ${logs.length}`
-      );
-    }
-  }
-
-  /**
-   * Creates a log validator for more fluent assertions
-   * @param filter Initial filter criteria
-   * @returns A LogValidator instance
-   */
-  validate(filter?: LogFilterOptions): LogValidator {
-    return new LogValidator(this, filter || {});
+  getLastLog(options: LogFilterOptions): LogEntry | undefined {
+    const filtered = this.filterLogs(options);
+    return filtered.length > 0 ? filtered[filtered.length - 1] : undefined;
   }
 }
 
 /**
- * Fluent interface for validating logs
+ * Singleton instance of the LogCaptureTransport for global access
+ */
+let globalLogCapture: LogCaptureTransport | null = null;
+
+/**
+ * Creates and initializes a global log capture transport
+ * @param options Options for log capture
+ */
+export function initializeLogCapture(options: LogCaptureOptions = {}): LogCaptureTransport {
+  if (globalLogCapture) {
+    globalLogCapture.clearLogs();
+  } else {
+    globalLogCapture = new LogCaptureTransport(options);
+  }
+  return globalLogCapture;
+}
+
+/**
+ * Gets the global log capture transport instance
+ * If not initialized, it will be created with default options
+ */
+export function getLogCapture(): LogCaptureTransport {
+  if (!globalLogCapture) {
+    globalLogCapture = new LogCaptureTransport();
+  }
+  return globalLogCapture;
+}
+
+/**
+ * Clears all captured logs from the global log capture transport
+ */
+export function clearCapturedLogs(): void {
+  if (globalLogCapture) {
+    globalLogCapture.clearLogs();
+  }
+}
+
+/**
+ * Closes the global log capture transport and cleans up resources
+ */
+export function closeLogCapture(): Promise<void> {
+  if (globalLogCapture) {
+    const promise = globalLogCapture.close();
+    globalLogCapture = null;
+    return promise;
+  }
+  return Promise.resolve();
+}
+
+/**
+ * Utility for validating structured log content
  */
 export class LogValidator {
-  private logCapture: LogCapture;
-  private filter: LogFilterOptions;
+  private logs: LogEntry[];
 
   /**
    * Creates a new LogValidator
-   * @param logCapture The LogCapture instance
-   * @param filter Initial filter criteria
+   * @param logs Logs to validate
    */
-  constructor(logCapture: LogCapture, filter: LogFilterOptions) {
-    this.logCapture = logCapture;
-    this.filter = { ...filter };
+  constructor(logs: LogEntry[]) {
+    this.logs = logs;
   }
 
   /**
-   * Filters logs by level
-   * @param level The log level or levels
-   * @returns This LogValidator instance for chaining
+   * Checks if all logs have the required fields
    */
-  withLevel(level: LogLevel | LogLevel[]): LogValidator {
-    this.filter.level = level;
-    return this;
+  hasRequiredFields(): boolean {
+    return this.logs.every(log => {
+      return (
+        typeof log.message === 'string' &&
+        typeof log.level === 'number' &&
+        typeof log.timestamp === 'string' &&
+        log.context !== undefined
+      );
+    });
   }
 
   /**
-   * Filters logs by context
-   * @param context The context string or pattern
-   * @returns This LogValidator instance for chaining
+   * Checks if all logs have the specified journey context
+   * @param journey Journey name to check for
    */
-  withContext(context: string | RegExp): LogValidator {
-    this.filter.context = context;
-    return this;
+  hasJourneyContext(journey: string): boolean {
+    return this.logs.every(log => {
+      return log.context && log.context.journey === journey;
+    });
   }
 
   /**
-   * Filters logs by message
-   * @param message The message string or pattern
-   * @returns This LogValidator instance for chaining
+   * Checks if all logs have trace correlation IDs
    */
-  withMessage(message: string | RegExp): LogValidator {
-    this.filter.message = message;
-    return this;
+  hasTraceCorrelation(): boolean {
+    return this.logs.every(log => {
+      return log.context && typeof log.context.traceId === 'string';
+    });
   }
 
   /**
-   * Filters logs by request ID
-   * @param requestId The request ID
-   * @returns This LogValidator instance for chaining
+   * Checks if all logs have the specified level or higher
+   * @param level Minimum log level
    */
-  withRequestId(requestId: string): LogValidator {
-    this.filter.requestId = requestId;
-    return this;
+  hasMinimumLevel(level: LogLevel): boolean {
+    return this.logs.every(log => log.level >= level);
   }
 
   /**
-   * Filters logs by user ID
-   * @param userId The user ID
-   * @returns This LogValidator instance for chaining
+   * Checks if any log contains an error with a stack trace
    */
-  withUserId(userId: string): LogValidator {
-    this.filter.userId = userId;
-    return this;
+  hasErrorWithStackTrace(): boolean {
+    return this.logs.some(log => {
+      return (
+        log.level === LogLevel.ERROR &&
+        log.error &&
+        typeof log.error.stack === 'string'
+      );
+    });
   }
 
   /**
-   * Filters logs by journey
-   * @param journey The journey name
-   * @returns This LogValidator instance for chaining
+   * Checks if logs contain a specific sequence of messages in order
+   * @param messages Array of messages to check for in sequence
    */
-  withJourney(journey: string): LogValidator {
-    this.filter.journey = journey;
-    return this;
+  containsSequence(messages: string[]): boolean {
+    if (messages.length === 0 || this.logs.length < messages.length) {
+      return false;
+    }
+
+    // Try to find the sequence starting at each possible position
+    for (let i = 0; i <= this.logs.length - messages.length; i++) {
+      let found = true;
+      for (let j = 0; j < messages.length; j++) {
+        if (!this.logs[i + j].message.includes(messages[j])) {
+          found = false;
+          break;
+        }
+      }
+      if (found) {
+        return true;
+      }
+    }
+
+    return false;
   }
 
   /**
-   * Filters logs by service
-   * @param service The service name
-   * @returns This LogValidator instance for chaining
+   * Checks if logs contain specific context properties across service boundaries
+   * @param contextKey Context property key to check for
+   * @param contextValue Context property value to check for
    */
-  withService(service: string): LogValidator {
-    this.filter.service = service;
-    return this;
+  maintainsContextAcrossServices(contextKey: string, contextValue: any): boolean {
+    // Group logs by service
+    const serviceGroups: Record<string, LogEntry[]> = {};
+    
+    for (const log of this.logs) {
+      if (log.context && log.context.service) {
+        const service = log.context.service;
+        if (!serviceGroups[service]) {
+          serviceGroups[service] = [];
+        }
+        serviceGroups[service].push(log);
+      }
+    }
+
+    // Check if each service group has the context property
+    return Object.values(serviceGroups).every(serviceLogs => {
+      return serviceLogs.some(log => {
+        return log.context && log.context[contextKey] === contextValue;
+      });
+    });
+  }
+}
+
+/**
+ * Creates a LogValidator for the logs in the global log capture
+ */
+export function validateCapturedLogs(): LogValidator {
+  const capture = getLogCapture();
+  return new LogValidator(capture.getLogs());
+}
+
+/**
+ * Creates a LogValidator for logs matching the filter options
+ * @param options Filter options
+ */
+export function validateFilteredLogs(options: LogFilterOptions): LogValidator {
+  const capture = getLogCapture();
+  return new LogValidator(capture.filterLogs(options));
+}
+
+/**
+ * Utility for capturing logs from a specific function execution
+ * @param fn Function to execute and capture logs from
+ * @param options Log capture options
+ */
+export async function captureLogsFromFunction<T>(
+  fn: () => Promise<T> | T,
+  options: LogCaptureOptions = {}
+): Promise<{ result: T; logs: LogEntry[] }> {
+  const capture = initializeLogCapture(options);
+  capture.clearLogs();
+  
+  try {
+    const result = await fn();
+    return { result, logs: capture.getLogs() };
+  } finally {
+    // Don't clear logs here to allow for inspection after the function completes
+  }
+}
+
+/**
+ * Utility for capturing logs from a specific test case
+ * Designed to be used in beforeEach/afterEach hooks
+ */
+export class TestLogCapture {
+  private capture: LogCaptureTransport;
+  private testName: string = '';
+  
+  /**
+   * Creates a new TestLogCapture
+   * @param options Log capture options
+   */
+  constructor(options: LogCaptureOptions = {}) {
+    // If file capture is enabled but no path is specified, use a default path based on the test name
+    if (options.toFile && !options.filePath) {
+      options.filePath = `./test-logs/${this.testName || 'unknown-test'}.json`;
+    }
+    
+    this.capture = new LogCaptureTransport(options);
   }
 
   /**
-   * Filters logs by timestamp range
-   * @param from The start timestamp
-   * @param to The end timestamp
-   * @returns This LogValidator instance for chaining
+   * Sets up log capture for a test case
+   * @param testName Name of the test case
    */
-  withTimeRange(from: Date, to: Date): LogValidator {
-    this.filter.fromTimestamp = from;
-    this.filter.toTimestamp = to;
-    return this;
+  setup(testName: string): void {
+    this.testName = testName;
+    this.capture.clearLogs();
   }
 
   /**
-   * Limits the number of logs returned
-   * @param limit The maximum number of logs to return
-   * @returns This LogValidator instance for chaining
+   * Tears down log capture after a test case
    */
-  limit(limit: number): LogValidator {
-    this.filter.limit = limit;
-    return this;
+  async teardown(): Promise<void> {
+    await this.capture.close();
   }
 
   /**
-   * Gets the filtered logs
-   * @returns Filtered log entries
+   * Gets all captured logs
    */
   getLogs(): LogEntry[] {
-    return this.logCapture.getLogs(this.filter);
+    return this.capture.getLogs();
   }
 
   /**
-   * Checks if logs exist matching the current filter
-   * @returns True if matching logs exist
+   * Filters logs based on the provided options
+   * @param options Filter options
    */
-  exists(): boolean {
-    return this.logCapture.hasLogs(this.filter);
+  filterLogs(options: LogFilterOptions): LogEntry[] {
+    return this.capture.filterLogs(options);
   }
 
   /**
-   * Asserts that logs exist matching the current filter
-   * @param message Optional assertion message
-   * @throws Error if no matching logs are found
+   * Creates a LogValidator for the captured logs
    */
-  assertExists(message?: string): void {
-    this.logCapture.assertHasLogs(this.filter, message);
+  validate(): LogValidator {
+    return new LogValidator(this.capture.getLogs());
   }
 
   /**
-   * Asserts that no logs exist matching the current filter
-   * @param message Optional assertion message
-   * @throws Error if matching logs are found
+   * Creates a LogValidator for logs matching the filter options
+   * @param options Filter options
    */
-  assertNotExists(message?: string): void {
-    this.logCapture.assertNoLogs(this.filter, message);
+  validateFiltered(options: LogFilterOptions): LogValidator {
+    return new LogValidator(this.capture.filterLogs(options));
   }
-
-  /**
-   * Asserts that a specific number of logs exist matching the current filter
-   * @param count Expected count
-   * @param message Optional assertion message
-   * @throws Error if the count doesn't match
-   */
-  assertCount(count: number, message?: string): void {
-    this.logCapture.assertLogCount(this.filter, count, message);
-  }
-
-  /**
-   * Gets the first log matching the current filter
-   * @returns The first matching log entry or undefined if none found
-   */
-  first(): LogEntry | undefined {
-    const logs = this.logCapture.getLogs({ ...this.filter, limit: 1 });
-    return logs.length > 0 ? logs[0] : undefined;
-  }
-
-  /**
-   * Gets the last log matching the current filter
-   * @returns The last matching log entry or undefined if none found
-   */
-  last(): LogEntry | undefined {
-    const logs = this.logCapture.getLogs(this.filter);
-    return logs.length > 0 ? logs[logs.length - 1] : undefined;
-  }
-}
-
-/**
- * Creates a new LogCapture instance with default options
- * @param options Configuration options for log capture
- * @returns A new LogCapture instance
- */
-export function createLogCapture(options?: LogCaptureOptions): LogCapture {
-  return new LogCapture(options);
-}
-
-/**
- * Creates an in-memory log capture for testing
- * @returns A new LogCapture instance configured for in-memory capture
- */
-export function createInMemoryLogCapture(): LogCapture {
-  return new LogCapture({
-    captureToFile: false,
-    captureConsole: true,
-    parseJson: true,
-    passThrough: false
-  });
-}
-
-/**
- * Creates a file-based log capture for testing
- * @param directory Directory to store log files
- * @param filename Optional filename for the log file
- * @returns A new LogCapture instance configured for file-based capture
- */
-export function createFileLogCapture(directory: string, filename?: string): LogCapture {
-  return new LogCapture({
-    captureToFile: true,
-    logDirectory: directory,
-    logFilename: filename || `test-logs-${new Date().toISOString().replace(/[:.]/g, '-')}.log`,
-    captureConsole: true,
-    parseJson: true,
-    passThrough: false
-  });
 }
