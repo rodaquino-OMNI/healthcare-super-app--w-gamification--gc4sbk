@@ -89,16 +89,7 @@ export interface LogEntry {
   metadata?: Record<string, any>;
 }
 
-/**
- * Enum representing the available log levels
- */
-export enum LogLevel {
-  DEBUG = 'debug',
-  INFO = 'info',
-  WARN = 'warn',
-  ERROR = 'error',
-  FATAL = 'fatal'
-}
+import { LogLevel } from './log-level.enum';
 
 /**
  * Interface representing journey-specific context information
