@@ -9,9 +9,17 @@
 // Export all journey context interfaces
 export * from './journey-context.interface';
 
-// Export other interfaces as they are created
-// export * from './span-attributes.interface';
-// export * from './trace-context.interface';
-// export * from './tracer-provider.interface';
-// export * from './span-options.interface';
-// export * from './tracing-options.interface';
+// Export span attributes interface
+export * from './span-attributes.interface';
+
+// Export trace context interface
+export * from './trace-context.interface';
+
+// Export tracer provider interface
+export * from './tracer-provider.interface';
+
+// Export span options interface
+export * from './span-options.interface';
+
+// Export tracing options interface
+export * from './tracing-options.interface';
