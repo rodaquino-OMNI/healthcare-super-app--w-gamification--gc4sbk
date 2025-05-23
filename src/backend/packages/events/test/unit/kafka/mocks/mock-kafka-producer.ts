@@ -1,415 +1,497 @@
 /**
- * Mock implementation of a Kafka producer for unit testing.
- * This class simulates the behavior of a KafkaJS Producer with methods for
- * sending messages and managing transactions without requiring a real Kafka connection.
+ * @file mock-kafka-producer.ts
+ * @description Mock implementation of a Kafka producer for unit testing.
+ * This file provides a test double for the KafkaJS Producer class, simulating
+ * message production capabilities without requiring a real Kafka connection.
+ * It tracks produced messages for verification in tests and supports testing error scenarios.
  */
 
-import { Producer, ProducerBatch, ProducerRecord, RecordMetadata, Transaction } from 'kafkajs';
 import { EventEmitter } from 'events';
+import { IKafkaHeaders, IKafkaMessage, IKafkaProducer, IKafkaProducerBatchRecord, IKafkaProducerRecord, IKafkaTransaction } from '../../../../../src/kafka/kafka.interfaces';
+import { BaseEvent } from '../../../../../src/interfaces/base-event.interface';
 
 /**
  * Configuration options for the MockKafkaProducer
  */
-export interface MockKafkaProducerConfig {
+export interface MockKafkaProducerOptions {
   /**
    * Whether to simulate connection errors
+   * @default false
    */
   simulateConnectionError?: boolean;
-  
+
   /**
    * Whether to simulate send errors
+   * @default false
    */
   simulateSendError?: boolean;
-  
-  /**
-   * Number of retries before succeeding (for testing retry mechanisms)
-   */
-  retriesBeforeSuccess?: number;
-  
-  /**
-   * Whether to track sent messages
-   */
-  trackSentMessages?: boolean;
-  
+
   /**
    * Whether to simulate transaction errors
+   * @default false
    */
   simulateTransactionError?: boolean;
-  
+
   /**
-   * Whether to emit events for producer lifecycle
+   * Delay in milliseconds to simulate network latency
+   * @default 0
    */
-  emitEvents?: boolean;
+  sendDelay?: number;
+
+  /**
+   * Custom error to throw when simulating errors
+   */
+  customError?: Error;
 }
 
 /**
- * Record of a sent message for verification in tests
+ * Mock implementation of a Kafka producer for unit testing.
+ * Implements the IKafkaProducer interface to provide a test double
+ * that can be used in place of a real Kafka producer.
  */
-export interface SentMessageRecord {
+export class MockKafkaProducer implements IKafkaProducer {
   /**
-   * Topic the message was sent to
+   * Event emitter for producer events
+   * @private
    */
-  topic: string;
-  
-  /**
-   * Partition the message was sent to (if specified)
-   */
-  partition?: number;
-  
-  /**
-   * Message key
-   */
-  key?: Buffer | string | null;
-  
-  /**
-   * Message value
-   */
-  value: Buffer | string | null;
-  
-  /**
-   * Message headers
-   */
-  headers?: Record<string, string | Buffer>;
-  
-  /**
-   * Timestamp when the message was sent
-   */
-  timestamp: string;
-}
+  private readonly eventEmitter: EventEmitter = new EventEmitter();
 
-/**
- * Mock implementation of a KafkaJS Producer for unit testing
- */
-export class MockKafkaProducer implements Partial<Producer> {
+  /**
+   * Whether the producer is connected
+   * @private
+   */
   private connected: boolean = false;
-  private sentMessages: SentMessageRecord[] = [];
-  private retryCount: number = 0;
-  private eventEmitter: EventEmitter;
-  private transactionInProgress: boolean = false;
-  private transactionMessages: SentMessageRecord[] = [];
-  
-  constructor(private config: MockKafkaProducerConfig = {}) {
-    this.eventEmitter = new EventEmitter();
-  }
-  
+
   /**
-   * Simulates connecting to Kafka
+   * Array of sent messages for verification in tests
+   * @private
+   */
+  private sentMessages: IKafkaMessage[] = [];
+
+  /**
+   * Array of sent batches for verification in tests
+   * @private
+   */
+  private sentBatches: IKafkaMessage[][] = [];
+
+  /**
+   * Configuration options for the mock producer
+   * @private
+   */
+  private options: MockKafkaProducerOptions;
+
+  /**
+   * Creates a new MockKafkaProducer instance
+   * @param options Configuration options for the mock producer
+   */
+  constructor(options: MockKafkaProducerOptions = {}) {
+    this.options = {
+      simulateConnectionError: false,
+      simulateSendError: false,
+      simulateTransactionError: false,
+      sendDelay: 0,
+      ...options,
+    };
+  }
+
+  /**
+   * Simulates connecting to the Kafka broker
+   * @returns Promise that resolves when connected or rejects if connection fails
    */
   async connect(): Promise<void> {
-    if (this.config.simulateConnectionError) {
-      throw new Error('Simulated connection error');
+    if (this.options.simulateConnectionError) {
+      const error = this.options.customError || new Error('Failed to connect to Kafka broker');
+      this.eventEmitter.emit('error', error);
+      throw error;
     }
-    
+
     this.connected = true;
-    
-    if (this.config.emitEvents) {
-      this.eventEmitter.emit('producer.connect');
-    }
-    
+    this.eventEmitter.emit('connect');
     return Promise.resolve();
   }
-  
+
   /**
-   * Simulates disconnecting from Kafka
+   * Simulates disconnecting from the Kafka broker
+   * @returns Promise that resolves when disconnected
    */
   async disconnect(): Promise<void> {
     this.connected = false;
-    
-    if (this.config.emitEvents) {
-      this.eventEmitter.emit('producer.disconnect');
-    }
-    
+    this.eventEmitter.emit('disconnect');
     return Promise.resolve();
   }
-  
+
   /**
-   * Simulates sending messages to Kafka
-   * 
-   * @param record - The record to send
-   * @returns Promise resolving to record metadata
+   * Simulates sending a message to a Kafka topic
+   * @param message The message to send
+   * @returns Promise that resolves with the message metadata or rejects if send fails
    */
-  async send(record: ProducerRecord): Promise<RecordMetadata[]> {
+  async send<T = any>(message: IKafkaMessage<T>): Promise<IKafkaProducerRecord> {
     if (!this.connected) {
-      throw new Error('Producer not connected');
+      const error = new Error('Producer not connected');
+      this.eventEmitter.emit('error', error);
+      throw error;
     }
-    
-    // Simulate send error if configured
-    if (this.config.simulateSendError) {
-      if (this.config.retriesBeforeSuccess && this.retryCount < this.config.retriesBeforeSuccess) {
-        this.retryCount++;
-        throw new Error(`Simulated send error (retry ${this.retryCount} of ${this.config.retriesBeforeSuccess})`);
-      } else if (!this.config.retriesBeforeSuccess) {
-        throw new Error('Simulated send error');
-      }
+
+    if (this.options.simulateSendError) {
+      const error = this.options.customError || new Error('Failed to send message to Kafka topic');
+      this.eventEmitter.emit('error', error);
+      throw error;
     }
-    
-    const { topic, messages, partition } = record;
-    
-    // Track sent messages if configured
-    if (this.config.trackSentMessages) {
-      const timestamp = new Date().toISOString();
-      
-      for (const message of messages) {
-        const sentMessage: SentMessageRecord = {
-          topic,
-          partition,
-          key: message.key,
-          value: message.value,
-          headers: message.headers,
-          timestamp,
-        };
-        
-        if (this.transactionInProgress) {
-          this.transactionMessages.push(sentMessage);
-        } else {
-          this.sentMessages.push(sentMessage);
-        }
-      }
+
+    // Clone the message to avoid reference issues
+    const messageCopy = JSON.parse(JSON.stringify(message));
+    this.sentMessages.push(messageCopy);
+    this.eventEmitter.emit('message', messageCopy);
+
+    // Simulate network latency
+    if (this.options.sendDelay && this.options.sendDelay > 0) {
+      await new Promise(resolve => setTimeout(resolve, this.options.sendDelay));
     }
-    
-    // Emit event if configured
-    if (this.config.emitEvents) {
-      this.eventEmitter.emit('producer.send', { topic, partition, messages });
-    }
-    
-    // Create and return metadata
-    const metadata: RecordMetadata[] = messages.map((_, index) => ({
-      topicName: topic,
-      partition: partition || 0,
-      errorCode: 0,
-      offset: String(this.sentMessages.length + index),
-      timestamp: new Date().getTime().toString(),
-    }));
-    
-    return metadata;
-  }
-  
-  /**
-   * Simulates sending messages in batches
-   * 
-   * @param batch - The batch to send
-   * @returns Promise resolving to record metadata
-   */
-  async sendBatch(batch: ProducerBatch): Promise<RecordMetadata[]> {
-    if (!this.connected) {
-      throw new Error('Producer not connected');
-    }
-    
-    // Simulate send error if configured
-    if (this.config.simulateSendError) {
-      if (this.config.retriesBeforeSuccess && this.retryCount < this.config.retriesBeforeSuccess) {
-        this.retryCount++;
-        throw new Error(`Simulated batch send error (retry ${this.retryCount} of ${this.config.retriesBeforeSuccess})`);
-      } else if (!this.config.retriesBeforeSuccess) {
-        throw new Error('Simulated batch send error');
-      }
-    }
-    
-    const allMetadata: RecordMetadata[] = [];
-    
-    // Process each topic-partition batch
-    for (const topicBatch of batch.topicMessages) {
-      const { topic, messages } = topicBatch;
-      
-      // Track sent messages if configured
-      if (this.config.trackSentMessages) {
-        const timestamp = new Date().toISOString();
-        
-        for (const message of messages) {
-          const sentMessage: SentMessageRecord = {
-            topic,
-            partition: message.partition,
-            key: message.key,
-            value: message.value,
-            headers: message.headers,
-            timestamp,
-          };
-          
-          if (this.transactionInProgress) {
-            this.transactionMessages.push(sentMessage);
-          } else {
-            this.sentMessages.push(sentMessage);
-          }
-        }
-      }
-      
-      // Create metadata for this batch
-      const batchMetadata = messages.map((message, index) => ({
-        topicName: topic,
-        partition: message.partition || 0,
-        errorCode: 0,
-        offset: String(this.sentMessages.length + index),
-        timestamp: new Date().getTime().toString(),
-      }));
-      
-      allMetadata.push(...batchMetadata);
-      
-      // Emit event if configured
-      if (this.config.emitEvents) {
-        this.eventEmitter.emit('producer.send', { topic, messages });
-      }
-    }
-    
-    return allMetadata;
-  }
-  
-  /**
-   * Simulates creating a transaction
-   * 
-   * @returns A mock transaction object
-   */
-  transaction(): Transaction {
-    if (!this.connected) {
-      throw new Error('Producer not connected');
-    }
-    
-    this.transactionInProgress = true;
-    this.transactionMessages = [];
-    
-    // Create a mock transaction object
-    const transaction: Transaction = {
-      send: async (record: ProducerRecord) => {
-        return this.send(record);
-      },
-      sendBatch: async (batch: ProducerBatch) => {
-        return this.sendBatch(batch);
-      },
-      commit: async () => {
-        if (this.config.simulateTransactionError) {
-          throw new Error('Simulated transaction commit error');
-        }
-        
-        // Move transaction messages to sent messages
-        this.sentMessages.push(...this.transactionMessages);
-        this.transactionMessages = [];
-        this.transactionInProgress = false;
-        
-        if (this.config.emitEvents) {
-          this.eventEmitter.emit('producer.transaction.commit');
-        }
-        
-        return;
-      },
-      abort: async () => {
-        if (this.config.simulateTransactionError) {
-          throw new Error('Simulated transaction abort error');
-        }
-        
-        // Discard transaction messages
-        this.transactionMessages = [];
-        this.transactionInProgress = false;
-        
-        if (this.config.emitEvents) {
-          this.eventEmitter.emit('producer.transaction.abort');
-        }
-        
-        return;
-      },
-      isActive: () => this.transactionInProgress,
+
+    return {
+      topic: message.topic,
+      partition: message.partition || 0,
+      offset: String(this.sentMessages.length - 1),
+      timestamp: new Date().toISOString(),
     };
-    
-    return transaction;
   }
-  
+
   /**
-   * Registers an event listener
-   * 
-   * @param eventName - The event name to listen for
-   * @param listener - The event listener function
+   * Simulates sending a batch of messages to Kafka topics
+   * @param messages Array of messages to send
+   * @returns Promise that resolves with the batch metadata or rejects if send fails
    */
-  on(eventName: string, listener: (...args: any[]) => void): void {
-    this.eventEmitter.on(eventName, listener);
+  async sendBatch<T = any>(messages: IKafkaMessage<T>[]): Promise<IKafkaProducerBatchRecord> {
+    if (!this.connected) {
+      const error = new Error('Producer not connected');
+      this.eventEmitter.emit('error', error);
+      throw error;
+    }
+
+    if (this.options.simulateSendError) {
+      const error = this.options.customError || new Error('Failed to send batch to Kafka topics');
+      this.eventEmitter.emit('error', error);
+      throw error;
+    }
+
+    // Clone the messages to avoid reference issues
+    const messagesCopy = JSON.parse(JSON.stringify(messages));
+    this.sentBatches.push(messagesCopy);
+    this.sentMessages.push(...messagesCopy);
+    this.eventEmitter.emit('batch', messagesCopy);
+
+    // Simulate network latency
+    if (this.options.sendDelay && this.options.sendDelay > 0) {
+      await new Promise(resolve => setTimeout(resolve, this.options.sendDelay));
+    }
+
+    const records: IKafkaProducerRecord[] = messages.map((message, index) => ({
+      topic: message.topic,
+      partition: message.partition || 0,
+      offset: String(this.sentMessages.length - messages.length + index),
+      timestamp: new Date().toISOString(),
+    }));
+
+    return {
+      records,
+    };
   }
-  
+
   /**
-   * Gets all sent messages for verification in tests
-   * 
-   * @returns Array of sent message records
+   * Simulates sending an event to a Kafka topic
+   * @param topic The topic to send to
+   * @param event The event to send
+   * @param key Optional message key
+   * @param headers Optional message headers
+   * @returns Promise that resolves with the message metadata or rejects if send fails
    */
-  getSentMessages(): SentMessageRecord[] {
-    return [...this.sentMessages];
+  async sendEvent(topic: string, event: BaseEvent, key?: string, headers?: IKafkaHeaders): Promise<IKafkaProducerRecord> {
+    const message: IKafkaMessage<BaseEvent> = {
+      topic,
+      value: event,
+      key: key ? Buffer.from(key) : undefined,
+      headers,
+    };
+
+    return this.send(message);
   }
-  
+
   /**
-   * Gets sent messages for a specific topic
-   * 
-   * @param topic - The topic to get messages for
-   * @returns Array of sent message records for the topic
+   * Simulates beginning a transaction
+   * @returns Promise that resolves with a transaction object or rejects if transaction fails
    */
-  getSentMessagesForTopic(topic: string): SentMessageRecord[] {
-    return this.sentMessages.filter(message => message.topic === topic);
+  async transaction(): Promise<IKafkaTransaction> {
+    if (!this.connected) {
+      const error = new Error('Producer not connected');
+      this.eventEmitter.emit('error', error);
+      throw error;
+    }
+
+    if (this.options.simulateTransactionError) {
+      const error = this.options.customError || new Error('Failed to create transaction');
+      this.eventEmitter.emit('error', error);
+      throw error;
+    }
+
+    const transactionId = `mock-transaction-${Date.now()}`;
+    const transactionMessages: IKafkaMessage[] = [];
+    const transactionBatches: IKafkaMessage[][] = [];
+    let transactionAborted = false;
+    let transactionCommitted = false;
+
+    this.eventEmitter.emit('transaction.start', transactionId);
+
+    return {
+      send: async <T = any>(message: IKafkaMessage<T>): Promise<IKafkaProducerRecord> => {
+        if (transactionAborted) {
+          const error = new Error('Transaction was aborted');
+          this.eventEmitter.emit('transaction.error', error, transactionId);
+          throw error;
+        }
+
+        if (transactionCommitted) {
+          const error = new Error('Transaction was already committed');
+          this.eventEmitter.emit('transaction.error', error, transactionId);
+          throw error;
+        }
+
+        // Clone the message to avoid reference issues
+        const messageCopy = JSON.parse(JSON.stringify(message));
+        transactionMessages.push(messageCopy);
+        this.eventEmitter.emit('transaction.message', messageCopy, transactionId);
+
+        // Simulate network latency
+        if (this.options.sendDelay && this.options.sendDelay > 0) {
+          await new Promise(resolve => setTimeout(resolve, this.options.sendDelay));
+        }
+
+        return {
+          topic: message.topic,
+          partition: message.partition || 0,
+          offset: String(transactionMessages.length - 1),
+          timestamp: new Date().toISOString(),
+        };
+      },
+
+      sendBatch: async <T = any>(messages: IKafkaMessage<T>[]): Promise<IKafkaProducerBatchRecord> => {
+        if (transactionAborted) {
+          const error = new Error('Transaction was aborted');
+          this.eventEmitter.emit('transaction.error', error, transactionId);
+          throw error;
+        }
+
+        if (transactionCommitted) {
+          const error = new Error('Transaction was already committed');
+          this.eventEmitter.emit('transaction.error', error, transactionId);
+          throw error;
+        }
+
+        // Clone the messages to avoid reference issues
+        const messagesCopy = JSON.parse(JSON.stringify(messages));
+        transactionBatches.push(messagesCopy);
+        transactionMessages.push(...messagesCopy);
+        this.eventEmitter.emit('transaction.batch', messagesCopy, transactionId);
+
+        // Simulate network latency
+        if (this.options.sendDelay && this.options.sendDelay > 0) {
+          await new Promise(resolve => setTimeout(resolve, this.options.sendDelay));
+        }
+
+        const records: IKafkaProducerRecord[] = messages.map((message, index) => ({
+          topic: message.topic,
+          partition: message.partition || 0,
+          offset: String(transactionMessages.length - messages.length + index),
+          timestamp: new Date().toISOString(),
+        }));
+
+        return {
+          records,
+        };
+      },
+
+      commit: async (): Promise<void> => {
+        if (transactionAborted) {
+          const error = new Error('Transaction was aborted');
+          this.eventEmitter.emit('transaction.error', error, transactionId);
+          throw error;
+        }
+
+        if (transactionCommitted) {
+          const error = new Error('Transaction was already committed');
+          this.eventEmitter.emit('transaction.error', error, transactionId);
+          throw error;
+        }
+
+        // Add transaction messages to the producer's sent messages
+        this.sentMessages.push(...transactionMessages);
+        this.sentBatches.push(...transactionBatches);
+
+        transactionCommitted = true;
+        this.eventEmitter.emit('transaction.commit', transactionId, transactionMessages.length);
+        return Promise.resolve();
+      },
+
+      abort: async (): Promise<void> => {
+        if (transactionCommitted) {
+          const error = new Error('Transaction was already committed');
+          this.eventEmitter.emit('transaction.error', error, transactionId);
+          throw error;
+        }
+
+        if (transactionAborted) {
+          const error = new Error('Transaction was already aborted');
+          this.eventEmitter.emit('transaction.error', error, transactionId);
+          throw error;
+        }
+
+        transactionAborted = true;
+        this.eventEmitter.emit('transaction.abort', transactionId);
+        return Promise.resolve();
+      },
+    };
   }
-  
-  /**
-   * Gets the current transaction messages
-   * 
-   * @returns Array of transaction message records
-   */
-  getTransactionMessages(): SentMessageRecord[] {
-    return [...this.transactionMessages];
-  }
-  
-  /**
-   * Clears the sent messages history
-   */
-  clearSentMessages(): void {
-    this.sentMessages = [];
-  }
-  
-  /**
-   * Resets the retry count
-   */
-  resetRetryCount(): void {
-    this.retryCount = 0;
-  }
-  
-  /**
-   * Gets the current retry count
-   * 
-   * @returns The current retry count
-   */
-  getRetryCount(): number {
-    return this.retryCount;
-  }
-  
+
   /**
    * Checks if the producer is connected
-   * 
    * @returns True if connected, false otherwise
    */
   isConnected(): boolean {
     return this.connected;
   }
-  
+
   /**
-   * Checks if a transaction is in progress
-   * 
-   * @returns True if a transaction is in progress, false otherwise
+   * Gets all messages sent by this producer
+   * @returns Array of sent messages
    */
-  isTransactionInProgress(): boolean {
-    return this.transactionInProgress;
+  getSentMessages<T = any>(): IKafkaMessage<T>[] {
+    return this.sentMessages as IKafkaMessage<T>[];
   }
-  
+
+  /**
+   * Gets all batches sent by this producer
+   * @returns Array of sent batches
+   */
+  getSentBatches<T = any>(): IKafkaMessage<T>[][] {
+    return this.sentBatches as IKafkaMessage<T>[][];
+  }
+
+  /**
+   * Gets messages sent to a specific topic
+   * @param topic The topic to filter by
+   * @returns Array of messages sent to the specified topic
+   */
+  getMessagesByTopic<T = any>(topic: string): IKafkaMessage<T>[] {
+    return this.sentMessages.filter(message => message.topic === topic) as IKafkaMessage<T>[];
+  }
+
+  /**
+   * Clears all sent messages and batches
+   */
+  clearSentMessages(): void {
+    this.sentMessages = [];
+    this.sentBatches = [];
+  }
+
+  /**
+   * Sets the connection state
+   * @param connected The new connection state
+   */
+  setConnected(connected: boolean): void {
+    this.connected = connected;
+    this.eventEmitter.emit(connected ? 'connect' : 'disconnect');
+  }
+
+  /**
+   * Updates the producer options
+   * @param options New options to apply
+   */
+  setOptions(options: Partial<MockKafkaProducerOptions>): void {
+    this.options = {
+      ...this.options,
+      ...options,
+    };
+  }
+
+  /**
+   * Registers an event listener
+   * @param event The event to listen for
+   * @param listener The listener function
+   */
+  on(event: string, listener: (...args: any[]) => void): void {
+    this.eventEmitter.on(event, listener);
+  }
+
+  /**
+   * Removes an event listener
+   * @param event The event to stop listening for
+   * @param listener The listener function to remove
+   */
+  off(event: string, listener: (...args: any[]) => void): void {
+    this.eventEmitter.off(event, listener);
+  }
+
+  /**
+   * Registers a one-time event listener
+   * @param event The event to listen for once
+   * @param listener The listener function
+   */
+  once(event: string, listener: (...args: any[]) => void): void {
+    this.eventEmitter.once(event, listener);
+  }
+
+  /**
+   * Emits an event
+   * @param event The event to emit
+   * @param args Arguments to pass to the listeners
+   */
+  emit(event: string, ...args: any[]): void {
+    this.eventEmitter.emit(event, ...args);
+  }
+
   /**
    * Verifies that a specific message was sent
-   * 
-   * @param topic - The topic to check
-   * @param predicate - Function to test each message
+   * @param predicate Function that returns true if the message matches the criteria
    * @returns True if a matching message was found, false otherwise
    */
-  verifyMessageSent(topic: string, predicate: (message: SentMessageRecord) => boolean): boolean {
-    return this.sentMessages.some(message => 
-      message.topic === topic && predicate(message)
-    );
+  verifyMessageSent<T = any>(predicate: (message: IKafkaMessage<T>) => boolean): boolean {
+    return this.sentMessages.some(message => predicate(message as IKafkaMessage<T>));
   }
-  
+
   /**
-   * Counts the number of messages sent to a topic
-   * 
-   * @param topic - The topic to count messages for
-   * @returns The number of messages sent to the topic
+   * Verifies that a specific event was sent
+   * @param eventType The type of event to look for
+   * @param predicate Optional function for additional criteria
+   * @returns True if a matching event was found, false otherwise
    */
-  countMessagesSentToTopic(topic: string): number {
-    return this.sentMessages.filter(message => message.topic === topic).length;
+  verifyEventSent(eventType: string, predicate?: (event: BaseEvent) => boolean): boolean {
+    return this.sentMessages.some(message => {
+      const event = message.value as BaseEvent;
+      return event.type === eventType && (!predicate || predicate(event));
+    });
   }
+
+  /**
+   * Counts the number of messages sent to a specific topic
+   * @param topic The topic to count messages for
+   * @returns The number of messages sent to the specified topic
+   */
+  countMessagesByTopic(topic: string): number {
+    return this.getMessagesByTopic(topic).length;
+  }
+
+  /**
+   * Counts the total number of messages sent
+   * @returns The total number of messages sent
+   */
+  countTotalMessages(): number {
+    return this.sentMessages.length;
+  }
+}
+
+/**
+ * Creates a new MockKafkaProducer instance with default options
+ * @returns A new MockKafkaProducer instance
+ */
+export function createMockKafkaProducer(options?: MockKafkaProducerOptions): MockKafkaProducer {
+  return new MockKafkaProducer(options);
 }
