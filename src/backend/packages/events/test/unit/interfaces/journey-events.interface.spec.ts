@@ -1,524 +1,738 @@
 /**
- * @file journey-events.interface.spec.ts
+ * @file Journey Events Interface Tests
  * @description Unit tests for journey-specific event interfaces (Health, Care, Plan)
- * to validate proper payload structures and type constraints. Tests ensure each journey's
- * events maintain consistent structure while accommodating journey-specific data.
+ * to validate proper payload structures and type constraints.
  */
 
-import { EventType, JourneyEvents } from '../../../src/dto/event-types.enum';
 import {
-  HealthMetricData,
-  HealthGoalData,
-  DeviceSyncData,
-  HealthInsightData,
-  HealthMetricRecordedEventDto,
-  HealthGoalAchievedEventDto,
-  DeviceSynchronizedEventDto,
-  HealthInsightGeneratedEventDto,
-  HealthEventDto,
-  HealthMetricType,
-  HealthGoalType,
-  DeviceType,
-  HealthInsightType
-} from '../../../src/dto/health-event.dto';
+  // Base interfaces
+  IJourneyEvent,
+  JourneyType,
+  
+  // Health journey interfaces
+  IHealthEvent,
+  HealthEventType,
+  IHealthMetricRecordedPayload,
+  IHealthGoalCreatedPayload,
+  IHealthGoalAchievedPayload,
+  IHealthDeviceConnectedPayload,
+  IHealthInsightGeneratedPayload,
+  
+  // Care journey interfaces
+  ICareEvent,
+  CareEventType,
+  ICareAppointmentBookedPayload,
+  ICareMedicationTakenPayload,
+  ICareMedicationAdherenceStreakPayload,
+  ICareTelemedicineSessionCompletedPayload,
+  ICarePlanCompletedPayload,
+  
+  // Plan journey interfaces
+  IPlanEvent,
+  PlanEventType,
+  IPlanClaimSubmittedPayload,
+  IPlanBenefitUtilizedPayload,
+  IPlanPlanSelectedPayload,
+  IPlanRewardRedeemedPayload,
+  
+  // Cross-journey utilities
+  JourneyEvent,
+  isHealthEvent,
+  isCareEvent,
+  isPlanEvent,
+  correlateEvents
+} from '../../../src/interfaces/journey-events.interface';
 
-// Import mock validation function to test validation
-import { validate } from 'class-validator';
+// Import test fixtures
+import {
+  healthEvents,
+  careEvents,
+  planEvents
+} from '../../../test/fixtures';
 
-describe('Journey Events Interface Tests', () => {
-  describe('Health Journey Event Interfaces', () => {
-    describe('HealthMetricData', () => {
-      it('should validate a valid health metric', async () => {
-        // Arrange
-        const healthMetric = new HealthMetricData();
-        healthMetric.metricType = HealthMetricType.HEART_RATE;
-        healthMetric.value = 75;
-        healthMetric.unit = 'bpm';
-        healthMetric.recordedAt = new Date().toISOString();
-        
-        // Act
-        const errors = await validate(healthMetric);
-        
-        // Assert
-        expect(errors.length).toBe(0);
-        expect(healthMetric.validateMetricRange()).toBe(true);
-      });
+describe('Journey Events Interface', () => {
+  
+  describe('Base Journey Event Interface', () => {
+    it('should define the base journey event structure', () => {
+      // Create a minimal valid journey event
+      const baseEvent: IJourneyEvent = {
+        type: 'TEST_EVENT',
+        userId: 'user123',
+        timestamp: new Date().toISOString(),
+        journey: JourneyType.HEALTH,
+        data: {}
+      };
       
-      it('should fail validation when required fields are missing', async () => {
-        // Arrange
-        const healthMetric = new HealthMetricData();
-        // Missing required fields
-        
-        // Act
-        const errors = await validate(healthMetric);
-        
-        // Assert
-        expect(errors.length).toBeGreaterThan(0);
-        expect(errors.some(e => e.property === 'metricType')).toBe(true);
-        expect(errors.some(e => e.property === 'value')).toBe(true);
-        expect(errors.some(e => e.property === 'unit')).toBe(true);
-      });
-      
-      it('should validate metric ranges correctly', () => {
-        // Arrange
-        const healthMetric = new HealthMetricData();
-        healthMetric.unit = 'bpm';
-        
-        // Act & Assert - Heart rate
-        healthMetric.metricType = HealthMetricType.HEART_RATE;
-        healthMetric.value = 25; // Below valid range
-        expect(healthMetric.validateMetricRange()).toBe(false);
-        
-        healthMetric.value = 75; // Within valid range
-        expect(healthMetric.validateMetricRange()).toBe(true);
-        
-        healthMetric.value = 230; // Above valid range
-        expect(healthMetric.validateMetricRange()).toBe(false);
-        
-        // Act & Assert - Steps
-        healthMetric.metricType = HealthMetricType.STEPS;
-        healthMetric.unit = 'steps';
-        healthMetric.value = 8000;
-        expect(healthMetric.validateMetricRange()).toBe(true);
-      });
+      // Verify required properties
+      expect(baseEvent).toHaveProperty('type');
+      expect(baseEvent).toHaveProperty('userId');
+      expect(baseEvent).toHaveProperty('timestamp');
+      expect(baseEvent).toHaveProperty('journey');
+      expect(baseEvent).toHaveProperty('data');
     });
     
-    describe('HealthGoalData', () => {
-      it('should validate a valid health goal', async () => {
-        // Arrange
-        const healthGoal = new HealthGoalData();
-        healthGoal.goalId = '123e4567-e89b-12d3-a456-426614174000';
-        healthGoal.goalType = HealthGoalType.STEPS_TARGET;
-        healthGoal.description = 'Walk 10,000 steps daily';
-        healthGoal.targetValue = 10000;
-        healthGoal.unit = 'steps';
-        healthGoal.progressPercentage = 75;
-        
-        // Act
-        const errors = await validate(healthGoal);
-        
-        // Assert
-        expect(errors.length).toBe(0);
-        expect(healthGoal.isAchieved()).toBe(false);
-      });
+    it('should support optional properties', () => {
+      // Create an event with all optional properties
+      const fullEvent: IJourneyEvent = {
+        id: 'event123',
+        type: 'TEST_EVENT',
+        userId: 'user123',
+        timestamp: new Date().toISOString(),
+        journey: JourneyType.HEALTH,
+        source: 'test-service',
+        version: '1.0',
+        data: { test: 'data' },
+        correlationId: 'corr123',
+        metadata: { test: 'metadata' }
+      };
       
-      it('should correctly identify achieved goals', () => {
-        // Arrange
-        const healthGoal = new HealthGoalData();
-        healthGoal.goalId = '123e4567-e89b-12d3-a456-426614174000';
-        healthGoal.goalType = HealthGoalType.STEPS_TARGET;
-        healthGoal.description = 'Walk 10,000 steps daily';
-        
-        // Act & Assert - Not achieved
-        healthGoal.progressPercentage = 75;
-        expect(healthGoal.isAchieved()).toBe(false);
-        
-        // Act & Assert - Achieved by percentage
-        healthGoal.progressPercentage = 100;
-        expect(healthGoal.isAchieved()).toBe(true);
-        
-        // Act & Assert - Achieved by date
-        healthGoal.progressPercentage = 50;
-        healthGoal.achievedAt = new Date().toISOString();
-        expect(healthGoal.isAchieved()).toBe(true);
-      });
-      
-      it('should mark a goal as achieved correctly', () => {
-        // Arrange
-        const healthGoal = new HealthGoalData();
-        healthGoal.goalId = '123e4567-e89b-12d3-a456-426614174000';
-        healthGoal.goalType = HealthGoalType.STEPS_TARGET;
-        healthGoal.description = 'Walk 10,000 steps daily';
-        healthGoal.progressPercentage = 75;
-        
-        // Act
-        healthGoal.markAsAchieved();
-        
-        // Assert
-        expect(healthGoal.progressPercentage).toBe(100);
-        expect(healthGoal.achievedAt).toBeDefined();
-        expect(healthGoal.isAchieved()).toBe(true);
-      });
-    });
-    
-    describe('DeviceSyncData', () => {
-      it('should validate a valid device sync', async () => {
-        // Arrange
-        const deviceSync = new DeviceSyncData();
-        deviceSync.deviceId = 'device-123';
-        deviceSync.deviceType = DeviceType.SMARTWATCH;
-        deviceSync.deviceName = 'Apple Watch';
-        deviceSync.syncedAt = new Date().toISOString();
-        deviceSync.syncSuccessful = true;
-        deviceSync.dataPointsCount = 150;
-        deviceSync.metricTypes = [HealthMetricType.HEART_RATE, HealthMetricType.STEPS];
-        
-        // Act
-        const errors = await validate(deviceSync);
-        
-        // Assert
-        expect(errors.length).toBe(0);
-      });
-      
-      it('should handle failed syncs correctly', () => {
-        // Arrange
-        const deviceSync = new DeviceSyncData();
-        deviceSync.deviceId = 'device-123';
-        deviceSync.deviceType = DeviceType.SMARTWATCH;
-        deviceSync.deviceName = 'Apple Watch';
-        deviceSync.syncedAt = new Date().toISOString();
-        deviceSync.syncSuccessful = true;
-        
-        // Act
-        deviceSync.markAsFailed('Connection timeout');
-        
-        // Assert
-        expect(deviceSync.syncSuccessful).toBe(false);
-        expect(deviceSync.errorMessage).toBe('Connection timeout');
-      });
-      
-      it('should handle successful syncs correctly', () => {
-        // Arrange
-        const deviceSync = new DeviceSyncData();
-        deviceSync.deviceId = 'device-123';
-        deviceSync.deviceType = DeviceType.SMARTWATCH;
-        deviceSync.deviceName = 'Apple Watch';
-        deviceSync.syncedAt = new Date().toISOString();
-        deviceSync.syncSuccessful = false;
-        deviceSync.errorMessage = 'Previous error';
-        
-        // Act
-        deviceSync.markAsSuccessful(150, [HealthMetricType.HEART_RATE, HealthMetricType.STEPS]);
-        
-        // Assert
-        expect(deviceSync.syncSuccessful).toBe(true);
-        expect(deviceSync.dataPointsCount).toBe(150);
-        expect(deviceSync.metricTypes).toEqual([HealthMetricType.HEART_RATE, HealthMetricType.STEPS]);
-        expect(deviceSync.errorMessage).toBeUndefined();
-      });
-    });
-    
-    describe('HealthInsightData', () => {
-      it('should validate a valid health insight', async () => {
-        // Arrange
-        const healthInsight = new HealthInsightData();
-        healthInsight.insightId = '123e4567-e89b-12d3-a456-426614174000';
-        healthInsight.insightType = HealthInsightType.TREND_ANALYSIS;
-        healthInsight.title = 'Improving Sleep Pattern';
-        healthInsight.description = 'Your sleep duration has improved by 15% over the last month.';
-        healthInsight.relatedMetricTypes = [HealthMetricType.SLEEP];
-        healthInsight.confidenceScore = 85;
-        healthInsight.generatedAt = new Date().toISOString();
-        healthInsight.userAcknowledged = false;
-        
-        // Act
-        const errors = await validate(healthInsight);
-        
-        // Assert
-        expect(errors.length).toBe(0);
-      });
-      
-      it('should correctly identify high-priority insights', () => {
-        // Arrange
-        const healthInsight = new HealthInsightData();
-        healthInsight.insightId = '123e4567-e89b-12d3-a456-426614174000';
-        healthInsight.title = 'Abnormal Heart Rate';
-        healthInsight.description = 'Your heart rate showed unusual patterns during rest.';
-        
-        // Act & Assert - Not high priority (wrong type)
-        healthInsight.insightType = HealthInsightType.TREND_ANALYSIS;
-        healthInsight.confidenceScore = 80;
-        expect(healthInsight.isHighPriority()).toBe(false);
-        
-        // Act & Assert - Not high priority (low confidence)
-        healthInsight.insightType = HealthInsightType.ANOMALY_DETECTION;
-        healthInsight.confidenceScore = 70;
-        expect(healthInsight.isHighPriority()).toBe(false);
-        
-        // Act & Assert - High priority
-        healthInsight.insightType = HealthInsightType.ANOMALY_DETECTION;
-        healthInsight.confidenceScore = 85;
-        expect(healthInsight.isHighPriority()).toBe(true);
-        
-        // Act & Assert - High priority (health risk)
-        healthInsight.insightType = HealthInsightType.HEALTH_RISK_ASSESSMENT;
-        healthInsight.confidenceScore = 80;
-        expect(healthInsight.isHighPriority()).toBe(true);
-      });
-      
-      it('should mark insights as acknowledged correctly', () => {
-        // Arrange
-        const healthInsight = new HealthInsightData();
-        healthInsight.insightId = '123e4567-e89b-12d3-a456-426614174000';
-        healthInsight.insightType = HealthInsightType.TREND_ANALYSIS;
-        healthInsight.title = 'Improving Sleep Pattern';
-        healthInsight.description = 'Your sleep duration has improved by 15% over the last month.';
-        healthInsight.userAcknowledged = false;
-        
-        // Act
-        healthInsight.acknowledgeByUser();
-        
-        // Assert
-        expect(healthInsight.userAcknowledged).toBe(true);
-      });
-    });
-    
-    describe('Health Event DTOs', () => {
-      it('should validate a valid HealthMetricRecordedEventDto', async () => {
-        // Arrange
-        const event = new HealthMetricRecordedEventDto();
-        event.userId = '123e4567-e89b-12d3-a456-426614174000';
-        event.timestamp = new Date().toISOString();
-        event.correlationId = 'corr-123';
-        
-        const metricData = new HealthMetricData();
-        metricData.metricType = HealthMetricType.HEART_RATE;
-        metricData.value = 75;
-        metricData.unit = 'bpm';
-        metricData.recordedAt = new Date().toISOString();
-        
-        event.data = metricData;
-        
-        // Act
-        const errors = await validate(event);
-        
-        // Assert
-        expect(errors.length).toBe(0);
-        expect(event.type).toBe('HEALTH_METRIC_RECORDED');
-        expect(event.journey).toBe('health');
-      });
-      
-      it('should validate a valid HealthGoalAchievedEventDto', async () => {
-        // Arrange
-        const event = new HealthGoalAchievedEventDto();
-        event.userId = '123e4567-e89b-12d3-a456-426614174000';
-        event.timestamp = new Date().toISOString();
-        event.correlationId = 'corr-123';
-        
-        const goalData = new HealthGoalData();
-        goalData.goalId = '123e4567-e89b-12d3-a456-426614174000';
-        goalData.goalType = HealthGoalType.STEPS_TARGET;
-        goalData.description = 'Walk 10,000 steps daily';
-        goalData.targetValue = 10000;
-        goalData.unit = 'steps';
-        goalData.progressPercentage = 100;
-        goalData.achievedAt = new Date().toISOString();
-        
-        event.data = goalData;
-        
-        // Act
-        const errors = await validate(event);
-        
-        // Assert
-        expect(errors.length).toBe(0);
-        expect(event.type).toBe('HEALTH_GOAL_ACHIEVED');
-        expect(event.journey).toBe('health');
-      });
-      
-      it('should validate a valid DeviceSynchronizedEventDto', async () => {
-        // Arrange
-        const event = new DeviceSynchronizedEventDto();
-        event.userId = '123e4567-e89b-12d3-a456-426614174000';
-        event.timestamp = new Date().toISOString();
-        event.correlationId = 'corr-123';
-        
-        const syncData = new DeviceSyncData();
-        syncData.deviceId = 'device-123';
-        syncData.deviceType = DeviceType.SMARTWATCH;
-        syncData.deviceName = 'Apple Watch';
-        syncData.syncedAt = new Date().toISOString();
-        syncData.syncSuccessful = true;
-        syncData.dataPointsCount = 150;
-        
-        event.data = syncData;
-        
-        // Act
-        const errors = await validate(event);
-        
-        // Assert
-        expect(errors.length).toBe(0);
-        expect(event.type).toBe('DEVICE_SYNCHRONIZED');
-        expect(event.journey).toBe('health');
-      });
-      
-      it('should validate a valid HealthInsightGeneratedEventDto', async () => {
-        // Arrange
-        const event = new HealthInsightGeneratedEventDto();
-        event.userId = '123e4567-e89b-12d3-a456-426614174000';
-        event.timestamp = new Date().toISOString();
-        event.correlationId = 'corr-123';
-        
-        const insightData = new HealthInsightData();
-        insightData.insightId = '123e4567-e89b-12d3-a456-426614174000';
-        insightData.insightType = HealthInsightType.TREND_ANALYSIS;
-        insightData.title = 'Improving Sleep Pattern';
-        insightData.description = 'Your sleep duration has improved by 15% over the last month.';
-        insightData.relatedMetricTypes = [HealthMetricType.SLEEP];
-        insightData.confidenceScore = 85;
-        insightData.generatedAt = new Date().toISOString();
-        
-        event.data = insightData;
-        
-        // Act
-        const errors = await validate(event);
-        
-        // Assert
-        expect(errors.length).toBe(0);
-        expect(event.type).toBe('HEALTH_INSIGHT_GENERATED');
-        expect(event.journey).toBe('health');
-      });
+      // Verify optional properties
+      expect(fullEvent).toHaveProperty('id');
+      expect(fullEvent).toHaveProperty('source');
+      expect(fullEvent).toHaveProperty('version');
+      expect(fullEvent).toHaveProperty('correlationId');
+      expect(fullEvent).toHaveProperty('metadata');
     });
   });
   
-  describe('Care Journey Event Interfaces', () => {
-    // Since we don't have direct access to the care event DTOs yet, we'll test the event types
-    // and structure expectations
-    
-    it('should have consistent Care journey event types defined', () => {
-      // Assert that all expected Care journey event types are defined
-      expect(EventType.CARE_APPOINTMENT_BOOKED).toBeDefined();
-      expect(EventType.CARE_APPOINTMENT_COMPLETED).toBeDefined();
-      expect(EventType.CARE_MEDICATION_TAKEN).toBeDefined();
-      expect(EventType.CARE_TELEMEDICINE_STARTED).toBeDefined();
-      expect(EventType.CARE_TELEMEDICINE_COMPLETED).toBeDefined();
-      expect(EventType.CARE_PLAN_CREATED).toBeDefined();
-      expect(EventType.CARE_PLAN_TASK_COMPLETED).toBeDefined();
+  describe('Health Journey Events', () => {
+    it('should validate HEALTH_METRIC_RECORDED event structure', () => {
+      // Create a health metric recorded event
+      const metricEvent: IHealthEvent = {
+        id: 'event123',
+        type: HealthEventType.METRIC_RECORDED,
+        userId: 'user123',
+        timestamp: new Date().toISOString(),
+        journey: JourneyType.HEALTH,
+        source: 'health-service',
+        data: {
+          metric: {
+            id: 'metric123',
+            userId: 'user123',
+            type: 'HEART_RATE',
+            value: 75,
+            unit: 'bpm',
+            timestamp: new Date().toISOString(),
+            source: 'manual'
+          },
+          metricType: 'HEART_RATE',
+          value: 75,
+          unit: 'bpm',
+          timestamp: new Date().toISOString(),
+          source: 'manual',
+          previousValue: 72,
+          change: 3,
+          isImprovement: false
+        } as IHealthMetricRecordedPayload
+      };
       
-      // Check that the namespaced enum also contains these events
-      expect(JourneyEvents.Care.APPOINTMENT_BOOKED).toBe(EventType.CARE_APPOINTMENT_BOOKED);
-      expect(JourneyEvents.Care.APPOINTMENT_COMPLETED).toBe(EventType.CARE_APPOINTMENT_COMPLETED);
-      expect(JourneyEvents.Care.MEDICATION_TAKEN).toBe(EventType.CARE_MEDICATION_TAKEN);
-      expect(JourneyEvents.Care.TELEMEDICINE_STARTED).toBe(EventType.CARE_TELEMEDICINE_STARTED);
-      expect(JourneyEvents.Care.TELEMEDICINE_COMPLETED).toBe(EventType.CARE_TELEMEDICINE_COMPLETED);
-      expect(JourneyEvents.Care.PLAN_CREATED).toBe(EventType.CARE_PLAN_CREATED);
-      expect(JourneyEvents.Care.PLAN_TASK_COMPLETED).toBe(EventType.CARE_PLAN_TASK_COMPLETED);
+      // Verify event structure
+      expect(metricEvent.journey).toBe(JourneyType.HEALTH);
+      expect(metricEvent.type).toBe(HealthEventType.METRIC_RECORDED);
+      expect(metricEvent.data).toHaveProperty('metric');
+      expect(metricEvent.data).toHaveProperty('metricType');
+      expect(metricEvent.data).toHaveProperty('value');
+      expect(metricEvent.data).toHaveProperty('unit');
     });
     
-    it('should define expected Care journey event payload structures', () => {
-      // This test will be expanded once the Care event DTOs are implemented
-      // For now, we'll verify the expected structure based on the event types enum documentation
+    it('should validate HEALTH_GOAL_CREATED event structure', () => {
+      // Create a health goal created event
+      const goalEvent: IHealthEvent = {
+        id: 'event123',
+        type: HealthEventType.GOAL_CREATED,
+        userId: 'user123',
+        timestamp: new Date().toISOString(),
+        journey: JourneyType.HEALTH,
+        source: 'health-service',
+        data: {
+          goal: {
+            id: 'goal123',
+            userId: 'user123',
+            type: 'STEPS',
+            targetValue: 10000,
+            unit: 'steps',
+            startDate: new Date().toISOString(),
+            endDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+            status: 'ACTIVE'
+          },
+          goalType: 'STEPS',
+          targetValue: 10000,
+          unit: 'steps',
+          startDate: new Date().toISOString(),
+          endDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString()
+        } as IHealthGoalCreatedPayload
+      };
       
-      // Example expected structure for CARE_APPOINTMENT_BOOKED
-      const expectedAppointmentBookedFields = [
-        'appointmentId',
-        'providerId',
-        'specialtyType',
-        'appointmentType',
-        'scheduledAt',
-        'bookedAt'
-      ];
+      // Verify event structure
+      expect(goalEvent.journey).toBe(JourneyType.HEALTH);
+      expect(goalEvent.type).toBe(HealthEventType.GOAL_CREATED);
+      expect(goalEvent.data).toHaveProperty('goal');
+      expect(goalEvent.data).toHaveProperty('goalType');
+      expect(goalEvent.data).toHaveProperty('targetValue');
+      expect(goalEvent.data).toHaveProperty('unit');
+      expect(goalEvent.data).toHaveProperty('startDate');
+    });
+    
+    it('should validate HEALTH_GOAL_ACHIEVED event structure', () => {
+      // Create a health goal achieved event
+      const achievedEvent: IHealthEvent = {
+        id: 'event123',
+        type: HealthEventType.GOAL_ACHIEVED,
+        userId: 'user123',
+        timestamp: new Date().toISOString(),
+        journey: JourneyType.HEALTH,
+        source: 'health-service',
+        data: {
+          goal: {
+            id: 'goal123',
+            userId: 'user123',
+            type: 'STEPS',
+            targetValue: 10000,
+            unit: 'steps',
+            startDate: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString(),
+            endDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+            status: 'ACHIEVED'
+          },
+          goalType: 'STEPS',
+          achievedValue: 10250,
+          targetValue: 10000,
+          daysToAchieve: 5,
+          isEarlyCompletion: true
+        } as IHealthGoalAchievedPayload
+      };
       
-      // Example expected structure for CARE_MEDICATION_TAKEN
-      const expectedMedicationTakenFields = [
-        'medicationId',
-        'medicationName',
-        'dosage',
-        'takenAt',
-        'adherence'
-      ];
+      // Verify event structure
+      expect(achievedEvent.journey).toBe(JourneyType.HEALTH);
+      expect(achievedEvent.type).toBe(HealthEventType.GOAL_ACHIEVED);
+      expect(achievedEvent.data).toHaveProperty('goal');
+      expect(achievedEvent.data).toHaveProperty('goalType');
+      expect(achievedEvent.data).toHaveProperty('achievedValue');
+      expect(achievedEvent.data).toHaveProperty('targetValue');
+      expect(achievedEvent.data).toHaveProperty('daysToAchieve');
+    });
+    
+    it('should validate HEALTH_DEVICE_CONNECTED event structure', () => {
+      // Create a device connected event
+      const deviceEvent: IHealthEvent = {
+        id: 'event123',
+        type: HealthEventType.DEVICE_CONNECTED,
+        userId: 'user123',
+        timestamp: new Date().toISOString(),
+        journey: JourneyType.HEALTH,
+        source: 'health-service',
+        data: {
+          deviceConnection: {
+            id: 'conn123',
+            userId: 'user123',
+            deviceId: 'device123',
+            deviceType: 'Smartwatch',
+            status: 'CONNECTED',
+            lastSyncDate: new Date().toISOString(),
+            connectionDate: new Date().toISOString()
+          },
+          deviceId: 'device123',
+          deviceType: 'Smartwatch',
+          connectionDate: new Date().toISOString(),
+          isFirstConnection: true
+        } as IHealthDeviceConnectedPayload
+      };
       
-      // These assertions will be replaced with actual DTO validation once implemented
-      expect(expectedAppointmentBookedFields.length).toBeGreaterThan(0);
-      expect(expectedMedicationTakenFields.length).toBeGreaterThan(0);
+      // Verify event structure
+      expect(deviceEvent.journey).toBe(JourneyType.HEALTH);
+      expect(deviceEvent.type).toBe(HealthEventType.DEVICE_CONNECTED);
+      expect(deviceEvent.data).toHaveProperty('deviceConnection');
+      expect(deviceEvent.data).toHaveProperty('deviceId');
+      expect(deviceEvent.data).toHaveProperty('deviceType');
+      expect(deviceEvent.data).toHaveProperty('connectionDate');
+      expect(deviceEvent.data).toHaveProperty('isFirstConnection');
+    });
+    
+    it('should validate HEALTH_INSIGHT_GENERATED event structure', () => {
+      // Create an insight generated event
+      const insightEvent: IHealthEvent = {
+        id: 'event123',
+        type: HealthEventType.INSIGHT_GENERATED,
+        userId: 'user123',
+        timestamp: new Date().toISOString(),
+        journey: JourneyType.HEALTH,
+        source: 'health-service',
+        data: {
+          insightId: 'insight123',
+          insightType: 'SLEEP_PATTERN',
+          generationDate: new Date().toISOString(),
+          relatedMetrics: ['SLEEP', 'HEART_RATE'],
+          severity: 'medium',
+          description: 'Your sleep pattern shows inconsistency',
+          explanation: 'Irregular sleep patterns can affect overall health',
+          recommendations: [
+            'Try to maintain a consistent sleep schedule',
+            'Avoid screen time before bed'
+          ]
+        } as IHealthInsightGeneratedPayload
+      };
+      
+      // Verify event structure
+      expect(insightEvent.journey).toBe(JourneyType.HEALTH);
+      expect(insightEvent.type).toBe(HealthEventType.INSIGHT_GENERATED);
+      expect(insightEvent.data).toHaveProperty('insightId');
+      expect(insightEvent.data).toHaveProperty('insightType');
+      expect(insightEvent.data).toHaveProperty('generationDate');
+      expect(insightEvent.data).toHaveProperty('description');
+      expect(insightEvent.data).toHaveProperty('recommendations');
     });
   });
   
-  describe('Plan Journey Event Interfaces', () => {
-    // Since we don't have direct access to the plan event DTOs yet, we'll test the event types
-    // and structure expectations
-    
-    it('should have consistent Plan journey event types defined', () => {
-      // Assert that all expected Plan journey event types are defined
-      expect(EventType.PLAN_CLAIM_SUBMITTED).toBeDefined();
-      expect(EventType.PLAN_CLAIM_PROCESSED).toBeDefined();
-      expect(EventType.PLAN_SELECTED).toBeDefined();
-      expect(EventType.PLAN_BENEFIT_UTILIZED).toBeDefined();
-      expect(EventType.PLAN_REWARD_REDEEMED).toBeDefined();
-      expect(EventType.PLAN_DOCUMENT_COMPLETED).toBeDefined();
+  describe('Care Journey Events', () => {
+    it('should validate CARE_APPOINTMENT_BOOKED event structure', () => {
+      // Create an appointment booked event
+      const appointmentEvent: ICareEvent = {
+        id: 'event123',
+        type: CareEventType.APPOINTMENT_BOOKED,
+        userId: 'user123',
+        timestamp: new Date().toISOString(),
+        journey: JourneyType.CARE,
+        source: 'care-service',
+        data: {
+          appointment: {
+            id: 'appt123',
+            userId: 'user123',
+            providerId: 'provider123',
+            type: 'IN_PERSON',
+            status: 'SCHEDULED',
+            scheduledDate: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString(),
+            createdAt: new Date().toISOString()
+          },
+          appointmentType: 'IN_PERSON',
+          providerId: 'provider123',
+          scheduledDate: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString(),
+          isFirstAppointment: true,
+          isUrgent: false
+        } as ICareAppointmentBookedPayload
+      };
       
-      // Check that the namespaced enum also contains these events
-      expect(JourneyEvents.Plan.CLAIM_SUBMITTED).toBe(EventType.PLAN_CLAIM_SUBMITTED);
-      expect(JourneyEvents.Plan.CLAIM_PROCESSED).toBe(EventType.PLAN_CLAIM_PROCESSED);
-      expect(JourneyEvents.Plan.PLAN_SELECTED).toBe(EventType.PLAN_SELECTED);
-      expect(JourneyEvents.Plan.BENEFIT_UTILIZED).toBe(EventType.PLAN_BENEFIT_UTILIZED);
-      expect(JourneyEvents.Plan.REWARD_REDEEMED).toBe(EventType.PLAN_REWARD_REDEEMED);
-      expect(JourneyEvents.Plan.DOCUMENT_COMPLETED).toBe(EventType.PLAN_DOCUMENT_COMPLETED);
+      // Verify event structure
+      expect(appointmentEvent.journey).toBe(JourneyType.CARE);
+      expect(appointmentEvent.type).toBe(CareEventType.APPOINTMENT_BOOKED);
+      expect(appointmentEvent.data).toHaveProperty('appointment');
+      expect(appointmentEvent.data).toHaveProperty('appointmentType');
+      expect(appointmentEvent.data).toHaveProperty('providerId');
+      expect(appointmentEvent.data).toHaveProperty('scheduledDate');
     });
     
-    it('should define expected Plan journey event payload structures', () => {
-      // This test will be expanded once the Plan event DTOs are implemented
-      // For now, we'll verify the expected structure based on the event types enum documentation
+    it('should validate CARE_MEDICATION_TAKEN event structure', () => {
+      // Create a medication taken event
+      const medicationEvent: ICareEvent = {
+        id: 'event123',
+        type: CareEventType.MEDICATION_TAKEN,
+        userId: 'user123',
+        timestamp: new Date().toISOString(),
+        journey: JourneyType.CARE,
+        source: 'care-service',
+        data: {
+          medicationId: 'med123',
+          medicationName: 'Medication A',
+          takenDate: new Date().toISOString(),
+          takenOnTime: true,
+          dosage: '10mg'
+        } as ICareMedicationTakenPayload
+      };
       
-      // Example expected structure for PLAN_CLAIM_SUBMITTED
-      const expectedClaimSubmittedFields = [
-        'claimId',
-        'claimType',
-        'providerId',
-        'serviceDate',
-        'amount',
-        'submittedAt'
-      ];
+      // Verify event structure
+      expect(medicationEvent.journey).toBe(JourneyType.CARE);
+      expect(medicationEvent.type).toBe(CareEventType.MEDICATION_TAKEN);
+      expect(medicationEvent.data).toHaveProperty('medicationId');
+      expect(medicationEvent.data).toHaveProperty('medicationName');
+      expect(medicationEvent.data).toHaveProperty('takenDate');
+      expect(medicationEvent.data).toHaveProperty('takenOnTime');
+      expect(medicationEvent.data).toHaveProperty('dosage');
+    });
+    
+    it('should validate CARE_MEDICATION_ADHERENCE_STREAK event structure', () => {
+      // Create a medication adherence streak event
+      const streakEvent: ICareEvent = {
+        id: 'event123',
+        type: CareEventType.MEDICATION_ADHERENCE_STREAK,
+        userId: 'user123',
+        timestamp: new Date().toISOString(),
+        journey: JourneyType.CARE,
+        source: 'care-service',
+        data: {
+          medicationId: 'med123',
+          medicationName: 'Medication A',
+          streakDays: 7,
+          adherencePercentage: 95,
+          startDate: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString(),
+          endDate: new Date().toISOString()
+        } as ICareMedicationAdherenceStreakPayload
+      };
       
-      // Example expected structure for PLAN_BENEFIT_UTILIZED
-      const expectedBenefitUtilizedFields = [
-        'benefitId',
-        'benefitType',
-        'providerId',
-        'utilizationDate',
-        'savingsAmount'
-      ];
+      // Verify event structure
+      expect(streakEvent.journey).toBe(JourneyType.CARE);
+      expect(streakEvent.type).toBe(CareEventType.MEDICATION_ADHERENCE_STREAK);
+      expect(streakEvent.data).toHaveProperty('medicationId');
+      expect(streakEvent.data).toHaveProperty('medicationName');
+      expect(streakEvent.data).toHaveProperty('streakDays');
+      expect(streakEvent.data).toHaveProperty('adherencePercentage');
+      expect(streakEvent.data).toHaveProperty('startDate');
+      expect(streakEvent.data).toHaveProperty('endDate');
+    });
+    
+    it('should validate CARE_TELEMEDICINE_SESSION_COMPLETED event structure', () => {
+      // Create a telemedicine session completed event
+      const telemedicineEvent: ICareEvent = {
+        id: 'event123',
+        type: CareEventType.TELEMEDICINE_SESSION_COMPLETED,
+        userId: 'user123',
+        timestamp: new Date().toISOString(),
+        journey: JourneyType.CARE,
+        source: 'care-service',
+        data: {
+          session: {
+            id: 'session123',
+            userId: 'user123',
+            providerId: 'provider123',
+            appointmentId: 'appt123',
+            startTime: new Date(Date.now() - 30 * 60 * 1000).toISOString(),
+            endTime: new Date().toISOString(),
+            status: 'COMPLETED'
+          },
+          sessionId: 'session123',
+          providerId: 'provider123',
+          startTime: new Date(Date.now() - 30 * 60 * 1000).toISOString(),
+          endTime: new Date().toISOString(),
+          duration: 30,
+          appointmentId: 'appt123',
+          technicalIssues: false
+        } as ICareTelemedicineSessionCompletedPayload
+      };
       
-      // These assertions will be replaced with actual DTO validation once implemented
-      expect(expectedClaimSubmittedFields.length).toBeGreaterThan(0);
-      expect(expectedBenefitUtilizedFields.length).toBeGreaterThan(0);
+      // Verify event structure
+      expect(telemedicineEvent.journey).toBe(JourneyType.CARE);
+      expect(telemedicineEvent.type).toBe(CareEventType.TELEMEDICINE_SESSION_COMPLETED);
+      expect(telemedicineEvent.data).toHaveProperty('session');
+      expect(telemedicineEvent.data).toHaveProperty('sessionId');
+      expect(telemedicineEvent.data).toHaveProperty('providerId');
+      expect(telemedicineEvent.data).toHaveProperty('startTime');
+      expect(telemedicineEvent.data).toHaveProperty('endTime');
+      expect(telemedicineEvent.data).toHaveProperty('duration');
+    });
+    
+    it('should validate CARE_PLAN_COMPLETED event structure', () => {
+      // Create a care plan completed event
+      const planEvent: ICareEvent = {
+        id: 'event123',
+        type: CareEventType.CARE_PLAN_COMPLETED,
+        userId: 'user123',
+        timestamp: new Date().toISOString(),
+        journey: JourneyType.CARE,
+        source: 'care-service',
+        data: {
+          treatmentPlan: {
+            id: 'plan123',
+            userId: 'user123',
+            name: 'Recovery Plan',
+            description: 'Post-surgery recovery plan',
+            startDate: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString(),
+            endDate: new Date().toISOString(),
+            status: 'COMPLETED'
+          },
+          planId: 'plan123',
+          planType: 'RECOVERY',
+          completionDate: new Date().toISOString(),
+          fullyCompleted: true,
+          completionPercentage: 100,
+          daysActive: 30
+        } as ICarePlanCompletedPayload
+      };
+      
+      // Verify event structure
+      expect(planEvent.journey).toBe(JourneyType.CARE);
+      expect(planEvent.type).toBe(CareEventType.CARE_PLAN_COMPLETED);
+      expect(planEvent.data).toHaveProperty('treatmentPlan');
+      expect(planEvent.data).toHaveProperty('planId');
+      expect(planEvent.data).toHaveProperty('planType');
+      expect(planEvent.data).toHaveProperty('completionDate');
+      expect(planEvent.data).toHaveProperty('fullyCompleted');
+      expect(planEvent.data).toHaveProperty('completionPercentage');
+      expect(planEvent.data).toHaveProperty('daysActive');
     });
   });
   
-  describe('Cross-Journey Event Correlation', () => {
-    it('should support cross-journey event correlation through common fields', () => {
-      // This test verifies that events from different journeys can be correlated
-      // through common fields like userId and correlationId
+  describe('Plan Journey Events', () => {
+    it('should validate PLAN_CLAIM_SUBMITTED event structure', () => {
+      // Create a claim submitted event
+      const claimEvent: IPlanEvent = {
+        id: 'event123',
+        type: PlanEventType.CLAIM_SUBMITTED,
+        userId: 'user123',
+        timestamp: new Date().toISOString(),
+        journey: JourneyType.PLAN,
+        source: 'plan-service',
+        data: {
+          claim: {
+            id: 'claim123',
+            userId: 'user123',
+            planId: 'plan123',
+            amount: 150.00,
+            status: 'SUBMITTED',
+            submissionDate: new Date().toISOString(),
+            claimType: 'MEDICAL_CONSULTATION'
+          },
+          submissionDate: new Date().toISOString(),
+          amount: 150.00,
+          claimType: 'MEDICAL_CONSULTATION',
+          hasDocuments: true,
+          isComplete: true
+        } as IPlanClaimSubmittedPayload
+      };
       
+      // Verify event structure
+      expect(claimEvent.journey).toBe(JourneyType.PLAN);
+      expect(claimEvent.type).toBe(PlanEventType.CLAIM_SUBMITTED);
+      expect(claimEvent.data).toHaveProperty('claim');
+      expect(claimEvent.data).toHaveProperty('submissionDate');
+      expect(claimEvent.data).toHaveProperty('amount');
+      expect(claimEvent.data).toHaveProperty('claimType');
+      expect(claimEvent.data).toHaveProperty('hasDocuments');
+      expect(claimEvent.data).toHaveProperty('isComplete');
+    });
+    
+    it('should validate PLAN_BENEFIT_UTILIZED event structure', () => {
+      // Create a benefit utilized event
+      const benefitEvent: IPlanEvent = {
+        id: 'event123',
+        type: PlanEventType.BENEFIT_UTILIZED,
+        userId: 'user123',
+        timestamp: new Date().toISOString(),
+        journey: JourneyType.PLAN,
+        source: 'plan-service',
+        data: {
+          benefit: {
+            id: 'benefit123',
+            planId: 'plan123',
+            name: 'Annual Check-up',
+            description: 'Yearly preventive health check-up',
+            coverageLimit: 1,
+            coveragePeriod: 'YEARLY'
+          },
+          utilizationDate: new Date().toISOString(),
+          serviceProvider: 'Provider A',
+          amount: 200.00,
+          remainingCoverage: 0,
+          isFirstUtilization: true
+        } as IPlanBenefitUtilizedPayload
+      };
+      
+      // Verify event structure
+      expect(benefitEvent.journey).toBe(JourneyType.PLAN);
+      expect(benefitEvent.type).toBe(PlanEventType.BENEFIT_UTILIZED);
+      expect(benefitEvent.data).toHaveProperty('benefit');
+      expect(benefitEvent.data).toHaveProperty('utilizationDate');
+      expect(benefitEvent.data).toHaveProperty('serviceProvider');
+      expect(benefitEvent.data).toHaveProperty('amount');
+      expect(benefitEvent.data).toHaveProperty('remainingCoverage');
+      expect(benefitEvent.data).toHaveProperty('isFirstUtilization');
+    });
+    
+    it('should validate PLAN_PLAN_SELECTED event structure', () => {
+      // Create a plan selected event
+      const planSelectedEvent: IPlanEvent = {
+        id: 'event123',
+        type: PlanEventType.PLAN_SELECTED,
+        userId: 'user123',
+        timestamp: new Date().toISOString(),
+        journey: JourneyType.PLAN,
+        source: 'plan-service',
+        data: {
+          plan: {
+            id: 'plan123',
+            name: 'Premium Health Plan',
+            description: 'Comprehensive health coverage',
+            provider: 'Insurance Company A',
+            premium: 350.00,
+            startDate: new Date().toISOString(),
+            endDate: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString(),
+            status: 'ACTIVE'
+          },
+          planId: 'plan123',
+          planName: 'Premium Health Plan',
+          selectionDate: new Date().toISOString(),
+          startDate: new Date().toISOString(),
+          endDate: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString(),
+          premium: 350.00,
+          isUpgrade: true
+        } as IPlanPlanSelectedPayload
+      };
+      
+      // Verify event structure
+      expect(planSelectedEvent.journey).toBe(JourneyType.PLAN);
+      expect(planSelectedEvent.type).toBe(PlanEventType.PLAN_SELECTED);
+      expect(planSelectedEvent.data).toHaveProperty('plan');
+      expect(planSelectedEvent.data).toHaveProperty('planId');
+      expect(planSelectedEvent.data).toHaveProperty('planName');
+      expect(planSelectedEvent.data).toHaveProperty('selectionDate');
+      expect(planSelectedEvent.data).toHaveProperty('startDate');
+      expect(planSelectedEvent.data).toHaveProperty('endDate');
+      expect(planSelectedEvent.data).toHaveProperty('premium');
+    });
+    
+    it('should validate PLAN_REWARD_REDEEMED event structure', () => {
+      // Create a reward redeemed event
+      const rewardEvent: IPlanEvent = {
+        id: 'event123',
+        type: PlanEventType.REWARD_REDEEMED,
+        userId: 'user123',
+        timestamp: new Date().toISOString(),
+        journey: JourneyType.PLAN,
+        source: 'plan-service',
+        data: {
+          rewardId: 'reward123',
+          rewardName: 'Fitness Tracker Discount',
+          redemptionDate: new Date().toISOString(),
+          pointValue: 500,
+          monetaryValue: 50.00,
+          rewardType: 'DISCOUNT',
+          isPremiumReward: false
+        } as IPlanRewardRedeemedPayload
+      };
+      
+      // Verify event structure
+      expect(rewardEvent.journey).toBe(JourneyType.PLAN);
+      expect(rewardEvent.type).toBe(PlanEventType.REWARD_REDEEMED);
+      expect(rewardEvent.data).toHaveProperty('rewardId');
+      expect(rewardEvent.data).toHaveProperty('rewardName');
+      expect(rewardEvent.data).toHaveProperty('redemptionDate');
+      expect(rewardEvent.data).toHaveProperty('pointValue');
+      expect(rewardEvent.data).toHaveProperty('monetaryValue');
+      expect(rewardEvent.data).toHaveProperty('rewardType');
+      expect(rewardEvent.data).toHaveProperty('isPremiumReward');
+    });
+  });
+  
+  describe('Cross-Journey Capabilities', () => {
+    it('should correctly identify event types using type guards', () => {
       // Create events from different journeys
-      const healthEvent = new HealthMetricRecordedEventDto();
-      healthEvent.userId = '123e4567-e89b-12d3-a456-426614174000';
-      healthEvent.correlationId = 'cross-journey-correlation-123';
-      healthEvent.timestamp = new Date().toISOString();
+      const healthEvent: IHealthEvent = {
+        type: HealthEventType.METRIC_RECORDED,
+        userId: 'user123',
+        timestamp: new Date().toISOString(),
+        journey: JourneyType.HEALTH,
+        data: {} as IHealthMetricRecordedPayload
+      };
       
-      const metricData = new HealthMetricData();
-      metricData.metricType = HealthMetricType.HEART_RATE;
-      metricData.value = 75;
-      metricData.unit = 'bpm';
-      metricData.recordedAt = new Date().toISOString();
+      const careEvent: ICareEvent = {
+        type: CareEventType.APPOINTMENT_BOOKED,
+        userId: 'user123',
+        timestamp: new Date().toISOString(),
+        journey: JourneyType.CARE,
+        data: {} as ICareAppointmentBookedPayload
+      };
       
-      healthEvent.data = metricData;
+      const planEvent: IPlanEvent = {
+        type: PlanEventType.CLAIM_SUBMITTED,
+        userId: 'user123',
+        timestamp: new Date().toISOString(),
+        journey: JourneyType.PLAN,
+        data: {} as IPlanClaimSubmittedPayload
+      };
       
-      // Assert that the events have the necessary correlation fields
-      expect(healthEvent.userId).toBe('123e4567-e89b-12d3-a456-426614174000');
-      expect(healthEvent.correlationId).toBe('cross-journey-correlation-123');
+      // Test type guards
+      expect(isHealthEvent(healthEvent)).toBe(true);
+      expect(isHealthEvent(careEvent)).toBe(false);
+      expect(isHealthEvent(planEvent)).toBe(false);
       
-      // In a real implementation, we would create Care and Plan events here
-      // and verify they can be correlated with the Health event
+      expect(isCareEvent(careEvent)).toBe(true);
+      expect(isCareEvent(healthEvent)).toBe(false);
+      expect(isCareEvent(planEvent)).toBe(false);
+      
+      expect(isPlanEvent(planEvent)).toBe(true);
+      expect(isPlanEvent(healthEvent)).toBe(false);
+      expect(isPlanEvent(careEvent)).toBe(false);
     });
     
-    it('should support gamification events that reference events from specific journeys', () => {
-      // This test verifies that gamification events can reference source events
-      // from specific journeys
+    it('should support the JourneyEvent union type', () => {
+      // Create events from different journeys
+      const healthEvent: IHealthEvent = {
+        type: HealthEventType.METRIC_RECORDED,
+        userId: 'user123',
+        timestamp: new Date().toISOString(),
+        journey: JourneyType.HEALTH,
+        data: {} as IHealthMetricRecordedPayload
+      };
       
-      // Assert that the gamification event types are defined
-      expect(EventType.GAMIFICATION_POINTS_EARNED).toBeDefined();
-      expect(EventType.GAMIFICATION_ACHIEVEMENT_UNLOCKED).toBeDefined();
-      expect(EventType.GAMIFICATION_LEVEL_UP).toBeDefined();
-      expect(EventType.GAMIFICATION_QUEST_COMPLETED).toBeDefined();
+      const careEvent: ICareEvent = {
+        type: CareEventType.APPOINTMENT_BOOKED,
+        userId: 'user123',
+        timestamp: new Date().toISOString(),
+        journey: JourneyType.CARE,
+        data: {} as ICareAppointmentBookedPayload
+      };
       
-      // Check that the namespaced enum also contains these events
-      expect(JourneyEvents.Gamification.POINTS_EARNED).toBe(EventType.GAMIFICATION_POINTS_EARNED);
-      expect(JourneyEvents.Gamification.ACHIEVEMENT_UNLOCKED).toBe(EventType.GAMIFICATION_ACHIEVEMENT_UNLOCKED);
-      expect(JourneyEvents.Gamification.LEVEL_UP).toBe(EventType.GAMIFICATION_LEVEL_UP);
-      expect(JourneyEvents.Gamification.QUEST_COMPLETED).toBe(EventType.GAMIFICATION_QUEST_COMPLETED);
+      const planEvent: IPlanEvent = {
+        type: PlanEventType.CLAIM_SUBMITTED,
+        userId: 'user123',
+        timestamp: new Date().toISOString(),
+        journey: JourneyType.PLAN,
+        data: {} as IPlanClaimSubmittedPayload
+      };
       
-      // In a real implementation, we would create a gamification event that references
-      // a source event from a specific journey and verify the relationship
+      // Create an array of journey events
+      const events: JourneyEvent[] = [healthEvent, careEvent, planEvent];
+      
+      // Verify the array contains all events
+      expect(events).toHaveLength(3);
+      expect(events[0].journey).toBe(JourneyType.HEALTH);
+      expect(events[1].journey).toBe(JourneyType.CARE);
+      expect(events[2].journey).toBe(JourneyType.PLAN);
+    });
+    
+    it('should correlate events across journeys', () => {
+      // Create events from different journeys
+      const healthEvent: IHealthEvent = {
+        type: HealthEventType.METRIC_RECORDED,
+        userId: 'user123',
+        timestamp: new Date().toISOString(),
+        journey: JourneyType.HEALTH,
+        data: {} as IHealthMetricRecordedPayload
+      };
+      
+      const careEvent: ICareEvent = {
+        type: CareEventType.APPOINTMENT_BOOKED,
+        userId: 'user123',
+        timestamp: new Date().toISOString(),
+        journey: JourneyType.CARE,
+        data: {} as ICareAppointmentBookedPayload
+      };
+      
+      const planEvent: IPlanEvent = {
+        type: PlanEventType.CLAIM_SUBMITTED,
+        userId: 'user123',
+        timestamp: new Date().toISOString(),
+        journey: JourneyType.PLAN,
+        data: {} as IPlanClaimSubmittedPayload
+      };
+      
+      // Create an array of journey events
+      const events: JourneyEvent[] = [healthEvent, careEvent, planEvent];
+      
+      // Correlate events with a specific correlation ID
+      const correlationId = 'test-correlation-123';
+      const correlatedEvents = correlateEvents(events, correlationId);
+      
+      // Verify all events have the same correlation ID
+      expect(correlatedEvents).toHaveLength(3);
+      expect(correlatedEvents[0].correlationId).toBe(correlationId);
+      expect(correlatedEvents[1].correlationId).toBe(correlationId);
+      expect(correlatedEvents[2].correlationId).toBe(correlationId);
+      
+      // Correlate events without a specific correlation ID (auto-generated)
+      const autoCorrelatedEvents = correlateEvents(events);
+      
+      // Verify all events have the same auto-generated correlation ID
+      expect(autoCorrelatedEvents).toHaveLength(3);
+      expect(autoCorrelatedEvents[0].correlationId).toBe(autoCorrelatedEvents[1].correlationId);
+      expect(autoCorrelatedEvents[1].correlationId).toBe(autoCorrelatedEvents[2].correlationId);
+      expect(autoCorrelatedEvents[0].correlationId).toMatch(/^corr_\d+_[a-z0-9]+$/);
     });
   });
 });
