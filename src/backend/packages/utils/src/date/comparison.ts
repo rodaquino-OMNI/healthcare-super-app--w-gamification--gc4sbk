@@ -1,7 +1,7 @@
 /**
- * Date comparison utilities for the AUSTA SuperApp
+ * Date comparison utilities for journey services
  * 
- * @module @austa/utils/date/comparison
+ * @module date/comparison
  */
 
 import {
@@ -9,30 +9,22 @@ import {
   isBefore,
   isAfter,
   isEqual,
+  isWithinInterval,
   isValid
 } from 'date-fns';
 
 /**
- * DateInput type represents all possible date input formats
- * that can be used with comparison functions
+ * Date-like type that can be a Date object, string, or number
  */
-export type DateInput = Date | string | number;
+export type DateLike = Date | string | number;
 
 /**
- * DateRange type represents a range between two dates
- */
-export interface DateRange {
-  startDate: DateInput;
-  endDate: DateInput;
-}
-
-/**
- * Validates if the provided value is a valid date
+ * Validates if a date is valid
  * 
  * @param date - The date to validate
  * @returns True if the date is valid, false otherwise
  */
-const isValidDate = (date: unknown): boolean => {
+export const isValidDate = (date: unknown): boolean => {
   if (date === null || date === undefined) {
     return false;
   }
@@ -50,12 +42,12 @@ const isValidDate = (date: unknown): boolean => {
 };
 
 /**
- * Normalizes a date input to a Date object
+ * Normalizes a date-like value to a Date object
  * 
- * @param date - The date input to normalize
- * @returns A Date object or null if the input is invalid
+ * @param date - The date to normalize
+ * @returns The normalized Date object or null if invalid
  */
-const normalizeDate = (date: DateInput): Date | null => {
+export const normalizeDate = (date: DateLike): Date | null => {
   if (!isValidDate(date)) {
     return null;
   }
@@ -71,15 +63,10 @@ const normalizeDate = (date: DateInput): Date | null => {
  * @param dateA - The first date
  * @param dateB - The second date
  * @returns True if dates are the same day, false otherwise
- * @example
- * ```typescript
- * isSameDay(new Date(2023, 0, 1), new Date(2023, 0, 1, 23, 59)); // true
- * isSameDay('2023-01-01', '2023-01-02'); // false
- * ```
  */
 export const isSameDay = (
-  dateA: DateInput,
-  dateB: DateInput
+  dateA: DateLike,
+  dateB: DateLike
 ): boolean => {
   const normalizedDateA = normalizeDate(dateA);
   const normalizedDateB = normalizeDate(dateB);
@@ -98,19 +85,11 @@ export const isSameDay = (
  * @param startDate - The start date of the range
  * @param endDate - The end date of the range
  * @returns True if the date is within the range, false otherwise
- * @example
- * ```typescript
- * isDateInRange(
- *   new Date(2023, 0, 15),
- *   new Date(2023, 0, 1),
- *   new Date(2023, 0, 31)
- * ); // true
- * ```
  */
 export const isDateInRange = (
-  date: DateInput,
-  startDate: DateInput,
-  endDate: DateInput
+  date: DateLike,
+  startDate: DateLike,
+  endDate: DateLike
 ): boolean => {
   const normalizedDate = normalizeDate(date);
   const normalizedStartDate = normalizeDate(startDate);
@@ -120,79 +99,72 @@ export const isDateInRange = (
     return false;
   }
   
-  const isAfterOrEqualStart = isAfter(normalizedDate, normalizedStartDate) || 
-                              isEqual(normalizedDate, normalizedStartDate);
-  const isBeforeOrEqualEnd = isBefore(normalizedDate, normalizedEndDate) || 
-                             isEqual(normalizedDate, normalizedEndDate);
-  
-  return isAfterOrEqualStart && isBeforeOrEqualEnd;
+  try {
+    return isWithinInterval(normalizedDate, {
+      start: normalizedStartDate,
+      end: normalizedEndDate
+    });
+  } catch (error) {
+    // Handle the case where start date is after end date
+    if (error instanceof RangeError) {
+      return false;
+    }
+    throw error;
+  }
 };
 
 /**
  * Checks if a date is before another date
  * 
- * @param dateA - The date to check
- * @param dateB - The date to compare against
- * @returns True if dateA is before dateB, false otherwise
- * @example
- * ```typescript
- * isDateBefore(new Date(2023, 0, 1), new Date(2023, 0, 2)); // true
- * ```
+ * @param date - The date to check
+ * @param dateToCompare - The date to compare against
+ * @returns True if the date is before the comparison date, false otherwise
  */
-export const isDateBefore = (
-  dateA: DateInput,
-  dateB: DateInput
+export const isBeforeDate = (
+  date: DateLike,
+  dateToCompare: DateLike
 ): boolean => {
-  const normalizedDateA = normalizeDate(dateA);
-  const normalizedDateB = normalizeDate(dateB);
+  const normalizedDate = normalizeDate(date);
+  const normalizedDateToCompare = normalizeDate(dateToCompare);
   
-  if (!normalizedDateA || !normalizedDateB) {
+  if (!normalizedDate || !normalizedDateToCompare) {
     return false;
   }
   
-  return isBefore(normalizedDateA, normalizedDateB);
+  return isBefore(normalizedDate, normalizedDateToCompare);
 };
 
 /**
  * Checks if a date is after another date
  * 
- * @param dateA - The date to check
- * @param dateB - The date to compare against
- * @returns True if dateA is after dateB, false otherwise
- * @example
- * ```typescript
- * isDateAfter(new Date(2023, 0, 2), new Date(2023, 0, 1)); // true
- * ```
+ * @param date - The date to check
+ * @param dateToCompare - The date to compare against
+ * @returns True if the date is after the comparison date, false otherwise
  */
-export const isDateAfter = (
-  dateA: DateInput,
-  dateB: DateInput
+export const isAfterDate = (
+  date: DateLike,
+  dateToCompare: DateLike
 ): boolean => {
-  const normalizedDateA = normalizeDate(dateA);
-  const normalizedDateB = normalizeDate(dateB);
+  const normalizedDate = normalizeDate(date);
+  const normalizedDateToCompare = normalizeDate(dateToCompare);
   
-  if (!normalizedDateA || !normalizedDateB) {
+  if (!normalizedDate || !normalizedDateToCompare) {
     return false;
   }
   
-  return isAfter(normalizedDateA, normalizedDateB);
+  return isAfter(normalizedDate, normalizedDateToCompare);
 };
 
 /**
- * Checks if a date is equal to another date (exact timestamp match)
+ * Checks if a date is the same as another date (exact match including time)
  * 
  * @param dateA - The first date
  * @param dateB - The second date
- * @returns True if dates are exactly equal, false otherwise
- * @example
- * ```typescript
- * isDateEqual(new Date(2023, 0, 1, 12, 0), new Date(2023, 0, 1, 12, 0)); // true
- * isDateEqual(new Date(2023, 0, 1, 12, 0), new Date(2023, 0, 1, 12, 1)); // false
- * ```
+ * @returns True if dates are exactly the same, false otherwise
  */
-export const isDateEqual = (
-  dateA: DateInput,
-  dateB: DateInput
+export const isSameDate = (
+  dateA: DateLike,
+  dateB: DateLike
 ): boolean => {
   const normalizedDateA = normalizeDate(dateA);
   const normalizedDateB = normalizeDate(dateB);
@@ -209,12 +181,8 @@ export const isDateEqual = (
  * 
  * @param date - The date to check
  * @returns True if the date is today, false otherwise
- * @example
- * ```typescript
- * isToday(new Date()); // true
- * ```
  */
-export const isToday = (date: DateInput): boolean => {
+export const isToday = (date: DateLike): boolean => {
   const normalizedDate = normalizeDate(date);
   
   if (!normalizedDate) {
@@ -225,22 +193,33 @@ export const isToday = (date: DateInput): boolean => {
 };
 
 /**
- * Checks if a date is within a DateRange object
+ * Checks if a date is in the past
  * 
  * @param date - The date to check
- * @param range - The date range object with startDate and endDate properties
- * @returns True if the date is within the range, false otherwise
- * @example
- * ```typescript
- * isDateInDateRange(
- *   new Date(2023, 0, 15),
- *   { startDate: new Date(2023, 0, 1), endDate: new Date(2023, 0, 31) }
- * ); // true
- * ```
+ * @returns True if the date is in the past, false otherwise
  */
-export const isDateInDateRange = (
-  date: DateInput,
-  range: DateRange
-): boolean => {
-  return isDateInRange(date, range.startDate, range.endDate);
+export const isPast = (date: DateLike): boolean => {
+  const normalizedDate = normalizeDate(date);
+  
+  if (!normalizedDate) {
+    return false;
+  }
+  
+  return isBefore(normalizedDate, new Date());
+};
+
+/**
+ * Checks if a date is in the future
+ * 
+ * @param date - The date to check
+ * @returns True if the date is in the future, false otherwise
+ */
+export const isFuture = (date: DateLike): boolean => {
+  const normalizedDate = normalizeDate(date);
+  
+  if (!normalizedDate) {
+    return false;
+  }
+  
+  return isAfter(normalizedDate, new Date());
 };
