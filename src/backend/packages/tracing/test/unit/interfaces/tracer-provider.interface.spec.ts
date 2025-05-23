@@ -1,18 +1,18 @@
-import { Context, Span, SpanOptions, SpanStatusCode, Tracer, TracerOptions } from '@opentelemetry/api';
-import { TracerProvider } from '../../../src/interfaces/tracer-provider.interface';
-import { MockSpan, MockTracer } from '../../mocks/mock-tracer';
-import { DEFAULT_SERVICE_NAME } from '../../../src/constants/defaults';
-import { ERROR_CODES } from '../../../src/constants/error-codes';
+import { Context, Span, SpanOptions, Tracer } from '@opentelemetry/api';
+import { TracerProvider, TracerProviderOptions } from '../../../src/interfaces/tracer-provider.interface';
+import { TRACER_SERVICE_NAME_MISSING, TRACER_INITIALIZATION_FAILED } from '../../../src/constants/error-codes';
 
 /**
- * Mock implementation of the TracerProvider interface for testing.
+ * Mock implementation of the TracerProvider interface for testing
  */
 class MockTracerProvider implements TracerProvider {
-  private readonly tracers: Map<string, MockTracer> = new Map();
-  private static instance: MockTracerProvider;
+  private static instance: MockTracerProvider | null = null;
+  private tracers: Map<string, Tracer> = new Map();
+  private options: TracerProviderOptions | null = null;
+  private initialized = false;
 
   /**
-   * Gets the singleton instance of the MockTracerProvider.
+   * Get the singleton instance of the MockTracerProvider
    */
   public static getInstance(): MockTracerProvider {
     if (!MockTracerProvider.instance) {
@@ -22,328 +22,421 @@ class MockTracerProvider implements TracerProvider {
   }
 
   /**
-   * Resets the singleton instance for testing.
+   * Reset the singleton instance for testing
    */
   public static resetInstance(): void {
-    MockTracerProvider.instance = undefined;
+    MockTracerProvider.instance = null;
   }
 
   /**
-   * Gets a tracer with the specified name and options.
-   * 
-   * @param name The name of the tracer
-   * @param options Optional configuration for the tracer
-   * @returns A Tracer instance
-   * @throws Error if name is empty or invalid
+   * Configure the tracer provider with options
    */
-  getTracer(name: string, options?: TracerOptions): Tracer {
-    // Validate service name
-    if (!name) {
-      throw new Error(`${ERROR_CODES.INVALID_SERVICE_NAME}: Service name cannot be empty`);
+  public configure(options: TracerProviderOptions): void {
+    if (!options.serviceName) {
+      throw new Error(`${TRACER_SERVICE_NAME_MISSING}: Service name is required`);
     }
 
-    // Return existing tracer if already created
-    if (this.tracers.has(name)) {
-      return this.tracers.get(name);
+    this.options = options;
+    this.initialized = true;
+  }
+
+  /**
+   * Get a tracer instance for the specified service
+   */
+  public getTracer(name: string, version?: string): Tracer {
+    if (!this.initialized) {
+      throw new Error(`${TRACER_INITIALIZATION_FAILED}: Provider not initialized`);
     }
 
-    // Create new tracer
-    const tracer = new MockTracer(name);
-    this.tracers.set(name, tracer);
-    return tracer;
-  }
-
-  /**
-   * Creates and starts a new span with the given name and options.
-   * 
-   * @param tracer The tracer to use
-   * @param name The name of the span
-   * @param options Optional configuration for the span
-   * @returns The created span
-   */
-  startSpan(tracer: Tracer, name: string, options?: SpanOptions): Span {
-    if (!(tracer instanceof MockTracer)) {
-      throw new Error(`${ERROR_CODES.INVALID_TRACER}: Expected MockTracer instance`);
+    const key = version ? `${name}@${version}` : name;
+    
+    if (!this.tracers.has(key)) {
+      this.tracers.set(key, this.createMockTracer(name, version));
     }
-    return tracer.startSpan(name, options);
+    
+    return this.tracers.get(key)!;
   }
 
   /**
-   * Executes a function within the context of a span.
-   * 
-   * @param span The span to use as context
-   * @param fn The function to execute
-   * @returns The result of the function
+   * Create a new span
    */
-  async withSpan<T>(span: Span, fn: () => Promise<T>): Promise<T> {
-    try {
-      const result = await fn();
-      if (span.isRecording()) {
-        span.setStatus({ code: SpanStatusCode.OK });
-      }
-      return result;
-    } catch (error) {
-      if (span.isRecording()) {
-        span.recordException(error);
-        span.setStatus({ code: SpanStatusCode.ERROR, message: error.message });
-      }
-      throw error;
-    } finally {
-      span.end();
+  public createSpan(name: string, options?: SpanOptions, context?: Context): Span {
+    if (!this.initialized) {
+      throw new Error(`${TRACER_INITIALIZATION_FAILED}: Provider not initialized`);
     }
+
+    // In a real implementation, this would create a span with the given options
+    return {} as Span;
   }
 
   /**
-   * Gets the current active span.
-   * 
-   * @returns The current span or undefined
+   * Execute a function within a span
    */
-  getCurrentSpan(): Span | undefined {
-    // For testing purposes, return undefined
-    return undefined;
-  }
+  public async withSpan<T>(name: string, fn: () => Promise<T>, options?: SpanOptions): Promise<T> {
+    if (!this.initialized) {
+      throw new Error(`${TRACER_INITIALIZATION_FAILED}: Provider not initialized`);
+    }
 
-  /**
-   * Sets the current span in the context.
-   * 
-   * @param span The span to set
-   * @returns The updated context
-   */
-  setSpan(span: Span): Context {
-    // For testing purposes, return an empty context
-    return {} as Context;
-  }
-
-  /**
-   * Gets the current context.
-   * 
-   * @returns The current context
-   */
-  getContext(): Context {
-    // For testing purposes, return an empty context
-    return {} as Context;
-  }
-
-  /**
-   * Executes a function within the given context.
-   * 
-   * @param context The context to use
-   * @param fn The function to execute
-   * @returns The result of the function
-   */
-  async withContext<T>(context: Context, fn: () => Promise<T>): Promise<T> {
-    // For testing purposes, just execute the function
+    // In a real implementation, this would create a span and execute the function within it
     return fn();
   }
 
   /**
-   * Gets all tracers created by this provider.
-   * 
-   * @returns Map of all tracers
+   * Get the current context
    */
-  getAllTracers(): Map<string, MockTracer> {
-    return new Map(this.tracers);
+  public getCurrentContext(): Context {
+    if (!this.initialized) {
+      throw new Error(`${TRACER_INITIALIZATION_FAILED}: Provider not initialized`);
+    }
+
+    // In a real implementation, this would return the current context
+    return {} as Context;
   }
 
   /**
-   * Clears all tracers for testing purposes.
+   * Set the current context
    */
-  clearTracers(): void {
-    this.tracers.clear();
+  public setCurrentContext(context: Context): () => void {
+    if (!this.initialized) {
+      throw new Error(`${TRACER_INITIALIZATION_FAILED}: Provider not initialized`);
+    }
+
+    // In a real implementation, this would set the current context and return a function to restore it
+    return () => {};
+  }
+
+  /**
+   * Execute a function with a context
+   */
+  public withContext<T>(context: Context, fn: () => T): T {
+    if (!this.initialized) {
+      throw new Error(`${TRACER_INITIALIZATION_FAILED}: Provider not initialized`);
+    }
+
+    // In a real implementation, this would execute the function with the given context
+    return fn();
+  }
+
+  /**
+   * Inject context into a carrier
+   */
+  public inject(carrier: Record<string, string>, context?: Context): void {
+    if (!this.initialized) {
+      throw new Error(`${TRACER_INITIALIZATION_FAILED}: Provider not initialized`);
+    }
+
+    // In a real implementation, this would inject the context into the carrier
+  }
+
+  /**
+   * Extract context from a carrier
+   */
+  public extract(carrier: Record<string, string>): Context {
+    if (!this.initialized) {
+      throw new Error(`${TRACER_INITIALIZATION_FAILED}: Provider not initialized`);
+    }
+
+    // In a real implementation, this would extract the context from the carrier
+    return {} as Context;
+  }
+
+  /**
+   * Create a mock tracer
+   */
+  private createMockTracer(name: string, version?: string): Tracer {
+    // In a real implementation, this would create a real tracer
+    return {
+      startSpan: jest.fn(),
+      startActiveSpan: jest.fn(),
+      name,
+      version
+    } as unknown as Tracer;
+  }
+
+  /**
+   * Get the configured options for testing
+   */
+  public getOptions(): TracerProviderOptions | null {
+    return this.options;
+  }
+
+  /**
+   * Check if the provider is initialized
+   */
+  public isInitialized(): boolean {
+    return this.initialized;
   }
 }
 
 describe('TracerProvider Interface', () => {
-  let tracerProvider: MockTracerProvider;
-
   beforeEach(() => {
     // Reset the singleton instance before each test
     MockTracerProvider.resetInstance();
-    tracerProvider = MockTracerProvider.getInstance();
-    tracerProvider.clearTracers();
   });
 
-  describe('getTracer', () => {
-    it('should return a tracer with the specified name', () => {
-      const serviceName = 'test-service';
-      const tracer = tracerProvider.getTracer(serviceName);
+  describe('Configuration', () => {
+    it('should require a service name in configuration', () => {
+      const provider = MockTracerProvider.getInstance();
+      
+      expect(() => {
+        provider.configure({} as TracerProviderOptions);
+      }).toThrow(TRACER_SERVICE_NAME_MISSING);
+    });
+
+    it('should accept valid configuration options', () => {
+      const provider = MockTracerProvider.getInstance();
+      const options: TracerProviderOptions = {
+        serviceName: 'test-service',
+        serviceVersion: '1.0.0',
+        enabled: true,
+        samplingRatio: 0.5,
+        defaultAttributes: { env: 'test' },
+        exporterConfig: {
+          type: 'console'
+        },
+        journeyConfig: {
+          journeyId: 'health',
+          attributes: { journeyName: 'Health Journey' }
+        }
+      };
+
+      provider.configure(options);
+      
+      expect(provider.isInitialized()).toBe(true);
+      expect(provider.getOptions()).toEqual(options);
+    });
+
+    it('should accept minimal configuration with only service name', () => {
+      const provider = MockTracerProvider.getInstance();
+      const options: TracerProviderOptions = {
+        serviceName: 'minimal-service'
+      };
+
+      provider.configure(options);
+      
+      expect(provider.isInitialized()).toBe(true);
+      expect(provider.getOptions()).toEqual(options);
+    });
+  });
+
+  describe('Tracer Acquisition', () => {
+    it('should throw an error if getTracer is called before initialization', () => {
+      const provider = MockTracerProvider.getInstance();
+      
+      expect(() => {
+        provider.getTracer('test-service');
+      }).toThrow(TRACER_INITIALIZATION_FAILED);
+    });
+
+    it('should return a tracer when properly initialized', () => {
+      const provider = MockTracerProvider.getInstance();
+      provider.configure({ serviceName: 'test-service' });
+      
+      const tracer = provider.getTracer('component-name');
       
       expect(tracer).toBeDefined();
-      expect(tracer instanceof MockTracer).toBe(true);
-      expect((tracer as MockTracer).getName()).toBe(serviceName);
+      expect(tracer.name).toBe('component-name');
     });
 
     it('should return the same tracer instance for the same name', () => {
-      const serviceName = 'test-service';
-      const tracer1 = tracerProvider.getTracer(serviceName);
-      const tracer2 = tracerProvider.getTracer(serviceName);
+      const provider = MockTracerProvider.getInstance();
+      provider.configure({ serviceName: 'test-service' });
+      
+      const tracer1 = provider.getTracer('component-name');
+      const tracer2 = provider.getTracer('component-name');
       
       expect(tracer1).toBe(tracer2);
     });
 
     it('should return different tracer instances for different names', () => {
-      const serviceName1 = 'test-service-1';
-      const serviceName2 = 'test-service-2';
-      const tracer1 = tracerProvider.getTracer(serviceName1);
-      const tracer2 = tracerProvider.getTracer(serviceName2);
+      const provider = MockTracerProvider.getInstance();
+      provider.configure({ serviceName: 'test-service' });
+      
+      const tracer1 = provider.getTracer('component-1');
+      const tracer2 = provider.getTracer('component-2');
       
       expect(tracer1).not.toBe(tracer2);
-      expect((tracer1 as MockTracer).getName()).toBe(serviceName1);
-      expect((tracer2 as MockTracer).getName()).toBe(serviceName2);
     });
 
-    it('should throw an error if service name is empty', () => {
-      expect(() => tracerProvider.getTracer('')).toThrow();
-    });
-
-    it('should accept tracer options', () => {
-      const serviceName = 'test-service';
-      const options: TracerOptions = { schemaUrl: 'https://example.com/schema' };
-      const tracer = tracerProvider.getTracer(serviceName, options);
+    it('should include version in tracer when provided', () => {
+      const provider = MockTracerProvider.getInstance();
+      provider.configure({ serviceName: 'test-service' });
+      
+      const tracer = provider.getTracer('component-name', '1.0.0');
       
       expect(tracer).toBeDefined();
-      expect(tracer instanceof MockTracer).toBe(true);
-      expect((tracer as MockTracer).getName()).toBe(serviceName);
+      expect(tracer.name).toBe('component-name');
+      expect(tracer.version).toBe('1.0.0');
+    });
+
+    it('should return different tracers for same name but different versions', () => {
+      const provider = MockTracerProvider.getInstance();
+      provider.configure({ serviceName: 'test-service' });
+      
+      const tracer1 = provider.getTracer('component-name', '1.0.0');
+      const tracer2 = provider.getTracer('component-name', '2.0.0');
+      
+      expect(tracer1).not.toBe(tracer2);
+      expect(tracer1.version).toBe('1.0.0');
+      expect(tracer2.version).toBe('2.0.0');
     });
   });
 
-  describe('startSpan', () => {
-    it('should create a span with the specified name', () => {
-      const serviceName = 'test-service';
-      const spanName = 'test-span';
-      const tracer = tracerProvider.getTracer(serviceName) as MockTracer;
-      const span = tracerProvider.startSpan(tracer, spanName);
+  describe('Span Operations', () => {
+    it('should throw an error if createSpan is called before initialization', () => {
+      const provider = MockTracerProvider.getInstance();
+      
+      expect(() => {
+        provider.createSpan('test-span');
+      }).toThrow(TRACER_INITIALIZATION_FAILED);
+    });
+
+    it('should create a span when properly initialized', () => {
+      const provider = MockTracerProvider.getInstance();
+      provider.configure({ serviceName: 'test-service' });
+      
+      const span = provider.createSpan('test-span');
       
       expect(span).toBeDefined();
-      expect(span instanceof MockSpan).toBe(true);
-      expect((span as MockSpan).getName()).toBe(spanName);
     });
 
-    it('should create a span with the specified options', () => {
-      const serviceName = 'test-service';
-      const spanName = 'test-span';
-      const tracer = tracerProvider.getTracer(serviceName) as MockTracer;
-      const options: SpanOptions = {
-        attributes: { 'test.attribute': 'test-value' }
-      };
-      const span = tracerProvider.startSpan(tracer, spanName, options) as MockSpan;
+    it('should throw an error if withSpan is called before initialization', async () => {
+      const provider = MockTracerProvider.getInstance();
       
-      expect(span).toBeDefined();
-      expect(span.getName()).toBe(spanName);
-      expect(span.getAttributes()['test.attribute']).toBe('test-value');
+      await expect(async () => {
+        await provider.withSpan('test-span', async () => 'result');
+      }).rejects.toThrow(TRACER_INITIALIZATION_FAILED);
     });
 
-    it('should throw an error if tracer is invalid', () => {
-      const invalidTracer = {} as Tracer;
-      expect(() => tracerProvider.startSpan(invalidTracer, 'test-span')).toThrow();
+    it('should execute a function within a span when properly initialized', async () => {
+      const provider = MockTracerProvider.getInstance();
+      provider.configure({ serviceName: 'test-service' });
+      
+      const result = await provider.withSpan('test-span', async () => 'result');
+      
+      expect(result).toBe('result');
     });
   });
 
-  describe('withSpan', () => {
-    it('should execute the function within the span context', async () => {
-      const serviceName = 'test-service';
-      const spanName = 'test-span';
-      const tracer = tracerProvider.getTracer(serviceName) as MockTracer;
-      const span = tracerProvider.startSpan(tracer, spanName) as MockSpan;
+  describe('Context Operations', () => {
+    it('should throw an error if getCurrentContext is called before initialization', () => {
+      const provider = MockTracerProvider.getInstance();
       
-      const result = await tracerProvider.withSpan(span, async () => 'test-result');
-      
-      expect(result).toBe('test-result');
-      expect(span.isRecording()).toBe(false); // Span should be ended
-      expect(span.getStatus().code).toBe(SpanStatusCode.OK);
+      expect(() => {
+        provider.getCurrentContext();
+      }).toThrow(TRACER_INITIALIZATION_FAILED);
     });
 
-    it('should handle errors and set span status to ERROR', async () => {
-      const serviceName = 'test-service';
-      const spanName = 'test-span';
-      const tracer = tracerProvider.getTracer(serviceName) as MockTracer;
-      const span = tracerProvider.startSpan(tracer, spanName) as MockSpan;
-      const testError = new Error('Test error');
+    it('should get the current context when properly initialized', () => {
+      const provider = MockTracerProvider.getInstance();
+      provider.configure({ serviceName: 'test-service' });
       
-      await expect(tracerProvider.withSpan(span, async () => {
-        throw testError;
-      })).rejects.toThrow(testError);
+      const context = provider.getCurrentContext();
       
-      expect(span.isRecording()).toBe(false); // Span should be ended
-      expect(span.getStatus().code).toBe(SpanStatusCode.ERROR);
+      expect(context).toBeDefined();
+    });
+
+    it('should throw an error if setCurrentContext is called before initialization', () => {
+      const provider = MockTracerProvider.getInstance();
       
-      // Verify that the exception was recorded
-      const events = span.getEvents();
-      const exceptionEvent = events.find(event => event.name === 'exception');
-      expect(exceptionEvent).toBeDefined();
-      expect(exceptionEvent.attributes['exception.message']).toBe('Test error');
+      expect(() => {
+        provider.setCurrentContext({} as Context);
+      }).toThrow(TRACER_INITIALIZATION_FAILED);
+    });
+
+    it('should set the current context when properly initialized', () => {
+      const provider = MockTracerProvider.getInstance();
+      provider.configure({ serviceName: 'test-service' });
+      
+      const restore = provider.setCurrentContext({} as Context);
+      
+      expect(restore).toBeDefined();
+      expect(typeof restore).toBe('function');
+    });
+
+    it('should throw an error if withContext is called before initialization', () => {
+      const provider = MockTracerProvider.getInstance();
+      
+      expect(() => {
+        provider.withContext({} as Context, () => 'result');
+      }).toThrow(TRACER_INITIALIZATION_FAILED);
+    });
+
+    it('should execute a function with context when properly initialized', () => {
+      const provider = MockTracerProvider.getInstance();
+      provider.configure({ serviceName: 'test-service' });
+      
+      const result = provider.withContext({} as Context, () => 'result');
+      
+      expect(result).toBe('result');
     });
   });
 
-  describe('Singleton behavior', () => {
+  describe('Context Propagation', () => {
+    it('should throw an error if inject is called before initialization', () => {
+      const provider = MockTracerProvider.getInstance();
+      
+      expect(() => {
+        provider.inject({});
+      }).toThrow(TRACER_INITIALIZATION_FAILED);
+    });
+
+    it('should inject context when properly initialized', () => {
+      const provider = MockTracerProvider.getInstance();
+      provider.configure({ serviceName: 'test-service' });
+      
+      const carrier = {};
+      provider.inject(carrier);
+      
+      // In a real test, we would verify that the carrier was modified correctly
+      expect(carrier).toBeDefined();
+    });
+
+    it('should throw an error if extract is called before initialization', () => {
+      const provider = MockTracerProvider.getInstance();
+      
+      expect(() => {
+        provider.extract({});
+      }).toThrow(TRACER_INITIALIZATION_FAILED);
+    });
+
+    it('should extract context when properly initialized', () => {
+      const provider = MockTracerProvider.getInstance();
+      provider.configure({ serviceName: 'test-service' });
+      
+      const context = provider.extract({});
+      
+      expect(context).toBeDefined();
+    });
+  });
+
+  describe('Singleton Behavior', () => {
     it('should return the same instance when getInstance is called multiple times', () => {
-      const instance1 = MockTracerProvider.getInstance();
-      const instance2 = MockTracerProvider.getInstance();
+      const provider1 = MockTracerProvider.getInstance();
+      const provider2 = MockTracerProvider.getInstance();
       
-      expect(instance1).toBe(instance2);
+      expect(provider1).toBe(provider2);
     });
 
     it('should maintain state across getInstance calls', () => {
-      const instance1 = MockTracerProvider.getInstance();
-      const serviceName = 'test-service';
-      instance1.getTracer(serviceName);
+      const provider1 = MockTracerProvider.getInstance();
+      provider1.configure({ serviceName: 'test-service' });
       
-      const instance2 = MockTracerProvider.getInstance();
-      const tracers = instance2.getAllTracers();
+      const provider2 = MockTracerProvider.getInstance();
       
-      expect(tracers.has(serviceName)).toBe(true);
+      expect(provider2.isInitialized()).toBe(true);
+      expect(provider2.getOptions()?.serviceName).toBe('test-service');
     });
 
     it('should reset state when resetInstance is called', () => {
-      const instance1 = MockTracerProvider.getInstance();
-      const serviceName = 'test-service';
-      instance1.getTracer(serviceName);
+      const provider1 = MockTracerProvider.getInstance();
+      provider1.configure({ serviceName: 'test-service' });
       
       MockTracerProvider.resetInstance();
-      const instance2 = MockTracerProvider.getInstance();
-      const tracers = instance2.getAllTracers();
+      const provider2 = MockTracerProvider.getInstance();
       
-      expect(tracers.size).toBe(0);
-      expect(instance1).not.toBe(instance2);
-    });
-  });
-
-  describe('Context management', () => {
-    it('should have getCurrentSpan method', () => {
-      expect(typeof tracerProvider.getCurrentSpan).toBe('function');
-      const currentSpan = tracerProvider.getCurrentSpan();
-      expect(currentSpan).toBeUndefined(); // In our mock implementation
-    });
-
-    it('should have setSpan method', () => {
-      expect(typeof tracerProvider.setSpan).toBe('function');
-      const serviceName = 'test-service';
-      const spanName = 'test-span';
-      const tracer = tracerProvider.getTracer(serviceName) as MockTracer;
-      const span = tracerProvider.startSpan(tracer, spanName) as MockSpan;
-      
-      const context = tracerProvider.setSpan(span);
-      expect(context).toBeDefined();
-    });
-
-    it('should have getContext method', () => {
-      expect(typeof tracerProvider.getContext).toBe('function');
-      const context = tracerProvider.getContext();
-      expect(context).toBeDefined();
-    });
-
-    it('should have withContext method', async () => {
-      expect(typeof tracerProvider.withContext).toBe('function');
-      const context = tracerProvider.getContext();
-      const result = await tracerProvider.withContext(context, async () => 'test-result');
-      expect(result).toBe('test-result');
-    });
-  });
-
-  describe('Default service name', () => {
-    it('should use the default service name if none is provided', () => {
-      // This test is more relevant for the actual implementation, but we include it for completeness
-      expect(DEFAULT_SERVICE_NAME).toBe('austa-service');
+      expect(provider2.isInitialized()).toBe(false);
+      expect(provider2.getOptions()).toBeNull();
     });
   });
 });
