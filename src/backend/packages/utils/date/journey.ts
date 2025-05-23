@@ -1,17 +1,16 @@
 /**
  * Journey-specific date utilities
  * 
- * This module provides date formatting utilities specific to each journey context
- * (Health, Care, Plan) in the AUSTA SuperApp. It ensures consistent date representation
- * across all journey-specific components and services.
+ * This module provides date formatting functions specifically tailored for the different
+ * user journeys in the AUSTA SuperApp (Health, Care, Plan).
  */
 
-import { formatJourneyDate as formatJourneyDateImpl } from '../../src/date';
+import { formatJourneyDate as formatJourneyDateImpl } from '../../../shared/src/utils/date.util';
 
 /**
- * Journey type representing the three main journeys in the AUSTA SuperApp
+ * Journey identifiers for the AUSTA SuperApp
  */
-export type JourneyType = 'health' | 'care' | 'plan';
+export type JourneyId = 'health' | 'care' | 'plan' | string;
 
 /**
  * Formats a date according to journey-specific requirements
@@ -22,25 +21,21 @@ export type JourneyType = 'health' | 'care' | 'plan';
  * @returns Journey-specific formatted date string
  * 
  * @example
- * // Health journey - returns "15/03/2023 14:30"
- * formatJourneyDate(new Date(2023, 2, 15, 14, 30), 'health');
+ * // Health journey - returns date with time (e.g., "01/05/2023 14:30")
+ * formatJourneyDate(new Date(), 'health');
  * 
  * @example
- * // Care journey - returns "qua, 15 mar 2023"
- * formatJourneyDate(new Date(2023, 2, 15), 'care');
+ * // Care journey - returns appointment-friendly format (e.g., "Seg, 01 Mai 2023")
+ * formatJourneyDate(new Date(), 'care');
  * 
  * @example
- * // Plan journey - returns "15/03/2023"
- * formatJourneyDate(new Date(2023, 2, 15), 'plan');
+ * // Plan journey - returns formal date format (e.g., "01/05/2023")
+ * formatJourneyDate(new Date(), 'plan');
  */
 export const formatJourneyDate = (
   date: Date | string | number,
-  journeyId: JourneyType | string,
+  journeyId: JourneyId,
   locale: string = 'pt-BR'
 ): string => {
   return formatJourneyDateImpl(date, journeyId, locale);
 };
-
-/**
- * Re-export additional journey-specific date utilities here as needed
- */
