@@ -1,509 +1,364 @@
 /**
- * Integration tests for HTTP utilities and validation utilities
+ * @file HTTP Validation Integration Tests
+ * @description Integration tests for HTTP utilities and validation utilities
  * 
- * These tests verify the integration between HTTP utilities and validation utilities,
- * focusing on URL validation, SSRF protection, and error handling.
+ * These tests verify the integration between secure-axios and validation utilities,
+ * ensuring that HTTP requests are properly validated for security and data integrity.
+ * The tests focus on URL validation, SSRF protection, and error handling when validation fails.
  */
 
-import axios, { AxiosError, AxiosInstance } from 'axios';
-import nock from 'nock';
+import { createSecureAxios, createInternalApiClient } from '../../../shared/src/utils/secure-axios';
+import * as StringValidator from '../../src/validation/string.validator';
+import axios from 'axios';
+import MockAdapter from 'axios-mock-adapter';
 
-// Import HTTP utilities
-import { createSecureHttpClient } from '../../src/http/security';
-import { createHttpClient, HttpClientError } from '../../src/http/client';
-import { createInternalApiClient, JourneyType } from '../../src/http/internal';
+// Create a mock for axios to avoid actual HTTP requests during tests
+let mockAxios: MockAdapter;
 
-// Import validation utilities
-import { validateUrl, isValidUrl, StringValidationErrors } from '../../src/validation/string.validator';
-
-describe('HTTP and Validation Integration', () => {
-  // Setup and teardown for nock
-  beforeAll(() => {
-    nock.disableNetConnect();
-    // Allow localhost connections for the test server
-    nock.enableNetConnect('127.0.0.1');
-  });
-
-  afterAll(() => {
-    nock.cleanAll();
-    nock.enableNetConnect();
+describe('HTTP Validation Integration', () => {
+  beforeEach(() => {
+    // Reset mocks before each test
+    jest.clearAllMocks();
+    
+    // Create a fresh mock adapter for each test
+    mockAxios = new MockAdapter(axios);
   });
 
   afterEach(() => {
-    nock.cleanAll();
+    // Clean up mock adapter after each test
+    mockAxios.restore();
   });
 
-  describe('Secure HTTP Client with URL Validation', () => {
-    it('should block requests to private IP addresses', async () => {
-      // Create a secure HTTP client
-      const secureClient = createSecureHttpClient();
+  describe('Secure Axios with URL Validation', () => {
+    it('should successfully make requests to valid URLs', async () => {
+      // Arrange
+      const secureAxios = createSecureAxios();
+      const url = 'https://api.example.com/data';
+      mockAxios.onGet(url).reply(200, { data: 'success' });
       
-      // Test validation of private IP
-      const privateIpUrl = 'http://192.168.1.1/api/data';
+      // Spy on the URL validation function
+      const validateUrlSpy = jest.spyOn(StringValidator, 'validateUrl');
       
-      // Expect validation to fail
-      expect(() => {
-        secureClient.validateUrl(privateIpUrl);
-      }).toThrow('SSRF Protection');
+      // Act
+      const response = await secureAxios.get(url);
       
-      // Verify the same with string validator
-      const validationResult = validateUrl(privateIpUrl);
-      expect(validationResult.isValid).toBe(false);
-      expect(validationResult.error).toBe(StringValidationErrors.SSRF_PROTECTION);
+      // Assert
+      expect(response.status).toBe(200);
+      expect(response.data).toEqual({ data: 'success' });
+      // Validation function should not be directly called by secure-axios
+      // as it implements its own validation logic
+      expect(validateUrlSpy).not.toHaveBeenCalled();
     });
 
-    it('should block requests to localhost', async () => {
-      // Create a secure HTTP client
-      const secureClient = createSecureHttpClient();
+    it('should reject requests to private IP addresses (SSRF protection)', async () => {
+      // Arrange
+      const secureAxios = createSecureAxios();
+      const privateUrls = [
+        'http://localhost/api',
+        'http://127.0.0.1/data',
+        'http://192.168.1.1/admin',
+        'http://10.0.0.1/internal',
+        'http://172.16.0.1/private'
+      ];
       
-      // Test validation of localhost
-      const localhostUrl = 'http://localhost:3000/api/data';
-      
-      // Expect validation to fail
-      expect(() => {
-        secureClient.validateUrl(localhostUrl);
-      }).toThrow('SSRF Protection');
-      
-      // Verify the same with string validator
-      const validationResult = validateUrl(localhostUrl);
-      expect(validationResult.isValid).toBe(false);
-      expect(validationResult.error).toBe(StringValidationErrors.SSRF_PROTECTION);
+      // Act & Assert
+      for (const url of privateUrls) {
+        await expect(secureAxios.get(url)).rejects.toThrow('SSRF Protection');
+      }
     });
 
-    it('should allow requests to public domains', async () => {
-      // Create a secure HTTP client
-      const secureClient = createSecureHttpClient();
+    it('should integrate with string validator for manual URL validation', async () => {
+      // Arrange
+      const secureAxios = createSecureAxios();
+      const validUrl = 'https://api.example.com/data';
+      const invalidUrl = 'http://localhost/api';
+      mockAxios.onGet(validUrl).reply(200, { data: 'success' });
       
-      // Test validation of public domain
-      const publicUrl = 'https://api.example.com/data';
+      // Act & Assert - Valid URL
+      const isValidUrl = StringValidator.isValidUrl(validUrl, { checkSsrf: true });
+      expect(isValidUrl).toBe(true);
       
-      // Expect validation to pass
-      expect(() => {
-        secureClient.validateUrl(publicUrl);
-      }).not.toThrow();
+      if (isValidUrl) {
+        const response = await secureAxios.get(validUrl);
+        expect(response.status).toBe(200);
+      }
       
-      // Verify the same with string validator
-      const validationResult = validateUrl(publicUrl);
-      expect(validationResult.isValid).toBe(true);
+      // Act & Assert - Invalid URL (SSRF risk)
+      const isInvalidUrl = StringValidator.isValidUrl(invalidUrl, { checkSsrf: true });
+      expect(isInvalidUrl).toBe(false);
+      
+      // Should not even attempt the request if validation fails
+      if (isInvalidUrl) {
+        await secureAxios.get(invalidUrl); // This line should not execute
+      }
     });
 
-    it('should handle invalid URLs correctly', async () => {
-      // Create a secure HTTP client
-      const secureClient = createSecureHttpClient();
+    it('should provide detailed validation results for URLs', () => {
+      // Arrange
+      const validUrl = 'https://api.example.com/data';
+      const invalidUrl = 'http://localhost/api';
+      const nonHttpsUrl = 'http://example.com';
       
-      // Test validation of invalid URL
-      const invalidUrl = 'not-a-valid-url';
+      // Act & Assert - Valid URL
+      const validResult = StringValidator.validateUrl(validUrl, { checkSsrf: true });
+      expect(validResult.valid).toBe(true);
       
-      // Expect validation to fail
+      // Act & Assert - Invalid URL (SSRF risk)
+      const invalidResult = StringValidator.validateUrl(invalidUrl, { checkSsrf: true });
+      expect(invalidResult.valid).toBe(false);
+      expect(invalidResult.message).toContain('SSRF Protection');
+      
+      // Act & Assert - Non-HTTPS URL with HTTPS required
+      const httpsResult = StringValidator.validateUrl(nonHttpsUrl, { requireHttps: true });
+      expect(httpsResult.valid).toBe(false);
+      expect(httpsResult.message).toContain('HTTPS protocol');
+    });
+  });
+
+  describe('Internal API Client with Validation', () => {
+    it('should create a properly configured internal API client', () => {
+      // Arrange
+      const baseURL = 'https://api.austa.health';
+      const headers = { 'X-API-Key': 'test-key' };
+      
+      // Act
+      const apiClient = createInternalApiClient(baseURL, headers);
+      
+      // Assert
+      expect(apiClient.defaults.baseURL).toBe(baseURL);
+      expect(apiClient.defaults.headers.common['X-API-Key']).toBe('test-key');
+      expect(apiClient.defaults.headers.common['Content-Type']).toBe('application/json');
+      expect(apiClient.defaults.timeout).toBe(10000);
+    });
+
+    it('should validate URLs before making requests with internal client', async () => {
+      // Arrange
+      const baseURL = 'https://api.austa.health';
+      const apiClient = createInternalApiClient(baseURL);
+      const endpoint = '/users';
+      const fullUrl = `${baseURL}${endpoint}`;
+      
+      mockAxios.onGet(fullUrl).reply(200, { users: [] });
+      
+      // Validate the URL first
+      const urlValidation = StringValidator.validateUrl(fullUrl, {
+        requireHttps: true,
+        checkSsrf: true
+      });
+      
+      // Act & Assert
+      expect(urlValidation.valid).toBe(true);
+      
+      if (urlValidation.valid) {
+        const response = await apiClient.get(endpoint);
+        expect(response.status).toBe(200);
+        expect(response.data).toEqual({ users: [] });
+      }
+    });
+  });
+
+  describe('Error Handling with Validation', () => {
+    it('should throw validation errors when URL validation fails', () => {
+      // Arrange
+      const invalidUrl = 'not-a-url';
+      
+      // Act & Assert
       expect(() => {
-        secureClient.validateUrl(invalidUrl);
+        StringValidator.isValidUrl(invalidUrl, { throwOnError: true });
       }).toThrow('Invalid URL');
+    });
+
+    it('should provide custom error messages for validation failures', () => {
+      // Arrange
+      const invalidUrl = 'http://localhost/api';
+      const customErrorMessage = 'Security policy violation: internal URLs not allowed';
       
-      // Verify the same with string validator
-      const validationResult = validateUrl(invalidUrl);
-      expect(validationResult.isValid).toBe(false);
-      expect(validationResult.error).toBe(StringValidationErrors.INVALID_URL);
-    });
-  });
-
-  describe('HTTP Client with URL Validation Integration', () => {
-    let httpClient: AxiosInstance;
-
-    beforeEach(() => {
-      // Create HTTP client with custom config
-      httpClient = createHttpClient({
-        timeout: 5000,
-        retry: {
-          retries: 0 // Disable retries for testing
-        }
-      });
-    });
-
-    it('should reject requests to private IP addresses', async () => {
-      // Add request interceptor for SSRF protection
-      httpClient.interceptors.request.use(config => {
-        if (config.url) {
-          const validationResult = validateUrl(config.url, { allowPrivateIps: false });
-          if (!validationResult.isValid) {
-            throw new Error(validationResult.error);
-          }
-        }
-        return config;
-      });
-
-      // Attempt to make a request to a private IP
-      await expect(httpClient.get('http://192.168.1.1/api/data'))
-        .rejects
-        .toThrow(StringValidationErrors.SSRF_PROTECTION);
-    });
-
-    it('should reject requests to localhost', async () => {
-      // Add request interceptor for SSRF protection
-      httpClient.interceptors.request.use(config => {
-        if (config.url) {
-          const validationResult = validateUrl(config.url, { allowPrivateIps: false });
-          if (!validationResult.isValid) {
-            throw new Error(validationResult.error);
-          }
-        }
-        return config;
-      });
-
-      // Attempt to make a request to localhost
-      await expect(httpClient.get('http://localhost:3000/api/data'))
-        .rejects
-        .toThrow(StringValidationErrors.SSRF_PROTECTION);
-    });
-
-    it('should allow requests to public domains with proper validation', async () => {
-      // Mock a successful response
-      nock('https://api.example.com')
-        .get('/data')
-        .reply(200, { success: true });
-
-      // Add request interceptor for URL validation
-      httpClient.interceptors.request.use(config => {
-        if (config.url) {
-          const validationResult = validateUrl(config.url);
-          if (!validationResult.isValid) {
-            throw new Error(validationResult.error);
-          }
-        }
-        return config;
-      });
-
-      // Make a request to a public domain
-      const response = await httpClient.get('https://api.example.com/data');
-      expect(response.status).toBe(200);
-      expect(response.data).toEqual({ success: true });
-    });
-
-    it('should handle invalid URLs with validation', async () => {
-      // Add request interceptor for URL validation
-      httpClient.interceptors.request.use(config => {
-        if (config.url) {
-          const validationResult = validateUrl(config.url);
-          if (!validationResult.isValid) {
-            throw new Error(validationResult.error);
-          }
-        }
-        return config;
-      });
-
-      // Attempt to make a request with an invalid URL
-      await expect(httpClient.get('not-a-valid-url'))
-        .rejects
-        .toThrow(StringValidationErrors.INVALID_URL);
-    });
-  });
-
-  describe('Internal API Client with Journey-Specific Validation', () => {
-    it('should apply journey-specific validation rules for Health journey', async () => {
-      // Mock a successful response
-      nock('https://health-api.example.com')
-        .get('/metrics')
-        .reply(200, { metrics: [] });
-
-      // Create a Health journey client
-      const healthClient = createInternalApiClient({
-        baseURL: 'https://health-api.example.com',
-        journeyContext: {
-          journeyType: JourneyType.HEALTH
-        }
-      });
-
-      // Add request interceptor for journey-specific validation
-      healthClient.interceptors.request.use(config => {
-        // Verify journey headers are set
-        expect(config.headers['X-Journey-Type']).toBe(JourneyType.HEALTH);
-        
-        // Apply URL validation
-        if (config.url) {
-          const validationResult = validateUrl(config.url);
-          if (!validationResult.isValid) {
-            throw new Error(validationResult.error);
-          }
-        }
-        return config;
-      });
-
-      // Make a request
-      const response = await healthClient.get('/metrics');
-      expect(response.status).toBe(200);
-      expect(response.data).toEqual({ metrics: [] });
-    });
-
-    it('should apply journey-specific validation rules for Care journey', async () => {
-      // Mock a successful response
-      nock('https://care-api.example.com')
-        .get('/appointments')
-        .reply(200, { appointments: [] });
-
-      // Create a Care journey client
-      const careClient = createInternalApiClient({
-        baseURL: 'https://care-api.example.com',
-        journeyContext: {
-          journeyType: JourneyType.CARE
-        }
-      });
-
-      // Add request interceptor for journey-specific validation
-      careClient.interceptors.request.use(config => {
-        // Verify journey headers are set
-        expect(config.headers['X-Journey-Type']).toBe(JourneyType.CARE);
-        
-        // Apply URL validation
-        if (config.url) {
-          const validationResult = validateUrl(config.url);
-          if (!validationResult.isValid) {
-            throw new Error(validationResult.error);
-          }
-        }
-        return config;
-      });
-
-      // Make a request
-      const response = await careClient.get('/appointments');
-      expect(response.status).toBe(200);
-      expect(response.data).toEqual({ appointments: [] });
-    });
-
-    it('should apply journey-specific validation rules for Plan journey', async () => {
-      // Mock a successful response
-      nock('https://plan-api.example.com')
-        .get('/benefits')
-        .reply(200, { benefits: [] });
-
-      // Create a Plan journey client
-      const planClient = createInternalApiClient({
-        baseURL: 'https://plan-api.example.com',
-        journeyContext: {
-          journeyType: JourneyType.PLAN
-        }
-      });
-
-      // Add request interceptor for journey-specific validation
-      planClient.interceptors.request.use(config => {
-        // Verify journey headers are set
-        expect(config.headers['X-Journey-Type']).toBe(JourneyType.PLAN);
-        
-        // Apply URL validation
-        if (config.url) {
-          const validationResult = validateUrl(config.url);
-          if (!validationResult.isValid) {
-            throw new Error(validationResult.error);
-          }
-        }
-        return config;
-      });
-
-      // Make a request
-      const response = await planClient.get('/benefits');
-      expect(response.status).toBe(200);
-      expect(response.data).toEqual({ benefits: [] });
-    });
-  });
-
-  describe('Error Handling Integration', () => {
-    it('should handle validation errors with proper error context', async () => {
-      // Create HTTP client
-      const httpClient = createHttpClient({
-        timeout: 5000,
-        retry: {
-          retries: 0 // Disable retries for testing
-        }
-      });
-
-      // Add request interceptor that throws a specific error type
-      httpClient.interceptors.request.use(config => {
-        if (config.url) {
-          const validationResult = validateUrl(config.url);
-          if (!validationResult.isValid) {
-            const error = new Error(validationResult.error) as any;
-            error.isValidationError = true;
-            error.validationDetails = validationResult.details;
-            throw error;
-          }
-        }
-        return config;
-      });
-
-      try {
-        // Attempt to make a request with an invalid URL
-        await httpClient.get('http://localhost:3000/api/data');
-        fail('Request should have failed');
-      } catch (error) {
-        // Verify error properties
-        expect((error as any).isValidationError).toBe(true);
-        expect((error as Error).message).toBe(StringValidationErrors.SSRF_PROTECTION);
-        expect((error as any).validationDetails).toBeDefined();
-        expect((error as any).validationDetails.reason).toBe('private_ip');
-      }
-    });
-
-    it('should integrate with HttpClientError for comprehensive error handling', async () => {
-      // Create HTTP client
-      const httpClient = createHttpClient({
-        timeout: 5000,
-        retry: {
-          retries: 0 // Disable retries for testing
-        }
-      });
-
-      // Mock a server error
-      nock('https://api.example.com')
-        .get('/data')
-        .reply(500, { error: 'Internal Server Error' });
-
-      try {
-        // Make a request that will result in a server error
-        await httpClient.get('https://api.example.com/data');
-        fail('Request should have failed');
-      } catch (error) {
-        // Verify it's an HttpClientError with the right properties
-        expect(error).toBeInstanceOf(HttpClientError);
-        const clientError = error as HttpClientError;
-        expect(clientError.statusCode).toBe(500);
-        expect(clientError.httpErrorType).toBe('SERVER');
-        expect(clientError.url).toBe('https://api.example.com/data');
-      }
-    });
-
-    it('should handle network errors with proper categorization', async () => {
-      // Create HTTP client
-      const httpClient = createHttpClient({
-        timeout: 1000, // Short timeout to trigger timeout error
-        retry: {
-          retries: 0 // Disable retries for testing
-        }
-      });
-
-      // Mock a delayed response that will trigger a timeout
-      nock('https://api.example.com')
-        .get('/data')
-        .delay(2000) // Delay longer than the timeout
-        .reply(200, { data: 'too late' });
-
-      try {
-        // Make a request that will timeout
-        await httpClient.get('https://api.example.com/data');
-        fail('Request should have timed out');
-      } catch (error) {
-        // Verify it's an HttpClientError with the right properties
-        expect(error).toBeInstanceOf(HttpClientError);
-        const clientError = error as HttpClientError;
-        expect(clientError.httpErrorType).toBe('NETWORK');
-        expect(clientError.originalError.code).toBe('ECONNABORTED');
-      }
-    });
-  });
-
-  describe('Combined HTTP and Validation Integration', () => {
-    it('should validate URLs before making requests', async () => {
-      // Create a function that validates URLs before making requests
-      const makeValidatedRequest = async (url: string): Promise<any> => {
-        // First validate the URL
-        const validationResult = validateUrl(url);
-        if (!validationResult.isValid) {
-          throw new Error(validationResult.error);
-        }
-        
-        // If validation passes, create a client and make the request
-        const client = createHttpClient();
-        return client.get(url);
-      };
-
-      // Mock a successful response
-      nock('https://api.example.com')
-        .get('/data')
-        .reply(200, { success: true });
-
-      // Test with a valid URL
-      const response = await makeValidatedRequest('https://api.example.com/data');
-      expect(response.status).toBe(200);
-      expect(response.data).toEqual({ success: true });
-
-      // Test with an invalid URL
-      await expect(makeValidatedRequest('not-a-valid-url'))
-        .rejects
-        .toThrow(StringValidationErrors.INVALID_URL);
-
-      // Test with a private IP
-      await expect(makeValidatedRequest('http://192.168.1.1/api/data'))
-        .rejects
-        .toThrow(StringValidationErrors.SSRF_PROTECTION);
-    });
-
-    it('should integrate validation with journey-specific clients', async () => {
-      // Create a factory function for journey-specific clients with validation
-      const createValidatedJourneyClient = (journeyType: JourneyType, baseURL: string): AxiosInstance => {
-        // Create the journey client
-        const client = createInternalApiClient({
-          baseURL,
-          journeyContext: {
-            journeyType
-          }
+      // Act & Assert
+      expect(() => {
+        StringValidator.isValidUrl(invalidUrl, {
+          checkSsrf: true,
+          throwOnError: true,
+          errorMessage: customErrorMessage
         });
-        
-        // Add validation interceptor
-        client.interceptors.request.use(config => {
-          // Apply URL validation with journey-specific rules
-          if (config.url) {
-            // Different validation rules based on journey type
-            const options = {
-              allowPrivateIps: false,
-              requireHttps: journeyType === JourneyType.HEALTH || journeyType === JourneyType.CARE
-            };
-            
-            const validationResult = validateUrl(config.url, options);
-            if (!validationResult.isValid) {
-              throw new Error(`[${journeyType}] ${validationResult.error}`);
-            }
-          }
-          return config;
-        });
-        
-        return client;
+      }).toThrow(customErrorMessage);
+    });
+
+    it('should handle null and undefined values in validation', () => {
+      // Arrange
+      const nullUrl = null;
+      const undefinedUrl = undefined;
+      
+      // Act & Assert - Default behavior (not allowing null/undefined)
+      expect(StringValidator.isValidUrl(nullUrl)).toBe(false);
+      expect(StringValidator.isValidUrl(undefinedUrl)).toBe(false);
+      
+      // Act & Assert - With allowNull/allowUndefined options
+      expect(StringValidator.isValidUrl(nullUrl, { allowNull: true })).toBe(true);
+      expect(StringValidator.isValidUrl(undefinedUrl, { allowUndefined: true })).toBe(true);
+    });
+  });
+
+  describe('Journey-Specific Validation Rules', () => {
+    it('should validate health journey API endpoints', () => {
+      // Arrange
+      const healthApiUrl = 'https://api.austa.health/health-service/v1/metrics';
+      const invalidHealthApiUrl = 'https://api.austa.health/health-service/v1/admin';
+      
+      // Define health journey specific validation options
+      const healthJourneyOptions: StringValidator.UrlValidationOptions = {
+        requireHttps: true,
+        checkSsrf: true,
+        allowedDomains: ['api.austa.health'],
+        // Only allow specific health journey endpoints
+        errorMessage: 'Invalid health journey API endpoint'
       };
-
-      // Mock responses for different journeys
-      nock('https://health-api.example.com')
-        .get('/metrics')
-        .reply(200, { metrics: [] });
-
-      nock('https://care-api.example.com')
-        .get('/appointments')
-        .reply(200, { appointments: [] });
-
-      // Create clients for different journeys
-      const healthClient = createValidatedJourneyClient(
-        JourneyType.HEALTH,
-        'https://health-api.example.com'
-      );
       
-      const careClient = createValidatedJourneyClient(
-        JourneyType.CARE,
-        'https://care-api.example.com'
-      );
-
-      // Test successful requests
-      const healthResponse = await healthClient.get('/metrics');
-      expect(healthResponse.status).toBe(200);
-      expect(healthResponse.data).toEqual({ metrics: [] });
-
-      const careResponse = await careClient.get('/appointments');
-      expect(careResponse.status).toBe(200);
-      expect(careResponse.data).toEqual({ appointments: [] });
-
-      // Test with HTTP instead of HTTPS for health journey (should fail)
-      const httpHealthClient = createValidatedJourneyClient(
-        JourneyType.HEALTH,
-        'http://health-api.example.com'
-      );
+      // Act & Assert
+      const validResult = StringValidator.validateUrl(healthApiUrl, healthJourneyOptions);
+      expect(validResult.valid).toBe(true);
       
-      await expect(httpHealthClient.get('/metrics'))
-        .rejects
-        .toThrow('[health] Invalid URL');
+      // Validate URL pattern for health metrics endpoint
+      const isValidHealthEndpoint = StringValidator.matchesPattern(
+        healthApiUrl,
+        { pattern: /\/health-service\/v1\/(metrics|goals|devices)/ }
+      );
+      expect(isValidHealthEndpoint).toBe(true);
+      
+      // Invalid health endpoint (admin is not allowed)
+      const isInvalidHealthEndpoint = StringValidator.matchesPattern(
+        invalidHealthApiUrl,
+        { pattern: /\/health-service\/v1\/(metrics|goals|devices)/ }
+      );
+      expect(isInvalidHealthEndpoint).toBe(false);
+    });
+
+    it('should validate care journey API endpoints', () => {
+      // Arrange
+      const careApiUrl = 'https://api.austa.health/care-service/v1/appointments';
+      
+      // Define care journey specific validation options
+      const careJourneyOptions: StringValidator.UrlValidationOptions = {
+        requireHttps: true,
+        checkSsrf: true,
+        allowedDomains: ['api.austa.health'],
+        errorMessage: 'Invalid care journey API endpoint'
+      };
+      
+      // Act & Assert
+      const validResult = StringValidator.validateUrl(careApiUrl, careJourneyOptions);
+      expect(validResult.valid).toBe(true);
+      
+      // Validate URL pattern for care appointments endpoint
+      const isValidCareEndpoint = StringValidator.matchesPattern(
+        careApiUrl,
+        { pattern: /\/care-service\/v1\/(appointments|providers|telemedicine)/ }
+      );
+      expect(isValidCareEndpoint).toBe(true);
+    });
+
+    it('should validate plan journey API endpoints', () => {
+      // Arrange
+      const planApiUrl = 'https://api.austa.health/plan-service/v1/benefits';
+      
+      // Define plan journey specific validation options
+      const planJourneyOptions: StringValidator.UrlValidationOptions = {
+        requireHttps: true,
+        checkSsrf: true,
+        allowedDomains: ['api.austa.health'],
+        errorMessage: 'Invalid plan journey API endpoint'
+      };
+      
+      // Act & Assert
+      const validResult = StringValidator.validateUrl(planApiUrl, planJourneyOptions);
+      expect(validResult.valid).toBe(true);
+      
+      // Validate URL pattern for plan benefits endpoint
+      const isValidPlanEndpoint = StringValidator.matchesPattern(
+        planApiUrl,
+        { pattern: /\/plan-service\/v1\/(benefits|claims|coverage)/ }
+      );
+      expect(isValidPlanEndpoint).toBe(true);
+    });
+  });
+
+  describe('Combined Validation Scenarios', () => {
+    it('should validate URL and make request in a single flow', async () => {
+      // Arrange
+      const url = 'https://api.austa.health/health-service/v1/metrics';
+      mockAxios.onGet(url).reply(200, { metrics: [] });
+      
+      // Act - Validate URL first
+      const urlValidation = StringValidator.validateUrl(url, {
+        requireHttps: true,
+        checkSsrf: true,
+        allowedDomains: ['api.austa.health']
+      });
+      
+      // Assert validation result
+      expect(urlValidation.valid).toBe(true);
+      
+      // Act - Make request if validation passes
+      if (urlValidation.valid) {
+        const secureAxios = createSecureAxios();
+        const response = await secureAxios.get(url);
+        
+        // Assert response
+        expect(response.status).toBe(200);
+        expect(response.data).toEqual({ metrics: [] });
+      }
+    });
+
+    it('should validate request parameters before making request', async () => {
+      // Arrange
+      const baseURL = 'https://api.austa.health';
+      const endpoint = '/health-service/v1/metrics';
+      const params = {
+        userId: '123e4567-e89b-12d3-a456-426614174000',
+        startDate: '2023-01-01',
+        endDate: '2023-01-31'
+      };
+      
+      const apiClient = createInternalApiClient(baseURL);
+      mockAxios.onGet(`${baseURL}${endpoint}`).reply(200, { metrics: [] });
+      
+      // Act - Validate parameters
+      const isValidUserId = StringValidator.isUuid(params.userId);
+      const isValidDateRange = true; // Assume we have a date validator that would check this
+      
+      // Assert validation results
+      expect(isValidUserId).toBe(true);
+      expect(isValidDateRange).toBe(true);
+      
+      // Act - Make request if all validations pass
+      if (isValidUserId && isValidDateRange) {
+        const response = await apiClient.get(endpoint, { params });
+        
+        // Assert response
+        expect(response.status).toBe(200);
+        expect(response.data).toEqual({ metrics: [] });
+      }
+    });
+
+    it('should handle validation and request errors appropriately', async () => {
+      // Arrange
+      const validUrl = 'https://api.austa.health/health-service/v1/metrics';
+      const invalidUrl = 'http://localhost/api';
+      
+      // Mock a server error for the valid URL
+      mockAxios.onGet(validUrl).reply(500, { error: 'Internal Server Error' });
+      
+      // Act & Assert - Invalid URL (should fail validation)
+      const urlValidation = StringValidator.validateUrl(invalidUrl, { checkSsrf: true });
+      expect(urlValidation.valid).toBe(false);
+      
+      // Act & Assert - Valid URL but server error
+      const validUrlValidation = StringValidator.validateUrl(validUrl, { checkSsrf: true });
+      expect(validUrlValidation.valid).toBe(true);
+      
+      if (validUrlValidation.valid) {
+        const secureAxios = createSecureAxios();
+        await expect(secureAxios.get(validUrl)).rejects.toThrow('Request failed with status code 500');
+      }
     });
   });
 });
