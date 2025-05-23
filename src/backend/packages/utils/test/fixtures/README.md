@@ -1,241 +1,230 @@
 # Test Fixtures for @austa/utils
 
-This directory contains standardized test fixtures for all utility functions in the `@austa/utils` package. These fixtures provide consistent, reusable test data to ensure reliable testing across unit, integration, and end-to-end tests.
+This directory contains a comprehensive collection of test fixtures for the `@austa/utils` package, organized by utility category. These fixtures provide standardized test data for unit, integration, and end-to-end tests across the AUSTA SuperApp ecosystem.
 
 ## Overview
 
-Test fixtures are organized by utility category, with each category having its own directory containing specialized fixture files. This structure ensures that test data is properly organized, easily discoverable, and maintainable as the codebase evolves.
+Test fixtures are essential for creating reliable, consistent, and maintainable tests. The fixtures in this directory serve several key purposes:
+
+- **Consistency**: Provide standardized test data across all tests that use the utils package
+- **Reusability**: Reduce duplication by centralizing common test scenarios
+- **Maintainability**: Simplify updates when utility functions change by centralizing test data
+- **Discoverability**: Organize fixtures logically to make them easy to find and use
+- **Type Safety**: Ensure all fixtures have proper TypeScript typing for improved developer experience
 
 ## Directory Structure
 
+Fixtures are organized by utility category, with each category having its own subdirectory:
+
 ```
 fixtures/
+├── README.md           # This documentation file
+├── index.ts            # Main barrel file that exports all fixtures
 ├── array/              # Array utility fixtures
-│   ├── basic-arrays.ts       # Common array types (empty, strings, numbers, objects)
-│   ├── edge-case-arrays.ts   # Arrays with null, undefined, NaN values
-│   ├── filter-arrays.ts      # Arrays for testing filter operations
-│   ├── find-arrays.ts        # Arrays for testing find operations
-│   ├── map-arrays.ts         # Arrays for testing map transformations
-│   ├── reduce-arrays.ts      # Arrays for testing reduce operations
-│   ├── sort-arrays.ts        # Arrays for testing sort operations
-│   └── index.ts              # Barrel file exporting all array fixtures
+│   ├── index.ts        # Barrel file for array fixtures
+│   ├── basic-arrays.ts # Basic array test data
+│   ├── filter-arrays.ts # Fixtures for array filtering
+│   └── ...
 ├── date/               # Date utility fixtures
-│   ├── calculation.ts        # Age calculation and relative time fixtures
-│   ├── common-dates.ts       # Reusable date constants
-│   ├── comparison.ts         # Date equality and range testing
-│   ├── format.ts             # Date formatting with expected outputs
-│   ├── journey.ts            # Journey-specific date formatting
-│   ├── parse.ts              # Date string parsing fixtures
-│   ├── range.ts              # Date range fixtures
-│   ├── timezone.ts           # Timezone handling fixtures
-│   ├── validation.ts         # Valid and invalid date representations
-│   └── index.ts              # Barrel file exporting all date fixtures
-├── env/                # Environment utility fixtures
-├── http/               # HTTP utility fixtures
-├── object/             # Object utility fixtures
-├── string/             # String utility fixtures
-├── type/               # Type utility fixtures
+│   ├── index.ts        # Barrel file for date fixtures
+│   ├── format.ts       # Date formatting fixtures
+│   ├── parse.ts        # Date parsing fixtures
+│   └── ...
 ├── validation/         # Validation utility fixtures
-│   ├── config-validation.fixtures.ts    # Service configuration validation
-│   ├── cpf-validation.fixtures.ts       # Brazilian CPF validation
-│   ├── date-validation.fixtures.ts      # Date format validation
-│   ├── email-validation.fixtures.ts     # Email validation
-│   ├── input-sanitization.fixtures.ts   # Security validation (XSS, injection)
-│   ├── journey-validation.fixtures.ts   # Journey-specific validation
-│   ├── password-validation.fixtures.ts  # Password strength validation
-│   └── index.ts                         # Barrel file exporting all validation fixtures
-└── index.ts            # Root barrel file exporting all fixtures
+│   ├── index.ts        # Barrel file for validation fixtures
+│   ├── email-validation.fixtures.ts # Email validation fixtures
+│   ├── cpf-validation.fixtures.ts   # CPF validation fixtures
+│   └── ...
+└── ...
 ```
 
-## Usage
+Each subdirectory contains:
 
-### Importing Fixtures
+1. An `index.ts` barrel file that exports all fixtures from that category
+2. Individual fixture files for specific utility functions or test scenarios
+3. TypeScript interfaces and types for the fixtures
 
-All fixtures can be imported from a single entry point:
+## Importing Fixtures
+
+Fixtures can be imported in several ways, depending on your needs:
+
+### Import All Fixtures
+
+To import all fixtures from a specific category:
 
 ```typescript
-// Import all fixtures
-import * as fixtures from '@austa/utils/test/fixtures';
+// Import all array fixtures
+import * as arrayFixtures from '@austa/utils/test/fixtures/array';
 
-// Import specific category fixtures
-import { arrayFixtures } from '@austa/utils/test/fixtures';
-
-// Import specific fixtures directly
-import { basicArrays } from '@austa/utils/test/fixtures/array';
+// Use a specific fixture
+const { basicStringArray } = arrayFixtures;
 ```
 
-### Using Fixtures in Tests
+### Import Specific Fixtures
 
-#### Unit Tests
+To import specific fixtures directly:
+
+```typescript
+// Import specific fixtures
+import { validEmails, invalidEmails } from '@austa/utils/test/fixtures/validation/email-validation.fixtures';
+import { formatDateFixtures } from '@austa/utils/test/fixtures/date/format';
+```
+
+### Import via Main Barrel File
+
+For convenience, you can import from the main barrel file:
+
+```typescript
+// Import from main barrel file
+import { validEmails, formatDateFixtures, basicStringArray } from '@austa/utils/test/fixtures';
+```
+
+## Usage Examples
+
+### Unit Tests
 
 ```typescript
 import { describe, it, expect } from 'jest';
-import { findById } from '@austa/utils/array';
-import { findArrays } from '@austa/utils/test/fixtures/array';
+import { isValidEmail } from '@austa/utils/validation';
+import { validEmails, invalidEmails } from '@austa/utils/test/fixtures/validation/email-validation.fixtures';
 
-describe('findById', () => {
-  it('should find an object by id property', () => {
-    const { arrayWithIds, targetId, expectedObject } = findArrays.objectsWithIds;
-    
-    const result = findById(arrayWithIds, targetId);
-    
-    expect(result).toEqual(expectedObject);
+describe('isValidEmail', () => {
+  it('should return true for valid email addresses', () => {
+    validEmails.forEach(email => {
+      expect(isValidEmail(email)).toBe(true);
+    });
   });
-  
-  it('should return undefined when id not found', () => {
-    const { arrayWithIds, nonExistentId } = findArrays.objectsWithIds;
-    
-    const result = findById(arrayWithIds, nonExistentId);
-    
-    expect(result).toBeUndefined();
+
+  it('should return false for invalid email addresses', () => {
+    invalidEmails.forEach(email => {
+      expect(isValidEmail(email)).toBe(false);
+    });
   });
 });
 ```
 
-#### Integration Tests
+### Integration Tests
 
 ```typescript
 import { describe, it, expect } from 'jest';
-import { UserService } from '../services/user.service';
-import { PrismaService } from '@austa/database';
-import { validationFixtures } from '@austa/utils/test/fixtures';
+import { UserService } from '@austa/auth/users';
+import { validEmails, invalidEmails } from '@austa/utils/test/fixtures/validation/email-validation.fixtures';
 
 describe('UserService', () => {
   let userService: UserService;
-  let prismaService: PrismaService;
-  
+
   beforeEach(() => {
-    prismaService = new PrismaService();
-    userService = new UserService(prismaService);
+    userService = new UserService();
   });
-  
-  describe('validateUserEmail', () => {
-    it('should accept valid emails', async () => {
-      // Use email validation fixtures
-      const { validEmails } = validationFixtures.emailValidation;
-      
-      for (const email of validEmails) {
-        const result = await userService.validateUserEmail(email);
-        expect(result.isValid).toBe(true);
-      }
+
+  it('should create users with valid emails', async () => {
+    // Test with a sample of valid emails
+    const testEmail = validEmails[0];
+    const user = await userService.createUser({
+      email: testEmail,
+      name: 'Test User',
+      password: 'Password123!'
     });
-    
-    it('should reject invalid emails', async () => {
-      // Use email validation fixtures
-      const { invalidEmails } = validationFixtures.emailValidation;
-      
-      for (const email of invalidEmails) {
-        const result = await userService.validateUserEmail(email);
-        expect(result.isValid).toBe(false);
-      }
-    });
+
+    expect(user).toBeDefined();
+    expect(user.email).toBe(testEmail);
+  });
+
+  it('should reject users with invalid emails', async () => {
+    // Test with a sample of invalid emails
+    const testEmail = invalidEmails[0];
+    await expect(
+      userService.createUser({
+        email: testEmail,
+        name: 'Test User',
+        password: 'Password123!'
+      })
+    ).rejects.toThrow();
   });
 });
 ```
 
-#### E2E Tests
+### E2E Tests
 
 ```typescript
 import { test, expect } from '@playwright/test';
-import { dateFixtures } from '@austa/utils/test/fixtures';
+import { validEmails, invalidEmails } from '@austa/utils/test/fixtures/validation/email-validation.fixtures';
 
-test('appointment booking should validate date format', async ({ page }) => {
-  await page.goto('/care/appointments/new');
+test('should validate email during registration', async ({ page }) => {
+  await page.goto('/register');
   
-  // Use date validation fixtures for testing form validation
-  const { invalidDateFormats } = dateFixtures.validation;
+  // Test with invalid email
+  await page.fill('input[name="email"]', invalidEmails[0]);
+  await page.click('button[type="submit"]');
+  await expect(page.locator('.error-message')).toBeVisible();
   
-  for (const invalidDate of invalidDateFormats) {
-    await page.fill('[data-testid="appointment-date"]', invalidDate);
-    await page.click('[data-testid="submit-button"]');
-    
-    // Check that validation error is displayed
-    const errorMessage = await page.textContent('[data-testid="date-error"]');
-    expect(errorMessage).toContain('Invalid date format');
-  }
+  // Test with valid email
+  await page.fill('input[name="email"]', validEmails[0]);
+  await page.click('button[type="submit"]');
+  await expect(page.locator('.error-message')).not.toBeVisible();
 });
+```
+
+## Journey-Specific Fixtures
+
+Many fixtures are organized by journey context (Health, Care, Plan) to support the journey-centered architecture of the AUSTA SuperApp:
+
+```typescript
+import { healthJourneyValidation, careJourneyValidation, planJourneyValidation } 
+  from '@austa/utils/test/fixtures/validation/journey-validation.fixtures';
+
+// Test health journey-specific validation
+expect(isValidHealthMetric(healthJourneyValidation.validMetrics[0])).toBe(true);
+
+// Test care journey-specific validation
+expect(isValidAppointment(careJourneyValidation.validAppointments[0])).toBe(true);
+
+// Test plan journey-specific validation
+expect(isValidClaim(planJourneyValidation.validClaims[0])).toBe(true);
 ```
 
 ## Maintaining and Extending Fixtures
 
-### Guidelines for Creating New Fixtures
+### Adding New Fixtures
 
-1. **Organization**: Place fixtures in the appropriate category directory. Create a new directory if needed for a new utility category.
+When adding new utility functions to the `@austa/utils` package, follow these steps to create corresponding test fixtures:
 
-2. **Naming Conventions**:
-   - Use descriptive names that clearly indicate the fixture's purpose
-   - Follow the pattern: `[utility-type]-[specific-purpose].ts`
-   - For validation fixtures, use the pattern: `[validation-type]-validation.fixtures.ts`
+1. Identify the appropriate category for your fixtures (or create a new one if needed)
+2. Create a new fixture file in the relevant subdirectory
+3. Export your fixtures with proper TypeScript typing
+4. Add your exports to the category's `index.ts` barrel file
+5. Update the main `index.ts` barrel file if you created a new category
 
-3. **TypeScript Typing**:
-   - Define interfaces for all fixture data structures
-   - Export typed constants to ensure type safety in tests
-   - Use namespaced exports to prevent naming collisions
-
-4. **Documentation**:
-   - Add JSDoc comments to explain the purpose of each fixture
-   - Include examples of how to use complex fixtures
-   - Document any assumptions or edge cases
-
-5. **Barrel Files**:
-   - Update the category's `index.ts` to export new fixtures
-   - Ensure the root `index.ts` exports the category if it's new
-
-### Example: Creating a New Fixture File
+### Example: Adding New Fixtures
 
 ```typescript
-// src/backend/packages/utils/test/fixtures/string/email-templates.ts
+// src/backend/packages/utils/test/fixtures/string/case-conversion.fixtures.ts
 
-/**
- * Test fixtures for email template string utilities.
- * Provides sample templates with variables and their expected outputs.
- */
-
-// Define interfaces for the fixture data structure
-export interface EmailTemplateFixture {
-  template: string;
-  variables: Record<string, string>;
-  expectedResult: string;
+export interface CaseConversionFixture {
+  input: string;
+  camelCase: string;
+  snakeCase: string;
+  kebabCase: string;
+  pascalCase: string;
 }
 
-export interface EmailTemplateFixtures {
-  simpleTemplates: EmailTemplateFixture[];
-  complexTemplates: EmailTemplateFixture[];
-  invalidTemplates: {
-    templates: string[];
-    errorMessages: string[];
-  };
-}
-
-// Export the fixtures with proper typing
-export const emailTemplates: EmailTemplateFixtures = {
-  simpleTemplates: [
-    {
-      template: 'Hello, {{name}}!',
-      variables: { name: 'John' },
-      expectedResult: 'Hello, John!',
-    },
-    // More examples...
-  ],
-  complexTemplates: [
-    {
-      template: 'Dear {{name}}, your appointment is on {{date}} at {{time}}.',
-      variables: { name: 'Maria', date: '15/04/2023', time: '14:30' },
-      expectedResult: 'Dear Maria, your appointment is on 15/04/2023 at 14:30.',
-    },
-    // More examples...
-  ],
-  invalidTemplates: {
-    templates: [
-      'Hello, {{name!',  // Missing closing bracket
-      'Hello, name}}',   // Missing opening bracket
-    ],
-    errorMessages: [
-      'Invalid template syntax: missing closing bracket',
-      'Invalid template syntax: missing opening bracket',
-    ],
+export const caseConversionFixtures: CaseConversionFixture[] = [
+  {
+    input: 'hello world',
+    camelCase: 'helloWorld',
+    snakeCase: 'hello_world',
+    kebabCase: 'hello-world',
+    pascalCase: 'HelloWorld'
   },
-};
+  {
+    input: 'user profile data',
+    camelCase: 'userProfileData',
+    snakeCase: 'user_profile_data',
+    kebabCase: 'user-profile-data',
+    pascalCase: 'UserProfileData'
+  },
+  // Add more fixtures as needed
+];
 ```
 
 Then update the barrel file:
@@ -243,49 +232,66 @@ Then update the barrel file:
 ```typescript
 // src/backend/packages/utils/test/fixtures/string/index.ts
 
-export * from './email-templates';
-export * from './formatting';
-// Other exports...
+export * from './case-conversion.fixtures';
+// Export other string fixtures
 ```
 
-## Best Practices
+### Best Practices for Creating Fixtures
 
-### Creating Reliable Test Cases
+1. **Comprehensive Coverage**: Include both common cases and edge cases
+2. **Type Safety**: Always define TypeScript interfaces for your fixtures
+3. **Documentation**: Add JSDoc comments to explain the purpose of each fixture
+4. **Immutability**: Use `const` and `readonly` to prevent accidental modification
+5. **Naming Conventions**: Use descriptive names that indicate the fixture's purpose
+6. **Organization**: Group related fixtures together in logical categories
+7. **Reusability**: Design fixtures to be usable across multiple test scenarios
+8. **Journey Awareness**: Create journey-specific fixtures when appropriate
 
-1. **Isolation**: Ensure fixtures don't depend on external state or other fixtures unless explicitly designed to test such dependencies.
+## Creating Reliable Test Cases
 
-2. **Deterministic Results**: Fixtures should produce consistent, predictable results. Avoid random data or time-dependent values unless specifically testing such scenarios.
+When using these fixtures in your tests, follow these best practices:
 
-3. **Comprehensive Coverage**: Include both common cases and edge cases in your fixtures to ensure thorough testing.
+1. **Isolation**: Each test should be independent and not rely on the state of other tests
+2. **Deterministic**: Tests should produce the same results every time they run
+3. **Focused**: Each test should verify a single aspect of functionality
+4. **Readable**: Test names and assertions should clearly communicate their purpose
+5. **Maintainable**: Use fixtures to reduce duplication and improve maintainability
 
-4. **Journey-Specific Considerations**: When creating fixtures for journey-specific utilities, ensure they reflect the unique requirements of each journey (Health, Care, Plan).
+### Example: Creating Isolated Tests
 
-5. **Localization Support**: Include fixtures for both Portuguese (pt-BR) and English (en-US) where applicable, especially for date, currency, and text formatting utilities.
+```typescript
+import { describe, it, expect } from 'jest';
+import { formatDate } from '@austa/utils/date';
+import { formatDateFixtures } from '@austa/utils/test/fixtures/date/format';
 
-### Using Fixtures Effectively
+describe('formatDate', () => {
+  // Use a separate test for each format pattern
+  formatDateFixtures.forEach(fixture => {
+    it(`should format date correctly with pattern: ${fixture.pattern}`, () => {
+      const result = formatDate(fixture.input, fixture.pattern, fixture.locale);
+      expect(result).toBe(fixture.expected);
+    });
+  });
 
-1. **Reuse Over Duplication**: Always use existing fixtures when possible instead of creating inline test data.
-
-2. **Parameterized Tests**: Use fixtures with parameterized tests to run the same test logic against multiple data sets.
-
-3. **Descriptive Test Names**: Include information about which fixture is being used in the test name for better test documentation.
-
-4. **Fixture Combinations**: Combine fixtures when testing interactions between different utilities.
-
-5. **Snapshot Testing**: Use fixtures with snapshot testing for complex output validation.
+  // Add specific tests for edge cases
+  it('should handle null input by returning empty string', () => {
+    expect(formatDate(null, 'yyyy-MM-dd')).toBe('');
+  });
+});
+```
 
 ## Contributing
 
-When adding or modifying fixtures:
+When contributing new fixtures or updating existing ones:
 
-1. Ensure all fixtures follow the established patterns and conventions
-2. Add comprehensive JSDoc comments to explain the fixture's purpose and usage
-3. Update relevant barrel files to export new fixtures
-4. Include examples of how to use complex fixtures in the fixture file's documentation
-5. Consider adding tests for the fixtures themselves if they contain complex logic
+1. Ensure your fixtures follow the organization and naming conventions in this document
+2. Add comprehensive JSDoc comments to explain the purpose and usage of your fixtures
+3. Include both common cases and edge cases in your fixtures
+4. Update this README.md if you add new categories or significant features
+5. Write tests that verify your fixtures work correctly with the corresponding utility functions
 
 ## Related Documentation
 
-- [Testing Strategy](../../docs/testing-strategy.md)
-- [Utility Development Guide](../../docs/utility-development.md)
-- [Journey-Specific Testing](../../../docs/journey-testing.md)
+- [Testing Strategy](../../README.md): Overview of the testing approach for the utils package
+- [Utils Package Documentation](../../../README.md): Documentation for the utils package
+- [AUSTA SuperApp Architecture](../../../../../docs/architecture.md): Overview of the SuperApp architecture
