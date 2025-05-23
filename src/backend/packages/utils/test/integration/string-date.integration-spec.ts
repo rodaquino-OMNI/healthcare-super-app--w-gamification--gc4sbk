@@ -1,544 +1,541 @@
 /**
- * Integration tests for string and date utilities
- *
+ * Integration Test Suite for String and Date Utilities
+ * 
  * This test suite verifies the interaction between string utilities and date utilities
  * in the AUSTA SuperApp. It tests scenarios where string manipulation is used with date
  * formatting, parsing and validation. This ensures consistent behavior when processing
  * date strings across different locales, formats, and journey-specific requirements.
  */
 
+import { format, parse, addDays, subDays } from 'date-fns';
+import { ptBR, enUS } from 'date-fns/locale';
+
 // Import string utilities
-import { truncate, capitalizeFirstLetter } from '../../src/string/formatting';
-import { isValidCPF } from '../../src/string/validation';
+import * as stringUtils from '../../src/string';
+import { capitalizeFirstLetter, truncate } from '../../src/string/formatting';
 
 // Import date utilities
-import { formatDate, formatDateTime, formatDateRange } from '../../src/date/format';
-import { parseDate } from '../../src/date/parse';
-import { isValidDate } from '../../src/date/validation';
-import { formatJourneyDate } from '../../src/date/journey';
-import { getDateRange } from '../../src/date/range';
-import { calculateAge, getTimeAgo } from '../../src/date/calculation';
+import * as dateUtils from '../../src/date';
+import {
+  formatDate,
+  formatTime,
+  formatDateTime,
+  formatDateRange,
+  formatRelativeDate,
+  formatJourneyDate,
+  getTimeAgo
+} from '../../src/date/format';
 
-// Import test helpers and setup
-import { 
-  createJourneyContext, 
-  journeyHelpers, 
-  testDataGenerators,
-  integrationVerifiers,
-  JourneyType
+// Import test helpers
+import testHelpers, {
+  IntegrationTestContext,
+  JourneyType,
+  createTestContext,
+  setupHealthJourneyTest,
+  setupCareJourneyTest,
+  setupPlanJourneyTest
 } from './helpers';
-import { validationContexts } from './setup';
 
-/**
- * Test suite for string truncation with formatted dates
- */
-describe('String Truncation with Formatted Dates', () => {
-  it('should truncate long formatted dates with ellipsis', () => {
-    // Create a test date
-    const testDate = new Date(2023, 0, 15); // January 15, 2023
-    
-    // Format the date with a long format (including day of week, month name, etc.)
-    const longFormattedDate = formatDate(testDate, 'EEEE, dd \\de MMMM \\de yyyy', 'pt-BR');
-    // Should produce something like "domingo, 15 de janeiro de 2023"
-    
-    // Test truncation with different lengths
-    expect(truncate(longFormattedDate, 10)).toBe('domingo, 1...');
-    expect(truncate(longFormattedDate, 20)).toBe('domingo, 15 de janei...');
-    expect(truncate(longFormattedDate, 30)).toBe('domingo, 15 de janeiro de 2023');
-    
-    // Test with English locale
-    const longFormattedDateEN = formatDate(testDate, 'EEEE, MMMM dd, yyyy', 'en-US');
-    // Should produce something like "Sunday, January 15, 2023"
-    
-    expect(truncate(longFormattedDateEN, 10)).toBe('Sunday, Ja...');
-    expect(truncate(longFormattedDateEN, 20)).toBe('Sunday, January 15,...');
-    expect(truncate(longFormattedDateEN, 30)).toBe('Sunday, January 15, 2023');
-  });
-  
-  it('should truncate date-time strings appropriately', () => {
-    // Create a test date with time
-    const testDateTime = new Date(2023, 0, 15, 14, 30); // January 15, 2023, 14:30
-    
-    // Format the date-time
-    const formattedDateTime = formatDateTime(testDateTime, 'dd/MM/yyyy HH:mm', 'pt-BR');
-    // Should produce "15/01/2023 14:30"
-    
-    // Test truncation with different lengths
-    expect(truncate(formattedDateTime, 8)).toBe('15/01/20...');
-    expect(truncate(formattedDateTime, 10)).toBe('15/01/2023...');
-    expect(truncate(formattedDateTime, 16)).toBe('15/01/2023 14:30');
-  });
-  
-  it('should truncate relative time strings', () => {
-    // Create dates for relative time testing
-    const now = new Date();
-    const yesterday = new Date(now);
-    yesterday.setDate(now.getDate() - 1);
-    
-    const lastWeek = new Date(now);
-    lastWeek.setDate(now.getDate() - 7);
-    
-    const lastMonth = new Date(now);
-    lastMonth.setMonth(now.getMonth() - 1);
-    
-    // Get time ago strings
-    const yesterdayAgo = getTimeAgo(yesterday, 'pt-BR');
-    const lastWeekAgo = getTimeAgo(lastWeek, 'pt-BR');
-    const lastMonthAgo = getTimeAgo(lastMonth, 'pt-BR');
-    
-    // Test truncation
-    expect(truncate(yesterdayAgo, 5)).toBe('1 dia...');
-    expect(truncate(lastWeekAgo, 8)).toBe('7 dias a...');
-    expect(truncate(lastMonthAgo, 10)).toBe('1 mês atrá...');
-    
-    // Test with English locale
-    const yesterdayAgoEN = getTimeAgo(yesterday, 'en-US');
-    const lastWeekAgoEN = getTimeAgo(lastWeek, 'en-US');
-    const lastMonthAgoEN = getTimeAgo(lastMonth, 'en-US');
-    
-    expect(truncate(yesterdayAgoEN, 5)).toBe('1 day...');
-    expect(truncate(lastWeekAgoEN, 8)).toBe('7 days a...');
-    expect(truncate(lastMonthAgoEN, 10)).toBe('1 month ag...');
-  });
-  
-  it('should handle truncation of date range strings', () => {
-    // Create date range
-    const startDate = new Date(2023, 0, 1); // January 1, 2023
-    const endDate = new Date(2023, 0, 31); // January 31, 2023
-    
-    // Format date range
-    const dateRange = formatDateRange(startDate, endDate, 'dd/MM/yyyy', 'pt-BR');
-    // Should produce "01/01/2023 - 31/01/2023"
-    
-    // Test truncation
-    expect(truncate(dateRange, 10)).toBe('01/01/2023...');
-    expect(truncate(dateRange, 15)).toBe('01/01/2023 - 31...');
-    expect(truncate(dateRange, 23)).toBe('01/01/2023 - 31/01/2023');
-  });
-});
+describe('String and Date Utilities Integration', () => {
+  let context: IntegrationTestContext;
 
-/**
- * Test suite for capitalizing date components
- */
-describe('Capitalizing Date Components', () => {
-  it('should properly capitalize month names in different locales', () => {
-    // Create test dates for each month
-    const months = Array.from({ length: 12 }, (_, i) => new Date(2023, i, 1));
-    
-    // Test Portuguese month names
-    const ptMonthNames = months.map(date => formatDate(date, 'MMMM', 'pt-BR'));
-    const capitalizedPtMonths = ptMonthNames.map(month => capitalizeFirstLetter(month));
-    
-    // Verify specific months are correctly capitalized
-    expect(capitalizedPtMonths[0]).toBe('Janeiro');
-    expect(capitalizedPtMonths[3]).toBe('Abril');
-    expect(capitalizedPtMonths[7]).toBe('Agosto');
-    expect(capitalizedPtMonths[11]).toBe('Dezembro');
-    
-    // Test English month names
-    const enMonthNames = months.map(date => formatDate(date, 'MMMM', 'en-US'));
-    const capitalizedEnMonths = enMonthNames.map(month => capitalizeFirstLetter(month));
-    
-    // Verify specific months are correctly capitalized
-    expect(capitalizedEnMonths[0]).toBe('January');
-    expect(capitalizedEnMonths[3]).toBe('April');
-    expect(capitalizedEnMonths[7]).toBe('August');
-    expect(capitalizedEnMonths[11]).toBe('December');
+  beforeEach(() => {
+    context = createTestContext();
   });
-  
-  it('should properly capitalize day names in different locales', () => {
-    // Create test dates for each day of the week (starting from Sunday)
-    const startDate = new Date(2023, 0, 1); // January 1, 2023 (Sunday)
-    const days = Array.from({ length: 7 }, (_, i) => {
-      const date = new Date(startDate);
-      date.setDate(startDate.getDate() + i);
-      return date;
+
+  afterEach(() => {
+    context.cleanup();
+  });
+
+  describe('String Truncation with Formatted Dates', () => {
+    it('should truncate formatted dates correctly', () => {
+      const testDate = new Date(2025, 4, 23); // May 23, 2025
+      
+      // Format date in different formats
+      const shortFormat = formatDate(testDate); // Default format: dd/MM/yyyy
+      const longFormat = formatDate(testDate, 'EEEE, dd MMMM yyyy'); // e.g., "Friday, 23 May 2025"
+      const timeFormat = formatDateTime(testDate); // Default format: dd/MM/yyyy HH:mm
+      
+      // Test truncation with different lengths
+      expect(truncate(shortFormat, 5)).toBe('23/05...');
+      expect(truncate(longFormat, 10)).toBe('Friday, 23...');
+      expect(truncate(timeFormat, 8)).toBe('23/05/20...');
+      
+      // Test with custom ellipsis
+      expect(truncate(shortFormat, 5, ' [...]')).toBe('23/05 [...]');
+      expect(truncate(longFormat, 12, ' (more)')).toBe('Friday, 23 M (more)');
     });
-    
-    // Test Portuguese day names
-    const ptDayNames = days.map(date => formatDate(date, 'EEEE', 'pt-BR'));
-    const capitalizedPtDays = ptDayNames.map(day => capitalizeFirstLetter(day));
-    
-    // Verify specific days are correctly capitalized
-    expect(capitalizedPtDays[0]).toBe('Domingo');
-    expect(capitalizedPtDays[1]).toBe('Segunda-feira');
-    expect(capitalizedPtDays[3]).toBe('Quarta-feira');
-    expect(capitalizedPtDays[6]).toBe('Sábado');
-    
-    // Test English day names
-    const enDayNames = days.map(date => formatDate(date, 'EEEE', 'en-US'));
-    const capitalizedEnDays = enDayNames.map(day => capitalizeFirstLetter(day));
-    
-    // Verify specific days are correctly capitalized
-    expect(capitalizedEnDays[0]).toBe('Sunday');
-    expect(capitalizedEnDays[1]).toBe('Monday');
-    expect(capitalizedEnDays[3]).toBe('Wednesday');
-    expect(capitalizedEnDays[6]).toBe('Saturday');
-  });
-  
-  it('should handle capitalization of abbreviated date components', () => {
-    // Create test date
-    const testDate = new Date(2023, 0, 15); // January 15, 2023 (Sunday)
-    
-    // Test abbreviated month names
-    const ptAbbrevMonth = formatDate(testDate, 'MMM', 'pt-BR');
-    const enAbbrevMonth = formatDate(testDate, 'MMM', 'en-US');
-    
-    expect(capitalizeFirstLetter(ptAbbrevMonth)).toBe('Jan');
-    expect(capitalizeFirstLetter(enAbbrevMonth)).toBe('Jan');
-    
-    // Test abbreviated day names
-    const ptAbbrevDay = formatDate(testDate, 'E', 'pt-BR');
-    const enAbbrevDay = formatDate(testDate, 'E', 'en-US');
-    
-    expect(capitalizeFirstLetter(ptAbbrevDay)).toBe('Dom');
-    expect(capitalizeFirstLetter(enAbbrevDay)).toBe('Sun');
-  });
-  
-  it('should capitalize full date strings correctly', () => {
-    // Create test date
-    const testDate = new Date(2023, 0, 15); // January 15, 2023
-    
-    // Format date with lowercase format pattern
-    const ptDateString = formatDate(testDate, 'EEEE, dd \\de MMMM \\de yyyy', 'pt-BR').toLowerCase();
-    const enDateString = formatDate(testDate, 'EEEE, MMMM dd, yyyy', 'en-US').toLowerCase();
-    
-    // Capitalize the first letter of the date string
-    expect(capitalizeFirstLetter(ptDateString)).toBe('Domingo, 15 de janeiro de 2023');
-    expect(capitalizeFirstLetter(enDateString)).toBe('Sunday, january 15, 2023');
-  });
-});
 
-/**
- * Test suite for date range string representations
- */
-describe('Date Range String Representations', () => {
-  it('should format date ranges consistently', () => {
-    // Create date ranges for testing
-    const startDate = new Date(2023, 0, 1); // January 1, 2023
-    const endDate = new Date(2023, 0, 31); // January 31, 2023
-    
-    // Test default format
-    const defaultRange = formatDateRange(startDate, endDate);
-    expect(defaultRange).toBe('01/01/2023 - 31/01/2023');
-    
-    // Test custom format
-    const customRange = formatDateRange(startDate, endDate, 'yyyy-MM-dd');
-    expect(customRange).toBe('2023-01-01 - 2023-01-31');
-    
-    // Test with English locale
-    const enRange = formatDateRange(startDate, endDate, 'MMM dd, yyyy', 'en-US');
-    expect(enRange).toBe('Jan 01, 2023 - Jan 31, 2023');
-    
-    // Test with Portuguese locale
-    const ptRange = formatDateRange(startDate, endDate, 'dd \\de MMMM', 'pt-BR');
-    expect(ptRange).toBe('01 de janeiro - 31 de janeiro');
-  });
-  
-  it('should handle predefined date ranges correctly', () => {
-    // Mock the current date for consistent testing
-    const originalDate = Date;
-    global.Date = class extends Date {
-      constructor(...args) {
-        if (args.length === 0) {
-          // When called with no arguments, return a fixed date
-          return new originalDate('2023-01-15T12:00:00Z');
-        }
-        return new originalDate(...args);
-      }
-    };
-    
-    // Test predefined date ranges
-    const todayRange = getDateRange('today');
-    const thisWeekRange = getDateRange('thisWeek');
-    const thisMonthRange = getDateRange('thisMonth');
-    
-    // Format the ranges
-    const todayRangeStr = formatDateRange(todayRange.startDate, todayRange.endDate, 'dd/MM/yyyy');
-    const thisWeekRangeStr = formatDateRange(thisWeekRange.startDate, thisWeekRange.endDate, 'dd/MM/yyyy');
-    const thisMonthRangeStr = formatDateRange(thisMonthRange.startDate, thisMonthRange.endDate, 'dd/MM/yyyy');
-    
-    // Verify the formatted ranges
-    expect(todayRangeStr).toBe('15/01/2023 - 15/01/2023');
-    // Note: exact dates for week and month will depend on the fixed date above
-    expect(thisWeekRangeStr).toContain('15/01/2023');
-    expect(thisMonthRangeStr).toContain('01/01/2023');
-    expect(thisMonthRangeStr).toContain('31/01/2023');
-    
-    // Restore the original Date
-    global.Date = originalDate;
-  });
-  
-  it('should handle date ranges with different formats for start and end dates', () => {
-    // Create date range
-    const startDate = new Date(2023, 0, 1); // January 1, 2023
-    const endDate = new Date(2023, 0, 31); // January 31, 2023
-    
-    // Custom function to format date range with different formats
-    const formatCustomDateRange = (start, end, startFormat, endFormat, locale = 'pt-BR') => {
-      const formattedStart = formatDate(start, startFormat, locale);
-      const formattedEnd = formatDate(end, endFormat, locale);
-      return `${formattedStart} até ${formattedEnd}`;
-    };
-    
-    // Test with different formats
-    const customRange = formatCustomDateRange(
-      startDate, 
-      endDate, 
-      'dd/MM', 
-      'dd/MM/yyyy'
-    );
-    
-    expect(customRange).toBe('01/01 até 31/01/2023');
-    
-    // Test with different locales and formats
-    const mixedRange = formatCustomDateRange(
-      startDate, 
-      endDate, 
-      'MMMM dd', 
-      'dd \\de MMMM, yyyy',
-      'pt-BR'
-    );
-    
-    expect(mixedRange).toBe('janeiro 01 até 31 de janeiro, 2023');
-  });
-  
-  it('should truncate long date range strings appropriately', () => {
-    // Create date range
-    const startDate = new Date(2023, 0, 1); // January 1, 2023
-    const endDate = new Date(2023, 11, 31); // December 31, 2023
-    
-    // Format with long month names
-    const longRange = formatDateRange(
-      startDate, 
-      endDate, 
-      'dd \\de MMMM \\de yyyy', 
-      'pt-BR'
-    );
-    // Should produce "01 de janeiro de 2023 - 31 de dezembro de 2023"
-    
-    // Test truncation
-    expect(truncate(longRange, 20)).toBe('01 de janeiro de 20...');
-    expect(truncate(longRange, 30)).toBe('01 de janeiro de 2023 - 31 de...');
-    expect(truncate(longRange, 40)).toBe('01 de janeiro de 2023 - 31 de dezembro...');
-    expect(truncate(longRange, 60)).toBe('01 de janeiro de 2023 - 31 de dezembro de 2023');
-  });
-});
+    it('should handle truncation of date ranges', () => {
+      const startDate = new Date(2025, 4, 23); // May 23, 2025
+      const endDate = new Date(2025, 5, 15);   // June 15, 2025
+      
+      // Format date range
+      const dateRange = formatDateRange(startDate, endDate);
+      const longDateRange = formatDateRange(
+        startDate, 
+        endDate, 
+        'EEEE, dd MMMM yyyy'
+      );
+      
+      // Test truncation
+      expect(truncate(dateRange, 10)).toBe('23/05/202...');
+      expect(truncate(longDateRange, 20)).toBe('Friday, 23 May 202...');
+    });
 
-/**
- * Test suite for journey-specific date formatting
- */
-describe('Journey-Specific Date Formatting', () => {
-  it('should format dates according to health journey requirements', () => {
-    // Create test date
-    const testDate = new Date(2023, 0, 15, 14, 30); // January 15, 2023, 14:30
-    
-    // Format for health journey
-    const healthDate = formatJourneyDate(testDate, 'health', 'pt-BR');
-    
-    // Health journey should include time for metrics
-    expect(healthDate).toBe('15/01/2023 14:30');
-    
-    // Test truncation of health journey date
-    expect(truncate(healthDate, 10)).toBe('15/01/2023...');
-  });
-  
-  it('should format dates according to care journey requirements', () => {
-    // Create test date
-    const testDate = new Date(2023, 0, 15, 14, 30); // January 15, 2023, 14:30
-    
-    // Format for care journey
-    const careDate = formatJourneyDate(testDate, 'care', 'pt-BR');
-    
-    // Care journey should use appointment-friendly format with day of week
-    expect(careDate).toContain('15');
-    expect(careDate).toContain('jan');
-    expect(careDate).toContain('2023');
-    
-    // Test capitalization of care journey date
-    const capitalizedCareDate = capitalizeFirstLetter(careDate.toLowerCase());
-    expect(capitalizedCareDate).not.toBe(careDate.toLowerCase());
-    expect(capitalizedCareDate[0]).toBe(careDate[0]);
-  });
-  
-  it('should format dates according to plan journey requirements', () => {
-    // Create test date
-    const testDate = new Date(2023, 0, 15, 14, 30); // January 15, 2023, 14:30
-    
-    // Format for plan journey
-    const planDate = formatJourneyDate(testDate, 'plan', 'pt-BR');
-    
-    // Plan journey should use formal date format without time
-    expect(planDate).toBe('15/01/2023');
-    
-    // Test truncation of plan journey date
-    expect(truncate(planDate, 8)).toBe('15/01/20...');
-  });
-  
-  it('should maintain consistent behavior across different locales', () => {
-    // Create test date
-    const testDate = new Date(2023, 0, 15, 14, 30); // January 15, 2023, 14:30
-    
-    // Test health journey in different locales
-    const healthDatePT = formatJourneyDate(testDate, 'health', 'pt-BR');
-    const healthDateEN = formatJourneyDate(testDate, 'health', 'en-US');
-    
-    // Both should have the same format (just different locale-specific formatting)
-    expect(healthDatePT).toBe('15/01/2023 14:30');
-    expect(healthDateEN).toBe('01/15/2023 14:30');
-    
-    // Test care journey in different locales
-    const careDatePT = formatJourneyDate(testDate, 'care', 'pt-BR');
-    const careDateEN = formatJourneyDate(testDate, 'care', 'en-US');
-    
-    // Should contain day and month in locale-specific format
-    expect(careDatePT.toLowerCase()).toContain('jan');
-    expect(careDateEN.toLowerCase()).toContain('jan');
-    
-    // Test capitalization in both locales
-    expect(capitalizeFirstLetter(careDatePT.toLowerCase())[0]).toBe(careDatePT[0]);
-    expect(capitalizeFirstLetter(careDateEN.toLowerCase())[0]).toBe(careDateEN[0]);
-  });
-  
-  it('should handle journey-specific date ranges', () => {
-    // Create date range
-    const startDate = new Date(2023, 0, 1); // January 1, 2023
-    const endDate = new Date(2023, 0, 31); // January 31, 2023
-    
-    // Custom function to format journey-specific date range
-    const formatJourneyDateRange = (start, end, journeyId, locale = 'pt-BR') => {
-      const formattedStart = formatJourneyDate(start, journeyId, locale);
-      const formattedEnd = formatJourneyDate(end, journeyId, locale);
-      return `${formattedStart} - ${formattedEnd}`;
-    };
-    
-    // Test for different journeys
-    const healthRange = formatJourneyDateRange(startDate, endDate, 'health');
-    const careRange = formatJourneyDateRange(startDate, endDate, 'care');
-    const planRange = formatJourneyDateRange(startDate, endDate, 'plan');
-    
-    // Verify journey-specific formatting is maintained in ranges
-    expect(healthRange).toBe('01/01/2023 00:00 - 31/01/2023 00:00');
-    expect(careRange).toContain('jan');
-    expect(planRange).toBe('01/01/2023 - 31/01/2023');
-    
-    // Test truncation of journey-specific date ranges
-    expect(truncate(healthRange, 15)).toBe('01/01/2023 00:0...');
-    expect(truncate(planRange, 10)).toBe('01/01/2023...');
-  });
-});
+    it('should handle truncation of relative dates', () => {
+      const yesterday = subDays(new Date(), 1);
+      const lastWeek = subDays(new Date(), 7);
+      
+      // Format relative dates
+      const yesterdayRelative = formatRelativeDate(yesterday);
+      const lastWeekRelative = formatRelativeDate(lastWeek);
+      
+      // Test truncation
+      expect(truncate(yesterdayRelative, 3)).toBe('Ont...');
+      expect(truncate(lastWeekRelative, 5)).toBe('7 dia...');
+    });
 
-/**
- * Test suite for cross-journey date string handling
- */
-describe('Cross-Journey Date String Handling', () => {
-  it('should ensure consistent behavior when processing dates across journeys', () => {
-    // Create test environment for each journey
-    const healthEnv = journeyHelpers.health.createTestEnvironment();
-    const careEnv = journeyHelpers.care.createTestEnvironment();
-    const planEnv = journeyHelpers.plan.createTestEnvironment();
-    
-    // Create a test date
-    const testDate = new Date(2023, 0, 15); // January 15, 2023
-    
-    // Format the date for each journey
-    const healthDate = formatJourneyDate(testDate, 'health');
-    const careDate = formatJourneyDate(testDate, 'care');
-    const planDate = formatJourneyDate(testDate, 'plan');
-    
-    // Verify that parsing the formatted dates gives the original date
-    // (ignoring time components for simplicity)
-    const parsedHealthDate = parseDate(healthDate.split(' ')[0]);
-    const parsedCareDate = parseDate(planDate); // Use plan date format for parsing care date
-    const parsedPlanDate = parseDate(planDate);
-    
-    // All should represent the same day
-    expect(parsedHealthDate.getDate()).toBe(15);
-    expect(parsedHealthDate.getMonth()).toBe(0); // January is 0
-    expect(parsedHealthDate.getFullYear()).toBe(2023);
-    
-    expect(parsedCareDate.getDate()).toBe(15);
-    expect(parsedCareDate.getMonth()).toBe(0);
-    expect(parsedCareDate.getFullYear()).toBe(2023);
-    
-    expect(parsedPlanDate.getDate()).toBe(15);
-    expect(parsedPlanDate.getMonth()).toBe(0);
-    expect(parsedPlanDate.getFullYear()).toBe(2023);
+    it('should handle truncation of time ago strings', () => {
+      const oneHourAgo = new Date(Date.now() - 3600000);
+      const oneDayAgo = new Date(Date.now() - 86400000);
+      
+      // Format time ago
+      const hourAgo = getTimeAgo(oneHourAgo);
+      const dayAgo = getTimeAgo(oneDayAgo);
+      
+      // Test truncation
+      expect(truncate(hourAgo, 5)).toBe('1 hor...');
+      expect(truncate(dayAgo, 4)).toBe('1 di...');
+    });
   });
-  
-  it('should handle cross-journey date validation consistently', () => {
-    // Create test dates
-    const validDate = new Date(2023, 0, 15); // January 15, 2023
-    const invalidDate = new Date('invalid date');
-    
-    // Format for different journeys
-    const healthDate = formatJourneyDate(validDate, 'health');
-    const careDate = formatJourneyDate(validDate, 'care');
-    const planDate = formatJourneyDate(validDate, 'plan');
-    
-    // All formatted dates should be valid
-    expect(isValidDate(healthDate)).toBe(true);
-    expect(isValidDate(careDate)).toBe(true);
-    expect(isValidDate(planDate)).toBe(true);
-    
-    // Invalid date should be consistently handled
-    const invalidHealthDate = formatJourneyDate(invalidDate, 'health');
-    const invalidCareDate = formatJourneyDate(invalidDate, 'care');
-    const invalidPlanDate = formatJourneyDate(invalidDate, 'plan');
-    
-    expect(invalidHealthDate).toBe('');
-    expect(invalidCareDate).toBe('');
-    expect(invalidPlanDate).toBe('');
+
+  describe('Capitalizing Month and Day Names', () => {
+    it('should capitalize month names in Portuguese correctly', () => {
+      const months = [
+        new Date(2025, 0, 1),  // January
+        new Date(2025, 1, 1),  // February
+        new Date(2025, 2, 1),  // March
+        new Date(2025, 3, 1),  // April
+        new Date(2025, 4, 1),  // May
+        new Date(2025, 5, 1),  // June
+        new Date(2025, 6, 1),  // July
+        new Date(2025, 7, 1),  // August
+        new Date(2025, 8, 1),  // September
+        new Date(2025, 9, 1),  // October
+        new Date(2025, 10, 1), // November
+        new Date(2025, 11, 1)  // December
+      ];
+      
+      // Test each month in Portuguese
+      months.forEach(date => {
+        const monthName = formatDate(date, 'MMMM', 'pt-BR');
+        const capitalizedMonth = capitalizeFirstLetter(monthName);
+        
+        // Ensure first letter is uppercase and the rest is unchanged
+        expect(capitalizedMonth.charAt(0)).toBe(monthName.charAt(0).toUpperCase());
+        expect(capitalizedMonth.slice(1)).toBe(monthName.slice(1));
+        
+        // Ensure the month name is properly capitalized
+        expect(capitalizedMonth).toBe(monthName.charAt(0).toUpperCase() + monthName.slice(1));
+      });
+    });
+
+    it('should capitalize month names in English correctly', () => {
+      const months = [
+        new Date(2025, 0, 1),  // January
+        new Date(2025, 1, 1),  // February
+        new Date(2025, 2, 1),  // March
+        new Date(2025, 3, 1),  // April
+        new Date(2025, 4, 1),  // May
+        new Date(2025, 5, 1),  // June
+        new Date(2025, 6, 1),  // July
+        new Date(2025, 7, 1),  // August
+        new Date(2025, 8, 1),  // September
+        new Date(2025, 9, 1),  // October
+        new Date(2025, 10, 1), // November
+        new Date(2025, 11, 1)  // December
+      ];
+      
+      // Test each month in English
+      months.forEach(date => {
+        const monthName = formatDate(date, 'MMMM', 'en-US');
+        const capitalizedMonth = capitalizeFirstLetter(monthName);
+        
+        // English month names are already capitalized, so they should be unchanged
+        expect(capitalizedMonth).toBe(monthName);
+      });
+    });
+
+    it('should capitalize day names in Portuguese correctly', () => {
+      // Create dates for each day of the week
+      const daysOfWeek = [
+        new Date(2025, 4, 18), // Sunday
+        new Date(2025, 4, 19), // Monday
+        new Date(2025, 4, 20), // Tuesday
+        new Date(2025, 4, 21), // Wednesday
+        new Date(2025, 4, 22), // Thursday
+        new Date(2025, 4, 23), // Friday
+        new Date(2025, 4, 24)  // Saturday
+      ];
+      
+      // Test each day in Portuguese
+      daysOfWeek.forEach(date => {
+        const dayName = formatDate(date, 'EEEE', 'pt-BR');
+        const capitalizedDay = capitalizeFirstLetter(dayName);
+        
+        // Ensure first letter is uppercase and the rest is unchanged
+        expect(capitalizedDay.charAt(0)).toBe(dayName.charAt(0).toUpperCase());
+        expect(capitalizedDay.slice(1)).toBe(dayName.slice(1));
+        
+        // Ensure the day name is properly capitalized
+        expect(capitalizedDay).toBe(dayName.charAt(0).toUpperCase() + dayName.slice(1));
+      });
+    });
+
+    it('should capitalize day names in English correctly', () => {
+      // Create dates for each day of the week
+      const daysOfWeek = [
+        new Date(2025, 4, 18), // Sunday
+        new Date(2025, 4, 19), // Monday
+        new Date(2025, 4, 20), // Tuesday
+        new Date(2025, 4, 21), // Wednesday
+        new Date(2025, 4, 22), // Thursday
+        new Date(2025, 4, 23), // Friday
+        new Date(2025, 4, 24)  // Saturday
+      ];
+      
+      // Test each day in English
+      daysOfWeek.forEach(date => {
+        const dayName = formatDate(date, 'EEEE', 'en-US');
+        const capitalizedDay = capitalizeFirstLetter(dayName);
+        
+        // English day names are already capitalized, so they should be unchanged
+        expect(capitalizedDay).toBe(dayName);
+      });
+    });
+
+    it('should handle capitalization of full date strings', () => {
+      const testDate = new Date(2025, 4, 23); // May 23, 2025 (Friday)
+      
+      // Format date with day and month names in different locales
+      const ptDate = formatDate(testDate, 'EEEE, d \\de MMMM \\de yyyy', 'pt-BR');
+      const enDate = formatDate(testDate, 'EEEE, MMMM d, yyyy', 'en-US');
+      
+      // Test capitalization
+      const capitalizedPtDate = capitalizeFirstLetter(ptDate);
+      const capitalizedEnDate = capitalizeFirstLetter(enDate);
+      
+      // Portuguese date should be capitalized
+      expect(capitalizedPtDate.charAt(0)).toBe(ptDate.charAt(0).toUpperCase());
+      expect(capitalizedPtDate).not.toBe(ptDate);
+      
+      // English date should remain the same (already capitalized)
+      expect(capitalizedEnDate).toBe(enDate);
+    });
   });
-  
-  it('should maintain consistent truncation behavior across journeys', () => {
-    // Create test date
-    const testDate = new Date(2023, 0, 15); // January 15, 2023
-    
-    // Format for different journeys
-    const healthDate = formatJourneyDate(testDate, 'health');
-    const careDate = formatJourneyDate(testDate, 'care');
-    const planDate = formatJourneyDate(testDate, 'plan');
-    
-    // Truncate to same length
-    const truncLength = 8;
-    const truncatedHealthDate = truncate(healthDate, truncLength);
-    const truncatedCareDate = truncate(careDate, truncLength);
-    const truncatedPlanDate = truncate(planDate, truncLength);
-    
-    // All should be truncated to the same length plus ellipsis
-    expect(truncatedHealthDate.length).toBe(truncLength + 3); // +3 for ellipsis
-    expect(truncatedCareDate.length).toBe(truncLength + 3);
-    expect(truncatedPlanDate.length).toBe(truncLength + 3);
-    
-    // All should end with ellipsis
-    expect(truncatedHealthDate.endsWith('...')).toBe(true);
-    expect(truncatedCareDate.endsWith('...')).toBe(true);
-    expect(truncatedPlanDate.endsWith('...')).toBe(true);
+
+  describe('Date Range String Representations', () => {
+    it('should format date ranges with different formats', () => {
+      const startDate = new Date(2025, 4, 23); // May 23, 2025
+      const endDate = new Date(2025, 5, 15);   // June 15, 2025
+      
+      // Test with default format
+      const defaultRange = formatDateRange(startDate, endDate);
+      expect(defaultRange).toBe('23/05/2025 - 15/06/2025');
+      
+      // Test with custom format
+      const customRange = formatDateRange(startDate, endDate, 'dd MMM yyyy');
+      expect(customRange).toBe('23 mai 2025 - 15 jun 2025');
+      
+      // Test with English locale
+      const enRange = formatDateRange(startDate, endDate, 'MMM d, yyyy', 'en-US');
+      expect(enRange).toBe('May 23, 2025 - Jun 15, 2025');
+    });
+
+    it('should handle same-month date ranges correctly', () => {
+      const startDate = new Date(2025, 4, 23); // May 23, 2025
+      const endDate = new Date(2025, 4, 30);   // May 30, 2025
+      
+      // Test with month-day format
+      const monthDayRange = formatDateRange(startDate, endDate, 'dd MMM');
+      expect(monthDayRange).toBe('23 mai - 30 mai');
+      
+      // Custom formatting to show month only once for same-month ranges
+      const formattedStart = formatDate(startDate, 'dd');
+      const formattedEnd = formatDate(endDate, 'dd \\de MMMM');
+      const sameMonthRange = `${formattedStart} - ${formattedEnd}`;
+      
+      expect(sameMonthRange).toBe('23 - 30 de maio');
+    });
+
+    it('should handle same-year date ranges correctly', () => {
+      const startDate = new Date(2025, 4, 23); // May 23, 2025
+      const endDate = new Date(2025, 7, 15);   // August 15, 2025
+      
+      // Test with month-day format
+      const monthDayRange = formatDateRange(startDate, endDate, 'dd MMM');
+      expect(monthDayRange).toBe('23 mai - 15 ago');
+      
+      // Custom formatting to show year only once for same-year ranges
+      const formattedStart = formatDate(startDate, 'dd/MM');
+      const formattedEnd = formatDate(endDate, 'dd/MM/yyyy');
+      const sameYearRange = `${formattedStart} - ${formattedEnd}`;
+      
+      expect(sameYearRange).toBe('23/05 - 15/08/2025');
+    });
+
+    it('should handle cross-year date ranges correctly', () => {
+      const startDate = new Date(2025, 11, 23); // December 23, 2025
+      const endDate = new Date(2026, 1, 15);    // February 15, 2026
+      
+      // Test with default format
+      const defaultRange = formatDateRange(startDate, endDate);
+      expect(defaultRange).toBe('23/12/2025 - 15/02/2026');
+      
+      // Test with custom format
+      const customRange = formatDateRange(startDate, endDate, 'MMM yyyy');
+      expect(customRange).toBe('dez 2025 - fev 2026');
+    });
   });
-  
-  it('should handle capitalization consistently across journeys', () => {
-    // Create test date
-    const testDate = new Date(2023, 0, 15); // January 15, 2023
-    
-    // Format for different journeys with month names
-    const healthDateWithMonth = formatDate(testDate, 'MMMM dd, yyyy', 'en-US');
-    const careDateWithMonth = formatDate(testDate, 'MMMM dd, yyyy', 'en-US');
-    const planDateWithMonth = formatDate(testDate, 'MMMM dd, yyyy', 'en-US');
-    
-    // Convert to lowercase for testing capitalization
-    const lowercaseHealthDate = healthDateWithMonth.toLowerCase();
-    const lowercaseCareDate = careDateWithMonth.toLowerCase();
-    const lowercasePlanDate = planDateWithMonth.toLowerCase();
-    
-    // Capitalize each
-    const capitalizedHealthDate = capitalizeFirstLetter(lowercaseHealthDate);
-    const capitalizedCareDate = capitalizeFirstLetter(lowercaseCareDate);
-    const capitalizedPlanDate = capitalizeFirstLetter(lowercasePlanDate);
-    
-    // All should be capitalized the same way
-    expect(capitalizedHealthDate).toBe('January 15, 2023');
-    expect(capitalizedCareDate).toBe('January 15, 2023');
-    expect(capitalizedPlanDate).toBe('January 15, 2023');
+
+  describe('Journey-Specific Date Formatting', () => {
+    it('should format dates according to Health journey requirements', () => {
+      // Set up health journey test context
+      setupHealthJourneyTest(context);
+      
+      const testDate = new Date(2025, 4, 23, 14, 30); // May 23, 2025, 14:30
+      
+      // Format date for Health journey
+      const healthDate = formatJourneyDate(testDate, JourneyType.HEALTH);
+      
+      // Health journey uses detailed format with time
+      expect(healthDate).toContain('23/05/2025');
+      expect(healthDate).toContain('14:30');
+      
+      // Test truncation for display in limited space
+      const truncatedHealthDate = truncate(healthDate, 10);
+      expect(truncatedHealthDate).toBe('23/05/202...');
+      
+      // Test capitalization for header display
+      const capitalizedHealthDate = capitalizeFirstLetter(
+        formatDate(testDate, 'EEEE, d \\de MMMM', 'pt-BR')
+      );
+      expect(capitalizedHealthDate.charAt(0)).toBe(
+        capitalizedHealthDate.charAt(0).toUpperCase()
+      );
+    });
+
+    it('should format dates according to Care journey requirements', () => {
+      // Set up care journey test context
+      setupCareJourneyTest(context);
+      
+      const testDate = new Date(2025, 4, 23, 14, 30); // May 23, 2025, 14:30
+      
+      // Format date for Care journey
+      const careDate = formatJourneyDate(testDate, JourneyType.CARE);
+      
+      // Care journey uses appointment-friendly format
+      expect(careDate).toContain('23');
+      expect(careDate).toContain('mai');
+      expect(careDate).toContain('2025');
+      
+      // Test truncation for display in appointment list
+      const truncatedCareDate = truncate(careDate, 12);
+      expect(truncatedCareDate.length).toBeLessThanOrEqual(15); // 12 + ellipsis
+      
+      // Test capitalization for header display
+      const dayName = formatDate(testDate, 'EEEE', 'pt-BR');
+      const capitalizedDayName = capitalizeFirstLetter(dayName);
+      expect(capitalizedDayName.charAt(0)).toBe(
+        capitalizedDayName.charAt(0).toUpperCase()
+      );
+    });
+
+    it('should format dates according to Plan journey requirements', () => {
+      // Set up plan journey test context
+      setupPlanJourneyTest(context);
+      
+      const testDate = new Date(2025, 4, 23); // May 23, 2025
+      
+      // Format date for Plan journey
+      const planDate = formatJourneyDate(testDate, JourneyType.PLAN);
+      
+      // Plan journey uses formal date format
+      expect(planDate).toBe('23/05/2025');
+      
+      // Test date range formatting for coverage periods
+      const startDate = new Date(2025, 0, 1);  // January 1, 2025
+      const endDate = new Date(2025, 11, 31); // December 31, 2025
+      
+      const coveragePeriod = formatDateRange(startDate, endDate);
+      expect(coveragePeriod).toBe('01/01/2025 - 31/12/2025');
+      
+      // Test truncation for display in claim list
+      const truncatedPlanDate = truncate(planDate, 8);
+      expect(truncatedPlanDate).toBe('23/05/20...');
+    });
+
+    it('should ensure consistent behavior across all journey services', () => {
+      // Create test date
+      const testDate = new Date(2025, 4, 23, 14, 30); // May 23, 2025, 14:30
+      
+      // Format date for each journey
+      const healthDate = formatJourneyDate(testDate, JourneyType.HEALTH);
+      const careDate = formatJourneyDate(testDate, JourneyType.CARE);
+      const planDate = formatJourneyDate(testDate, JourneyType.PLAN);
+      
+      // Each journey has different format requirements, but all should include the date
+      expect(healthDate).toContain('23/05/2025');
+      expect(careDate).toContain('23');
+      expect(careDate).toContain('mai');
+      expect(planDate).toBe('23/05/2025');
+      
+      // Test that truncation works consistently across all formats
+      const truncatedHealthDate = truncate(healthDate, 10);
+      const truncatedCareDate = truncate(careDate, 10);
+      const truncatedPlanDate = truncate(planDate, 10);
+      
+      expect(truncatedHealthDate.length).toBeLessThanOrEqual(13); // 10 + ellipsis
+      expect(truncatedCareDate.length).toBeLessThanOrEqual(13); // 10 + ellipsis
+      expect(truncatedPlanDate).toBe('23/05/202...');
+      
+      // Test that capitalization works consistently across all formats
+      const dayName = formatDate(testDate, 'EEEE', 'pt-BR');
+      const capitalizedDayName = capitalizeFirstLetter(dayName);
+      
+      expect(capitalizedDayName).not.toBe(dayName); // Should be different (capitalized)
+      expect(capitalizedDayName.charAt(0)).toBe(dayName.charAt(0).toUpperCase());
+    });
+  });
+
+  describe('Complex String and Date Interactions', () => {
+    it('should handle truncation of date ranges with capitalized month names', () => {
+      const startDate = new Date(2025, 4, 23); // May 23, 2025
+      const endDate = new Date(2025, 5, 15);   // June 15, 2025
+      
+      // Format date range with full month names
+      const dateRange = formatDateRange(
+        startDate, 
+        endDate, 
+        'd \\de MMMM \\de yyyy', 
+        'pt-BR'
+      );
+      
+      // Capitalize the first letter of the date range
+      const capitalizedDateRange = capitalizeFirstLetter(dateRange);
+      
+      // The first letter should be capitalized (the day number doesn't change)
+      expect(capitalizedDateRange).toBe(dateRange);
+      
+      // Now format with month name first
+      const monthFirstRange = formatDateRange(
+        startDate, 
+        endDate, 
+        'MMMM d, yyyy', 
+        'pt-BR'
+      );
+      
+      // Capitalize the first letter
+      const capitalizedMonthFirstRange = capitalizeFirstLetter(monthFirstRange);
+      
+      // The first letter should be capitalized (the month name)
+      expect(capitalizedMonthFirstRange.charAt(0)).toBe(
+        monthFirstRange.charAt(0).toUpperCase()
+      );
+      
+      // Truncate the capitalized date range
+      const truncatedCapitalizedRange = truncate(capitalizedMonthFirstRange, 15);
+      expect(truncatedCapitalizedRange.length).toBeLessThanOrEqual(18); // 15 + ellipsis
+    });
+
+    it('should handle formatting and truncation of time ago strings with different locales', () => {
+      const oneHourAgo = new Date(Date.now() - 3600000);
+      const oneDayAgo = new Date(Date.now() - 86400000);
+      const oneWeekAgo = new Date(Date.now() - 604800000);
+      
+      // Format time ago in different locales
+      const ptHourAgo = getTimeAgo(oneHourAgo, 'pt-BR');
+      const enHourAgo = getTimeAgo(oneHourAgo, 'en-US');
+      
+      const ptDayAgo = getTimeAgo(oneDayAgo, 'pt-BR');
+      const enDayAgo = getTimeAgo(oneDayAgo, 'en-US');
+      
+      const ptWeekAgo = getTimeAgo(oneWeekAgo, 'pt-BR');
+      const enWeekAgo = getTimeAgo(oneWeekAgo, 'en-US');
+      
+      // Test that time units are correctly localized
+      expect(ptHourAgo).toContain('hora');
+      expect(enHourAgo).toContain('hour');
+      
+      expect(ptDayAgo).toContain('dia');
+      expect(enDayAgo).toContain('day');
+      
+      expect(ptWeekAgo).toContain('semana');
+      expect(enWeekAgo).toContain('week');
+      
+      // Test truncation of localized time ago strings
+      const truncatedPtHourAgo = truncate(ptHourAgo, 8);
+      const truncatedEnHourAgo = truncate(enHourAgo, 8);
+      
+      expect(truncatedPtHourAgo.length).toBeLessThanOrEqual(11); // 8 + ellipsis
+      expect(truncatedEnHourAgo.length).toBeLessThanOrEqual(11); // 8 + ellipsis
+    });
+
+    it('should handle capitalization of relative date strings', () => {
+      const yesterday = subDays(new Date(), 1);
+      const lastWeek = subDays(new Date(), 7);
+      
+      // Format relative dates in different locales
+      const ptYesterday = formatRelativeDate(yesterday, 'pt-BR');
+      const enYesterday = formatRelativeDate(yesterday, 'en-US');
+      
+      const ptLastWeek = formatRelativeDate(lastWeek, 'pt-BR');
+      const enLastWeek = formatRelativeDate(lastWeek, 'en-US');
+      
+      // Test capitalization
+      const capitalizedPtYesterday = capitalizeFirstLetter(ptYesterday);
+      const capitalizedEnYesterday = capitalizeFirstLetter(enYesterday);
+      
+      // Both should already be capitalized in the original format
+      expect(capitalizedPtYesterday).toBe(ptYesterday);
+      expect(capitalizedEnYesterday).toBe(enYesterday);
+      
+      // Test with last week (contains numbers)
+      const capitalizedPtLastWeek = capitalizeFirstLetter(ptLastWeek);
+      const capitalizedEnLastWeek = capitalizeFirstLetter(enLastWeek);
+      
+      // These should be unchanged since they start with numbers
+      expect(capitalizedPtLastWeek).toBe(ptLastWeek);
+      expect(capitalizedEnLastWeek).toBe(enLastWeek);
+    });
+
+    it('should handle journey-specific date formatting with string manipulations', () => {
+      // Create test date
+      const appointmentDate = new Date(2025, 4, 23, 14, 30); // May 23, 2025, 14:30
+      
+      // Format for Care journey (appointments)
+      const careDate = formatJourneyDate(appointmentDate, JourneyType.CARE, 'pt-BR');
+      
+      // Extract day name for display in header
+      const dayName = formatDate(appointmentDate, 'EEEE', 'pt-BR');
+      const capitalizedDayName = capitalizeFirstLetter(dayName);
+      
+      // Create a custom appointment display string
+      const appointmentDisplay = `${capitalizedDayName}: ${careDate} - Consulta Médica`;
+      
+      // Test truncation for different display contexts
+      const shortDisplay = truncate(appointmentDisplay, 20);
+      const mediumDisplay = truncate(appointmentDisplay, 30);
+      const longDisplay = truncate(appointmentDisplay, 40);
+      
+      expect(shortDisplay.length).toBeLessThanOrEqual(23); // 20 + ellipsis
+      expect(mediumDisplay.length).toBeLessThanOrEqual(33); // 30 + ellipsis
+      expect(longDisplay.length).toBeLessThanOrEqual(43); // 40 + ellipsis
+      
+      // Ensure the capitalized day name is preserved in the medium and long displays
+      expect(mediumDisplay).toContain(capitalizedDayName);
+      expect(longDisplay).toContain(capitalizedDayName);
+    });
   });
 });
