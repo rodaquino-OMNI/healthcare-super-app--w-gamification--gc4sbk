@@ -1,253 +1,615 @@
 /**
- * @file Email validation test fixtures for the AUSTA SuperApp
- * 
- * This file provides comprehensive test fixtures for email address validation,
- * including valid emails with various formats, invalid emails with syntax errors,
- * and edge cases. These fixtures are essential for testing email validation functions
- * across all user registration, profile management, and communication workflows.
- * 
- * The fixtures are organized into categories to support different testing scenarios
- * and are exported both individually and as grouped collections.
+ * @file Email Validation Test Fixtures
+ * @description Provides comprehensive test fixtures for email address validation across the AUSTA SuperApp.
+ * These fixtures include valid emails with various formats, invalid emails with syntax errors, and edge cases.
+ * Used for testing email validation functions in user registration, profile management, and communication workflows.
+ *
+ * @module @austa/utils/test/fixtures/validation/email
  */
 
 /**
- * Interface for email validation test case with optional description
+ * Interface for email validation test fixtures
  */
-export interface EmailTestCase {
+export interface EmailFixture {
   /** The email address to test */
   email: string;
-  /** Optional description explaining the test case */
-  description?: string;
+  /** Description of the test case */
+  description: string;
+  /** Whether the email should be considered valid */
+  valid: boolean;
+  /** Tags for categorizing test cases */
+  tags: EmailFixtureTag[];
 }
 
 /**
- * Simple valid email addresses with standard formats
+ * Tags for categorizing email test fixtures
  */
-export const simpleValidEmails: EmailTestCase[] = [
-  { email: 'user@example.com', description: 'Basic email format' },
-  { email: 'firstname.lastname@example.com', description: 'Email with dot in local part' },
-  { email: 'user123@example.com', description: 'Email with numbers in local part' },
-  { email: 'user-name@example.com', description: 'Email with hyphen in local part' },
-  { email: 'user_name@example.com', description: 'Email with underscore in local part' },
-  { email: 'firstname.lastname@example.co.uk', description: 'Email with multi-part TLD' },
-  { email: 'info@company-name.com', description: 'Email with hyphen in domain' },
-  { email: 'user@example.technology', description: 'Email with long TLD' },
-  { email: 'user@example.app', description: 'Email with modern TLD' },
-  { email: 'user.name+tag@example.com', description: 'Email with plus addressing' },
-];
+export type EmailFixtureTag = 
+  | 'standard'        // Standard email format
+  | 'complex'         // Complex email format with special characters
+  | 'international'   // International domain or characters
+  | 'subdomain'       // Contains subdomain(s)
+  | 'ip'              // IP address as domain
+  | 'quoted'          // Contains quoted sections
+  | 'syntax-error'    // Contains syntax errors
+  | 'domain-error'    // Domain-related errors
+  | 'length-error'    // Length-related errors
+  | 'character-error' // Invalid character errors
+  | 'brazilian'       // Brazilian domain
+  | 'edge-case';      // Unusual but technically valid format
 
 /**
- * Complex valid email addresses with advanced formats
+ * Collection of valid email addresses for testing
  */
-export const complexValidEmails: EmailTestCase[] = [
-  { email: 'very.unusual.@.unusual.com@example.com', description: 'Email with dots in unusual places' },
-  { email: 'user@subdomain.example.com', description: 'Email with subdomain' },
-  { email: 'user@123.example.com', description: 'Email with numeric subdomain' },
-  { email: '"much.more unusual"@example.com', description: 'Email with quoted local part containing spaces' },
-  { email: '"very.(),:;<>[]\".VERY.\"very@\\ \"very\".unusual"@strange.example.com', description: 'Email with special characters in quoted local part' },
-  { email: 'user+tag+sorting@example.com', description: 'Email with multiple plus tags' },
-  { email: 'user@[192.168.2.1]', description: 'Email with IP address as domain' },
-  { email: '"joe"@example.org', description: 'Email with quoted local part' },
-  { email: '#!$%&\'*+-/=?^_`{}|~@example.org', description: 'Email with special characters in local part' },
-  { email: 'user@localhost', description: 'Email with localhost domain' },
-];
-
-/**
- * Valid email addresses with international domain names
- */
-export const internationalValidEmails: EmailTestCase[] = [
-  { email: 'user@例子.世界', description: 'Email with Chinese IDN' },
-  { email: 'user@例子.测试', description: 'Email with Chinese IDN (test)' },
-  { email: 'user@xn--fsqu00a.xn--0zwm56d', description: 'Email with Punycode IDN (例子.测试)' },
-  { email: 'user@üñîçøðé.com', description: 'Email with Unicode characters in domain' },
-  { email: 'user@mañana.com', description: 'Email with Spanish character in domain' },
-  { email: 'user@españa.com', description: 'Email with Spanish domain' },
-  { email: 'user@рф.ru', description: 'Email with Cyrillic domain' },
-  { email: 'user@مثال.إختبار', description: 'Email with Arabic IDN' },
-  { email: 'user@例え.テスト', description: 'Email with Japanese IDN' },
-  { email: 'user@उदाहरण.परीक्षा', description: 'Email with Hindi IDN' },
-];
-
-/**
- * Edge case valid email addresses that test boundary conditions
- */
-export const edgeCaseValidEmails: EmailTestCase[] = [
-  { 
-    email: 'a@b.c', 
-    description: 'Minimal valid email (shortest possible)' 
+export const validEmails: EmailFixture[] = [
+  // Standard format emails
+  {
+    email: 'user@example.com',
+    description: 'Simple email with common domain',
+    valid: true,
+    tags: ['standard']
   },
-  { 
-    email: `${'a'.repeat(64)}@${'b'.repeat(63)}.com`, 
-    description: 'Email with maximum length local part (64 characters) and domain label (63 characters)' 
+  {
+    email: 'firstname.lastname@example.com',
+    description: 'Email with dot in local part',
+    valid: true,
+    tags: ['standard']
   },
-  { 
-    email: `user@${'a'.repeat(63)}.${'b'.repeat(63)}.${'c'.repeat(63)}.com`, 
-    description: 'Email with multiple maximum length domain labels' 
+  {
+    email: 'user123@example.com',
+    description: 'Email with numbers in local part',
+    valid: true,
+    tags: ['standard']
   },
-  { 
-    email: '0@0.0', 
-    description: 'Email with only numeric characters' 
+  {
+    email: 'user-name@example.com',
+    description: 'Email with hyphen in local part',
+    valid: true,
+    tags: ['standard']
   },
-  { 
-    email: 'user@domain.museum', 
-    description: 'Email with less common TLD' 
+  {
+    email: 'user_name@example.com',
+    description: 'Email with underscore in local part',
+    valid: true,
+    tags: ['standard']
   },
-  { 
-    email: 'user@domain.co.jp', 
-    description: 'Email with country-specific multi-part TLD' 
-  },
-  { 
-    email: 'user@domain.travel', 
-    description: 'Email with sponsored TLD' 
-  },
-  { 
-    email: 'user@domain.xn--fiqs8s', 
-    description: 'Email with Punycode TLD (中国)' 
-  },
-  { 
-    email: 'user@xn--80akhbyknj4f.xn--p1ai', 
-    description: 'Email with full Punycode domain' 
-  },
-  { 
-    email: 'user@[IPv6:2001:db8:85a3:8d3:1319:8a2e:370:7348]', 
-    description: 'Email with IPv6 address as domain' 
-  },
-];
-
-/**
- * Invalid email addresses with syntax errors
- */
-export const invalidEmails: EmailTestCase[] = [
-  { email: 'plainaddress', description: 'Missing @ symbol' },
-  { email: '@example.com', description: 'Missing local part' },
-  { email: 'user@', description: 'Missing domain' },
-  { email: 'user@.com', description: 'Missing domain part before dot' },
-  { email: 'user@example', description: 'Missing TLD' },
-  { email: 'user@example.', description: 'Domain ends with dot' },
-  { email: 'user@example..com', description: 'Consecutive dots in domain' },
-  { email: 'user@example.c', description: 'TLD too short (single character)' },
-  { email: 'user@example.toolongtld', description: 'TLD too long (more than 63 characters is invalid)' },
-  { email: 'user@-example.com', description: 'Domain starts with hyphen' },
-];
-
-/**
- * More invalid email addresses with format errors
- */
-export const moreInvalidEmails: EmailTestCase[] = [
-  { email: 'user@example@example.com', description: 'Multiple @ symbols' },
-  { email: 'user name@example.com', description: 'Space in local part (without quotes)' },
-  { email: 'user\name@example.com', description: 'Backslash in local part (without quotes)' },
-  { email: '.user@example.com', description: 'Local part starts with dot' },
-  { email: 'user.@example.com', description: 'Local part ends with dot' },
-  { email: 'user..name@example.com', description: 'Consecutive dots in local part' },
-  { email: 'user@example-.com', description: 'Domain part with trailing hyphen' },
-  { email: `${'a'.repeat(65)}@example.com`, description: 'Local part too long (>64 characters)' },
-  { email: `user@${'a'.repeat(64)}.com`, description: 'Domain label too long (>63 characters)' },
-  { email: 'user@[192.168.1.1', description: 'Unclosed bracket in domain' },
-];
-
-/**
- * Invalid email addresses that are commonly mistyped
- */
-export const commonlyMistypedEmails: EmailTestCase[] = [
-  { email: 'user@example,com', description: 'Comma instead of dot' },
-  { email: 'user@example;com', description: 'Semicolon instead of dot' },
-  { email: 'user@example:com', description: 'Colon instead of dot' },
-  { email: 'user@example com', description: 'Space instead of dot' },
-  { email: 'user@examplecom', description: 'Missing dot before TLD' },
-  { email: 'user@.example.com', description: 'Domain starts with dot' },
-  { email: 'user@example_com', description: 'Underscore instead of dot' },
-  { email: 'user@example.com.', description: 'Trailing dot' },
-  { email: 'user@example.co,m', description: 'Comma in TLD' },
-  { email: 'user@example.co m', description: 'Space in TLD' },
-];
-
-/**
- * All valid email test cases combined
- */
-export const validEmails: EmailTestCase[] = [
-  ...simpleValidEmails,
-  ...complexValidEmails,
-  ...internationalValidEmails,
-  ...edgeCaseValidEmails,
-];
-
-/**
- * All invalid email test cases combined
- */
-export const invalidEmailsAll: EmailTestCase[] = [
-  ...invalidEmails,
-  ...moreInvalidEmails,
-  ...commonlyMistypedEmails,
-];
-
-/**
- * Just the email strings from valid test cases (for simpler testing)
- */
-export const validEmailStrings: string[] = validEmails.map(testCase => testCase.email);
-
-/**
- * Just the email strings from invalid test cases (for simpler testing)
- */
-export const invalidEmailStrings: string[] = invalidEmailsAll.map(testCase => testCase.email);
-
-/**
- * Complete collection of email validation test fixtures
- */
-export const emailValidationFixtures = {
-  // Valid email collections
-  simpleValidEmails,
-  complexValidEmails,
-  internationalValidEmails,
-  edgeCaseValidEmails,
-  validEmails,
-  validEmailStrings,
   
-  // Invalid email collections
+  // Complex format emails
+  {
+    email: 'user+tag@example.com',
+    description: 'Email with plus addressing',
+    valid: true,
+    tags: ['complex']
+  },
+  {
+    email: 'user.name+tag@example.com',
+    description: 'Email with dot and plus addressing',
+    valid: true,
+    tags: ['complex']
+  },
+  {
+    email: '"user.name"@example.com',
+    description: 'Email with quoted local part containing dot',
+    valid: true,
+    tags: ['complex', 'quoted']
+  },
+  {
+    email: '"user@name"@example.com',
+    description: 'Email with quoted local part containing @ symbol',
+    valid: true,
+    tags: ['complex', 'quoted', 'edge-case']
+  },
+  {
+    email: '"very.unusual.@.unusual.com"@example.com',
+    description: 'Email with quoted local part containing multiple special characters',
+    valid: true,
+    tags: ['complex', 'quoted', 'edge-case']
+  },
+  
+  // Subdomain emails
+  {
+    email: 'user@subdomain.example.com',
+    description: 'Email with one subdomain',
+    valid: true,
+    tags: ['standard', 'subdomain']
+  },
+  {
+    email: 'user@sub.sub.example.com',
+    description: 'Email with multiple subdomains',
+    valid: true,
+    tags: ['complex', 'subdomain']
+  },
+  
+  // International domain emails
+  {
+    email: 'user@example.co.uk',
+    description: 'Email with UK domain',
+    valid: true,
+    tags: ['standard', 'international']
+  },
+  {
+    email: 'user@example.com.br',
+    description: 'Email with Brazilian domain',
+    valid: true,
+    tags: ['standard', 'international', 'brazilian']
+  },
+  {
+    email: 'user@xn--80akhbyknj4f.xn--p1ai',
+    description: 'Email with punycode domain (IDN)',
+    valid: true,
+    tags: ['international', 'edge-case']
+  },
+  {
+    email: 'user@example.рф',
+    description: 'Email with Cyrillic TLD',
+    valid: true,
+    tags: ['international', 'edge-case']
+  },
+  
+  // Brazilian specific emails
+  {
+    email: 'usuario@empresa.com.br',
+    description: 'Standard Brazilian commercial email',
+    valid: true,
+    tags: ['standard', 'brazilian']
+  },
+  {
+    email: 'aluno@universidade.edu.br',
+    description: 'Brazilian educational email',
+    valid: true,
+    tags: ['standard', 'brazilian']
+  },
+  {
+    email: 'funcionario@governo.gov.br',
+    description: 'Brazilian government email',
+    valid: true,
+    tags: ['standard', 'brazilian']
+  },
+  {
+    email: 'membro@organizacao.org.br',
+    description: 'Brazilian organization email',
+    valid: true,
+    tags: ['standard', 'brazilian']
+  },
+  {
+    email: 'usuario@dominio.br',
+    description: 'Simple Brazilian TLD email',
+    valid: true,
+    tags: ['standard', 'brazilian']
+  },
+  
+  // IP address domain emails
+  {
+    email: 'user@[192.168.1.1]',
+    description: 'Email with IPv4 address as domain',
+    valid: true,
+    tags: ['complex', 'ip', 'edge-case']
+  },
+  {
+    email: 'user@[IPv6:2001:db8::1]',
+    description: 'Email with IPv6 address as domain',
+    valid: true,
+    tags: ['complex', 'ip', 'edge-case']
+  },
+  
+  // Edge cases (unusual but valid)
+  {
+    email: '!#$%&\'*+-/=?^_`{|}~@example.com',
+    description: 'Email with all allowed special characters in local part',
+    valid: true,
+    tags: ['complex', 'edge-case']
+  },
+  {
+    email: 'user@example.museum',
+    description: 'Email with unusual TLD',
+    valid: true,
+    tags: ['standard', 'edge-case']
+  },
+  {
+    email: 'user@example.travel',
+    description: 'Email with unusual TLD',
+    valid: true,
+    tags: ['standard', 'edge-case']
+  },
+  {
+    email: 'a@b.c',
+    description: 'Minimal length valid email',
+    valid: true,
+    tags: ['edge-case']
+  }
+];
+
+/**
+ * Collection of invalid email addresses for testing
+ */
+export const invalidEmails: EmailFixture[] = [
+  // Missing components
+  {
+    email: 'userexample.com',
+    description: 'Missing @ symbol',
+    valid: false,
+    tags: ['syntax-error']
+  },
+  {
+    email: 'user@',
+    description: 'Missing domain',
+    valid: false,
+    tags: ['syntax-error', 'domain-error']
+  },
+  {
+    email: '@example.com',
+    description: 'Missing local part',
+    valid: false,
+    tags: ['syntax-error']
+  },
+  {
+    email: 'user@example',
+    description: 'Missing TLD',
+    valid: false,
+    tags: ['syntax-error', 'domain-error']
+  },
+  
+  // Multiple errors
+  {
+    email: 'user@example@domain.com',
+    description: 'Multiple @ symbols',
+    valid: false,
+    tags: ['syntax-error']
+  },
+  {
+    email: 'user..name@example.com',
+    description: 'Consecutive dots in local part',
+    valid: false,
+    tags: ['syntax-error']
+  },
+  {
+    email: 'user.@example.com',
+    description: 'Dot at end of local part',
+    valid: false,
+    tags: ['syntax-error']
+  },
+  {
+    email: '.user@example.com',
+    description: 'Dot at beginning of local part',
+    valid: false,
+    tags: ['syntax-error']
+  },
+  
+  // Invalid characters
+  {
+    email: 'user name@example.com',
+    description: 'Space in local part',
+    valid: false,
+    tags: ['syntax-error', 'character-error']
+  },
+  {
+    email: 'user\\name@example.com',
+    description: 'Backslash in local part',
+    valid: false,
+    tags: ['syntax-error', 'character-error']
+  },
+  {
+    email: 'user"name@example.com',
+    description: 'Unquoted double quote in local part',
+    valid: false,
+    tags: ['syntax-error', 'character-error']
+  },
+  {
+    email: 'user(comment)@example.com',
+    description: 'Unquoted parentheses in local part',
+    valid: false,
+    tags: ['syntax-error', 'character-error']
+  },
+  
+  // Domain errors
+  {
+    email: 'user@example..com',
+    description: 'Consecutive dots in domain',
+    valid: false,
+    tags: ['syntax-error', 'domain-error']
+  },
+  {
+    email: 'user@.example.com',
+    description: 'Dot at beginning of domain',
+    valid: false,
+    tags: ['syntax-error', 'domain-error']
+  },
+  {
+    email: 'user@example.com.',
+    description: 'Dot at end of domain',
+    valid: false,
+    tags: ['syntax-error', 'domain-error']
+  },
+  {
+    email: 'user@-example.com',
+    description: 'Hyphen at beginning of domain',
+    valid: false,
+    tags: ['syntax-error', 'domain-error']
+  },
+  {
+    email: 'user@example-.com',
+    description: 'Hyphen at end of domain part',
+    valid: false,
+    tags: ['syntax-error', 'domain-error']
+  },
+  
+  // Length errors
+  {
+    email: 'a'.repeat(65) + '@example.com',
+    description: 'Local part too long (>64 characters)',
+    valid: false,
+    tags: ['length-error']
+  },
+  {
+    email: 'user@' + 'a'.repeat(255) + '.com',
+    description: 'Domain too long (>255 characters)',
+    valid: false,
+    tags: ['length-error', 'domain-error']
+  },
+  {
+    email: 'user@example.' + 'a'.repeat(64),
+    description: 'TLD too long (>63 characters)',
+    valid: false,
+    tags: ['length-error', 'domain-error']
+  },
+  
+  // IP address errors
+  {
+    email: 'user@[192.168.1]',
+    description: 'Invalid IPv4 format',
+    valid: false,
+    tags: ['syntax-error', 'ip', 'domain-error']
+  },
+  {
+    email: 'user@[IPv6:2001:db8:1]',
+    description: 'Invalid IPv6 format',
+    valid: false,
+    tags: ['syntax-error', 'ip', 'domain-error']
+  },
+  
+  // Quoted string errors
+  {
+    email: '"user"name"@example.com',
+    description: 'Unescaped quotes in quoted local part',
+    valid: false,
+    tags: ['syntax-error', 'quoted', 'character-error']
+  },
+  {
+    email: '"user@example.com',
+    description: 'Unclosed quote in local part',
+    valid: false,
+    tags: ['syntax-error', 'quoted', 'character-error']
+  }
+];
+
+/**
+ * Collection of edge case email addresses for testing
+ * These are emails that might be technically valid according to RFC 5322,
+ * but might cause issues in some implementations or are generally not recommended.
+ */
+export const edgeCaseEmails: EmailFixture[] = [
+  {
+    email: '"quoted"@example.com',
+    description: 'Quoted local part',
+    valid: true,
+    tags: ['quoted', 'edge-case']
+  },
+  {
+    email: '"quoted.string"@example.com',
+    description: 'Quoted local part with dot',
+    valid: true,
+    tags: ['quoted', 'edge-case']
+  },
+  {
+    email: '"quoted@string"@example.com',
+    description: 'Quoted local part with @ symbol',
+    valid: true,
+    tags: ['quoted', 'edge-case']
+  },
+  {
+    email: '"quoted\\"string"@example.com',
+    description: 'Quoted local part with escaped quote',
+    valid: true,
+    tags: ['quoted', 'edge-case']
+  },
+  {
+    email: '"quoted\\\\string"@example.com',
+    description: 'Quoted local part with escaped backslash',
+    valid: true,
+    tags: ['quoted', 'edge-case']
+  },
+  {
+    email: 'user+subaddress@example.com',
+    description: 'Email with subaddressing (plus addressing)',
+    valid: true,
+    tags: ['standard', 'edge-case']
+  },
+  {
+    email: 'user-subaddress@example.com',
+    description: 'Email with hyphen subaddressing',
+    valid: true,
+    tags: ['standard', 'edge-case']
+  },
+  {
+    email: 'a@b.co',
+    description: 'Very short but valid email',
+    valid: true,
+    tags: ['edge-case']
+  },
+  {
+    email: 'a@b.c.d.e.f.g.h.i.j.k.l.m.n.o.p',
+    description: 'Email with many subdomains',
+    valid: true,
+    tags: ['subdomain', 'edge-case']
+  },
+  {
+    email: 'a.' + 'b'.repeat(62) + '@example.com',
+    description: 'Local part at maximum length (64 characters)',
+    valid: true,
+    tags: ['length-error', 'edge-case']
+  },
+  {
+    email: 'user@' + 'a'.repeat(63) + '.com',
+    description: 'Domain label at maximum length (63 characters)',
+    valid: true,
+    tags: ['domain-error', 'edge-case']
+  },
+  {
+    email: 'user@example.a'.repeat(40),
+    description: 'Email approaching maximum length',
+    valid: true,
+    tags: ['length-error', 'edge-case']
+  }
+];
+
+/**
+ * Collection of Brazilian email addresses for testing
+ */
+export const brazilianEmails: EmailFixture[] = [
+  {
+    email: 'usuario@empresa.com.br',
+    description: 'Standard Brazilian commercial email',
+    valid: true,
+    tags: ['standard', 'brazilian']
+  },
+  {
+    email: 'aluno@universidade.edu.br',
+    description: 'Brazilian educational email',
+    valid: true,
+    tags: ['standard', 'brazilian']
+  },
+  {
+    email: 'funcionario@governo.gov.br',
+    description: 'Brazilian government email',
+    valid: true,
+    tags: ['standard', 'brazilian']
+  },
+  {
+    email: 'membro@organizacao.org.br',
+    description: 'Brazilian organization email',
+    valid: true,
+    tags: ['standard', 'brazilian']
+  },
+  {
+    email: 'usuario@dominio.br',
+    description: 'Simple Brazilian TLD email',
+    valid: true,
+    tags: ['standard', 'brazilian']
+  },
+  {
+    email: 'usuario@empresa.net.br',
+    description: 'Brazilian network provider email',
+    valid: true,
+    tags: ['standard', 'brazilian']
+  },
+  {
+    email: 'usuario@empresa.adv.br',
+    description: 'Brazilian lawyer email',
+    valid: true,
+    tags: ['standard', 'brazilian']
+  },
+  {
+    email: 'usuario@empresa.med.br',
+    description: 'Brazilian medical email',
+    valid: true,
+    tags: ['standard', 'brazilian']
+  },
+  {
+    email: 'usuario@empresa.tv.br',
+    description: 'Brazilian TV station email',
+    valid: true,
+    tags: ['standard', 'brazilian']
+  },
+  {
+    email: 'usuario@empresa.eti.br',
+    description: 'Brazilian IT professional email',
+    valid: true,
+    tags: ['standard', 'brazilian']
+  },
+  {
+    email: 'usuario@empresa.esp.br',
+    description: 'Brazilian sports organization email',
+    valid: true,
+    tags: ['standard', 'brazilian']
+  },
+  {
+    email: 'usuario@empresa.art.br',
+    description: 'Brazilian artistic and cultural email',
+    valid: true,
+    tags: ['standard', 'brazilian']
+  },
+  {
+    email: 'usuario@empresa.ind.br',
+    description: 'Brazilian industry email',
+    valid: true,
+    tags: ['standard', 'brazilian']
+  }
+];
+
+/**
+ * All email fixtures combined for comprehensive testing
+ */
+export const allEmailFixtures: EmailFixture[] = [
+  ...validEmails,
+  ...invalidEmails,
+  ...edgeCaseEmails,
+  // Filter out duplicates from brazilianEmails that are already in validEmails
+  ...brazilianEmails.filter(bEmail => 
+    !validEmails.some(vEmail => vEmail.email === bEmail.email)
+  )
+];
+
+/**
+ * Helper function to filter email fixtures by tag
+ * 
+ * @param fixtures - The fixtures to filter
+ * @param tag - The tag to filter by
+ * @returns Filtered fixtures that have the specified tag
+ * 
+ * @example
+ * const standardEmails = filterByTag(allEmailFixtures, 'standard');
+ */
+export function filterByTag(fixtures: EmailFixture[], tag: EmailFixtureTag): EmailFixture[] {
+  return fixtures.filter(fixture => fixture.tags.includes(tag));
+}
+
+/**
+ * Helper function to filter email fixtures by validity
+ * 
+ * @param fixtures - The fixtures to filter
+ * @param valid - Whether to return valid or invalid emails
+ * @returns Filtered fixtures based on validity
+ * 
+ * @example
+ * const validFixtures = filterByValidity(allEmailFixtures, true);
+ */
+export function filterByValidity(fixtures: EmailFixture[], valid: boolean): EmailFixture[] {
+  return fixtures.filter(fixture => fixture.valid === valid);
+}
+
+/**
+ * Helper function to get just the email strings from fixtures
+ * 
+ * @param fixtures - The fixtures to extract emails from
+ * @returns Array of email strings
+ * 
+ * @example
+ * const validEmailStrings = getEmailStrings(validEmails);
+ */
+export function getEmailStrings(fixtures: EmailFixture[]): string[] {
+  return fixtures.map(fixture => fixture.email);
+}
+
+/**
+ * Default export for convenient importing
+ */
+export default {
+  validEmails,
   invalidEmails,
-  moreInvalidEmails,
-  commonlyMistypedEmails,
-  invalidEmailsAll,
-  invalidEmailStrings,
+  edgeCaseEmails,
+  brazilianEmails,
+  allEmailFixtures,
+  filterByTag,
+  filterByValidity,
+  getEmailStrings
 };
-
-/**
- * Type definition for the email validation fixtures collection
- */
-export type EmailValidationFixtures = typeof emailValidationFixtures;
-
-/**
- * Usage examples:
- * 
- * @example
- * // Import all email validation fixtures
- * import { emailValidationFixtures } from '@austa/utils/test/fixtures/validation';
- * 
- * // Test with all valid emails
- * emailValidationFixtures.validEmailStrings.forEach(email => {
- *   expect(isValidEmail(email)).toBe(true);
- * });
- * 
- * // Test with specific categories
- * emailValidationFixtures.internationalValidEmails.forEach(({ email }) => {
- *   expect(isValidEmail(email)).toBe(true);
- * });
- * 
- * @example
- * // Import specific collections directly
- * import { validEmailStrings, invalidEmailStrings } from '@austa/utils/test/fixtures/validation';
- * 
- * describe('Email Validator', () => {
- *   it('should validate correct email formats', () => {
- *     validEmailStrings.forEach(email => {
- *       expect(isValidEmail(email)).toBe(true);
- *     });
- *   });
- * 
- *   it('should reject invalid email formats', () => {
- *     invalidEmailStrings.forEach(email => {
- *       expect(isValidEmail(email)).toBe(false);
- *     });
- *   });
- * });
- */
