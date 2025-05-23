@@ -1,382 +1,583 @@
-import { Test, TestingModule } from '@nestjs/testing';
-import { INestApplication, Module, Injectable } from '@nestjs/common';
-import { describe, it, beforeEach, afterEach, expect, beforeAll, afterAll } from '@jest/globals';
-
-// Import environment utilities
+import { describe, it, expect, beforeEach, afterEach } from '@jest/globals';
 import {
   getEnv,
   getRequiredEnv,
   getOptionalEnv,
-  parseBoolean,
-  parseNumber,
-  parseArray,
-  parseJson,
-  validateEnv,
-  validateUrl,
-  validateNumericRange,
+  getBooleanEnv,
+  getNumberEnv,
+  getArrayEnv,
+  getJsonEnv,
+  getUrlEnv,
+  getEnumEnv,
+  getFeatureFlag,
   getJourneyEnv,
+  getRequiredJourneyEnv,
+  getOptionalJourneyEnv,
+  getJourneyFeatureFlag,
+  validateRequiredEnv,
+  validateRequiredJourneyEnv,
+  clearEnvCache,
+  getAllEnvWithPrefix,
+  getAllJourneyEnv,
+} from '../../src/env';
+
+import {
   MissingEnvironmentVariableError,
   InvalidEnvironmentVariableError,
-} from '../../../src/env';
+  EnvironmentVariableTypeError,
+  EnvironmentVariableValidationError,
+  EnvironmentVariableBatchError,
+  withEnvErrorFallback,
+  collectEnvErrors,
+  validateEnvBatch,
+} from '../../src/env/error';
+
+import {
+  JourneyType,
+  createJourneyEnvConfig,
+  healthEnv,
+  careEnv,
+  planEnv,
+  sharedEnv,
+} from '../../src/env/journey';
 
 /**
- * Test service that uses environment utilities to demonstrate their usage
- * in a realistic application context.
- */
-@Injectable()
-class TestEnvService {
-  // Basic environment access
-  getBasicConfig() {
-    return {
-      apiKey: getRequiredEnv('TEST_API_KEY'),
-      debug: getOptionalEnv('TEST_DEBUG', 'false', parseBoolean),
-      port: getOptionalEnv('TEST_PORT', '3000', parseNumber),
-      hosts: getOptionalEnv('TEST_HOSTS', 'localhost,127.0.0.1', parseArray),
-    };
-  }
-
-  // Journey-specific configuration
-  getHealthJourneyConfig() {
-    return {
-      apiEndpoint: getJourneyEnv('health', 'API_ENDPOINT', 'https://health-api.default'),
-      featureFlags: getJourneyEnv('health', 'FEATURE_FLAGS', '{"newDashboard":true}', parseJson),
-    };
-  }
-
-  getCareJourneyConfig() {
-    return {
-      apiEndpoint: getJourneyEnv('care', 'API_ENDPOINT', 'https://care-api.default'),
-      featureFlags: getJourneyEnv('care', 'FEATURE_FLAGS', '{"telehealth":true}', parseJson),
-    };
-  }
-
-  getPlanJourneyConfig() {
-    return {
-      apiEndpoint: getJourneyEnv('plan', 'API_ENDPOINT', 'https://plan-api.default'),
-      featureFlags: getJourneyEnv('plan', 'FEATURE_FLAGS', '{"newClaimsFlow":false}', parseJson),
-    };
-  }
-
-  // Validation examples
-  validateApiEndpoint() {
-    const endpoint = getRequiredEnv('TEST_API_ENDPOINT');
-    return validateUrl(endpoint, { protocols: ['https'] });
-  }
-
-  validateRateLimit() {
-    const rateLimit = getRequiredEnv('TEST_RATE_LIMIT', parseNumber);
-    return validateNumericRange(rateLimit, { min: 1, max: 100 });
-  }
-
-  // Comprehensive validation
-  validateAllConfig() {
-    return validateEnv({
-      TEST_API_KEY: { required: true },
-      TEST_DEBUG: { required: false, transform: parseBoolean },
-      TEST_PORT: { required: false, transform: parseNumber, validate: (val) => val > 0 && val < 65536 },
-      TEST_API_ENDPOINT: { required: true, validate: (val) => val.startsWith('https://') },
-      TEST_RATE_LIMIT: { required: true, transform: parseNumber, validate: (val) => val > 0 },
-    });
-  }
-}
-
-/**
- * Test module that provides the TestEnvService.
- */
-@Module({
-  providers: [TestEnvService],
-  exports: [TestEnvService],
-})
-class TestEnvModule {}
-
-/**
- * End-to-end tests for environment configuration utilities that validate
- * environment variable handling in realistic application settings.
+ * End-to-end tests for environment configuration utilities.
+ * 
+ * These tests validate environment variable handling in realistic application settings,
+ * including loading, type conversion, validation, and journey-specific configuration.
  */
 describe('Environment Configuration Utilities (e2e)', () => {
-  let app: INestApplication;
-  let testEnvService: TestEnvService;
-  let originalEnv: NodeJS.ProcessEnv;
+  // Store original environment variables
+  const originalEnv = { ...process.env };
 
-  // Save original environment variables before tests
-  beforeAll(() => {
-    originalEnv = { ...process.env };
+  // Helper to set environment variables for testing
+  const setEnv = (vars: Record<string, string | undefined>) => {
+    Object.entries(vars).forEach(([key, value]) => {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    });
+  };
+
+  // Reset environment variables and cache before each test
+  beforeEach(() => {
+    clearEnvCache();
   });
 
-  // Restore original environment variables after all tests
-  afterAll(() => {
-    process.env = originalEnv;
-  });
-
-  // Set up test environment before each test
-  beforeEach(async () => {
-    // Reset environment variables for each test
+  // Restore original environment variables after each test
+  afterEach(() => {
     process.env = { ...originalEnv };
-    
-    // Set up test environment variables
-    process.env.TEST_API_KEY = 'test-api-key';
-    process.env.TEST_DEBUG = 'true';
-    process.env.TEST_PORT = '4000';
-    process.env.TEST_HOSTS = 'server1,server2,server3';
-    process.env.TEST_API_ENDPOINT = 'https://api.example.com';
-    process.env.TEST_RATE_LIMIT = '50';
-    
-    // Journey-specific environment variables
-    process.env.HEALTH_API_ENDPOINT = 'https://health.example.com';
-    process.env.HEALTH_FEATURE_FLAGS = '{"newDashboard":true,"healthMetrics":true}';
-    process.env.CARE_API_ENDPOINT = 'https://care.example.com';
-    process.env.CARE_FEATURE_FLAGS = '{"telehealth":true,"appointmentReminders":true}';
-    process.env.PLAN_API_ENDPOINT = 'https://plan.example.com';
-    process.env.PLAN_FEATURE_FLAGS = '{"newClaimsFlow":true,"digitalCards":true}';
-
-    // Create a testing module
-    const moduleFixture: TestingModule = await Test.createTestingModule({
-      imports: [TestEnvModule],
-    }).compile();
-
-    app = moduleFixture.createNestApplication();
-    await app.init();
-
-    testEnvService = moduleFixture.get<TestEnvService>(TestEnvService);
-  });
-
-  // Clean up after each test
-  afterEach(async () => {
-    await app.close();
   });
 
   describe('Basic Environment Variable Access', () => {
-    it('should retrieve basic configuration from environment variables', () => {
-      const config = testEnvService.getBasicConfig();
-      
-      expect(config.apiKey).toBe('test-api-key');
-      expect(config.debug).toBe(true);
-      expect(config.port).toBe(4000);
-      expect(config.hosts).toEqual(['server1', 'server2', 'server3']);
+    it('should retrieve existing environment variables', () => {
+      // Arrange
+      setEnv({ TEST_VAR: 'test-value' });
+
+      // Act
+      const value = getEnv('TEST_VAR');
+
+      // Assert
+      expect(value).toBe('test-value');
     });
 
-    it('should use default values when environment variables are not set', () => {
-      // Remove environment variables to test defaults
-      delete process.env.TEST_DEBUG;
-      delete process.env.TEST_PORT;
-      delete process.env.TEST_HOSTS;
+    it('should throw error for missing required environment variables', () => {
+      // Arrange
+      setEnv({ TEST_VAR: undefined });
 
-      const config = testEnvService.getBasicConfig();
-      
-      expect(config.apiKey).toBe('test-api-key'); // Required, so still present
-      expect(config.debug).toBe(false); // Default value
-      expect(config.port).toBe(3000); // Default value
-      expect(config.hosts).toEqual(['localhost', '127.0.0.1']); // Default value
+      // Act & Assert
+      expect(() => getRequiredEnv('TEST_VAR')).toThrow(MissingEnvironmentVariableError);
+      expect(() => getRequiredEnv('TEST_VAR')).toThrow('Missing required environment variable: TEST_VAR');
     });
 
-    it('should throw MissingEnvironmentVariableError for required variables that are not set', () => {
-      // Remove required environment variable
-      delete process.env.TEST_API_KEY;
+    it('should return default value for missing optional environment variables', () => {
+      // Arrange
+      setEnv({ TEST_VAR: undefined });
 
-      expect(() => testEnvService.getBasicConfig()).toThrow(MissingEnvironmentVariableError);
+      // Act
+      const value = getOptionalEnv('TEST_VAR', 'default-value');
+
+      // Assert
+      expect(value).toBe('default-value');
+    });
+
+    it('should cache environment variable values', () => {
+      // Arrange
+      setEnv({ TEST_VAR: 'initial-value' });
+
+      // Act - Get the value first time
+      const value1 = getEnv('TEST_VAR');
+
+      // Change the environment variable
+      setEnv({ TEST_VAR: 'changed-value' });
+
+      // Get the value again - should be cached
+      const value2 = getEnv('TEST_VAR');
+
+      // Clear cache and get again
+      clearEnvCache();
+      const value3 = getEnv('TEST_VAR');
+
+      // Assert
+      expect(value1).toBe('initial-value');
+      expect(value2).toBe('initial-value'); // Should be cached
+      expect(value3).toBe('changed-value'); // Should get new value after cache clear
     });
   });
 
   describe('Type Conversion', () => {
-    it('should correctly parse boolean values', () => {
-      process.env.TEST_DEBUG = 'true';
-      expect(getEnv('TEST_DEBUG', parseBoolean)).toBe(true);
-
-      process.env.TEST_DEBUG = 'false';
-      expect(getEnv('TEST_DEBUG', parseBoolean)).toBe(false);
-
-      process.env.TEST_DEBUG = '1';
-      expect(getEnv('TEST_DEBUG', parseBoolean)).toBe(true);
-
-      process.env.TEST_DEBUG = '0';
-      expect(getEnv('TEST_DEBUG', parseBoolean)).toBe(false);
-    });
-
-    it('should correctly parse numeric values', () => {
-      process.env.TEST_PORT = '4000';
-      expect(getEnv('TEST_PORT', parseNumber)).toBe(4000);
-
-      process.env.TEST_FLOAT = '3.14';
-      expect(getEnv('TEST_FLOAT', parseNumber)).toBe(3.14);
-    });
-
-    it('should correctly parse array values', () => {
-      process.env.TEST_ARRAY = 'a,b,c';
-      expect(getEnv('TEST_ARRAY', parseArray)).toEqual(['a', 'b', 'c']);
-
-      process.env.TEST_ARRAY = 'a;b;c';
-      expect(getEnv('TEST_ARRAY', (val) => parseArray(val, ';'))).toEqual(['a', 'b', 'c']);
-    });
-
-    it('should correctly parse JSON values', () => {
-      process.env.TEST_JSON = '{"key":"value","nested":{"array":[1,2,3]}}';
-      const parsed = getEnv('TEST_JSON', parseJson);
-      
-      expect(parsed).toEqual({
-        key: 'value',
-        nested: {
-          array: [1, 2, 3]
-        }
+    it('should convert boolean environment variables', () => {
+      // Arrange
+      setEnv({
+        BOOL_TRUE_1: 'true',
+        BOOL_TRUE_2: 'yes',
+        BOOL_TRUE_3: '1',
+        BOOL_TRUE_4: 'on',
+        BOOL_FALSE_1: 'false',
+        BOOL_FALSE_2: 'no',
+        BOOL_FALSE_3: '0',
+        BOOL_FALSE_4: 'off',
       });
+
+      // Act & Assert
+      expect(getBooleanEnv('BOOL_TRUE_1')).toBe(true);
+      expect(getBooleanEnv('BOOL_TRUE_2')).toBe(true);
+      expect(getBooleanEnv('BOOL_TRUE_3')).toBe(true);
+      expect(getBooleanEnv('BOOL_TRUE_4')).toBe(true);
+      expect(getBooleanEnv('BOOL_FALSE_1')).toBe(false);
+      expect(getBooleanEnv('BOOL_FALSE_2')).toBe(false);
+      expect(getBooleanEnv('BOOL_FALSE_3')).toBe(false);
+      expect(getBooleanEnv('BOOL_FALSE_4')).toBe(false);
     });
 
-    it('should throw InvalidEnvironmentVariableError for invalid type conversions', () => {
-      process.env.TEST_PORT = 'not-a-number';
-      expect(() => getEnv('TEST_PORT', parseNumber)).toThrow(InvalidEnvironmentVariableError);
+    it('should throw error for invalid boolean values', () => {
+      // Arrange
+      setEnv({ BOOL_INVALID: 'not-a-boolean' });
 
-      process.env.TEST_JSON = '{invalid-json}';
-      expect(() => getEnv('TEST_JSON', parseJson)).toThrow(InvalidEnvironmentVariableError);
+      // Act & Assert
+      expect(() => getBooleanEnv('BOOL_INVALID')).toThrow(EnvironmentVariableTypeError);
+    });
+
+    it('should convert numeric environment variables', () => {
+      // Arrange
+      setEnv({
+        NUM_INT: '42',
+        NUM_FLOAT: '3.14',
+        NUM_NEGATIVE: '-10',
+        NUM_ZERO: '0',
+      });
+
+      // Act & Assert
+      expect(getNumberEnv('NUM_INT')).toBe(42);
+      expect(getNumberEnv('NUM_FLOAT')).toBe(3.14);
+      expect(getNumberEnv('NUM_NEGATIVE')).toBe(-10);
+      expect(getNumberEnv('NUM_ZERO')).toBe(0);
+    });
+
+    it('should throw error for invalid numeric values', () => {
+      // Arrange
+      setEnv({ NUM_INVALID: 'not-a-number' });
+
+      // Act & Assert
+      expect(() => getNumberEnv('NUM_INVALID')).toThrow(EnvironmentVariableTypeError);
+    });
+
+    it('should enforce min/max constraints for numeric values', () => {
+      // Arrange
+      setEnv({ NUM_VALUE: '50' });
+
+      // Act & Assert
+      expect(getNumberEnv('NUM_VALUE', { min: 0, max: 100 })).toBe(50); // Within range
+      expect(() => getNumberEnv('NUM_VALUE', { min: 60, max: 100 })).toThrow(EnvironmentVariableTypeError); // Below min
+      expect(() => getNumberEnv('NUM_VALUE', { min: 0, max: 40 })).toThrow(EnvironmentVariableTypeError); // Above max
+    });
+
+    it('should convert array environment variables', () => {
+      // Arrange
+      setEnv({
+        ARRAY_CSV: 'a,b,c,d',
+        ARRAY_JSON: '["x", "y", "z"]',
+        ARRAY_CUSTOM: 'item1|item2|item3',
+      });
+
+      // Act & Assert
+      expect(getArrayEnv('ARRAY_CSV')).toEqual(['a', 'b', 'c', 'd']);
+      expect(getArrayEnv('ARRAY_JSON')).toEqual(['x', 'y', 'z']);
+      expect(getArrayEnv('ARRAY_CUSTOM', { delimiter: '|' })).toEqual(['item1', 'item2', 'item3']);
+    });
+
+    it('should transform array items', () => {
+      // Arrange
+      setEnv({ ARRAY_NUMBERS: '1,2,3,4,5' });
+
+      // Act
+      const numbers = getArrayEnv<number>('ARRAY_NUMBERS', {
+        itemTransform: (item) => parseInt(item, 10),
+      });
+
+      // Assert
+      expect(numbers).toEqual([1, 2, 3, 4, 5]);
+    });
+
+    it('should convert JSON environment variables', () => {
+      // Arrange
+      setEnv({
+        JSON_OBJECT: '{"name":"test","value":42}',
+        JSON_ARRAY: '[1,2,3,4]',
+      });
+
+      // Act
+      const jsonObject = getJsonEnv<{ name: string; value: number }>('JSON_OBJECT');
+      const jsonArray = getJsonEnv<number[]>('JSON_ARRAY');
+
+      // Assert
+      expect(jsonObject).toEqual({ name: 'test', value: 42 });
+      expect(jsonArray).toEqual([1, 2, 3, 4]);
+    });
+
+    it('should throw error for invalid JSON', () => {
+      // Arrange
+      setEnv({ JSON_INVALID: '{name:"test",value:42}' }); // Missing quotes around property names
+
+      // Act & Assert
+      expect(() => getJsonEnv('JSON_INVALID')).toThrow(EnvironmentVariableTypeError);
+    });
+
+    it('should convert URL environment variables', () => {
+      // Arrange
+      setEnv({
+        URL_HTTP: 'http://example.com/path',
+        URL_HTTPS: 'https://api.example.org/v1',
+      });
+
+      // Act
+      const httpUrl = getUrlEnv('URL_HTTP');
+      const httpsUrl = getUrlEnv('URL_HTTPS');
+
+      // Assert
+      expect(httpUrl.href).toBe('http://example.com/path');
+      expect(httpUrl.protocol).toBe('http:');
+      expect(httpUrl.hostname).toBe('example.com');
+      expect(httpUrl.pathname).toBe('/path');
+
+      expect(httpsUrl.href).toBe('https://api.example.org/v1');
+      expect(httpsUrl.protocol).toBe('https:');
+      expect(httpsUrl.hostname).toBe('api.example.org');
+      expect(httpsUrl.pathname).toBe('/v1');
+    });
+
+    it('should validate URL protocols', () => {
+      // Arrange
+      setEnv({
+        URL_HTTP: 'http://example.com',
+        URL_HTTPS: 'https://example.com',
+        URL_FTP: 'ftp://example.com',
+      });
+
+      // Act & Assert
+      // Should allow only http and https
+      expect(getUrlEnv('URL_HTTP', { protocols: ['http', 'https'] }).href).toBe('http://example.com/');
+      expect(getUrlEnv('URL_HTTPS', { protocols: ['http', 'https'] }).href).toBe('https://example.com/');
+      expect(() => getUrlEnv('URL_FTP', { protocols: ['http', 'https'] })).toThrow(EnvironmentVariableTypeError);
+    });
+
+    it('should convert enum environment variables', () => {
+      // Arrange
+      const LogLevel = ['debug', 'info', 'warn', 'error'] as const;
+      type LogLevel = typeof LogLevel[number];
+
+      setEnv({
+        LOG_LEVEL_DEBUG: 'debug',
+        LOG_LEVEL_INFO: 'info',
+        LOG_LEVEL_WARN: 'warn',
+        LOG_LEVEL_ERROR: 'error',
+      });
+
+      // Act & Assert
+      expect(getEnumEnv<LogLevel>('LOG_LEVEL_DEBUG', LogLevel)).toBe('debug');
+      expect(getEnumEnv<LogLevel>('LOG_LEVEL_INFO', LogLevel)).toBe('info');
+      expect(getEnumEnv<LogLevel>('LOG_LEVEL_WARN', LogLevel)).toBe('warn');
+      expect(getEnumEnv<LogLevel>('LOG_LEVEL_ERROR', LogLevel)).toBe('error');
+    });
+
+    it('should throw error for invalid enum values', () => {
+      // Arrange
+      const LogLevel = ['debug', 'info', 'warn', 'error'] as const;
+      type LogLevel = typeof LogLevel[number];
+
+      setEnv({ LOG_LEVEL_INVALID: 'trace' });
+
+      // Act & Assert
+      expect(() => getEnumEnv<LogLevel>('LOG_LEVEL_INVALID', LogLevel)).toThrow(EnvironmentVariableTypeError);
     });
   });
 
-  describe('Journey-Specific Configuration', () => {
-    it('should retrieve health journey configuration', () => {
-      const config = testEnvService.getHealthJourneyConfig();
-      
-      expect(config.apiEndpoint).toBe('https://health.example.com');
-      expect(config.featureFlags).toEqual({
-        newDashboard: true,
-        healthMetrics: true
-      });
-    });
-
-    it('should retrieve care journey configuration', () => {
-      const config = testEnvService.getCareJourneyConfig();
-      
-      expect(config.apiEndpoint).toBe('https://care.example.com');
-      expect(config.featureFlags).toEqual({
-        telehealth: true,
-        appointmentReminders: true
-      });
-    });
-
-    it('should retrieve plan journey configuration', () => {
-      const config = testEnvService.getPlanJourneyConfig();
-      
-      expect(config.apiEndpoint).toBe('https://plan.example.com');
-      expect(config.featureFlags).toEqual({
-        newClaimsFlow: true,
-        digitalCards: true
-      });
-    });
-
-    it('should use journey-specific defaults when environment variables are not set', () => {
-      // Remove journey-specific environment variables
-      delete process.env.HEALTH_API_ENDPOINT;
-      delete process.env.HEALTH_FEATURE_FLAGS;
-
-      const config = testEnvService.getHealthJourneyConfig();
-      
-      expect(config.apiEndpoint).toBe('https://health-api.default');
-      expect(config.featureFlags).toEqual({ newDashboard: true });
-    });
-
-    it('should handle cross-journey configuration isolation', () => {
-      // Modify one journey's configuration
-      process.env.HEALTH_API_ENDPOINT = 'https://health-modified.example.com';
-      
-      // Health journey should see the modified value
-      expect(testEnvService.getHealthJourneyConfig().apiEndpoint).toBe('https://health-modified.example.com');
-      
-      // Other journeys should be unaffected
-      expect(testEnvService.getCareJourneyConfig().apiEndpoint).toBe('https://care.example.com');
-      expect(testEnvService.getPlanJourneyConfig().apiEndpoint).toBe('https://plan.example.com');
-    });
-  });
-
-  describe('Environment Validation', () => {
-    it('should validate URL format', () => {
-      process.env.TEST_API_ENDPOINT = 'https://api.example.com';
-      expect(testEnvService.validateApiEndpoint()).toBe(true);
-
-      process.env.TEST_API_ENDPOINT = 'http://api.example.com';
-      expect(() => testEnvService.validateApiEndpoint()).toThrow(InvalidEnvironmentVariableError);
-
-      process.env.TEST_API_ENDPOINT = 'not-a-url';
-      expect(() => testEnvService.validateApiEndpoint()).toThrow(InvalidEnvironmentVariableError);
-    });
-
-    it('should validate numeric ranges', () => {
-      process.env.TEST_RATE_LIMIT = '50';
-      expect(testEnvService.validateRateLimit()).toBe(true);
-
-      process.env.TEST_RATE_LIMIT = '0';
-      expect(() => testEnvService.validateRateLimit()).toThrow(InvalidEnvironmentVariableError);
-
-      process.env.TEST_RATE_LIMIT = '101';
-      expect(() => testEnvService.validateRateLimit()).toThrow(InvalidEnvironmentVariableError);
-    });
-
-    it('should perform comprehensive validation of multiple environment variables', () => {
-      // All variables are valid
-      const validResult = testEnvService.validateAllConfig();
-      expect(validResult.isValid).toBe(true);
-      expect(validResult.values).toEqual({
-        TEST_API_KEY: 'test-api-key',
-        TEST_DEBUG: true,
-        TEST_PORT: 4000,
-        TEST_API_ENDPOINT: 'https://api.example.com',
-        TEST_RATE_LIMIT: 50
+  describe('Validation', () => {
+    it('should validate required environment variables', () => {
+      // Arrange
+      setEnv({
+        REQUIRED_VAR_1: 'value1',
+        REQUIRED_VAR_2: 'value2',
+        REQUIRED_VAR_3: 'value3',
       });
 
-      // Make some variables invalid
-      process.env.TEST_PORT = '-1';
-      process.env.TEST_API_ENDPOINT = 'http://invalid-protocol.com';
-      
-      const invalidResult = testEnvService.validateAllConfig();
-      expect(invalidResult.isValid).toBe(false);
-      expect(invalidResult.errors.length).toBe(2);
-      expect(invalidResult.errors[0].name).toBe('TEST_PORT');
-      expect(invalidResult.errors[1].name).toBe('TEST_API_ENDPOINT');
+      // Act & Assert
+      expect(() => validateRequiredEnv(['REQUIRED_VAR_1', 'REQUIRED_VAR_2', 'REQUIRED_VAR_3'])).not.toThrow();
+    });
+
+    it('should throw error for missing required variables', () => {
+      // Arrange
+      setEnv({
+        REQUIRED_VAR_1: 'value1',
+        REQUIRED_VAR_2: undefined, // Missing
+        REQUIRED_VAR_3: 'value3',
+      });
+
+      // Act & Assert
+      expect(() => validateRequiredEnv(['REQUIRED_VAR_1', 'REQUIRED_VAR_2', 'REQUIRED_VAR_3'])).toThrow();
+    });
+
+    it('should validate batch of environment variables', () => {
+      // Arrange
+      setEnv({
+        BATCH_VAR_1: 'value1',
+        BATCH_VAR_2: 'value2',
+        BATCH_VAR_3: undefined, // Missing
+        BATCH_VAR_4: 'not-a-number', // Invalid
+      });
+
+      // Act & Assert
+      expect(() => validateEnvBatch({
+        'BATCH_VAR_1': () => getRequiredEnv('BATCH_VAR_1'),
+        'BATCH_VAR_2': () => getRequiredEnv('BATCH_VAR_2'),
+        'BATCH_VAR_3': () => getRequiredEnv('BATCH_VAR_3'),
+        'BATCH_VAR_4': () => getNumberEnv('BATCH_VAR_4'),
+      })).toThrow(EnvironmentVariableBatchError);
+    });
+
+    it('should collect environment errors without throwing', () => {
+      // Arrange
+      setEnv({
+        COLLECT_VAR_1: undefined, // Missing
+        COLLECT_VAR_2: 'not-a-number', // Invalid
+      });
+
+      // Act
+      const errors = collectEnvErrors([
+        () => getRequiredEnv('COLLECT_VAR_1'),
+        () => getNumberEnv('COLLECT_VAR_2'),
+      ], false);
+
+      // Assert
+      expect(errors.length).toBe(2);
+      expect(errors[0]).toBeInstanceOf(MissingEnvironmentVariableError);
+      expect(errors[1]).toBeInstanceOf(EnvironmentVariableTypeError);
     });
   });
 
   describe('Error Handling', () => {
-    it('should provide detailed error messages for missing variables', () => {
-      delete process.env.TEST_API_KEY;
-      
-      try {
-        testEnvService.getBasicConfig();
-        fail('Expected MissingEnvironmentVariableError to be thrown');
-      } catch (error) {
-        expect(error).toBeInstanceOf(MissingEnvironmentVariableError);
-        expect(error.message).toContain('TEST_API_KEY');
-        expect(error.variableName).toBe('TEST_API_KEY');
-      }
+    it('should handle errors with fallback values', () => {
+      // Arrange
+      setEnv({ FALLBACK_VAR: undefined });
+
+      // Act
+      const value = withEnvErrorFallback(
+        () => getRequiredEnv('FALLBACK_VAR'),
+        'fallback-value'
+      );
+
+      // Assert
+      expect(value).toBe('fallback-value');
     });
 
-    it('should provide detailed error messages for invalid variables', () => {
-      process.env.TEST_PORT = 'not-a-number';
-      
+    it('should provide detailed error information', () => {
+      // Arrange
+      setEnv({ INVALID_NUMBER: 'not-a-number' });
+
+      // Act & Assert
       try {
-        testEnvService.getBasicConfig();
-        fail('Expected InvalidEnvironmentVariableError to be thrown');
+        getNumberEnv('INVALID_NUMBER');
+        fail('Should have thrown an error');
       } catch (error) {
-        expect(error).toBeInstanceOf(InvalidEnvironmentVariableError);
-        expect(error.message).toContain('TEST_PORT');
-        expect(error.variableName).toBe('TEST_PORT');
-        expect(error.value).toBe('not-a-number');
+        if (error instanceof EnvironmentVariableTypeError) {
+          expect(error.variableName).toBe('INVALID_NUMBER');
+          expect(error.message).toContain('Invalid type for environment variable');
+          expect(error.message).toContain('not-a-number');
+          expect(error.message).toContain('Expected type: number');
+        } else {
+          fail('Wrong error type');
+        }
       }
     });
+  });
 
-    it('should handle multiple validation errors', () => {
-      process.env.TEST_PORT = 'not-a-number';
-      process.env.TEST_API_ENDPOINT = 'not-a-url';
-      
-      const result = testEnvService.validateAllConfig();
-      
-      expect(result.isValid).toBe(false);
-      expect(result.errors.length).toBe(2);
-      
-      // Check first error
-      expect(result.errors[0].name).toBe('TEST_PORT');
-      expect(result.errors[0].value).toBe('not-a-number');
-      expect(result.errors[0].message).toContain('could not be parsed as a number');
-      
-      // Check second error
-      expect(result.errors[1].name).toBe('TEST_API_ENDPOINT');
-      expect(result.errors[1].value).toBe('not-a-url');
-      expect(result.errors[1].message).toContain('failed validation');
+  describe('Journey-Specific Configuration', () => {
+    it('should retrieve journey-specific environment variables', () => {
+      // Arrange
+      setEnv({
+        'HEALTH_API_URL': 'https://health-api.example.com',
+        'CARE_API_URL': 'https://care-api.example.com',
+        'PLAN_API_URL': 'https://plan-api.example.com',
+      });
+
+      // Act
+      const healthApiUrl = getJourneyEnv('health', 'API_URL');
+      const careApiUrl = getJourneyEnv('care', 'API_URL');
+      const planApiUrl = getJourneyEnv('plan', 'API_URL');
+
+      // Assert
+      expect(healthApiUrl).toBe('https://health-api.example.com');
+      expect(careApiUrl).toBe('https://care-api.example.com');
+      expect(planApiUrl).toBe('https://plan-api.example.com');
+    });
+
+    it('should throw error for missing required journey variables', () => {
+      // Arrange
+      setEnv({
+        'HEALTH_API_URL': 'https://health-api.example.com',
+        'CARE_API_URL': undefined, // Missing
+        'PLAN_API_URL': 'https://plan-api.example.com',
+      });
+
+      // Act & Assert
+      expect(() => getRequiredJourneyEnv('care', 'API_URL')).toThrow(MissingEnvironmentVariableError);
+    });
+
+    it('should return default value for missing optional journey variables', () => {
+      // Arrange
+      setEnv({ 'HEALTH_TIMEOUT': undefined });
+
+      // Act
+      const timeout = getOptionalJourneyEnv('health', 'TIMEOUT', '30000');
+
+      // Assert
+      expect(timeout).toBe('30000');
+    });
+
+    it('should handle journey-specific feature flags', () => {
+      // Arrange
+      setEnv({
+        'HEALTH_FEATURE_NEW_METRICS': 'true',
+        'CARE_FEATURE_NEW_METRICS': 'false',
+        'PLAN_FEATURE_NEW_METRICS': undefined, // Missing, should default to false
+      });
+
+      // Act
+      const healthFeature = getJourneyFeatureFlag('health', 'NEW_METRICS');
+      const careFeature = getJourneyFeatureFlag('care', 'NEW_METRICS');
+      const planFeature = getJourneyFeatureFlag('plan', 'NEW_METRICS');
+
+      // Assert
+      expect(healthFeature).toBe(true);
+      expect(careFeature).toBe(false);
+      expect(planFeature).toBe(false); // Default value
+    });
+
+    it('should validate required journey environment variables', () => {
+      // Arrange
+      setEnv({
+        'HEALTH_API_URL': 'https://health-api.example.com',
+        'HEALTH_API_KEY': 'health-api-key',
+        'HEALTH_TIMEOUT': '30000',
+      });
+
+      // Act & Assert
+      expect(() => validateRequiredJourneyEnv('health', ['API_URL', 'API_KEY', 'TIMEOUT'])).not.toThrow();
+    });
+
+    it('should throw error for missing required journey variables', () => {
+      // Arrange
+      setEnv({
+        'HEALTH_API_URL': 'https://health-api.example.com',
+        'HEALTH_API_KEY': undefined, // Missing
+        'HEALTH_TIMEOUT': '30000',
+      });
+
+      // Act & Assert
+      expect(() => validateRequiredJourneyEnv('health', ['API_URL', 'API_KEY', 'TIMEOUT'])).toThrow();
+    });
+
+    it('should retrieve all environment variables with a prefix', () => {
+      // Arrange
+      setEnv({
+        'HEALTH_API_URL': 'https://health-api.example.com',
+        'HEALTH_API_KEY': 'health-api-key',
+        'HEALTH_TIMEOUT': '30000',
+        'CARE_API_URL': 'https://care-api.example.com',
+        'OTHER_VAR': 'other-value',
+      });
+
+      // Act
+      const healthVars = getAllEnvWithPrefix('HEALTH');
+
+      // Assert
+      expect(healthVars).toEqual({
+        'API_URL': 'https://health-api.example.com',
+        'API_KEY': 'health-api-key',
+        'TIMEOUT': '30000',
+      });
+    });
+
+    it('should retrieve all journey environment variables', () => {
+      // Arrange
+      setEnv({
+        'HEALTH_API_URL': 'https://health-api.example.com',
+        'HEALTH_API_KEY': 'health-api-key',
+        'HEALTH_TIMEOUT': '30000',
+        'CARE_API_URL': 'https://care-api.example.com',
+        'OTHER_VAR': 'other-value',
+      });
+
+      // Act
+      const healthVars = getAllJourneyEnv('health');
+
+      // Assert
+      expect(healthVars).toEqual({
+        'API_URL': 'https://health-api.example.com',
+        'API_KEY': 'health-api-key',
+        'TIMEOUT': '30000',
+      });
+    });
+
+    it('should use journey-specific environment config', () => {
+      // Arrange
+      setEnv({
+        'HEALTH_API_URL': 'https://health-api.example.com',
+        'HEALTH_FEATURE_NEW_METRICS': 'true',
+        'HEALTH_TIMEOUT': '30000',
+      });
+
+      // Act & Assert
+      expect(healthEnv.getString('API_URL')).toBe('https://health-api.example.com');
+      expect(healthEnv.getNumber('TIMEOUT')).toBe(30000);
+      expect(healthEnv.isFeatureEnabled('NEW_METRICS')).toBe(true);
+    });
+
+    it('should create custom journey environment config', () => {
+      // Arrange
+      setEnv({
+        'CUSTOM_API_URL': 'https://custom-api.example.com',
+        'CUSTOM_FEATURE_ENABLED': 'true',
+        'CUSTOM_TIMEOUT': '15000',
+      });
+
+      // Create custom journey config
+      const customEnv = createJourneyEnvConfig(JourneyType.SHARED, {
+        // Default values
+        'API_URL': 'https://default-api.example.com',
+        'TIMEOUT': '5000',
+      });
+
+      // Act & Assert
+      expect(customEnv.getString('API_URL')).toBe('https://custom-api.example.com');
+      expect(customEnv.getNumber('TIMEOUT')).toBe(15000);
+      expect(customEnv.isFeatureEnabled('ENABLED')).toBe(true);
+
+      // Test default value
+      expect(customEnv.getString('MISSING_VAR', { defaultValue: 'default-value' })).toBe('default-value');
     });
   });
 });
