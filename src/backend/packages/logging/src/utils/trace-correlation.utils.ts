@@ -1,426 +1,273 @@
 /**
  * Utilities for correlating logs with distributed traces and metrics.
  * Enables comprehensive observability across service boundaries by providing
- * functions for extracting and propagating trace context.
+ * functions to extract and propagate trace IDs, create correlation objects,
+ * and integrate with OpenTelemetry.
  */
 
-import { Request } from 'express';
-import { IncomingHttpHeaders } from 'http';
-import * as crypto from 'crypto';
-
-// W3C Trace Context constants
-const TRACE_PARENT_HEADER = 'traceparent';
-const TRACE_STATE_HEADER = 'tracestate';
-const X_REQUEST_ID_HEADER = 'x-request-id';
-const X_CORRELATION_ID_HEADER = 'x-correlation-id';
-
-// AWS X-Ray constants
-const XRAY_TRACE_ID_HEADER = 'x-amzn-trace-id';
-const XRAY_TRACE_ID_REGEX = /Root=([0-9a-f]{8}-[0-9a-f]{16}-[0-9a-f]{8})/i;
-
-// W3C Trace Context format constants
-const TRACE_PARENT_REGEX = /^00-([0-9a-f]{32})-([0-9a-f]{16})-([0-9a-f]{2})$/;
+import { trace, context, SpanContext, SpanStatusCode } from '@opentelemetry/api';
+import { SemanticAttributes } from '@opentelemetry/semantic-conventions';
 
 /**
- * Represents a trace context according to the W3C Trace Context specification.
+ * Interface for a correlation object that can be added to logs
+ * to correlate them with traces and metrics.
  */
-export interface TraceContext {
-  /** Trace ID as a 32-character lowercase hex string */
+export interface TraceCorrelationInfo {
   traceId: string;
-  /** Span ID as a 16-character lowercase hex string */
   spanId: string;
-  /** Trace flags as a 2-character lowercase hex string */
-  traceFlags: string;
-  /** Trace state as defined by the W3C Trace Context specification */
-  traceState?: string;
+  traceFlags?: number;
+  isRemote?: boolean;
+  journeyContext?: Record<string, unknown>;
 }
 
 /**
- * Represents a correlation context that can be included in logs.
+ * Interface for AWS X-Ray trace ID format
  */
-export interface CorrelationContext {
-  /** Trace ID for correlating logs with traces */
-  traceId?: string;
-  /** Span ID for correlating logs with specific spans */
-  spanId?: string;
-  /** Request ID for correlating logs with specific requests */
-  requestId?: string;
-  /** Correlation ID for correlating logs across services */
-  correlationId?: string;
-  /** Additional correlation properties */
-  [key: string]: unknown;
+export interface XRayTraceId {
+  formattedId: string; // The X-Ray formatted trace ID (1-abcdef-12345678)
+  timestamp: string;   // The timestamp portion (abcdef)
+  randomId: string;    // The random ID portion (12345678)
 }
 
 /**
- * Extracts trace context from HTTP headers according to the W3C Trace Context specification.
- * 
- * @param headers - HTTP headers containing trace context
- * @returns Trace context if present, undefined otherwise
+ * Gets the current trace correlation information from the active span.
+ * Returns undefined if no active span is found.
+ *
+ * @returns The trace correlation information or undefined if no active span
  */
-export function extractTraceContextFromHeaders(headers: IncomingHttpHeaders): TraceContext | undefined {
-  const traceparent = headers[TRACE_PARENT_HEADER] as string;
-  if (!traceparent) {
+export function getCurrentTraceInfo(): TraceCorrelationInfo | undefined {
+  const activeSpan = trace.getActiveSpan();
+  if (!activeSpan) {
     return undefined;
   }
 
-  const matches = TRACE_PARENT_REGEX.exec(traceparent);
-  if (!matches || matches.length !== 4) {
-    return undefined;
-  }
-
-  const [, traceId, spanId, traceFlags] = matches;
-  const traceState = headers[TRACE_STATE_HEADER] as string;
-
+  const spanContext = activeSpan.spanContext();
   return {
-    traceId,
-    spanId,
-    traceFlags,
-    traceState,
+    traceId: spanContext.traceId,
+    spanId: spanContext.spanId,
+    traceFlags: spanContext.traceFlags,
+    isRemote: spanContext.isRemote,
   };
 }
 
 /**
- * Extracts trace context from an Express request.
- * 
- * @param req - Express request object
- * @returns Trace context if present, undefined otherwise
+ * Extracts trace correlation information from a span context.
+ *
+ * @param spanContext The span context to extract information from
+ * @returns The trace correlation information
  */
-export function extractTraceContextFromRequest(req: Request): TraceContext | undefined {
-  return extractTraceContextFromHeaders(req.headers);
-}
-
-/**
- * Extracts AWS X-Ray trace ID from HTTP headers.
- * 
- * @param headers - HTTP headers containing X-Ray trace ID
- * @returns X-Ray trace ID if present, undefined otherwise
- */
-export function extractXRayTraceIdFromHeaders(headers: IncomingHttpHeaders): string | undefined {
-  const xrayHeader = headers[XRAY_TRACE_ID_HEADER] as string;
-  if (!xrayHeader) {
-    return undefined;
-  }
-
-  const matches = XRAY_TRACE_ID_REGEX.exec(xrayHeader);
-  if (!matches || matches.length !== 2) {
-    return undefined;
-  }
-
-  return matches[1];
-}
-
-/**
- * Converts an AWS X-Ray trace ID to a W3C trace ID.
- * 
- * @param xrayTraceId - AWS X-Ray trace ID
- * @returns W3C trace ID as a 32-character lowercase hex string
- */
-export function convertXRayToW3CTraceId(xrayTraceId: string): string | undefined {
-  if (!xrayTraceId) {
-    return undefined;
-  }
-
-  // X-Ray format: 1-5759e988-bd862e3fe1be46a994272793
-  // or Root=1-5759e988-bd862e3fe1be46a994272793
-  const matches = /^(?:Root=)?1-([0-9a-f]{8})-([0-9a-f]{24})$/i.exec(xrayTraceId);
-  if (!matches || matches.length !== 3) {
-    return undefined;
-  }
-
-  const [, timestamp, entityId] = matches;
-  return `${timestamp}${entityId}`;
-}
-
-/**
- * Creates a correlation context from trace context and request headers.
- * 
- * @param traceContext - W3C trace context
- * @param headers - HTTP headers containing additional correlation IDs
- * @returns Correlation context for logging
- */
-export function createCorrelationContext(
-  traceContext?: TraceContext,
-  headers?: IncomingHttpHeaders
-): CorrelationContext {
-  const context: CorrelationContext = {};
-
-  // Add trace context if available
-  if (traceContext) {
-    context.traceId = traceContext.traceId;
-    context.spanId = traceContext.spanId;
-  }
-
-  // Add request and correlation IDs from headers if available
-  if (headers) {
-    const requestId = headers[X_REQUEST_ID_HEADER] as string;
-    const correlationId = headers[X_CORRELATION_ID_HEADER] as string;
-
-    if (requestId) {
-      context.requestId = requestId;
-    }
-
-    if (correlationId) {
-      context.correlationId = correlationId;
-    }
-
-    // If no trace ID is available, try to extract from X-Ray header
-    if (!context.traceId) {
-      const xrayTraceId = extractXRayTraceIdFromHeaders(headers);
-      if (xrayTraceId) {
-        const w3cTraceId = convertXRayToW3CTraceId(xrayTraceId);
-        if (w3cTraceId) {
-          context.traceId = w3cTraceId;
-        } else {
-          // If conversion fails, use the original X-Ray trace ID
-          context.traceId = xrayTraceId;
-        }
-      }
-    }
-  }
-
-  return context;
-}
-
-/**
- * Creates a correlation context from an Express request.
- * 
- * @param req - Express request object
- * @returns Correlation context for logging
- */
-export function createCorrelationContextFromRequest(req: Request): CorrelationContext {
-  const traceContext = extractTraceContextFromRequest(req);
-  return createCorrelationContext(traceContext, req.headers);
-}
-
-/**
- * Creates HTTP headers for propagating trace context.
- * 
- * @param traceContext - W3C trace context to propagate
- * @param additionalHeaders - Additional headers to include
- * @returns HTTP headers for context propagation
- */
-export function createTraceContextHeaders(
-  traceContext: TraceContext,
-  additionalHeaders?: Record<string, string>
-): Record<string, string> {
-  const headers: Record<string, string> = {
-    ...additionalHeaders,
-  };
-
-  if (traceContext) {
-    // Format: 00-<trace-id>-<span-id>-<trace-flags>
-    headers[TRACE_PARENT_HEADER] = `00-${traceContext.traceId}-${traceContext.spanId}-${traceContext.traceFlags}`;
-    
-    if (traceContext.traceState) {
-      headers[TRACE_STATE_HEADER] = traceContext.traceState;
-    }
-  }
-
-  return headers;
-}
-
-/**
- * Extracts trace context from a Kafka message.
- * 
- * @param headers - Kafka message headers
- * @returns Trace context if present, undefined otherwise
- */
-export function extractTraceContextFromKafkaHeaders(
-  headers: Array<{ key: string; value: Buffer }>
-): TraceContext | undefined {
-  const traceparentHeader = headers.find(h => h.key.toLowerCase() === TRACE_PARENT_HEADER);
-  if (!traceparentHeader) {
-    return undefined;
-  }
-
-  const traceparent = traceparentHeader.value.toString();
-  const matches = TRACE_PARENT_REGEX.exec(traceparent);
-  if (!matches || matches.length !== 4) {
-    return undefined;
-  }
-
-  const [, traceId, spanId, traceFlags] = matches;
-  
-  // Find tracestate header if present
-  const tracestateHeader = headers.find(h => h.key.toLowerCase() === TRACE_STATE_HEADER);
-  const traceState = tracestateHeader ? tracestateHeader.value.toString() : undefined;
-
+export function getTraceInfoFromSpanContext(spanContext: SpanContext): TraceCorrelationInfo {
   return {
-    traceId,
-    spanId,
-    traceFlags,
-    traceState,
+    traceId: spanContext.traceId,
+    spanId: spanContext.spanId,
+    traceFlags: spanContext.traceFlags,
+    isRemote: spanContext.isRemote,
   };
 }
 
 /**
- * Creates Kafka message headers for propagating trace context.
- * 
- * @param traceContext - W3C trace context to propagate
- * @param additionalHeaders - Additional headers to include
- * @returns Kafka message headers for context propagation
+ * Enriches a log object with trace correlation information from the current active span.
+ * If no active span is found, the log object is returned unchanged.
+ *
+ * @param logObject The log object to enrich
+ * @returns The enriched log object with trace correlation information
  */
-export function createKafkaTraceContextHeaders(
-  traceContext: TraceContext,
-  additionalHeaders?: Array<{ key: string; value: Buffer }>
-): Array<{ key: string; value: Buffer }> {
-  const headers = additionalHeaders ? [...additionalHeaders] : [];
-
-  if (traceContext) {
-    // Format: 00-<trace-id>-<span-id>-<trace-flags>
-    const traceparent = `00-${traceContext.traceId}-${traceContext.spanId}-${traceContext.traceFlags}`;
-    headers.push({
-      key: TRACE_PARENT_HEADER,
-      value: Buffer.from(traceparent),
-    });
-    
-    if (traceContext.traceState) {
-      headers.push({
-        key: TRACE_STATE_HEADER,
-        value: Buffer.from(traceContext.traceState),
-      });
-    }
-  }
-
-  return headers;
-}
-
-/**
- * Generates a new trace ID according to the W3C Trace Context specification.
- * 
- * @returns A new trace ID as a 32-character lowercase hex string
- */
-export function generateTraceId(): string {
-  return generateRandomHex(32);
-}
-
-/**
- * Generates a new span ID according to the W3C Trace Context specification.
- * 
- * @returns A new span ID as a 16-character lowercase hex string
- */
-export function generateSpanId(): string {
-  return generateRandomHex(16);
-}
-
-/**
- * Generates a random hex string of the specified length.
- * 
- * @param length - Length of the hex string to generate
- * @returns Random hex string
- */
-function generateRandomHex(length: number): string {
-  const bytes = crypto.randomBytes(Math.ceil(length / 2));
-  return bytes.toString('hex').substring(0, length);
-}
-
-/**
- * Checks if a trace context is valid according to the W3C Trace Context specification.
- * 
- * @param traceContext - Trace context to validate
- * @returns True if the trace context is valid, false otherwise
- */
-export function isValidTraceContext(traceContext?: TraceContext): boolean {
-  if (!traceContext) {
-    return false;
-  }
-
-  // Trace ID must be a 32-character lowercase hex string with at least one non-zero byte
-  const isValidTraceId = /^[0-9a-f]{32}$/i.test(traceContext.traceId) && traceContext.traceId !== '00000000000000000000000000000000';
-  
-  // Span ID must be a 16-character lowercase hex string with at least one non-zero byte
-  const isValidSpanId = /^[0-9a-f]{16}$/i.test(traceContext.spanId) && traceContext.spanId !== '0000000000000000';
-  
-  // Trace flags must be a 2-character lowercase hex string
-  const isValidTraceFlags = /^[0-9a-f]{2}$/i.test(traceContext.traceFlags);
-
-  return isValidTraceId && isValidSpanId && isValidTraceFlags;
-}
-
-/**
- * Creates a correlation object for OpenTelemetry logs.
- * 
- * @param traceContext - W3C trace context
- * @returns Correlation object for OpenTelemetry logs
- */
-export function createOpenTelemetryCorrelation(traceContext?: TraceContext): Record<string, string> {
-  if (!traceContext || !isValidTraceContext(traceContext)) {
-    return {};
-  }
-
-  return {
-    'trace_id': traceContext.traceId,
-    'span_id': traceContext.spanId,
-    'trace_flags': traceContext.traceFlags,
-  };
-}
-
-/**
- * Extracts trace context from OpenTelemetry context.
- * This is a placeholder function that should be implemented when integrating with OpenTelemetry.
- * 
- * @returns Trace context if available, undefined otherwise
- */
-export function extractTraceContextFromOpenTelemetry(): TraceContext | undefined {
-  // This function should be implemented when integrating with OpenTelemetry
-  // It should extract the current trace context from the OpenTelemetry context
-  return undefined;
-}
-
-/**
- * Enriches a log object with trace correlation information.
- * 
- * @param logObject - Log object to enrich
- * @param correlationContext - Correlation context to add to the log object
- * @returns Enriched log object
- */
-export function enrichLogWithCorrelation(
-  logObject: Record<string, unknown>,
-  correlationContext: CorrelationContext
-): Record<string, unknown> {
-  if (!correlationContext) {
+export function enrichLogWithTraceInfo<T extends Record<string, unknown>>(logObject: T): T & Partial<TraceCorrelationInfo> {
+  const traceInfo = getCurrentTraceInfo();
+  if (!traceInfo) {
     return logObject;
   }
 
   return {
     ...logObject,
-    trace: {
-      ...correlationContext,
-      ...(logObject.trace as Record<string, unknown> || {}),
-    },
+    traceId: traceInfo.traceId,
+    spanId: traceInfo.spanId,
+    traceFlags: traceInfo.traceFlags,
   };
 }
 
 /**
- * Extracts trace context from the current execution context.
- * This function attempts to extract trace context from various sources,
- * including OpenTelemetry, HTTP headers, and Kafka headers.
- * 
- * @param source - Optional source object (e.g., HTTP request, Kafka message)
- * @returns Trace context if available, undefined otherwise
+ * Enriches a log object with journey-specific context from the current active span.
+ * This adds business context to technical traces for better correlation.
+ *
+ * @param logObject The log object to enrich
+ * @param journeyAttributes Optional additional journey attributes to include
+ * @returns The enriched log object with journey context
  */
-export function extractTraceContextFromCurrentContext(source?: unknown): TraceContext | undefined {
-  // First, try to extract from OpenTelemetry context
-  const otelContext = extractTraceContextFromOpenTelemetry();
-  if (otelContext) {
-    return otelContext;
+export function enrichLogWithJourneyContext<T extends Record<string, unknown>>(
+  logObject: T,
+  journeyAttributes?: Record<string, unknown>
+): T & { journeyContext?: Record<string, unknown> } {
+  const activeSpan = trace.getActiveSpan();
+  if (!activeSpan) {
+    return logObject;
   }
 
-  // If a source is provided, try to extract from it
-  if (source) {
-    // Check if source is an Express request
-    if (isExpressRequest(source)) {
-      return extractTraceContextFromRequest(source);
-    }
+  // Extract journey-specific attributes from the span
+  const journeyContext: Record<string, unknown> = {};
+  
+  // Common journey attributes
+  const journeyType = activeSpan.getAttribute('journey.type');
+  const userId = activeSpan.getAttribute('user.id');
+  const sessionId = activeSpan.getAttribute('session.id');
+  
+  if (journeyType) journeyContext['journeyType'] = journeyType;
+  if (userId) journeyContext['userId'] = userId;
+  if (sessionId) journeyContext['sessionId'] = sessionId;
+  
+  // Add any additional journey attributes
+  if (journeyAttributes) {
+    Object.assign(journeyContext, journeyAttributes);
+  }
+  
+  // Only add journeyContext if it has properties
+  if (Object.keys(journeyContext).length > 0) {
+    return {
+      ...logObject,
+      journeyContext,
+    };
+  }
+  
+  return logObject;
+}
 
-    // Check if source is Kafka headers
-    if (isKafkaHeaders(source)) {
-      return extractTraceContextFromKafkaHeaders(source);
-    }
+/**
+ * Converts an OpenTelemetry trace ID to AWS X-Ray format.
+ * X-Ray format: 1-{8 digit hex}-{24 digit hex}
+ * Where the first 8 digits represent a timestamp.
+ *
+ * @param traceId The OpenTelemetry trace ID (32-hex-character lowercase string)
+ * @returns The X-Ray formatted trace ID
+ */
+export function convertToXRayTraceId(traceId: string): XRayTraceId {
+  if (!traceId || traceId.length !== 32) {
+    throw new Error('Invalid trace ID format. Expected a 32-character hex string.');
+  }
 
-    // Check if source is HTTP headers
-    if (isHttpHeaders(source)) {
-      return extractTraceContextFromHeaders(source);
+  const timestamp = traceId.substring(0, 8);
+  const randomId = traceId.substring(8);
+  const formattedId = `1-${timestamp}-${randomId}`;
+
+  return {
+    formattedId,
+    timestamp,
+    randomId,
+  };
+}
+
+/**
+ * Converts an AWS X-Ray trace ID to OpenTelemetry format.
+ *
+ * @param xrayTraceId The X-Ray trace ID (1-{8 digit hex}-{24 digit hex})
+ * @returns The OpenTelemetry trace ID (32-hex-character lowercase string)
+ */
+export function convertFromXRayTraceId(xrayTraceId: string): string {
+  // X-Ray trace ID format: 1-{8 digit hex}-{24 digit hex}
+  const regex = /^1-([0-9a-f]{8})-([0-9a-f]{24})$/;
+  const match = xrayTraceId.match(regex);
+
+  if (!match) {
+    throw new Error('Invalid X-Ray trace ID format. Expected format: 1-{8 digit hex}-{24 digit hex}');
+  }
+
+  const timestamp = match[1];
+  const randomId = match[2];
+  return `${timestamp}${randomId}`;
+}
+
+/**
+ * Creates a correlation object for AWS CloudWatch logs.
+ * This format is compatible with AWS CloudWatch Logs Insights queries.
+ *
+ * @returns The CloudWatch correlation object or undefined if no active span
+ */
+export function createCloudWatchCorrelation(): Record<string, string> | undefined {
+  const traceInfo = getCurrentTraceInfo();
+  if (!traceInfo) {
+    return undefined;
+  }
+
+  try {
+    const xrayTraceId = convertToXRayTraceId(traceInfo.traceId);
+    return {
+      'xray.trace_id': xrayTraceId.formattedId,
+      'otel.trace_id': traceInfo.traceId,
+      'otel.span_id': traceInfo.spanId,
+    };
+  } catch (error) {
+    // If conversion fails, return the original OpenTelemetry IDs
+    return {
+      'otel.trace_id': traceInfo.traceId,
+      'otel.span_id': traceInfo.spanId,
+    };
+  }
+}
+
+/**
+ * Creates a correlation object for Datadog logs.
+ * This format is compatible with Datadog's trace correlation.
+ *
+ * @returns The Datadog correlation object or undefined if no active span
+ */
+export function createDatadogCorrelation(): Record<string, string> | undefined {
+  const traceInfo = getCurrentTraceInfo();
+  if (!traceInfo) {
+    return undefined;
+  }
+
+  // Datadog uses decimal representation of the hex span ID
+  const spanIdDecimal = parseInt(traceInfo.spanId, 16).toString();
+
+  return {
+    'dd.trace_id': traceInfo.traceId,
+    'dd.span_id': spanIdDecimal,
+  };
+}
+
+/**
+ * Extracts trace correlation information from HTTP headers.
+ * Supports both W3C Trace Context and AWS X-Ray header formats.
+ *
+ * @param headers HTTP headers object or record
+ * @returns The trace correlation information or undefined if no trace headers found
+ */
+export function extractTraceInfoFromHeaders(headers: Record<string, string | string[] | undefined>): TraceCorrelationInfo | undefined {
+  // Try W3C Trace Context format first (traceparent header)
+  const traceparent = headers['traceparent'];
+  if (traceparent && typeof traceparent === 'string') {
+    // traceparent format: 00-traceId-spanId-flags
+    const parts = traceparent.split('-');
+    if (parts.length === 4) {
+      return {
+        traceId: parts[1],
+        spanId: parts[2],
+        traceFlags: parseInt(parts[3], 16),
+        isRemote: true,
+      };
+    }
+  }
+
+  // Try AWS X-Ray header format
+  const xrayHeader = headers['x-amzn-trace-id'];
+  if (xrayHeader && typeof xrayHeader === 'string') {
+    // X-Ray header format: Root=1-5759e988-bd862e3fe1be46a994272793;Parent=53995c3f42cd8ad8;Sampled=1
+    const rootMatch = xrayHeader.match(/Root=([^;]+)/);
+    const parentMatch = xrayHeader.match(/Parent=([^;]+)/);
+    const sampledMatch = xrayHeader.match(/Sampled=([^;]+)/);
+
+    if (rootMatch && rootMatch[1]) {
+      try {
+        const traceId = convertFromXRayTraceId(rootMatch[1]);
+        return {
+          traceId,
+          spanId: parentMatch && parentMatch[1] ? parentMatch[1] : '0000000000000000',
+          traceFlags: sampledMatch && sampledMatch[1] === '1' ? 1 : 0,
+          isRemote: true,
+        };
+      } catch (error) {
+        // If conversion fails, return undefined
+        return undefined;
+      }
     }
   }
 
@@ -428,49 +275,108 @@ export function extractTraceContextFromCurrentContext(source?: unknown): TraceCo
 }
 
 /**
- * Type guard for Express request objects.
- * 
- * @param source - Object to check
- * @returns True if the object is an Express request, false otherwise
+ * Creates HTTP headers with trace correlation information from the current active span.
+ * Generates headers in both W3C Trace Context and AWS X-Ray formats.
+ *
+ * @returns Object containing HTTP headers with trace correlation information
  */
-function isExpressRequest(source: unknown): source is Request {
-  return (
-    typeof source === 'object' &&
-    source !== null &&
-    'headers' in source &&
-    'method' in source &&
-    'url' in source
-  );
+export function createTraceHeaders(): Record<string, string> | undefined {
+  const traceInfo = getCurrentTraceInfo();
+  if (!traceInfo) {
+    return undefined;
+  }
+
+  const headers: Record<string, string> = {};
+
+  // W3C Trace Context format
+  const flags = traceInfo.traceFlags?.toString(16).padStart(2, '0') || '01';
+  headers['traceparent'] = `00-${traceInfo.traceId}-${traceInfo.spanId}-${flags}`;
+
+  // AWS X-Ray format
+  try {
+    const xrayTraceId = convertToXRayTraceId(traceInfo.traceId);
+    headers['x-amzn-trace-id'] = `Root=${xrayTraceId.formattedId};Parent=${traceInfo.spanId};Sampled=${traceInfo.traceFlags ? '1' : '0'}`;
+  } catch (error) {
+    // If X-Ray conversion fails, skip adding the X-Ray header
+  }
+
+  return headers;
 }
 
 /**
- * Type guard for HTTP headers objects.
- * 
- * @param source - Object to check
- * @returns True if the object is an HTTP headers object, false otherwise
+ * Adds error information to the current active span.
+ * This helps correlate logs with traces when errors occur.
+ *
+ * @param error The error object
+ * @param attributes Optional additional attributes to add to the span
  */
-function isHttpHeaders(source: unknown): source is IncomingHttpHeaders {
-  return (
-    typeof source === 'object' &&
-    source !== null &&
-    !Array.isArray(source)
-  );
+export function addErrorToActiveSpan(error: Error, attributes?: Record<string, unknown>): void {
+  const activeSpan = trace.getActiveSpan();
+  if (!activeSpan) {
+    return;
+  }
+
+  // Set error status and attributes on the span
+  activeSpan.setStatus({ code: SpanStatusCode.ERROR });
+  
+  // Add standard error attributes
+  activeSpan.setAttribute(SemanticAttributes.EXCEPTION_TYPE, error.name);
+  activeSpan.setAttribute(SemanticAttributes.EXCEPTION_MESSAGE, error.message);
+  
+  if (error.stack) {
+    activeSpan.setAttribute(SemanticAttributes.EXCEPTION_STACKTRACE, error.stack);
+  }
+  
+  // Add any additional attributes
+  if (attributes) {
+    Object.entries(attributes).forEach(([key, value]) => {
+      activeSpan.setAttribute(key, value as string | number | boolean);
+    });
+  }
+  
+  // Record the exception as an event
+  activeSpan.recordException(error);
 }
 
 /**
- * Type guard for Kafka headers arrays.
- * 
- * @param source - Object to check
- * @returns True if the object is a Kafka headers array, false otherwise
+ * Creates a correlation link for logs that can be used to navigate to the trace in a tracing UI.
+ * The format depends on the tracing backend being used.
+ *
+ * @param traceId The trace ID
+ * @param backend The tracing backend ('jaeger', 'zipkin', 'xray', etc.)
+ * @param baseUrl Optional base URL for the tracing backend
+ * @returns A URL that can be used to navigate to the trace
  */
-function isKafkaHeaders(source: unknown): source is Array<{ key: string; value: Buffer }> {
-  return (
-    Array.isArray(source) &&
-    source.length > 0 &&
-    typeof source[0] === 'object' &&
-    source[0] !== null &&
-    'key' in source[0] &&
-    'value' in source[0] &&
-    Buffer.isBuffer((source[0] as any).value)
-  );
+export function createTraceLink(traceId: string, backend: 'jaeger' | 'zipkin' | 'xray' | string, baseUrl?: string): string | undefined {
+  if (!traceId) {
+    return undefined;
+  }
+
+  let url: string;
+  switch (backend.toLowerCase()) {
+    case 'jaeger':
+      url = `${baseUrl || 'http://localhost:16686'}/trace/${traceId}`;
+      break;
+    case 'zipkin':
+      url = `${baseUrl || 'http://localhost:9411'}/zipkin/traces/${traceId}`;
+      break;
+    case 'xray':
+      // For X-Ray, we need to convert to X-Ray format if it's not already
+      try {
+        const xrayId = traceId.includes('-') ? traceId : convertToXRayTraceId(traceId).formattedId;
+        url = `${baseUrl || 'https://console.aws.amazon.com/xray/home'}/trace/details/${xrayId}`;
+      } catch (error) {
+        return undefined;
+      }
+      break;
+    default:
+      // For unknown backends, just return a generic URL if baseUrl is provided
+      if (baseUrl) {
+        url = `${baseUrl}/trace/${traceId}`;
+      } else {
+        return undefined;
+      }
+  }
+
+  return url;
 }
