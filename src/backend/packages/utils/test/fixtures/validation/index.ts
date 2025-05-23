@@ -1,112 +1,191 @@
 /**
- * @file Central export point for all validation test fixtures used in the utils package tests.
- * 
- * This barrel file provides a single import point for all validation-related test fixtures,
- * organized by validation category. It enables consistent and simplified importing of fixtures
- * across all test files while maintaining proper TypeScript typing for improved developer experience.
- * 
- * @example
- * // Import all fixtures from a specific validation category
- * import { emailValidationFixtures } from '@austa/utils/test/fixtures/validation';
- * 
- * // Import specific fixtures directly
- * import { validEmails, invalidEmails } from '@austa/utils/test/fixtures/validation';
- * 
- * // Import from a specific category with destructuring
- * import { passwordValidationFixtures } from '@austa/utils/test/fixtures/validation';
- * const { strongPasswords, weakPasswords } = passwordValidationFixtures;
- * 
- * // Import all validation fixtures as a namespace
- * import * as validationFixtures from '@austa/utils/test/fixtures/validation';
- * validationFixtures.cpfValidationFixtures.validCPFs;
+ * @file Validation Test Fixtures
+ * @description Centralized export point for all validation test fixtures used across the AUSTA SuperApp testing infrastructure.
+ * These fixtures provide standardized test data for validating inputs, configurations, and domain-specific data
+ * across all journey services.
  */
-
-// Email validation fixtures
-export * from './email-validation.fixtures';
-export * as emailValidationFixtures from './email-validation.fixtures';
-
-// Password validation fixtures
-export * from './password-validation.fixtures';
-export * as passwordValidationFixtures from './password-validation.fixtures';
-
-// CPF validation fixtures (Brazilian tax ID)
-export * from './cpf-validation.fixtures';
-export * as cpfValidationFixtures from './cpf-validation.fixtures';
-
-// Date validation fixtures
-export * from './date-validation.fixtures';
-export * as dateValidationFixtures from './date-validation.fixtures';
-
-// Config validation fixtures
-export * from './config-validation.fixtures';
-export * as configValidationFixtures from './config-validation.fixtures';
-
-// Input sanitization fixtures
-export * from './input-sanitization.fixtures';
-export * as inputSanitizationFixtures from './input-sanitization.fixtures';
 
 // Journey-specific validation fixtures
-export * from './journey-validation.fixtures';
-export * as journeyValidationFixtures from './journey-validation.fixtures';
+import * as journeyValidation from './journey-validation.fixtures';
+
+// Security validation fixtures
+import * as inputSanitization from './input-sanitization.fixtures';
+
+// Configuration validation fixtures
+import * as configValidation from './config-validation.fixtures';
+
+// Date validation fixtures
+import * as dateValidation from './date-validation.fixtures';
+
+// Authentication validation fixtures
+import * as passwordValidation from './password-validation.fixtures';
+import * as emailValidation from './email-validation.fixtures';
+
+// Brazilian-specific validation fixtures
+import * as cpfValidation from './cpf-validation.fixtures';
 
 /**
- * Comprehensive collection of all validation test fixtures organized by validation category.
- * This object provides a structured way to access all validation fixtures when needed as a group.
+ * Journey-specific validation test fixtures organized by health, care, and plan journeys.
+ * Contains domain-specific validation scenarios for each journey context.
+ * 
+ * @example
+ * // Import health journey validation fixtures
+ * import { journeyValidation } from '@austa/utils/test/fixtures/validation';
+ * 
+ * // Use health metrics validation fixtures in tests
+ * test('validates health metrics correctly', () => {
+ *   const { validHealthMetrics, invalidHealthMetrics } = journeyValidation.health;
+ *   expect(validateHealthMetric(validHealthMetrics.bloodPressure)).toBe(true);
+ *   expect(validateHealthMetric(invalidHealthMetrics.bloodPressure)).toBe(false);
+ * });
+ */
+export { journeyValidation };
+
+/**
+ * Security validation test fixtures for testing input sanitization and protection against
+ * common web vulnerabilities like XSS, SQL injection, and other attack vectors.
+ * 
+ * @example
+ * // Import security validation fixtures
+ * import { inputSanitization } from '@austa/utils/test/fixtures/validation';
+ * 
+ * // Test XSS protection
+ * test('sanitizes XSS attack vectors', () => {
+ *   const { xssAttackVectors } = inputSanitization;
+ *   xssAttackVectors.forEach(vector => {
+ *     expect(sanitizeInput(vector.input)).toBe(vector.expected);
+ *   });
+ * });
+ */
+export { inputSanitization };
+
+/**
+ * Configuration validation test fixtures for testing environment configuration validation
+ * across microservices, including valid and invalid configuration objects.
+ * 
+ * @example
+ * // Import configuration validation fixtures
+ * import { configValidation } from '@austa/utils/test/fixtures/validation';
+ * 
+ * // Test database configuration validation
+ * test('validates database configuration', () => {
+ *   const { validDatabaseConfigs, invalidDatabaseConfigs } = configValidation;
+ *   expect(validateDatabaseConfig(validDatabaseConfigs.postgres)).toBe(true);
+ *   expect(validateDatabaseConfig(invalidDatabaseConfigs.missingHost)).toBe(false);
+ * });
+ */
+export { configValidation };
+
+/**
+ * Date validation test fixtures for testing date validation and formatting in Brazilian
+ * and international formats, covering valid dates, invalid dates, and edge cases.
+ * 
+ * @example
+ * // Import date validation fixtures
+ * import { dateValidation } from '@austa/utils/test/fixtures/validation';
+ * 
+ * // Test Brazilian date format validation
+ * test('validates Brazilian date format', () => {
+ *   const { validBrazilianDates, invalidBrazilianDates } = dateValidation;
+ *   validBrazilianDates.forEach(date => {
+ *     expect(isValidBrazilianDate(date)).toBe(true);
+ *   });
+ *   invalidBrazilianDates.forEach(date => {
+ *     expect(isValidBrazilianDate(date)).toBe(false);
+ *   });
+ * });
+ */
+export { dateValidation };
+
+/**
+ * Password validation test fixtures for testing password strength and security policy validation,
+ * containing weak, medium, and strong password examples, and various policy test cases.
+ * 
+ * @example
+ * // Import password validation fixtures
+ * import { passwordValidation } from '@austa/utils/test/fixtures/validation';
+ * 
+ * // Test password strength validation
+ * test('validates password strength', () => {
+ *   const { weakPasswords, mediumPasswords, strongPasswords } = passwordValidation;
+ *   weakPasswords.forEach(password => {
+ *     expect(getPasswordStrength(password)).toBe('weak');
+ *   });
+ *   strongPasswords.forEach(password => {
+ *     expect(getPasswordStrength(password)).toBe('strong');
+ *   });
+ * });
+ */
+export { passwordValidation };
+
+/**
+ * Email validation test fixtures for testing email address validation, providing sample
+ * valid emails, invalid emails, and edge cases for comprehensive testing.
+ * 
+ * @example
+ * // Import email validation fixtures
+ * import { emailValidation } from '@austa/utils/test/fixtures/validation';
+ * 
+ * // Test email validation
+ * test('validates email addresses', () => {
+ *   const { validEmails, invalidEmails } = emailValidation;
+ *   validEmails.forEach(email => {
+ *     expect(isValidEmail(email)).toBe(true);
+ *   });
+ *   invalidEmails.forEach(email => {
+ *     expect(isValidEmail(email)).toBe(false);
+ *   });
+ * });
+ */
+export { emailValidation };
+
+/**
+ * CPF validation test fixtures for testing Brazilian CPF number validation, including
+ * valid CPFs with different formatting, invalid CPFs, and edge cases.
+ * 
+ * @example
+ * // Import CPF validation fixtures
+ * import { cpfValidation } from '@austa/utils/test/fixtures/validation';
+ * 
+ * // Test CPF validation
+ * test('validates CPF numbers', () => {
+ *   const { validCPFs, invalidCPFs } = cpfValidation;
+ *   validCPFs.forEach(cpf => {
+ *     expect(isValidCPF(cpf)).toBe(true);
+ *   });
+ *   invalidCPFs.forEach(cpf => {
+ *     expect(isValidCPF(cpf)).toBe(false);
+ *   });
+ * });
+ */
+export { cpfValidation };
+
+/**
+ * Convenience export of all validation fixtures grouped by category.
+ * This allows importing all fixtures at once when needed.
+ * 
+ * @example
+ * // Import all validation fixtures
+ * import { validationFixtures } from '@austa/utils/test/fixtures/validation';
+ * 
+ * // Access specific fixture categories
+ * const { journeyValidation, emailValidation } = validationFixtures;
+ * 
+ * // Use in tests
+ * test('validates user data', () => {
+ *   expect(isValidEmail(emailValidation.validEmails[0])).toBe(true);
+ *   expect(validateHealthData(journeyValidation.health.validHealthMetrics.steps)).toBe(true);
+ * });
  */
 export const validationFixtures = {
-  email: emailValidationFixtures,
-  password: passwordValidationFixtures,
-  cpf: cpfValidationFixtures,
-  date: dateValidationFixtures,
-  config: configValidationFixtures,
-  inputSanitization: inputSanitizationFixtures,
-  journey: journeyValidationFixtures
+  journeyValidation,
+  inputSanitization,
+  configValidation,
+  dateValidation,
+  passwordValidation,
+  emailValidation,
+  cpfValidation,
 };
 
-/**
- * @typedef {Object} ValidationFixtureCollection
- * @property {typeof emailValidationFixtures} email - Email validation test fixtures
- * @property {typeof passwordValidationFixtures} password - Password validation test fixtures
- * @property {typeof cpfValidationFixtures} cpf - Brazilian CPF validation test fixtures
- * @property {typeof dateValidationFixtures} date - Date validation test fixtures
- * @property {typeof configValidationFixtures} config - Configuration validation test fixtures
- * @property {typeof inputSanitizationFixtures} inputSanitization - Input sanitization test fixtures
- * @property {typeof journeyValidationFixtures} journey - Journey-specific validation test fixtures
- */
-
-// Type declaration for the validationFixtures object to improve IDE support
-export type ValidationFixtureCollection = typeof validationFixtures;
-
-/**
- * Usage examples for validation fixtures in tests:
- * 
- * @example
- * // Testing email validation
- * import { validEmails, invalidEmails } from '@austa/utils/test/fixtures/validation';
- * 
- * describe('Email Validator', () => {
- *   it('should validate correct email formats', () => {
- *     validEmails.forEach(email => {
- *       expect(isValidEmail(email)).toBe(true);
- *     });
- *   });
- * 
- *   it('should reject invalid email formats', () => {
- *     invalidEmails.forEach(email => {
- *       expect(isValidEmail(email)).toBe(false);
- *     });
- *   });
- * });
- * 
- * @example
- * // Testing journey-specific validation
- * import { journeyValidationFixtures } from '@austa/utils/test/fixtures/validation';
- * 
- * describe('Health Metrics Validator', () => {
- *   it('should validate health metrics within normal ranges', () => {
- *     journeyValidationFixtures.health.validMetrics.forEach(metric => {
- *       expect(validateHealthMetric(metric)).toBe(true);
- *     });
- *   });
- * });
- */
+// Default export for convenient importing
+export default validationFixtures;
