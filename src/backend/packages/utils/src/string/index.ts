@@ -1,76 +1,91 @@
 /**
- * @file String Utilities Index
- * @description Central export point for all string utility functions organized by category.
- * This barrel file simplifies imports while maintaining an organized internal structure.
- * 
+ * @file String Utility Functions
  * @module @austa/utils/string
- * @version 1.0.0
+ * @description Exports all string utility functions from formatting and validation modules.
+ * This central export point simplifies imports by allowing consumers to import from a single
+ * location while maintaining an organized internal structure.
  */
 
 /**
- * String formatting utilities for text transformation operations.
- * @see {@link ./formatting.ts}
+ * String formatting utilities for consistent text transformation across all journey services.
+ * These utilities ensure consistent text presentation across all platform components.
+ * 
+ * @example
+ * ```typescript
+ * import { capitalizeFirstLetter, truncate } from '@austa/utils/string';
+ * 
+ * // Capitalize first letter
+ * const capitalized = capitalizeFirstLetter('hello world'); // 'Hello world'
+ * 
+ * // Truncate long text
+ * const truncated = truncate('This is a long text', 10); // 'This is a ...'
+ * ```
  */
 export * from './formatting';
 
 /**
- * String validation utilities for verifying string formats and patterns.
- * @see {@link ./validation.ts}
+ * String validation utilities focused on business rules validation, particularly for
+ * Brazilian-specific formats. These utilities ensure consistent validation behavior
+ * across all journey services and prevent invalid data entry.
+ * 
+ * @example
+ * ```typescript
+ * import { validateCPF, validateEmail, isEmpty } from '@austa/utils/string';
+ * 
+ * // Validate Brazilian CPF
+ * const isValidCpf = validateCPF('123.456.789-09'); // false (invalid CPF)
+ * 
+ * // Validate email
+ * const isValidEmail = validateEmail('user@example.com'); // true
+ * 
+ * // Check if string is empty
+ * const stringIsEmpty = isEmpty('   ', true); // true (after trimming)
+ * ```
  */
 export * from './validation';
 
 /**
- * Convenience re-exports of commonly used functions with explicit types.
- * This allows for more precise imports when only specific functions are needed.
- */
-
-// Formatting function re-exports with explicit types
-import { capitalizeFirstLetter, truncate } from './formatting';
-export { 
-  capitalizeFirstLetter, 
-  truncate 
-};
-
-// Validation function re-exports with explicit types
-import { 
-  isValidCPF, 
-  isValidCNPJ, 
-  isValidCEP, 
-  isValidBrazilianPhone,
-  formatCPF,
-  formatCNPJ,
-  formatCEP
-} from './validation';
-export {
-  isValidCPF, 
-  isValidCNPJ, 
-  isValidCEP, 
-  isValidBrazilianPhone,
-  formatCPF,
-  formatCNPJ,
-  formatCEP
-};
-
-/**
- * Type definitions for validation function return types.
- * These types can be imported directly by consumers for type checking.
- */
-export type ValidationResult = boolean | { valid: boolean; error?: string };
-
-/**
+ * Convenience object containing all string validation functions.
+ * This allows importing all validation functions as a single object.
+ * 
  * @example
  * ```typescript
- * // Import all string utilities
- * import * as StringUtils from '@austa/utils/string';
+ * import { validation } from '@austa/utils/string';
  * 
- * // Import specific functions
- * import { capitalizeFirstLetter, isValidCPF } from '@austa/utils/string';
- * 
- * // Import from specific category
- * import { truncate } from '@austa/utils/string/formatting';
- * import { isValidCNPJ } from '@austa/utils/string/validation';
- * 
- * // Import types
- * import { ValidationResult } from '@austa/utils/string';
+ * // Use validation functions
+ * const isValidCpf = validation.validateCPF('123.456.789-09');
+ * const isValidEmail = validation.validateEmail('user@example.com');
  * ```
  */
+export { default as validation } from './validation';
+
+/**
+ * Re-export the validation patterns for direct access.
+ * These patterns can be used for custom validation logic.
+ * 
+ * @example
+ * ```typescript
+ * import { ValidationPatterns } from '@austa/utils/string';
+ * 
+ * // Use validation patterns
+ * const isStrongPassword = ValidationPatterns.STRONG_PASSWORD.test('P@ssw0rd');
+ * const isValidUuid = ValidationPatterns.UUID.test('123e4567-e89b-12d3-a456-426614174000');
+ * ```
+ */
+export { ValidationPatterns } from './validation';
+
+/**
+ * @deprecated Use the named exports instead for better tree-shaking.
+ * This default export is provided for backward compatibility.
+ */
+export default {
+  // Formatting functions
+  capitalizeFirstLetter: require('./formatting').capitalizeFirstLetter,
+  truncate: require('./formatting').truncate,
+  
+  // Validation functions
+  ...require('./validation').default,
+  
+  // Validation patterns
+  ValidationPatterns: require('./validation').ValidationPatterns,
+};
