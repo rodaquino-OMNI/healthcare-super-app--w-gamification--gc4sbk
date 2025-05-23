@@ -5,343 +5,195 @@
  * return predetermined output.
  */
 
-import { 
-  Formatter, 
-  LogEntry, 
-  LogLevel,
-  JourneyType
-} from '../../src/interfaces/formatter.interface';
+import { Formatter, LogEntry } from '../../src/formatters/formatter.interface';
 
 /**
- * Configuration options for the mock formatter
- */
-export interface MockFormatterOptions {
-  /**
-   * Whether the formatter should simulate failures
-   * @default false
-   */
-  shouldFail?: boolean;
-
-  /**
-   * Delay in milliseconds before resolving/rejecting operations
-   * @default 0
-   */
-  delay?: number;
-
-  /**
-   * Error to throw when shouldFail is true
-   * @default new Error('Mock formatter failure')
-   */
-  error?: Error;
-
-  /**
-   * Predefined output to return from format method
-   * If not provided, a default formatted string will be returned
-   */
-  output?: string | Record<string, any>;
-}
-
-/**
- * Base mock implementation of the Formatter interface for testing
+ * Mock implementation of the Formatter interface for testing.
+ * Tracks format calls and returns configurable output.
  */
 export class MockFormatter implements Formatter {
   /**
-   * Tracks calls to the format method
+   * Tracks all calls to the format method with their arguments
    */
   public formatCalls: { entry: LogEntry }[] = [];
 
   /**
-   * Options for controlling the mock behavior
+   * The output to return when format is called
    */
-  private options: Required<MockFormatterOptions>;
+  private returnValue: string | Record<string, any>;
+
+  /**
+   * Whether to throw an error when format is called
+   */
+  private shouldThrowError: boolean = false;
+
+  /**
+   * The error to throw when format is called (if shouldThrowError is true)
+   */
+  private errorToThrow: Error = new Error('Mock formatter error');
 
   /**
    * Creates a new MockFormatter instance
    * 
-   * @param options Options for controlling the mock behavior
+   * @param returnValue The value to return when format is called
    */
-  constructor(options: MockFormatterOptions = {}) {
-    this.options = {
-      shouldFail: options.shouldFail ?? false,
-      delay: options.delay ?? 0,
-      error: options.error ?? new Error('Mock formatter failure'),
-      output: options.output ?? 'Mock formatted log'
-    };
+  constructor(returnValue: string | Record<string, any> = 'mock formatted log') {
+    this.returnValue = returnValue;
   }
 
   /**
-   * Updates the mock options
+   * Configures the formatter to throw an error when format is called
    * 
-   * @param options New options to apply
+   * @param error The error to throw (defaults to a generic error)
+   * @returns The MockFormatter instance for chaining
    */
-  public updateOptions(options: Partial<MockFormatterOptions>): void {
-    this.options = {
-      ...this.options,
-      ...options
-    };
+  public throwError(error?: Error): MockFormatter {
+    this.shouldThrowError = true;
+    if (error) {
+      this.errorToThrow = error;
+    }
+    return this;
   }
 
   /**
-   * Resets all call tracking
+   * Configures the formatter to not throw an error when format is called
+   * 
+   * @returns The MockFormatter instance for chaining
    */
-  public reset(): void {
+  public dontThrowError(): MockFormatter {
+    this.shouldThrowError = false;
+    return this;
+  }
+
+  /**
+   * Sets the value to return when format is called
+   * 
+   * @param value The value to return
+   * @returns The MockFormatter instance for chaining
+   */
+  public setReturnValue(value: string | Record<string, any>): MockFormatter {
+    this.returnValue = value;
+    return this;
+  }
+
+  /**
+   * Clears the tracked format calls
+   * 
+   * @returns The MockFormatter instance for chaining
+   */
+  public clearCalls(): MockFormatter {
     this.formatCalls = [];
+    return this;
   }
 
   /**
-   * Simulates an asynchronous operation with configurable delay and failure
-   * 
-   * @param callback Function to execute after delay
-   * @returns Promise that resolves or rejects based on shouldFail option
-   */
-  private async simulateOperation<T>(callback: () => T): Promise<T> {
-    if (this.options.delay > 0) {
-      await new Promise(resolve => setTimeout(resolve, this.options.delay));
-    }
-
-    if (this.options.shouldFail) {
-      throw this.options.error;
-    }
-
-    return callback();
-  }
-
-  /**
-   * Formats a log entry into the desired output format.
-   * 
-   * @param entry The log entry to format
-   * @returns The formatted log entry as a string or object, depending on the formatter implementation
-   * @throws Error if formatting fails and shouldFail is true
-   */
-  public format(entry: LogEntry): string | Record<string, any> {
-    this.formatCalls.push({ entry });
-    
-    // If delay is set, we need to handle this synchronously even though
-    // we're using the async helper method internally
-    if (this.options.delay > 0 || this.options.shouldFail) {
-      try {
-        // We need to execute this synchronously, so we create a promise and resolve it immediately
-        this.simulateOperation(() => this.options.output);
-      } catch (error) {
-        throw this.options.error;
-      }
-    }
-    
-    return this.options.output;
-  }
-
-  /**
-   * Gets the number of times the format method has been called
+   * Returns the number of times format has been called
    * 
    * @returns The number of format calls
    */
-  public getFormatCallCount(): number {
+  public getCallCount(): number {
     return this.formatCalls.length;
   }
 
   /**
-   * Gets the log entries that have been passed to the format method
+   * Implements the Formatter interface's format method.
+   * Tracks the call, throws an error if configured to do so, or returns the configured value.
    * 
-   * @returns Array of log entries
+   * @param entry The log entry to format
+   * @returns The configured return value
+   * @throws Error if configured to throw an error
    */
-  public getFormattedEntries(): LogEntry[] {
-    return this.formatCalls.map(call => call.entry);
-  }
-
-  /**
-   * Checks if a specific log entry has been formatted
-   * 
-   * @param predicate Function that tests each log entry
-   * @returns True if any log entry matches the predicate, false otherwise
-   */
-  public hasFormatted(predicate: (entry: LogEntry) => boolean): boolean {
-    return this.formatCalls.some(call => predicate(call.entry));
+  public format(entry: LogEntry): string | Record<string, any> {
+    this.formatCalls.push({ entry });
+    
+    if (this.shouldThrowError) {
+      throw this.errorToThrow;
+    }
+    
+    return this.returnValue;
   }
 }
 
 /**
- * Mock implementation of the text formatter for testing
+ * Mock implementation of a text formatter for testing.
+ * Extends the base MockFormatter with text-specific defaults.
  */
 export class MockTextFormatter extends MockFormatter {
   /**
    * Creates a new MockTextFormatter instance
    * 
-   * @param options Options for controlling the mock behavior
+   * @param returnValue The value to return when format is called (defaults to a text representation)
    */
-  constructor(options: MockFormatterOptions = {}) {
-    super({
-      ...options,
-      output: options.output ?? 'Mock text formatted log'
-    });
-  }
-
-  /**
-   * Formats a log entry into a text string.
-   * Overrides the base implementation to provide text-specific formatting.
-   * 
-   * @param entry The log entry to format
-   * @returns The formatted log entry as a string
-   * @throws Error if formatting fails and shouldFail is true
-   */
-  public format(entry: LogEntry): string {
-    const result = super.format(entry);
-    return typeof result === 'string' ? result : JSON.stringify(result);
+  constructor(returnValue: string = '[INFO] 2023-01-01T00:00:00.000Z - Mock log message') {
+    super(returnValue);
   }
 }
 
 /**
- * Mock implementation of the JSON formatter for testing
+ * Mock implementation of a JSON formatter for testing.
+ * Extends the base MockFormatter with JSON-specific defaults.
  */
 export class MockJsonFormatter extends MockFormatter {
   /**
    * Creates a new MockJsonFormatter instance
    * 
-   * @param options Options for controlling the mock behavior
+   * @param returnValue The value to return when format is called (defaults to a JSON object)
    */
-  constructor(options: MockFormatterOptions = {}) {
-    super({
-      ...options,
-      output: options.output ?? {
-        timestamp: new Date().toISOString(),
-        level: 'INFO',
-        message: 'Mock JSON formatted log',
-        context: 'test'
-      }
-    });
-  }
-
-  /**
-   * Formats a log entry into a JSON object.
-   * Overrides the base implementation to provide JSON-specific formatting.
-   * 
-   * @param entry The log entry to format
-   * @returns The formatted log entry as a Record<string, any>
-   * @throws Error if formatting fails and shouldFail is true
-   */
-  public format(entry: LogEntry): Record<string, any> {
-    const result = super.format(entry);
-    return typeof result === 'string' ? JSON.parse(result) : result;
+  constructor(returnValue: Record<string, any> = {
+    level: 'INFO',
+    message: 'Mock log message',
+    timestamp: '2023-01-01T00:00:00.000Z',
+    context: { service: 'test-service' }
+  }) {
+    super(returnValue);
   }
 }
 
 /**
- * Mock implementation of the CloudWatch formatter for testing
+ * Mock implementation of a CloudWatch formatter for testing.
+ * Extends the base MockFormatter with CloudWatch-specific defaults.
  */
-export class MockCloudWatchFormatter extends MockJsonFormatter {
+export class MockCloudWatchFormatter extends MockFormatter {
   /**
    * Creates a new MockCloudWatchFormatter instance
    * 
-   * @param options Options for controlling the mock behavior
+   * @param returnValue The value to return when format is called (defaults to a CloudWatch-compatible object)
    */
-  constructor(options: MockFormatterOptions = {}) {
-    super({
-      ...options,
-      output: options.output ?? {
-        timestamp: new Date().getTime(),
-        level: 'INFO',
-        message: 'Mock CloudWatch formatted log',
-        context: 'test',
-        service: 'test-service',
-        environment: 'test',
-        aws: {
-          region: 'us-east-1',
-          accountId: '123456789012'
-        }
-      }
-    });
-  }
-
-  /**
-   * Formats a log entry into a CloudWatch-compatible JSON object.
-   * Overrides the base implementation to provide CloudWatch-specific formatting.
-   * 
-   * @param entry The log entry to format
-   * @returns The formatted log entry as a Record<string, any>
-   * @throws Error if formatting fails and shouldFail is true
-   */
-  public format(entry: LogEntry): Record<string, any> {
-    const result = super.format(entry) as Record<string, any>;
-    
-    // Ensure timestamp is in milliseconds for CloudWatch
-    if (typeof result.timestamp === 'string') {
-      result.timestamp = new Date(result.timestamp).getTime();
+  constructor(returnValue: Record<string, any> = {
+    level: 'INFO',
+    message: 'Mock log message',
+    timestamp: '2023-01-01T00:00:00.000Z',
+    context: { service: 'test-service' },
+    aws: {
+      logGroup: '/austa/test-service',
+      logStream: 'test-instance',
+      awsRegion: 'us-east-1'
     }
-    
-    return result;
+  }) {
+    super(returnValue);
   }
 }
 
 /**
- * Creates a mock formatter factory for testing
+ * Factory function to create a mock formatter with default settings
  * 
- * @param type Formatter type to create ('text', 'json', or 'cloudwatch')
- * @param options Options for controlling the mock behavior
- * @returns A new mock formatter instance of the specified type
+ * @param type The type of formatter to create
+ * @param returnValue Optional custom return value
+ * @returns A configured mock formatter
  */
 export function createMockFormatter(
-  type: 'text' | 'json' | 'cloudwatch',
-  options: MockFormatterOptions = {}
+  type: 'text' | 'json' | 'cloudwatch' | 'generic' = 'generic',
+  returnValue?: string | Record<string, any>
 ): MockFormatter {
   switch (type) {
     case 'text':
-      return new MockTextFormatter(options);
+      return returnValue ? new MockTextFormatter(returnValue as string) : new MockTextFormatter();
     case 'json':
-      return new MockJsonFormatter(options);
+      return returnValue ? new MockJsonFormatter(returnValue as Record<string, any>) : new MockJsonFormatter();
     case 'cloudwatch':
-      return new MockCloudWatchFormatter(options);
+      return returnValue ? new MockCloudWatchFormatter(returnValue as Record<string, any>) : new MockCloudWatchFormatter();
+    case 'generic':
     default:
-      return new MockFormatter(options);
+      return returnValue ? new MockFormatter(returnValue) : new MockFormatter();
   }
-}
-
-/**
- * Creates a sample log entry for testing
- * 
- * @param overrides Properties to override in the default log entry
- * @returns A sample log entry
- */
-export function createSampleLogEntry(overrides: Partial<LogEntry> = {}): LogEntry {
-  return {
-    timestamp: new Date(),
-    level: LogLevel.INFO,
-    message: 'Test log message',
-    context: 'test',
-    ...overrides
-  };
-}
-
-/**
- * Creates a sample error log entry for testing
- * 
- * @param error Error object or message
- * @param overrides Additional properties to override
- * @returns A sample error log entry
- */
-export function createSampleErrorLogEntry(
-  error: Error | string = new Error('Test error'),
-  overrides: Partial<LogEntry> = {}
-): LogEntry {
-  return createSampleLogEntry({
-    level: LogLevel.ERROR,
-    message: typeof error === 'string' ? error : error.message,
-    error: error,
-    ...overrides
-  });
-}
-
-/**
- * Creates a sample journey log entry for testing
- * 
- * @param journey Journey type
- * @param overrides Additional properties to override
- * @returns A sample journey log entry
- */
-export function createSampleJourneyLogEntry(
-  journey: JourneyType,
-  overrides: Partial<LogEntry> = {}
-): LogEntry {
-  return createSampleLogEntry({
-    journey,
-    ...overrides
-  });
 }
