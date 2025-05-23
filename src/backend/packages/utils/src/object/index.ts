@@ -1,37 +1,55 @@
 /**
- * Central barrel file that exports all object manipulation utilities.
- * This file provides a clean, organized API for importing object utilities.
+ * Object manipulation utilities for the AUSTA SuperApp.
+ * 
+ * This module provides a comprehensive set of utilities for working with objects
+ * across all journey services. These utilities ensure consistent object handling,
+ * transformation, comparison, and cloning throughout the application.
+ * 
+ * The utilities are organized into logical categories:
+ * - Transformation: Functions for picking, omitting, mapping, and filtering object properties
+ * - Comparison: Functions for deep equality testing and difference detection
+ * - Merging: Functions for combining objects with configurable strategies
+ * - Cloning: Functions for creating deep copies of objects
+ * 
+ * @module @austa/utils/object
  */
 
-// Export all utilities from the transform module
-export {
+// Re-export all utilities from specialized modules
+
+// Transformation utilities
+export { 
   pick,
   omit,
   mapValues,
   filterKeys,
-  merge,
   groupBy,
   flatten
 } from './transform';
 
-// Export all utilities from the comparison module
+// Comparison utilities
+export type { ObjectDifferences } from './comparison';
 export {
   isEqual,
   getDifferences,
   hasDifferences,
   isPlainObject,
-  isSubset,
-  type ObjectDifferences
+  isSubset
 } from './comparison';
 
-// Export all utilities from the merge module
+// Merging utilities
+export type { MergeOptions } from './merge';
 export {
   deepMerge,
-  type MergeOptions
+  deepMergeObjects,
+  ArrayMergeStrategy
 } from './merge';
 
-// Export all utilities from the clone module
+// Cloning utilities
 export {
-  deepClone as cloneDeep,
+  deepClone,
   structuredClone
 } from './clone';
+
+// Re-export the simple merge from transform.ts with a more specific name to avoid confusion with deepMerge
+import { merge as simpleMerge } from './transform';
+export { simpleMerge as shallowMerge };
