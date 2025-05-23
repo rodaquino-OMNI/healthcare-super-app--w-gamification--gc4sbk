@@ -1,422 +1,254 @@
 /**
- * Environment Variable Type Definitions
- * 
- * This module provides TypeScript type definitions for the environment variables system,
- * including interfaces and types for strongly-typed environment variable access and validation.
+ * Type definitions for the environment variables system.
+ * This file defines interfaces and types for strongly-typed environment variable access and validation.
  */
-
-import { z } from 'zod';
-import { JourneyType } from './journey';
 
 /**
- * Represents the possible types of environment variables
+ * Represents the possible primitive types that can be stored in environment variables
+ * after transformation from their original string format.
  */
-export type EnvVarType = 
-  | 'string'
-  | 'number'
-  | 'boolean'
-  | 'array'
-  | 'json'
-  | 'url'
-  | 'enum'
-  | 'duration'
-  | 'port'
-  | 'host';
+export type EnvVarPrimitiveType = string | number | boolean | string[] | number[] | Record<string, any>;
 
 /**
- * Represents the mapping between environment variable types and their TypeScript types
+ * Represents a validation schema for an environment variable.
+ * This is used to define the expected type, validation rules, and transformation logic.
  */
-export interface EnvVarTypeMap {
-  string: string;
-  number: number;
-  boolean: boolean;
-  array: string[];
-  json: Record<string, any>;
-  url: URL;
-  enum: string;
-  duration: number;
-  port: number;
-  host: string;
-}
-
-/**
- * Generic type for environment variable accessor functions
- */
-export type EnvAccessor<T> = () => T;
-
-/**
- * Generic type for environment variable validator functions
- */
-export type EnvValidator<T> = () => T;
-
-/**
- * Generic type for environment variable transformer functions
- */
-export type EnvTransformer<T> = (value: string) => T;
-
-/**
- * Options for environment variable validation
- */
-export interface EnvValidationOptions {
-  required?: boolean;
-  defaultValue?: string;
-  validator?: (value: string) => boolean;
-  errorMessage?: string;
-}
-
-/**
- * Schema definition for an environment variable
- */
-export interface EnvVarSchema<T = any> {
-  type: EnvVarType;
-  required?: boolean;
-  defaultValue?: string;
+export interface EnvVarSchema<T extends EnvVarPrimitiveType = string> {
+  /** The name of the environment variable */
+  name: string;
+  /** Optional description of what this environment variable is used for */
   description?: string;
-  validator?: (value: string) => boolean;
+  /** Whether this environment variable is required or optional */
+  required: boolean;
+  /** The default value to use if the environment variable is not set and not required */
+  defaultValue?: T;
+  /** Function to transform the string value from process.env to the expected type */
   transform?: (value: string) => T;
-  options?: Record<string, any>;
+  /** Function to validate the transformed value */
+  validate?: (value: T) => boolean | string;
+  /** The journey this environment variable belongs to, if applicable */
+  journey?: JourneyType;
+  /** Whether this environment variable should be masked in logs */
+  sensitive?: boolean;
 }
 
 /**
- * Schema definition for a service's environment configuration
+ * Represents a collection of environment variable schemas grouped by category.
  */
-export interface EnvSchema {
-  [key: string]: EnvVarSchema;
+export interface EnvVarSchemaMap {
+  [category: string]: {
+    [key: string]: EnvVarSchema<any>;
+  };
 }
 
 /**
- * Type for a resolved environment configuration based on a schema
+ * Represents the available journey types in the application.
  */
-export type ResolvedEnvConfig<T extends EnvSchema> = {
-  [K in keyof T]: ReturnType<EnvAccessor<InferEnvVarType<T[K]>>>
-};
+export type JourneyType = 'health' | 'care' | 'plan' | 'common';
 
 /**
- * Infers the TypeScript type from an environment variable schema
+ * Configuration for journey-specific environment variables.
  */
-export type InferEnvVarType<T extends EnvVarSchema> = 
-  T extends EnvVarSchema<infer U> ? U : never;
+export interface JourneyConfig {
+  /** The journey identifier */
+  journey: JourneyType;
+  /** The prefix to use for journey-specific environment variables */
+  prefix: string;
+  /** Default values for journey-specific environment variables */
+  defaults?: Record<string, EnvVarPrimitiveType>;
+}
 
 /**
- * Type guard to check if a value is a string
- * 
- * @param value - The value to check
- * @returns True if the value is a string, false otherwise
+ * Type guard to check if a value is a string.
  */
 export function isString(value: unknown): value is string {
   return typeof value === 'string';
 }
 
 /**
- * Type guard to check if a value is a number
- * 
- * @param value - The value to check
- * @returns True if the value is a number, false otherwise
+ * Type guard to check if a value is a number.
  */
 export function isNumber(value: unknown): value is number {
   return typeof value === 'number' && !isNaN(value);
 }
 
 /**
- * Type guard to check if a value is a boolean
- * 
- * @param value - The value to check
- * @returns True if the value is a boolean, false otherwise
+ * Type guard to check if a value is a boolean.
  */
 export function isBoolean(value: unknown): value is boolean {
   return typeof value === 'boolean';
 }
 
 /**
- * Type guard to check if a value is an array
- * 
- * @param value - The value to check
- * @returns True if the value is an array, false otherwise
- */
-export function isArray(value: unknown): value is unknown[] {
-  return Array.isArray(value);
-}
-
-/**
- * Type guard to check if a value is a string array
- * 
- * @param value - The value to check
- * @returns True if the value is a string array, false otherwise
+ * Type guard to check if a value is an array of strings.
  */
 export function isStringArray(value: unknown): value is string[] {
-  return isArray(value) && value.every(isString);
+  return Array.isArray(value) && value.every(item => typeof item === 'string');
 }
 
 /**
- * Type guard to check if a value is a number array
- * 
- * @param value - The value to check
- * @returns True if the value is a number array, false otherwise
+ * Type guard to check if a value is an array of numbers.
  */
 export function isNumberArray(value: unknown): value is number[] {
-  return isArray(value) && value.every(isNumber);
+  return Array.isArray(value) && value.every(item => typeof item === 'number' && !isNaN(item));
 }
 
 /**
- * Type guard to check if a value is a URL
- * 
- * @param value - The value to check
- * @returns True if the value is a URL, false otherwise
+ * Type guard to check if a value is a plain object.
  */
-export function isUrl(value: unknown): value is URL {
-  return value instanceof URL;
+export function isObject(value: unknown): value is Record<string, any> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 /**
- * Type guard to check if a value is a record (object)
- * 
- * @param value - The value to check
- * @returns True if the value is a record, false otherwise
+ * Utility type to extract the value type from an environment variable schema.
  */
-export function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !isArray(value) && !(value instanceof URL);
-}
+export type EnvVarType<T extends EnvVarSchema<any>> = T extends EnvVarSchema<infer U> ? U : never;
 
 /**
- * Interface for environment variable accessor options
+ * Represents the result of validating an environment variable.
  */
-export interface EnvAccessorOptions<T> {
-  defaultValue?: T;
-  required?: boolean;
-  transform?: (value: string) => T;
-  validate?: (value: T) => boolean;
-  cache?: boolean;
-}
-
-/**
- * Interface for journey-specific environment configuration
- */
-export interface JourneyEnvConfig {
-  journeyType: JourneyType;
-  variables: Record<string, EnvVarSchema>;
-  features?: Record<string, boolean | number>;
-}
-
-/**
- * Interface for feature flag configuration
- */
-export interface FeatureFlagConfig {
-  name: string;
-  enabled: boolean;
-  rolloutPercentage?: number;
-  journeyType?: JourneyType;
-  description?: string;
-}
-
-/**
- * Interface for database connection configuration
- */
-export interface DatabaseConfig {
-  url: string;
-  poolSize?: number;
-  maxConnections?: number;
-  minConnections?: number;
-  idleTimeoutMillis?: number;
-  connectionTimeoutMillis?: number;
-  ssl?: boolean;
-  schema?: string;
-}
-
-/**
- * Interface for Redis connection configuration
- */
-export interface RedisConfig {
-  url: string;
-  password?: string;
-  database?: number;
-  keyPrefix?: string;
-  tls?: boolean;
-  maxRetriesPerRequest?: number;
-}
-
-/**
- * Interface for Kafka configuration
- */
-export interface KafkaConfig {
-  brokers: string[];
-  clientId: string;
-  groupId?: string;
-  ssl?: boolean;
-  sasl?: {
-    mechanism: 'plain' | 'scram-sha-256' | 'scram-sha-512';
-    username: string;
-    password: string;
-  };
-}
-
-/**
- * Interface for retry policy configuration
- */
-export interface RetryPolicyConfig {
-  attempts: number;
-  delay: number;
-  backoff: number;
-  maxDelay?: number;
-}
-
-/**
- * Interface for logging configuration
- */
-export interface LoggingConfig {
-  level: 'debug' | 'info' | 'warn' | 'error' | 'fatal';
-  format?: 'json' | 'pretty';
-  destination?: 'stdout' | 'file';
-  filePath?: string;
-  includeTimestamp?: boolean;
-  includeRequestId?: boolean;
-  includeJourneyContext?: boolean;
-}
-
-/**
- * Interface for CORS configuration
- */
-export interface CorsConfig {
-  origins: string[];
-  methods?: string[];
-  allowedHeaders?: string[];
-  exposedHeaders?: string[];
-  credentials?: boolean;
-  maxAge?: number;
-}
-
-/**
- * Interface for JWT configuration
- */
-export interface JwtConfig {
-  secret: string;
-  expiresIn: string | number;
-  refreshExpiresIn?: string | number;
-  issuer?: string;
-  audience?: string;
-}
-
-/**
- * Interface for service health check configuration
- */
-export interface HealthCheckConfig {
-  enabled: boolean;
-  path?: string;
-  interval?: number;
-  timeout?: number;
-  startupDelay?: number;
-}
-
-/**
- * Interface for monitoring configuration
- */
-export interface MonitoringConfig {
-  metrics?: {
-    enabled: boolean;
-    path?: string;
-    defaultLabels?: Record<string, string>;
-  };
-  tracing?: {
-    enabled: boolean;
-    serviceName: string;
-    sampleRate?: number;
-  };
-}
-
-/**
- * Interface for complete application environment configuration
- */
-export interface AppEnvConfig {
-  app: {
-    name: string;
-    version: string;
-    environment: 'development' | 'test' | 'staging' | 'production';
-    port: number;
-    host: string;
-    baseUrl?: string;
-  };
-  database?: DatabaseConfig;
-  redis?: RedisConfig;
-  kafka?: KafkaConfig;
-  logging: LoggingConfig;
-  cors?: CorsConfig;
-  jwt?: JwtConfig;
-  health?: HealthCheckConfig;
-  monitoring?: MonitoringConfig;
-  retryPolicy?: RetryPolicyConfig;
-  journeys?: {
-    health?: JourneyEnvConfig;
-    care?: JourneyEnvConfig;
-    plan?: JourneyEnvConfig;
-  };
-  features?: Record<string, FeatureFlagConfig>;
-  [key: string]: any; // Allow for additional custom configuration
-}
-
-/**
- * Type for Zod schema validation of environment variables
- */
-export type ZodEnvSchema<T> = z.ZodType<T>;
-
-/**
- * Type for environment variable validation result
- */
-export interface EnvValidationResult {
+export interface ValidationResult {
+  /** Whether the validation was successful */
   valid: boolean;
-  errors?: string[];
-  value?: any;
+  /** Error message if validation failed */
+  message?: string;
+  /** The name of the environment variable that failed validation */
+  name?: string;
 }
 
 /**
- * Type for environment variable validation function
+ * Represents a collection of validation results for multiple environment variables.
  */
-export type EnvValidationFn<T> = (value: string) => EnvValidationResult & { value: T };
+export interface ValidationResults {
+  /** Whether all validations were successful */
+  valid: boolean;
+  /** Array of validation results for individual environment variables */
+  results: ValidationResult[];
+}
 
 /**
- * Type for environment variable schema validation function
+ * Options for environment variable access functions.
  */
-export type EnvSchemaValidationFn<T extends EnvSchema> = () => ResolvedEnvConfig<T>;
+export interface EnvAccessOptions {
+  /** Whether to cache the result */
+  cache?: boolean;
+  /** Whether to throw an error if the environment variable is not set */
+  required?: boolean;
+  /** The default value to use if the environment variable is not set */
+  defaultValue?: EnvVarPrimitiveType;
+  /** Function to transform the string value from process.env to the expected type */
+  transform?: (value: string) => EnvVarPrimitiveType;
+  /** Function to validate the transformed value */
+  validate?: (value: EnvVarPrimitiveType) => boolean | string;
+}
 
 /**
- * Type for environment variable batch validation function
+ * Represents a strongly-typed environment configuration for a specific domain.
  */
-export type EnvBatchValidationFn = () => void;
+export interface EnvConfig<T extends Record<string, EnvVarPrimitiveType>> {
+  /** Get a typed environment variable value */
+  get<K extends keyof T>(key: K): T[K];
+  /** Get all environment variables as a typed object */
+  getAll(): T;
+  /** Validate all environment variables against their schemas */
+  validate(): ValidationResults;
+}
 
 /**
- * Type for journey-specific environment variable accessor
+ * Type for a function that creates a typed environment configuration.
  */
-export type JourneyEnvAccessor<T> = (journeyType: JourneyType, variableName: string, defaultValue?: string) => T;
+export type EnvConfigFactory = <T extends Record<string, EnvVarPrimitiveType>>(
+  schemas: Record<keyof T, EnvVarSchema<any>>
+) => EnvConfig<T>;
 
 /**
- * Type for environment variable with metadata
+ * Represents the structure of journey-specific environment variables.
  */
-export interface EnvVarWithMetadata<T = any> {
-  name: string;
+export interface JourneyEnvVars {
+  health: Record<string, EnvVarPrimitiveType>;
+  care: Record<string, EnvVarPrimitiveType>;
+  plan: Record<string, EnvVarPrimitiveType>;
+  common: Record<string, EnvVarPrimitiveType>;
+}
+
+/**
+ * Type for environment variable transformation functions.
+ */
+export type EnvTransformer<T extends EnvVarPrimitiveType> = (value: string) => T;
+
+/**
+ * Type for environment variable validation functions.
+ */
+export type EnvValidator<T extends EnvVarPrimitiveType> = (value: T) => boolean | string;
+
+/**
+ * Represents a range constraint for numeric environment variables.
+ */
+export interface NumericRange {
+  min?: number;
+  max?: number;
+}
+
+/**
+ * Options for parsing numeric environment variables.
+ */
+export interface ParseNumberOptions extends NumericRange {
+  /** Whether to allow floating point numbers */
+  allowFloat?: boolean;
+  /** Whether to allow negative numbers */
+  allowNegative?: boolean;
+}
+
+/**
+ * Options for parsing array environment variables.
+ */
+export interface ParseArrayOptions {
+  /** The delimiter to use when splitting the string */
+  delimiter?: string;
+  /** Whether to trim whitespace from array items */
+  trim?: boolean;
+  /** Whether to filter out empty items */
+  filterEmpty?: boolean;
+  /** Function to transform each item in the array */
+  itemTransform?: (item: string) => any;
+}
+
+/**
+ * Options for parsing JSON environment variables.
+ */
+export interface ParseJsonOptions {
+  /** JSON schema for validation */
+  schema?: Record<string, any>;
+  /** Whether to allow partial matches against the schema */
+  allowPartial?: boolean;
+}
+
+/**
+ * Represents a cached environment variable.
+ */
+export interface CachedEnvVar<T extends EnvVarPrimitiveType> {
+  /** The cached value */
   value: T;
-  type: EnvVarType;
-  required: boolean;
-  description?: string;
-  defaultValue?: string;
-  journeyType?: JourneyType;
+  /** When the value was cached */
+  timestamp: number;
+  /** The TTL in milliseconds */
+  ttl: number;
 }
 
 /**
- * Type for environment variable documentation
+ * Options for environment variable caching.
  */
-export interface EnvVarDocumentation {
-  name: string;
-  type: EnvVarType;
-  required: boolean;
-  description?: string;
-  defaultValue?: string;
-  example?: string;
-  journeyType?: JourneyType;
+export interface CacheOptions {
+  /** Whether to enable caching */
+  enabled: boolean;
+  /** The TTL in milliseconds */
+  ttl: number;
 }
 
 /**
- * Type for environment variable schema documentation
+ * Represents the environment variable cache.
  */
-export interface EnvSchemaDocumentation {
-  serviceName: string;
-  description?: string;
-  variables: EnvVarDocumentation[];
+export interface EnvVarCache {
+  [key: string]: CachedEnvVar<any>;
 }
