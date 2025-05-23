@@ -1,664 +1,612 @@
-import { Controller, Get, HttpService, Injectable, LoggerService, Module, Param } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
+/**
+ * Mock Services for E2E Testing of Tracing
+ * 
+ * This file defines lightweight NestJS services that simulate the microservice architecture
+ * of the AUSTA SuperApp for testing trace context propagation. Each service includes
+ * controllers, providers, and HTTP clients that generate and propagate tracing spans.
+ */
+
+import { Controller, Get, HttpService, Injectable, Logger, Module, Param } from '@nestjs/common';
+import { ConfigModule, ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
-import { HttpAdapterHost } from '@nestjs/core';
-import { SpanStatusCode, trace } from '@opentelemetry/api';
+import { SpanStatusCode, context, trace } from '@opentelemetry/api';
 import { firstValueFrom } from 'rxjs';
+import { TracingService } from '../../../../shared/src/tracing/tracing.service';
 
 /**
- * A simplified version of the TracingService for testing purposes.
- * This mimics the behavior of the actual TracingService in the application.
+ * Base service configuration for all mock services
  */
-@Injectable()
-class MockTracingService {
-  private tracer: any;
-
-  constructor(
-    private configService: ConfigService,
-    private logger: LoggerService,
-  ) {
-    const serviceName = this.configService.get<string>('service.name', 'mock-service');
-    this.tracer = trace.getTracer(serviceName);
-    this.logger.log(`Initialized tracer for ${serviceName}`, 'MockTracing');
-  }
-
-  /**
-   * Creates and starts a new span for tracing a specific operation.
-   * @param name The name of the span to create
-   * @param fn The function to execute within the span context
-   * @returns The result of the function execution
-   */
-  async createSpan<T>(name: string, fn: () => Promise<T>): Promise<T> {
-    const span = this.tracer.startSpan(name);
-    
-    try {
-      const result = await trace.with(trace.setSpan(trace.context(), span), fn);
-      
-      if (span.isRecording()) {
-        span.setStatus({ code: SpanStatusCode.OK });
-      }
-      
-      return result;
-    } catch (error) {
-      if (span.isRecording()) {
-        span.recordException(error);
-        span.setStatus({ code: SpanStatusCode.ERROR });
-      }
-      
-      this.logger.error(`Error in span ${name}: ${error.message}`, error.stack, 'MockTracing');
-      throw error;
-    } finally {
-      span.end();
-    }
-  }
-}
+const baseConfig = {
+  service: {
+    name: 'mock-service',
+    port: 3000,
+  },
+  tracing: {
+    enabled: true,
+  },
+};
 
 /**
- * Mock Logger Service for testing purposes
+ * Custom logger for mock services
  */
 @Injectable()
-class MockLoggerService implements LoggerService {
+class MockLogger extends Logger {
+  constructor(private readonly serviceName: string) {
+    super();
+  }
+
   log(message: string, context?: string) {
-    console.log(`[${context || 'LOG'}] ${message}`);
+    super.log(`[${this.serviceName}] ${message}`, context || 'MockService');
   }
 
   error(message: string, trace?: string, context?: string) {
-    console.error(`[${context || 'ERROR'}] ${message}${trace ? `\n${trace}` : ''}`);
-  }
-
-  warn(message: string, context?: string) {
-    console.warn(`[${context || 'WARN'}] ${message}`);
-  }
-
-  debug(message: string, context?: string) {
-    console.debug(`[${context || 'DEBUG'}] ${message}`);
-  }
-
-  verbose(message: string, context?: string) {
-    console.log(`[${context || 'VERBOSE'}] ${message}`);
+    super.error(`[${this.serviceName}] ${message}`, trace, context || 'MockService');
   }
 }
 
 /**
- * Base provider for mock services
+ * Base service for all mock services
  */
 @Injectable()
-class BaseServiceProvider {
+class BaseService {
   constructor(
     protected readonly httpService: HttpService,
-    protected readonly tracingService: MockTracingService,
+    protected readonly tracingService: TracingService,
+    protected readonly logger: MockLogger,
+    protected readonly configService: ConfigService,
   ) {}
 
   /**
-   * Makes an HTTP request to another service with trace context propagation
+   * Makes an HTTP call to another service with trace context propagation
    */
-  protected async makeRequest(url: string, operationName: string): Promise<any> {
-    return this.tracingService.createSpan(`HTTP_REQUEST_${operationName}`, async () => {
+  async callService(serviceName: string, endpoint: string, params: Record<string, string> = {}): Promise<any> {
+    const servicePort = this.configService.get<number>(`services.${serviceName}.port`);
+    const url = `http://localhost:${servicePort}${endpoint}`;
+    
+    // Replace path parameters in the URL
+    const finalUrl = Object.entries(params).reduce(
+      (acc, [key, value]) => acc.replace(`:${key}`, value),
+      url
+    );
+
+    return this.tracingService.createSpan(`call-${serviceName}${endpoint}`, async () => {
       try {
-        const response = await firstValueFrom(this.httpService.get(url));
+        // Get the current context to propagate trace information
+        const currentContext = context.active();
+        const currentSpan = trace.getSpan(currentContext);
+        
+        if (currentSpan) {
+          // Add attributes to the span for better tracing
+          currentSpan.setAttribute('service.name', serviceName);
+          currentSpan.setAttribute('http.url', finalUrl);
+          currentSpan.setAttribute('http.method', 'GET');
+        }
+
+        this.logger.log(`Calling ${serviceName} at ${finalUrl}`);
+        
+        // Make the HTTP call and return the response data
+        const response = await firstValueFrom(
+          this.httpService.get(finalUrl, {
+            headers: {
+              // In a real implementation, you would inject trace context headers here
+              // This is simplified for the mock services
+              'x-trace-id': trace.getSpanContext(currentContext)?.traceId || 'unknown',
+            },
+          })
+        );
+
+        if (currentSpan) {
+          currentSpan.setAttribute('http.status_code', response.status);
+          currentSpan.setStatus({ code: SpanStatusCode.OK });
+        }
+
         return response.data;
       } catch (error) {
-        throw new Error(`Failed to make request to ${url}: ${error.message}`);
+        this.logger.error(`Error calling ${serviceName}: ${error.message}`, error.stack);
+        throw error;
       }
     });
   }
 }
 
 /**
- * Health Journey Service Provider
+ * Health Journey Mock Service
  */
 @Injectable()
-class HealthServiceProvider extends BaseServiceProvider {
+class HealthService extends BaseService {
   async getHealthMetrics(userId: string): Promise<any> {
-    return this.tracingService.createSpan('HEALTH_GET_METRICS', async () => {
-      // Simulate some internal processing
+    return this.tracingService.createSpan('health-get-metrics', async () => {
+      this.logger.log(`Getting health metrics for user ${userId}`);
+      
+      // Simulate processing and database access
       await new Promise(resolve => setTimeout(resolve, 50));
       
-      // Return mock health metrics
-      return {
-        userId,
-        metrics: {
-          steps: 8432,
-          heartRate: 72,
-          sleepHours: 7.5,
-        },
-      };
-    });
-  }
-
-  async trackAchievement(userId: string, metricType: string): Promise<any> {
-    return this.tracingService.createSpan('HEALTH_TRACK_ACHIEVEMENT', async () => {
-      // Make a request to the gamification service to track an achievement
-      const gamificationUrl = `http://localhost:3004/gamification/achievement/${userId}/${metricType}`;
-      return this.makeRequest(gamificationUrl, 'GAMIFICATION_ACHIEVEMENT');
-    });
-  }
-}
-
-/**
- * Care Journey Service Provider
- */
-@Injectable()
-class CareServiceProvider extends BaseServiceProvider {
-  async getAppointments(userId: string): Promise<any> {
-    return this.tracingService.createSpan('CARE_GET_APPOINTMENTS', async () => {
-      // Simulate some internal processing
-      await new Promise(resolve => setTimeout(resolve, 30));
+      // Call the gamification service to record this activity
+      await this.callService('gamification', '/api/events/record', { type: 'health_metrics_viewed' });
       
-      // Return mock appointments
       return {
         userId,
-        appointments: [
-          { id: '1', date: '2025-06-01T10:00:00Z', provider: 'Dr. Smith', type: 'Check-up' },
-          { id: '2', date: '2025-06-15T14:30:00Z', provider: 'Dr. Johnson', type: 'Follow-up' },
+        metrics: [
+          { name: 'steps', value: 8500, unit: 'count' },
+          { name: 'heart_rate', value: 72, unit: 'bpm' },
+          { name: 'sleep', value: 7.5, unit: 'hours' },
         ],
       };
     });
   }
 
-  async bookAppointment(userId: string, appointmentId: string): Promise<any> {
-    return this.tracingService.createSpan('CARE_BOOK_APPOINTMENT', async () => {
-      // Simulate some internal processing
-      await new Promise(resolve => setTimeout(resolve, 40));
+  async syncDeviceData(userId: string, deviceId: string): Promise<any> {
+    return this.tracingService.createSpan('health-sync-device', async () => {
+      this.logger.log(`Syncing device data for user ${userId} from device ${deviceId}`);
       
-      // Make a request to the gamification service to track an achievement
-      const gamificationUrl = `http://localhost:3004/gamification/achievement/${userId}/appointment_booked`;
-      await this.makeRequest(gamificationUrl, 'GAMIFICATION_ACHIEVEMENT');
+      // Simulate device data processing
+      await new Promise(resolve => setTimeout(resolve, 100));
       
-      // Return booking confirmation
+      // Call the gamification service to record this activity
+      await this.callService('gamification', '/api/events/record', { type: 'device_synced' });
+      
       return {
         userId,
-        appointmentId,
-        status: 'confirmed',
-        points: 50,
+        deviceId,
+        lastSynced: new Date().toISOString(),
+        dataPoints: 24,
       };
     });
   }
 }
 
-/**
- * Plan Journey Service Provider
- */
-@Injectable()
-class PlanServiceProvider extends BaseServiceProvider {
-  async getPlanDetails(userId: string): Promise<any> {
-    return this.tracingService.createSpan('PLAN_GET_DETAILS', async () => {
-      // Simulate some internal processing
-      await new Promise(resolve => setTimeout(resolve, 25));
-      
-      // Return mock plan details
-      return {
-        userId,
-        plan: {
-          id: 'premium-2025',
-          name: 'Premium Health Plan',
-          coverage: 'Comprehensive',
-          startDate: '2025-01-01',
-          endDate: '2025-12-31',
-        },
-      };
-    });
-  }
-
-  async submitClaim(userId: string, claimId: string): Promise<any> {
-    return this.tracingService.createSpan('PLAN_SUBMIT_CLAIM', async () => {
-      // Simulate some internal processing
-      await new Promise(resolve => setTimeout(resolve, 35));
-      
-      // Make a request to the gamification service to track an achievement
-      const gamificationUrl = `http://localhost:3004/gamification/achievement/${userId}/claim_submitted`;
-      await this.makeRequest(gamificationUrl, 'GAMIFICATION_ACHIEVEMENT');
-      
-      // Return claim submission confirmation
-      return {
-        userId,
-        claimId,
-        status: 'submitted',
-        points: 30,
-      };
-    });
-  }
-}
-
-/**
- * Gamification Engine Service Provider
- */
-@Injectable()
-class GamificationServiceProvider extends BaseServiceProvider {
-  async trackAchievement(userId: string, achievementType: string): Promise<any> {
-    return this.tracingService.createSpan('GAMIFICATION_TRACK_ACHIEVEMENT', async () => {
-      // Simulate some internal processing
-      await new Promise(resolve => setTimeout(resolve, 20));
-      
-      // Calculate points based on achievement type
-      let points = 10;
-      switch (achievementType) {
-        case 'steps':
-          points = 15;
-          break;
-        case 'appointment_booked':
-          points = 50;
-          break;
-        case 'claim_submitted':
-          points = 30;
-          break;
-        default:
-          points = 10;
-      }
-      
-      // Make a request to the notification service to send an achievement notification
-      const notificationUrl = `http://localhost:3005/notification/send/${userId}/achievement/${achievementType}`;
-      await this.makeRequest(notificationUrl, 'NOTIFICATION_SEND');
-      
-      // Return achievement tracking result
-      return {
-        userId,
-        achievementType,
-        points,
-        timestamp: new Date().toISOString(),
-      };
-    });
-  }
-
-  async getUserProfile(userId: string): Promise<any> {
-    return this.tracingService.createSpan('GAMIFICATION_GET_PROFILE', async () => {
-      // Simulate some internal processing
-      await new Promise(resolve => setTimeout(resolve, 15));
-      
-      // Return mock user profile with gamification data
-      return {
-        userId,
-        level: 5,
-        points: 1250,
-        achievements: [
-          { id: '1', type: 'steps', date: '2025-05-01T10:00:00Z', points: 15 },
-          { id: '2', type: 'appointment_booked', date: '2025-05-05T14:30:00Z', points: 50 },
-        ],
-      };
-    });
-  }
-}
-
-/**
- * Notification Service Provider
- */
-@Injectable()
-class NotificationServiceProvider extends BaseServiceProvider {
-  async sendNotification(userId: string, type: string, content: string): Promise<any> {
-    return this.tracingService.createSpan('NOTIFICATION_SEND', async () => {
-      // Simulate some internal processing
-      await new Promise(resolve => setTimeout(resolve, 10));
-      
-      // Return notification sending result
-      return {
-        userId,
-        type,
-        content,
-        sent: true,
-        timestamp: new Date().toISOString(),
-      };
-    });
-  }
-}
-
-/**
- * Health Journey Controller
- */
-@Controller('health')
+@Controller('api/health')
 class HealthController {
-  constructor(private readonly healthService: HealthServiceProvider) {}
+  constructor(private readonly healthService: HealthService) {}
 
   @Get('metrics/:userId')
   async getHealthMetrics(@Param('userId') userId: string): Promise<any> {
     return this.healthService.getHealthMetrics(userId);
   }
 
-  @Get('track/:userId/:metricType')
-  async trackAchievement(
+  @Get('devices/:userId/sync/:deviceId')
+  async syncDeviceData(
     @Param('userId') userId: string,
-    @Param('metricType') metricType: string,
+    @Param('deviceId') deviceId: string,
   ): Promise<any> {
-    return this.healthService.trackAchievement(userId, metricType);
+    return this.healthService.syncDeviceData(userId, deviceId);
   }
 }
 
 /**
- * Care Journey Controller
+ * Care Journey Mock Service
  */
-@Controller('care')
+@Injectable()
+class CareService extends BaseService {
+  async getAppointments(userId: string): Promise<any> {
+    return this.tracingService.createSpan('care-get-appointments', async () => {
+      this.logger.log(`Getting appointments for user ${userId}`);
+      
+      // Simulate processing and database access
+      await new Promise(resolve => setTimeout(resolve, 75));
+      
+      // Call the health service to get user health data for context
+      const healthData = await this.callService('health', '/api/health/metrics/:userId', { userId });
+      
+      // Call the gamification service to record this activity
+      await this.callService('gamification', '/api/events/record', { type: 'appointments_viewed' });
+      
+      return {
+        userId,
+        appointments: [
+          {
+            id: 'appt-123',
+            provider: 'Dr. Smith',
+            date: '2023-06-15T14:30:00Z',
+            type: 'Check-up',
+            healthContext: healthData.metrics,
+          },
+        ],
+      };
+    });
+  }
+
+  async bookAppointment(userId: string, providerId: string): Promise<any> {
+    return this.tracingService.createSpan('care-book-appointment', async () => {
+      this.logger.log(`Booking appointment for user ${userId} with provider ${providerId}`);
+      
+      // Simulate appointment booking process
+      await new Promise(resolve => setTimeout(resolve, 150));
+      
+      // Call the plan service to check coverage
+      const coverageData = await this.callService('plan', '/api/plan/coverage/:userId', { userId });
+      
+      // Call the gamification service to record this activity and possibly award points
+      await this.callService('gamification', '/api/events/record', { type: 'appointment_booked' });
+      
+      return {
+        userId,
+        appointmentId: 'appt-456',
+        provider: providerId,
+        date: '2023-06-20T10:00:00Z',
+        coverage: coverageData.coverageLevel,
+      };
+    });
+  }
+}
+
+@Controller('api/care')
 class CareController {
-  constructor(private readonly careService: CareServiceProvider) {}
+  constructor(private readonly careService: CareService) {}
 
   @Get('appointments/:userId')
   async getAppointments(@Param('userId') userId: string): Promise<any> {
     return this.careService.getAppointments(userId);
   }
 
-  @Get('book/:userId/:appointmentId')
+  @Get('appointments/:userId/book/:providerId')
   async bookAppointment(
     @Param('userId') userId: string,
-    @Param('appointmentId') appointmentId: string,
+    @Param('providerId') providerId: string,
   ): Promise<any> {
-    return this.careService.bookAppointment(userId, appointmentId);
+    return this.careService.bookAppointment(userId, providerId);
   }
 }
 
 /**
- * Plan Journey Controller
+ * Plan Journey Mock Service
  */
-@Controller('plan')
-class PlanController {
-  constructor(private readonly planService: PlanServiceProvider) {}
-
-  @Get('details/:userId')
-  async getPlanDetails(@Param('userId') userId: string): Promise<any> {
-    return this.planService.getPlanDetails(userId);
+@Injectable()
+class PlanService extends BaseService {
+  async getCoverage(userId: string): Promise<any> {
+    return this.tracingService.createSpan('plan-get-coverage', async () => {
+      this.logger.log(`Getting coverage for user ${userId}`);
+      
+      // Simulate processing and database access
+      await new Promise(resolve => setTimeout(resolve, 60));
+      
+      // Call the gamification service to record this activity
+      await this.callService('gamification', '/api/events/record', { type: 'coverage_viewed' });
+      
+      return {
+        userId,
+        planId: 'premium-2023',
+        coverageLevel: 'Gold',
+        benefits: ['Medical', 'Dental', 'Vision', 'Wellness'],
+      };
+    });
   }
 
-  @Get('claim/:userId/:claimId')
+  async submitClaim(userId: string, claimType: string): Promise<any> {
+    return this.tracingService.createSpan('plan-submit-claim', async () => {
+      this.logger.log(`Submitting ${claimType} claim for user ${userId}`);
+      
+      // Simulate claim processing
+      await new Promise(resolve => setTimeout(resolve, 200));
+      
+      // Call the care service to get appointment context if it's a medical claim
+      let appointmentContext = null;
+      if (claimType === 'medical') {
+        appointmentContext = await this.callService('care', '/api/care/appointments/:userId', { userId });
+      }
+      
+      // Call the gamification service to record this activity and award points
+      await this.callService('gamification', '/api/events/record', { type: 'claim_submitted' });
+      
+      return {
+        userId,
+        claimId: 'claim-789',
+        type: claimType,
+        status: 'Submitted',
+        submissionDate: new Date().toISOString(),
+        appointmentContext: appointmentContext?.appointments || [],
+      };
+    });
+  }
+}
+
+@Controller('api/plan')
+class PlanController {
+  constructor(private readonly planService: PlanService) {}
+
+  @Get('coverage/:userId')
+  async getCoverage(@Param('userId') userId: string): Promise<any> {
+    return this.planService.getCoverage(userId);
+  }
+
+  @Get('claims/:userId/submit/:claimType')
   async submitClaim(
     @Param('userId') userId: string,
-    @Param('claimId') claimId: string,
+    @Param('claimType') claimType: string,
   ): Promise<any> {
-    return this.planService.submitClaim(userId, claimId);
+    return this.planService.submitClaim(userId, claimType);
   }
 }
 
 /**
- * Gamification Engine Controller
+ * Gamification Engine Mock Service
  */
-@Controller('gamification')
+@Injectable()
+class GamificationService extends BaseService {
+  async recordEvent(eventType: string): Promise<any> {
+    return this.tracingService.createSpan('gamification-record-event', async () => {
+      this.logger.log(`Recording event of type ${eventType}`);
+      
+      // Simulate event processing
+      await new Promise(resolve => setTimeout(resolve, 40));
+      
+      // Determine points based on event type
+      let points = 0;
+      let achievements = [];
+      
+      switch (eventType) {
+        case 'health_metrics_viewed':
+          points = 5;
+          break;
+        case 'device_synced':
+          points = 10;
+          achievements = ['Device Master'];
+          break;
+        case 'appointments_viewed':
+          points = 5;
+          break;
+        case 'appointment_booked':
+          points = 20;
+          achievements = ['Care Planner'];
+          break;
+        case 'coverage_viewed':
+          points = 5;
+          break;
+        case 'claim_submitted':
+          points = 15;
+          achievements = ['Claim Expert'];
+          break;
+        default:
+          points = 1;
+      }
+      
+      return {
+        eventType,
+        processed: true,
+        timestamp: new Date().toISOString(),
+        pointsAwarded: points,
+        achievements,
+      };
+    });
+  }
+
+  async getUserAchievements(userId: string): Promise<any> {
+    return this.tracingService.createSpan('gamification-get-achievements', async () => {
+      this.logger.log(`Getting achievements for user ${userId}`);
+      
+      // Simulate processing and database access
+      await new Promise(resolve => setTimeout(resolve, 80));
+      
+      // Call the health service to get health context
+      await this.callService('health', '/api/health/metrics/:userId', { userId });
+      
+      return {
+        userId,
+        totalPoints: 350,
+        level: 5,
+        achievements: [
+          { name: 'Health Enthusiast', date: '2023-05-10T14:30:00Z', points: 50 },
+          { name: 'Care Planner', date: '2023-05-15T09:45:00Z', points: 30 },
+          { name: 'Claim Expert', date: '2023-05-20T16:20:00Z', points: 40 },
+        ],
+      };
+    });
+  }
+}
+
+@Controller('api/gamification')
 class GamificationController {
-  constructor(private readonly gamificationService: GamificationServiceProvider) {}
+  constructor(private readonly gamificationService: GamificationService) {}
 
-  @Get('achievement/:userId/:achievementType')
-  async trackAchievement(
-    @Param('userId') userId: string,
-    @Param('achievementType') achievementType: string,
-  ): Promise<any> {
-    return this.gamificationService.trackAchievement(userId, achievementType);
+  @Get('events/record')
+  async recordEvent(@Param('type') eventType: string): Promise<any> {
+    return this.gamificationService.recordEvent(eventType || 'unknown');
   }
 
-  @Get('profile/:userId')
-  async getUserProfile(@Param('userId') userId: string): Promise<any> {
-    return this.gamificationService.getUserProfile(userId);
+  @Get('achievements/:userId')
+  async getUserAchievements(@Param('userId') userId: string): Promise<any> {
+    return this.gamificationService.getUserAchievements(userId);
   }
 }
 
 /**
- * Notification Service Controller
- */
-@Controller('notification')
-class NotificationController {
-  constructor(private readonly notificationService: NotificationServiceProvider) {}
-
-  @Get('send/:userId/:type/:content')
-  async sendNotification(
-    @Param('userId') userId: string,
-    @Param('type') type: string,
-    @Param('content') content: string,
-  ): Promise<any> {
-    return this.notificationService.sendNotification(userId, type, content);
-  }
-}
-
-/**
- * Health Journey Module
+ * Module definitions for each mock service
  */
 @Module({
+  imports: [
+    ConfigModule.forRoot({
+      isGlobal: true,
+      load: [() => ({
+        ...baseConfig,
+        service: {
+          ...baseConfig.service,
+          name: 'health-service',
+          port: 3001,
+        },
+        services: {
+          care: { port: 3002 },
+          plan: { port: 3003 },
+          gamification: { port: 3004 },
+        },
+      })],
+    }),
+  ],
   controllers: [HealthController],
   providers: [
     {
-      provide: ConfigService,
-      useValue: {
-        get: (key: string, defaultValue: string) => {
-          if (key === 'service.name') return 'health-journey-service';
-          return defaultValue;
-        },
-      },
+      provide: MockLogger,
+      useFactory: () => new MockLogger('health-service'),
     },
     {
-      provide: LoggerService,
-      useClass: MockLoggerService,
-    },
-    {
-      provide: HttpService,
-      useValue: {
-        get: (url: string) => {
-          const axios = require('axios');
-          return axios.get(url);
-        },
+      provide: TracingService,
+      useFactory: (configService: ConfigService, logger: MockLogger) => {
+        return new TracingService(configService, logger);
       },
+      inject: [ConfigService, MockLogger],
     },
-    MockTracingService,
-    HealthServiceProvider,
+    HttpService,
+    HealthService,
   ],
 })
 class HealthModule {}
 
-/**
- * Care Journey Module
- */
 @Module({
+  imports: [
+    ConfigModule.forRoot({
+      isGlobal: true,
+      load: [() => ({
+        ...baseConfig,
+        service: {
+          ...baseConfig.service,
+          name: 'care-service',
+          port: 3002,
+        },
+        services: {
+          health: { port: 3001 },
+          plan: { port: 3003 },
+          gamification: { port: 3004 },
+        },
+      })],
+    }),
+  ],
   controllers: [CareController],
   providers: [
     {
-      provide: ConfigService,
-      useValue: {
-        get: (key: string, defaultValue: string) => {
-          if (key === 'service.name') return 'care-journey-service';
-          return defaultValue;
-        },
-      },
+      provide: MockLogger,
+      useFactory: () => new MockLogger('care-service'),
     },
     {
-      provide: LoggerService,
-      useClass: MockLoggerService,
-    },
-    {
-      provide: HttpService,
-      useValue: {
-        get: (url: string) => {
-          const axios = require('axios');
-          return axios.get(url);
-        },
+      provide: TracingService,
+      useFactory: (configService: ConfigService, logger: MockLogger) => {
+        return new TracingService(configService, logger);
       },
+      inject: [ConfigService, MockLogger],
     },
-    MockTracingService,
-    CareServiceProvider,
+    HttpService,
+    CareService,
   ],
 })
 class CareModule {}
 
-/**
- * Plan Journey Module
- */
 @Module({
+  imports: [
+    ConfigModule.forRoot({
+      isGlobal: true,
+      load: [() => ({
+        ...baseConfig,
+        service: {
+          ...baseConfig.service,
+          name: 'plan-service',
+          port: 3003,
+        },
+        services: {
+          health: { port: 3001 },
+          care: { port: 3002 },
+          gamification: { port: 3004 },
+        },
+      })],
+    }),
+  ],
   controllers: [PlanController],
   providers: [
     {
-      provide: ConfigService,
-      useValue: {
-        get: (key: string, defaultValue: string) => {
-          if (key === 'service.name') return 'plan-journey-service';
-          return defaultValue;
-        },
-      },
+      provide: MockLogger,
+      useFactory: () => new MockLogger('plan-service'),
     },
     {
-      provide: LoggerService,
-      useClass: MockLoggerService,
-    },
-    {
-      provide: HttpService,
-      useValue: {
-        get: (url: string) => {
-          const axios = require('axios');
-          return axios.get(url);
-        },
+      provide: TracingService,
+      useFactory: (configService: ConfigService, logger: MockLogger) => {
+        return new TracingService(configService, logger);
       },
+      inject: [ConfigService, MockLogger],
     },
-    MockTracingService,
-    PlanServiceProvider,
+    HttpService,
+    PlanService,
   ],
 })
 class PlanModule {}
 
-/**
- * Gamification Engine Module
- */
 @Module({
+  imports: [
+    ConfigModule.forRoot({
+      isGlobal: true,
+      load: [() => ({
+        ...baseConfig,
+        service: {
+          ...baseConfig.service,
+          name: 'gamification-service',
+          port: 3004,
+        },
+        services: {
+          health: { port: 3001 },
+          care: { port: 3002 },
+          plan: { port: 3003 },
+        },
+      })],
+    }),
+  ],
   controllers: [GamificationController],
   providers: [
     {
-      provide: ConfigService,
-      useValue: {
-        get: (key: string, defaultValue: string) => {
-          if (key === 'service.name') return 'gamification-engine';
-          return defaultValue;
-        },
-      },
+      provide: MockLogger,
+      useFactory: () => new MockLogger('gamification-service'),
     },
     {
-      provide: LoggerService,
-      useClass: MockLoggerService,
-    },
-    {
-      provide: HttpService,
-      useValue: {
-        get: (url: string) => {
-          const axios = require('axios');
-          return axios.get(url);
-        },
+      provide: TracingService,
+      useFactory: (configService: ConfigService, logger: MockLogger) => {
+        return new TracingService(configService, logger);
       },
+      inject: [ConfigService, MockLogger],
     },
-    MockTracingService,
-    GamificationServiceProvider,
+    HttpService,
+    GamificationService,
   ],
 })
 class GamificationModule {}
 
 /**
- * Notification Service Module
+ * Helper function to start all mock services
  */
-@Module({
-  controllers: [NotificationController],
-  providers: [
-    {
-      provide: ConfigService,
-      useValue: {
-        get: (key: string, defaultValue: string) => {
-          if (key === 'service.name') return 'notification-service';
-          return defaultValue;
-        },
-      },
-    },
-    {
-      provide: LoggerService,
-      useClass: MockLoggerService,
-    },
-    {
-      provide: HttpService,
-      useValue: {
-        get: (url: string) => {
-          const axios = require('axios');
-          return axios.get(url);
-        },
-      },
-    },
-    MockTracingService,
-    NotificationServiceProvider,
-  ],
-})
-class NotificationModule {}
-
-/**
- * Interface for a mock service instance
- */
-interface MockServiceInstance {
-  app: any;
-  port: number;
-  name: string;
-  module: any;
-  server?: any;
-}
-
-/**
- * Mock services for testing trace context propagation
- */
-export class MockServices {
-  private services: MockServiceInstance[] = [
-    { app: null, port: 3001, name: 'health-journey', module: HealthModule },
-    { app: null, port: 3002, name: 'care-journey', module: CareModule },
-    { app: null, port: 3003, name: 'plan-journey', module: PlanModule },
-    { app: null, port: 3004, name: 'gamification-engine', module: GamificationModule },
-    { app: null, port: 3005, name: 'notification-service', module: NotificationModule },
+export async function startMockServices(): Promise<any[]> {
+  const services = [
+    { module: HealthModule, port: 3001 },
+    { module: CareModule, port: 3002 },
+    { module: PlanModule, port: 3003 },
+    { module: GamificationModule, port: 3004 },
   ];
 
-  /**
-   * Starts all mock services
-   */
-  async startAll(): Promise<void> {
-    for (const service of this.services) {
-      await this.startService(service);
-    }
-    console.log('All mock services started successfully');
+  const instances = [];
+
+  for (const { module, port } of services) {
+    const app = await NestFactory.create(module, {
+      logger: ['error', 'warn', 'log'],
+    });
+    await app.listen(port);
+    instances.push(app);
   }
 
-  /**
-   * Stops all mock services
-   */
-  async stopAll(): Promise<void> {
-    for (const service of this.services) {
-      await this.stopService(service);
-    }
-    console.log('All mock services stopped successfully');
-  }
+  return instances;
+}
 
-  /**
-   * Starts a single mock service
-   */
-  private async startService(service: MockServiceInstance): Promise<void> {
-    try {
-      service.app = await NestFactory.create(service.module, {
-        logger: ['error', 'warn'],
-      });
-      
-      // Get the HTTP adapter to ensure proper context propagation
-      const httpAdapter = service.app.get(HttpAdapterHost);
-      
-      await service.app.listen(service.port);
-      service.server = service.app.getHttpServer();
-      console.log(`Started ${service.name} on port ${service.port}`);
-    } catch (error) {
-      console.error(`Failed to start ${service.name}: ${error.message}`);
-      throw error;
-    }
-  }
-
-  /**
-   * Stops a single mock service
-   */
-  private async stopService(service: MockServiceInstance): Promise<void> {
-    if (service.app) {
-      await service.app.close();
-      service.app = null;
-      service.server = null;
-      console.log(`Stopped ${service.name} on port ${service.port}`);
-    }
-  }
-
-  /**
-   * Makes a request to a mock service to test trace context propagation
-   */
-  async makeTestRequest(path: string): Promise<any> {
-    try {
-      const axios = require('axios');
-      const response = await axios.get(`http://localhost:3001/${path}`);
-      return response.data;
-    } catch (error) {
-      console.error(`Test request failed: ${error.message}`);
-      throw error;
-    }
+/**
+ * Helper function to stop all mock services
+ */
+export async function stopMockServices(instances: any[]): Promise<void> {
+  for (const app of instances) {
+    await app.close();
   }
 }
+
+/**
+ * Export all modules for individual testing
+ */
+export {
+  HealthModule,
+  CareModule,
+  PlanModule,
+  GamificationModule,
+  HealthService,
+  CareService,
+  PlanService,
+  GamificationService,
+};
