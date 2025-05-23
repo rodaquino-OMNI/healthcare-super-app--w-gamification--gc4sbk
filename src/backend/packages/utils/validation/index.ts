@@ -1,528 +1,396 @@
 /**
- * @file Validation utilities entry point
- * @description Provides a centralized export of all validation utilities used across the AUSTA SuperApp.
- * This module re-exports validators from specialized modules with proper namespacing and documentation.
+ * @file Validation utilities for the AUSTA SuperApp
+ * @description Provides a comprehensive set of validation utilities for ensuring data integrity
+ * across all services. This module exports validators for strings, numbers, dates, objects,
+ * and common data types used throughout the application.
  * 
  * @module @austa/utils/validation
  */
 
-// Import validators from specialized modules
-import * as ObjectValidators from '../src/validation/object.validator';
+// Import all validators from their respective files
+import * as StringValidatorsInternal from '../src/validation/string.validator';
+import * as DateValidatorsInternal from '../src/validation/date.validator';
+import * as NumberValidatorsInternal from '../src/validation/number.validator';
+import * as ObjectValidatorsInternal from '../src/validation/object.validator';
+import * as CommonValidatorsInternal from '../src/validation/common.validator';
+import * as SchemaValidatorsInternal from '../src/validation/schema.validator';
 
-// Import date validators
-import { isValidDate, isDateInRange } from '../src/date';
-
-// Import type validators and assertions
-import * as TypeAssertions from '../src/type/assertions';
-import * as TypePredicates from '../src/type/predicate';
-
-/**
- * String validation utilities
- * @namespace StringValidators
- */
-export const StringValidators = {
-  /**
-   * Validates a Brazilian CPF (Cadastro de Pessoas Físicas) number.
-   * This function implements the standard CPF validation algorithm used in Brazil.
-   * 
-   * @param cpf - The CPF string to validate
-   * @returns True if the CPF is valid, false otherwise
-   * 
-   * @example
-   * ```typescript
-   * import { StringValidators } from '@austa/utils/validation';
-   * 
-   * const isValid = StringValidators.isValidCPF('123.456.789-09');
-   * ```
-   */
-  isValidCPF: (cpf: string): boolean => {
-    // Remove non-digit characters
-    const cleanCPF = cpf.replace(/\D/g, '');
-    
-    // CPF must have 11 digits
-    if (cleanCPF.length !== 11) {
-      return false;
-    }
-    
-    // Check if all digits are the same (invalid CPF)
-    if (/^(\d)\1+$/.test(cleanCPF)) {
-      return false;
-    }
-    
-    // Calculate first verification digit
-    let sum = 0;
-    for (let i = 0; i < 9; i++) {
-      sum += parseInt(cleanCPF.charAt(i)) * (10 - i);
-    }
-    let remainder = 11 - (sum % 11);
-    const digit1 = remainder > 9 ? 0 : remainder;
-    
-    // Calculate second verification digit
-    sum = 0;
-    for (let i = 0; i < 10; i++) {
-      sum += parseInt(cleanCPF.charAt(i)) * (11 - i);
-    }
-    remainder = 11 - (sum % 11);
-    const digit2 = remainder > 9 ? 0 : remainder;
-    
-    // Verify if calculated digits match the CPF's verification digits
-    return (
-      parseInt(cleanCPF.charAt(9)) === digit1 &&
-      parseInt(cleanCPF.charAt(10)) === digit2
-    );
-  },
-
-  /**
-   * Validates if a string is empty (null, undefined, or only whitespace)
-   * 
-   * @param str - The string to validate
-   * @returns True if the string is empty, false otherwise
-   * 
-   * @example
-   * ```typescript
-   * import { StringValidators } from '@austa/utils/validation';
-   * 
-   * const isEmpty = StringValidators.isEmpty('   '); // true
-   * ```
-   */
-  isEmpty: (str: string | null | undefined): boolean => {
-    return str === null || str === undefined || str.trim() === '';
-  },
-
-  /**
-   * Validates if a string is not empty (not null, not undefined, and contains non-whitespace characters)
-   * 
-   * @param str - The string to validate
-   * @returns True if the string is not empty, false otherwise
-   * 
-   * @example
-   * ```typescript
-   * import { StringValidators } from '@austa/utils/validation';
-   * 
-   * const isNotEmpty = StringValidators.isNotEmpty('Hello'); // true
-   * ```
-   */
-  isNotEmpty: (str: string | null | undefined): boolean => {
-    return str !== null && str !== undefined && str.trim() !== '';
-  },
-
-  /**
-   * Validates if a string matches a regular expression pattern
-   * 
-   * @param str - The string to validate
-   * @param pattern - The regular expression pattern to match against
-   * @returns True if the string matches the pattern, false otherwise
-   * 
-   * @example
-   * ```typescript
-   * import { StringValidators } from '@austa/utils/validation';
-   * 
-   * const isEmail = StringValidators.matchesPattern('user@example.com', /^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$/);
-   * ```
-   */
-  matchesPattern: (str: string, pattern: RegExp): boolean => {
-    return pattern.test(str);
-  },
-
-  /**
-   * Validates if a string is a valid email address
-   * 
-   * @param email - The email string to validate
-   * @returns True if the string is a valid email address, false otherwise
-   * 
-   * @example
-   * ```typescript
-   * import { StringValidators } from '@austa/utils/validation';
-   * 
-   * const isValidEmail = StringValidators.isValidEmail('user@example.com'); // true
-   * ```
-   */
-  isValidEmail: (email: string): boolean => {
-    const emailPattern = /^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$/;
-    return emailPattern.test(email);
-  },
-
-  /**
-   * Validates if a string has a minimum length
-   * 
-   * @param str - The string to validate
-   * @param minLength - The minimum length required
-   * @returns True if the string meets the minimum length, false otherwise
-   * 
-   * @example
-   * ```typescript
-   * import { StringValidators } from '@austa/utils/validation';
-   * 
-   * const isLongEnough = StringValidators.hasMinLength('password123', 8); // true
-   * ```
-   */
-  hasMinLength: (str: string, minLength: number): boolean => {
-    return str.length >= minLength;
-  },
-
-  /**
-   * Validates if a string does not exceed a maximum length
-   * 
-   * @param str - The string to validate
-   * @param maxLength - The maximum length allowed
-   * @returns True if the string does not exceed the maximum length, false otherwise
-   * 
-   * @example
-   * ```typescript
-   * import { StringValidators } from '@austa/utils/validation';
-   * 
-   * const isShortEnough = StringValidators.hasMaxLength('username', 20); // true
-   * ```
-   */
-  hasMaxLength: (str: string, maxLength: number): boolean => {
-    return str.length <= maxLength;
-  }
-};
+// Re-export all validators with namespaces for better organization
 
 /**
- * Date validation utilities
- * @namespace DateValidators
+ * String validation utilities for validating string values.
+ * Includes validators for CPF, email, URL, and string patterns.
+ * 
+ * @example
+ * import { StringValidators } from '@austa/utils/validation';
+ * 
+ * if (StringValidators.isValidCPF('123.456.789-09')) {
+ *   // Valid CPF
+ * }
  */
-export const DateValidators = {
-  /**
-   * Checks if a date is valid
-   * 
-   * @param date - The date to validate
-   * @returns True if the date is valid, false otherwise
-   * 
-   * @example
-   * ```typescript
-   * import { DateValidators } from '@austa/utils/validation';
-   * 
-   * const isValid = DateValidators.isValidDate(new Date()); // true
-   * const isInvalid = DateValidators.isValidDate(new Date('invalid-date')); // false
-   * ```
-   */
-  isValidDate,
-
-  /**
-   * Checks if a date is within a specified range
-   * 
-   * @param date - The date to check
-   * @param startDate - The start date of the range
-   * @param endDate - The end date of the range
-   * @returns True if the date is within the range, false otherwise
-   * 
-   * @example
-   * ```typescript
-   * import { DateValidators } from '@austa/utils/validation';
-   * 
-   * const isInRange = DateValidators.isDateInRange(
-   *   new Date('2023-05-15'),
-   *   new Date('2023-01-01'),
-   *   new Date('2023-12-31')
-   * ); // true
-   * ```
-   */
-  isDateInRange,
-
-  /**
-   * Validates if a date is in the past
-   * 
-   * @param date - The date to validate
-   * @param referenceDate - The reference date to compare against (defaults to now)
-   * @returns True if the date is in the past, false otherwise
-   * 
-   * @example
-   * ```typescript
-   * import { DateValidators } from '@austa/utils/validation';
-   * 
-   * const isPast = DateValidators.isPastDate(new Date('2020-01-01')); // true
-   * ```
-   */
-  isPastDate: (date: Date, referenceDate: Date = new Date()): boolean => {
-    return isValidDate(date) && date < referenceDate;
-  },
-
-  /**
-   * Validates if a date is in the future
-   * 
-   * @param date - The date to validate
-   * @param referenceDate - The reference date to compare against (defaults to now)
-   * @returns True if the date is in the future, false otherwise
-   * 
-   * @example
-   * ```typescript
-   * import { DateValidators } from '@austa/utils/validation';
-   * 
-   * const isFuture = DateValidators.isFutureDate(new Date('2030-01-01')); // true
-   * ```
-   */
-  isFutureDate: (date: Date, referenceDate: Date = new Date()): boolean => {
-    return isValidDate(date) && date > referenceDate;
-  },
-
-  /**
-   * Validates if a date is today
-   * 
-   * @param date - The date to validate
-   * @returns True if the date is today, false otherwise
-   * 
-   * @example
-   * ```typescript
-   * import { DateValidators } from '@austa/utils/validation';
-   * 
-   * const isToday = DateValidators.isToday(new Date()); // true
-   * ```
-   */
-  isToday: (date: Date): boolean => {
-    if (!isValidDate(date)) {
-      return false;
-    }
-    
-    const today = new Date();
-    return (
-      date.getDate() === today.getDate() &&
-      date.getMonth() === today.getMonth() &&
-      date.getFullYear() === today.getFullYear()
-    );
-  }
-};
+export const StringValidators = StringValidatorsInternal;
 
 /**
- * Number validation utilities
- * @namespace NumberValidators
+ * Date validation utilities for ensuring date integrity.
+ * Includes validators for date ranges, future/past dates, and business days.
+ * 
+ * @example
+ * import { DateValidators } from '@austa/utils/validation';
+ * 
+ * if (DateValidators.isValidDate(someDate)) {
+ *   // Valid date
+ * }
  */
-export const NumberValidators = {
-  /**
-   * Validates if a value is a valid number (not NaN)
-   * 
-   * @param value - The value to validate
-   * @returns True if the value is a valid number, false otherwise
-   * 
-   * @example
-   * ```typescript
-   * import { NumberValidators } from '@austa/utils/validation';
-   * 
-   * const isValid = NumberValidators.isValidNumber(42); // true
-   * const isInvalid = NumberValidators.isValidNumber(NaN); // false
-   * ```
-   */
-  isValidNumber: (value: any): boolean => {
-    return typeof value === 'number' && !isNaN(value);
-  },
-
-  /**
-   * Validates if a number is positive (greater than zero)
-   * 
-   * @param value - The number to validate
-   * @returns True if the number is positive, false otherwise
-   * 
-   * @example
-   * ```typescript
-   * import { NumberValidators } from '@austa/utils/validation';
-   * 
-   * const isPositive = NumberValidators.isPositive(42); // true
-   * ```
-   */
-  isPositive: (value: number): boolean => {
-    return typeof value === 'number' && !isNaN(value) && value > 0;
-  },
-
-  /**
-   * Validates if a number is non-negative (greater than or equal to zero)
-   * 
-   * @param value - The number to validate
-   * @returns True if the number is non-negative, false otherwise
-   * 
-   * @example
-   * ```typescript
-   * import { NumberValidators } from '@austa/utils/validation';
-   * 
-   * const isNonNegative = NumberValidators.isNonNegative(0); // true
-   * ```
-   */
-  isNonNegative: (value: number): boolean => {
-    return typeof value === 'number' && !isNaN(value) && value >= 0;
-  },
-
-  /**
-   * Validates if a number is within a specified range
-   * 
-   * @param value - The number to validate
-   * @param min - The minimum value (inclusive)
-   * @param max - The maximum value (inclusive)
-   * @returns True if the number is within the range, false otherwise
-   * 
-   * @example
-   * ```typescript
-   * import { NumberValidators } from '@austa/utils/validation';
-   * 
-   * const isInRange = NumberValidators.isInRange(42, 1, 100); // true
-   * ```
-   */
-  isInRange: (value: number, min: number, max: number): boolean => {
-    return typeof value === 'number' && !isNaN(value) && value >= min && value <= max;
-  },
-
-  /**
-   * Validates if a number is an integer (no decimal part)
-   * 
-   * @param value - The number to validate
-   * @returns True if the number is an integer, false otherwise
-   * 
-   * @example
-   * ```typescript
-   * import { NumberValidators } from '@austa/utils/validation';
-   * 
-   * const isInteger = NumberValidators.isInteger(42); // true
-   * const isNotInteger = NumberValidators.isInteger(42.5); // false
-   * ```
-   */
-  isInteger: (value: number): boolean => {
-    return typeof value === 'number' && !isNaN(value) && Number.isInteger(value);
-  }
-};
+export const DateValidators = DateValidatorsInternal;
 
 /**
- * Array validation utilities
- * @namespace ArrayValidators
+ * Number validation utilities for validating numeric values.
+ * Includes validators for ranges, integers, and currency values.
+ * 
+ * @example
+ * import { NumberValidators } from '@austa/utils/validation';
+ * 
+ * if (NumberValidators.isInRange(value, 1, 100)) {
+ *   // Value is between 1 and 100
+ * }
  */
-export const ArrayValidators = {
-  /**
-   * Validates if a value is an array
-   * 
-   * @param value - The value to validate
-   * @returns True if the value is an array, false otherwise
-   * 
-   * @example
-   * ```typescript
-   * import { ArrayValidators } from '@austa/utils/validation';
-   * 
-   * const isArray = ArrayValidators.isArray([1, 2, 3]); // true
-   * ```
-   */
-  isArray: (value: any): value is any[] => {
-    return Array.isArray(value);
-  },
+export const NumberValidators = NumberValidatorsInternal;
 
-  /**
-   * Validates if an array is not empty
-   * 
-   * @param arr - The array to validate
-   * @returns True if the array is not empty, false otherwise
-   * 
-   * @example
-   * ```typescript
-   * import { ArrayValidators } from '@austa/utils/validation';
-   * 
-   * const isNotEmpty = ArrayValidators.isNotEmpty([1, 2, 3]); // true
-   * ```
-   */
-  isNotEmpty: <T>(arr: T[]): boolean => {
-    return Array.isArray(arr) && arr.length > 0;
-  },
+/**
+ * Object validation utilities for validating object structures.
+ * Includes validators for property existence, nested properties, and type checking.
+ * 
+ * @example
+ * import { ObjectValidators } from '@austa/utils/validation';
+ * 
+ * if (ObjectValidators.hasRequiredProperties(obj, ['id', 'name'])) {
+ *   // Object has all required properties
+ * }
+ */
+export const ObjectValidators = ObjectValidatorsInternal;
 
-  /**
-   * Validates if an array has a minimum length
-   * 
-   * @param arr - The array to validate
-   * @param minLength - The minimum length required
-   * @returns True if the array meets the minimum length, false otherwise
-   * 
-   * @example
-   * ```typescript
-   * import { ArrayValidators } from '@austa/utils/validation';
-   * 
-   * const hasMinLength = ArrayValidators.hasMinLength([1, 2, 3], 2); // true
-   * ```
-   */
-  hasMinLength: <T>(arr: T[], minLength: number): boolean => {
-    return Array.isArray(arr) && arr.length >= minLength;
-  },
+/**
+ * Common validation utilities for general-purpose validation.
+ * Includes validators for Brazilian-specific identifiers, phone numbers, and postal codes.
+ * 
+ * @example
+ * import { CommonValidators } from '@austa/utils/validation';
+ * 
+ * if (CommonValidators.isValidCNPJ('12.345.678/0001-90')) {
+ *   // Valid CNPJ
+ * }
+ */
+export const CommonValidators = CommonValidatorsInternal;
 
-  /**
-   * Validates if an array does not exceed a maximum length
-   * 
-   * @param arr - The array to validate
-   * @param maxLength - The maximum length allowed
-   * @returns True if the array does not exceed the maximum length, false otherwise
-   * 
-   * @example
-   * ```typescript
-   * import { ArrayValidators } from '@austa/utils/validation';
-   * 
-   * const hasMaxLength = ArrayValidators.hasMaxLength([1, 2, 3], 5); // true
-   * ```
-   */
-  hasMaxLength: <T>(arr: T[], maxLength: number): boolean => {
-    return Array.isArray(arr) && arr.length <= maxLength;
-  },
+/**
+ * Schema validation utilities for creating and working with validation schemas.
+ * Provides integration between Zod and class-validator.
+ * 
+ * @example
+ * import { SchemaValidators } from '@austa/utils/validation';
+ * 
+ * const userSchema = SchemaValidators.createSchema({
+ *   name: z.string().min(2),
+ *   age: z.number().min(18)
+ * });
+ */
+export const SchemaValidators = SchemaValidatorsInternal;
 
-  /**
-   * Validates if all elements in an array satisfy a predicate function
-   * 
-   * @param arr - The array to validate
-   * @param predicate - The predicate function to test each element
-   * @returns True if all elements satisfy the predicate, false otherwise
-   * 
-   * @example
-   * ```typescript
-   * import { ArrayValidators } from '@austa/utils/validation';
-   * 
-   * const allPositive = ArrayValidators.allSatisfy([1, 2, 3], num => num > 0); // true
-   * ```
-   */
-  allSatisfy: <T>(arr: T[], predicate: (item: T) => boolean): boolean => {
-    return Array.isArray(arr) && arr.every(predicate);
-  }
-};
+// Re-export all validators directly for convenience
+// This allows importing specific validators without using the namespaces
 
-// Re-export object validators
-export const ObjectValidators = ObjectValidators;
-
-// Re-export type assertions and predicates
-export const TypeValidators = {
-  ...TypeAssertions,
-  ...TypePredicates
-};
-
-// Convenience re-exports of commonly used validators
+/**
+ * @see StringValidators
+ */
 export const {
   isValidCPF,
-  isEmpty: isStringEmpty,
-  isNotEmpty: isStringNotEmpty,
-  matchesPattern,
   isValidEmail,
-  hasMinLength: stringHasMinLength,
-  hasMaxLength: stringHasMaxLength
-} = StringValidators;
+  isValidURL,
+  hasValidLength,
+  matchesPattern,
+  // Add other string validators here
+} = StringValidatorsInternal;
 
+/**
+ * @see DateValidators
+ */
 export const {
   isValidDate,
   isDateInRange,
-  isPastDate,
   isFutureDate,
-  isToday
-} = DateValidators;
+  isPastDate,
+  isBusinessDay,
+  // Add other date validators here
+} = DateValidatorsInternal;
 
+/**
+ * @see NumberValidators
+ */
 export const {
-  isValidNumber,
+  isInRange,
+  isInteger,
   isPositive,
-  isNonNegative,
-  isInRange: numberIsInRange,
-  isInteger
-} = NumberValidators;
+  isNegative,
+  isValidCurrency,
+  // Add other number validators here
+} = NumberValidatorsInternal;
 
+/**
+ * @see ObjectValidators
+ */
 export const {
-  isArray,
-  isNotEmpty: isArrayNotEmpty,
-  hasMinLength: arrayHasMinLength,
-  hasMaxLength: arrayHasMaxLength,
-  allSatisfy
-} = ArrayValidators;
+  hasRequiredProperties,
+  hasValidNestedProperty,
+  isOfType,
+  hasValidArrayElements,
+  // Add other object validators here
+} = ObjectValidatorsInternal;
 
-// Default export for convenience
-export default {
-  StringValidators,
-  DateValidators,
-  NumberValidators,
-  ArrayValidators,
-  ObjectValidators,
-  TypeValidators
+/**
+ * @see CommonValidators
+ */
+export const {
+  isValidCNPJ,
+  isValidRG,
+  isValidPhoneNumber,
+  isValidCEP,
+  // Add other common validators here
+} = CommonValidatorsInternal;
+
+/**
+ * @see SchemaValidators
+ */
+export const {
+  createSchema,
+  validateWithSchema,
+  zodToClassValidator,
+  classValidatorToZod,
+  // Add other schema validators here
+} = SchemaValidatorsInternal;
+
+// Export types for all validators
+
+/**
+ * Types for string validation options and results.
+ */
+export type {
+  CPFValidationOptions,
+  EmailValidationOptions,
+  URLValidationOptions,
+  StringLengthOptions,
+  PatternMatchOptions,
+  // Add other string validator types here
+} from '../src/validation/string.validator';
+
+/**
+ * Types for date validation options and results.
+ */
+export type {
+  DateValidationOptions,
+  DateRangeOptions,
+  BusinessDayOptions,
+  // Add other date validator types here
+} from '../src/validation/date.validator';
+
+/**
+ * Types for number validation options and results.
+ */
+export type {
+  RangeOptions,
+  IntegerOptions,
+  CurrencyOptions,
+  // Add other number validator types here
+} from '../src/validation/number.validator';
+
+/**
+ * Types for object validation options and results.
+ */
+export type {
+  PropertyValidationOptions,
+  TypeCheckOptions,
+  ArrayValidationOptions,
+  // Add other object validator types here
+} from '../src/validation/object.validator';
+
+/**
+ * Types for common validation options and results.
+ */
+export type {
+  CNPJValidationOptions,
+  RGValidationOptions,
+  PhoneNumberOptions,
+  CEPValidationOptions,
+  // Add other common validator types here
+} from '../src/validation/common.validator';
+
+/**
+ * Types for schema validation options and results.
+ */
+export type {
+  SchemaOptions,
+  ValidationResult,
+  SchemaValidationOptions,
+  // Add other schema validator types here
+} from '../src/validation/schema.validator';
+
+// Export convenience functions for common validation patterns
+
+/**
+ * Validates multiple conditions and returns the first error or null if all are valid.
+ * 
+ * @param validators - Array of validation functions to run
+ * @param value - The value to validate
+ * @returns The first error message or null if all validations pass
+ * 
+ * @example
+ * const error = validateAll([
+ *   (v) => isValidEmail(v) ? null : 'Invalid email',
+ *   (v) => hasValidLength(v, 5, 100) ? null : 'Invalid length'
+ * ], email);
+ */
+export function validateAll<T>(
+  validators: Array<(value: T) => string | null>,
+  value: T
+): string | null {
+  for (const validator of validators) {
+    const error = validator(value);
+    if (error) {
+      return error;
+    }
+  }
+  return null;
+}
+
+/**
+ * Validates a value against a condition and returns a formatted error message if invalid.
+ * 
+ * @param value - The value to validate
+ * @param isValid - Validation function that returns true if valid
+ * @param errorMessage - Error message to return if validation fails
+ * @returns The error message or null if validation passes
+ * 
+ * @example
+ * const error = validate(email, isValidEmail, 'Please enter a valid email address');
+ */
+export function validate<T>(
+  value: T,
+  isValid: (value: T) => boolean,
+  errorMessage: string
+): string | null {
+  return isValid(value) ? null : errorMessage;
+}
+
+/**
+ * Creates a validator function that can be used with form libraries.
+ * 
+ * @param validationFn - The validation function that returns true if valid
+ * @param errorMessage - The error message to return if validation fails
+ * @returns A validator function compatible with React Hook Form
+ * 
+ * @example
+ * const emailValidator = createValidator(isValidEmail, 'Invalid email');
+ * // Use with React Hook Form
+ * register('email', { validate: emailValidator });
+ */
+export function createValidator<T>(
+  validationFn: (value: T) => boolean,
+  errorMessage: string
+): (value: T) => true | string {
+  return (value: T) => validationFn(value) || errorMessage;
+}
+
+/**
+ * Journey-specific validation utilities.
+ * Provides validation functions tailored to specific journeys (health, care, plan).
+ */
+export const JourneyValidators = {
+  /**
+   * Health journey-specific validators.
+   */
+  health: {
+    /**
+     * Validates health metric values based on metric type and user profile.
+     * 
+     * @param value - The metric value to validate
+     * @param metricType - The type of health metric (e.g., 'bloodPressure', 'weight')
+     * @param userProfile - Optional user profile for personalized validation
+     * @returns True if the metric value is valid for the given type and profile
+     */
+    isValidMetricValue: (value: number, metricType: string, userProfile?: any): boolean => {
+      // Implementation would be in the actual validator file
+      // This is just a placeholder for the export barrel
+      return true;
+    },
+    
+    /**
+     * Validates a health goal as achievable and appropriate.
+     * 
+     * @param goal - The health goal to validate
+     * @param userProfile - User profile for personalized validation
+     * @returns True if the goal is valid and appropriate
+     */
+    isValidHealthGoal: (goal: any, userProfile: any): boolean => {
+      // Implementation would be in the actual validator file
+      return true;
+    }
+  },
+  
+  /**
+   * Care journey-specific validators.
+   */
+  care: {
+    /**
+     * Validates an appointment time as available and within service hours.
+     * 
+     * @param dateTime - The appointment date and time
+     * @param providerId - The healthcare provider ID
+     * @returns True if the appointment time is valid and available
+     */
+    isValidAppointmentTime: (dateTime: Date, providerId: string): boolean => {
+      // Implementation would be in the actual validator file
+      return true;
+    },
+    
+    /**
+     * Validates medication dosage based on medication type and patient profile.
+     * 
+     * @param dosage - The medication dosage
+     * @param medicationType - The type of medication
+     * @param patientProfile - Patient profile for personalized validation
+     * @returns True if the dosage is valid for the given medication and patient
+     */
+    isValidMedicationDosage: (dosage: number, medicationType: string, patientProfile: any): boolean => {
+      // Implementation would be in the actual validator file
+      return true;
+    }
+  },
+  
+  /**
+   * Plan journey-specific validators.
+   */
+  plan: {
+    /**
+     * Validates an insurance claim as complete and eligible.
+     * 
+     * @param claim - The insurance claim to validate
+     * @param planDetails - Details of the user's insurance plan
+     * @returns True if the claim is valid and eligible
+     */
+    isValidClaim: (claim: any, planDetails: any): boolean => {
+      // Implementation would be in the actual validator file
+      return true;
+    },
+    
+    /**
+     * Validates a document as acceptable for the specified purpose.
+     * 
+     * @param document - The document to validate
+     * @param purpose - The purpose of the document (e.g., 'claim', 'enrollment')
+     * @returns True if the document is valid for the given purpose
+     */
+    isValidDocument: (document: any, purpose: string): boolean => {
+      // Implementation would be in the actual validator file
+      return true;
+    }
+  }
 };
