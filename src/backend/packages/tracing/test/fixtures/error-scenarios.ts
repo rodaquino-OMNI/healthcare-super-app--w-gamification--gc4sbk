@@ -1,673 +1,1438 @@
+/**
+ * @file error-scenarios.ts
+ * @description Predefined error scenarios and exceptions for testing error handling in trace spans.
+ * Provides error objects, stack traces, and expected span status configurations to ensure proper
+ * error recording, status setting, and exception handling within the tracing system.
+ */
+
 import { SpanStatusCode } from '@opentelemetry/api';
-import { JourneyContextInfo } from '../../src/interfaces/trace-context.interface';
-import * as ErrorCodes from '../../src/constants/error-codes';
+import { BaseError, ErrorType, JourneyType } from '@austa/errors/base';
+import {
+  ValidationError,
+  BusinessError,
+  TechnicalError,
+  ExternalError,
+  DatabaseError,
+  TimeoutError,
+  ServiceUnavailableError,
+  DataProcessingError,
+  ConfigurationError,
+  InitializationError
+} from '@austa/errors';
 
 /**
- * Interface for error scenario definitions used in tracing tests
+ * Interface defining an error scenario for testing
  */
 export interface ErrorScenario {
   /** Name of the error scenario */
   name: string;
-  /** Error object to be used in the test */
-  error: Error;
-  /** Expected span status code after error handling */
-  expectedStatus: SpanStatusCode;
-  /** Expected attributes to be set on the span */
-  expectedAttributes?: Record<string, any>;
-  /** Journey context associated with the error, if applicable */
-  journeyContext?: JourneyContextInfo;
-  /** Description of the error scenario for documentation */
+  /** Description of the error scenario */
   description: string;
+  /** The error object */
+  error: Error;
+  /** Expected span status code */
+  expectedSpanStatus: SpanStatusCode;
+  /** Expected span status message */
+  expectedStatusMessage?: string;
+  /** Expected error attributes to be set on the span */
+  expectedAttributes?: Record<string, string | number | boolean>;
+  /** Whether the error is expected to be handled */
+  isHandled?: boolean;
 }
 
 /**
- * Base class for custom errors with additional properties
+ * Interface for journey-specific error scenarios
  */
-export class BaseError extends Error {
-  /** Error code for categorization */
-  code: string;
-  /** HTTP status code associated with the error */
-  statusCode: number;
-  /** Whether the error is retryable */
-  retryable: boolean;
-  /** Journey context associated with the error, if applicable */
-  journeyContext?: JourneyContextInfo;
-
-  constructor(message: string, code: string, statusCode: number, retryable = false) {
-    super(message);
-    this.name = this.constructor.name;
-    this.code = code;
-    this.statusCode = statusCode;
-    this.retryable = retryable;
-    Error.captureStackTrace(this, this.constructor);
-  }
-
-  /**
-   * Adds journey context to the error
-   * @param journeyContext Journey context to add
-   * @returns This error instance with journey context
-   */
-  withJourneyContext(journeyContext: JourneyContextInfo): this {
-    this.journeyContext = journeyContext;
-    return this;
-  }
+export interface JourneyErrorScenario extends ErrorScenario {
+  /** The journey type */
+  journeyType: JourneyType;
+  /** The journey-specific context */
+  journeyContext: Record<string, any>;
 }
 
 /**
- * Client error classes (4xx)
+ * Creates a stack trace string for testing purposes
+ * @param errorName The name of the error
+ * @param message The error message
+ * @param filePath The file path where the error occurred
+ * @param lineNumber The line number where the error occurred
+ * @param columnNumber The column number where the error occurred
+ * @param additionalFrames Additional stack frames to include
+ * @returns A formatted stack trace string
  */
-
-/** Error for validation failures */
-export class ValidationError extends BaseError {
-  /** Validation errors by field */
-  validationErrors: Record<string, string[]>;
-
-  constructor(message: string, validationErrors: Record<string, string[]>) {
-    super(message, ErrorCodes.SPAN_ATTRIBUTE_INVALID, 400, false);
-    this.validationErrors = validationErrors;
+function createStackTrace(
+  errorName: string,
+  message: string,
+  filePath: string,
+  lineNumber: number,
+  columnNumber: number,
+  additionalFrames: Array<{ func: string; file: string; line: number; col: number }> = []
+): string {
+  let stack = `${errorName}: ${message}\n`;
+  stack += `    at ${filePath}:${lineNumber}:${columnNumber}\n`;
+  
+  for (const frame of additionalFrames) {
+    stack += `    at ${frame.func} (${frame.file}:${frame.line}:${frame.col})\n`;
   }
-}
-
-/** Error for authentication failures */
-export class AuthenticationError extends BaseError {
-  constructor(message: string) {
-    super(message, ErrorCodes.CONTEXT_EXTRACTION_FAILED, 401, false);
-  }
-}
-
-/** Error for authorization failures */
-export class AuthorizationError extends BaseError {
-  constructor(message: string) {
-    super(message, ErrorCodes.CONTEXT_EXTRACTION_FAILED, 403, false);
-  }
-}
-
-/** Error for resource not found */
-export class NotFoundError extends BaseError {
-  /** Resource type that was not found */
-  resourceType: string;
-  /** Resource ID that was not found */
-  resourceId: string;
-
-  constructor(resourceType: string, resourceId: string) {
-    super(`${resourceType} with ID ${resourceId} not found`, ErrorCodes.RESOURCE_DETECTION_FAILED, 404, false);
-    this.resourceType = resourceType;
-    this.resourceId = resourceId;
-  }
+  
+  return stack;
 }
 
 /**
- * System error classes (5xx)
+ * Basic error scenarios for testing general error handling
  */
-
-/** Error for database failures */
-export class DatabaseError extends BaseError {
-  /** Database operation that failed */
-  operation: string;
-  /** Database table or collection involved */
-  table: string;
-  /** SQL query or database command that failed, if applicable */
-  query?: string;
-
-  constructor(message: string, operation: string, table: string, query?: string) {
-    super(message, ErrorCodes.TRACING_OPERATION_FAILED, 500, true);
-    this.operation = operation;
-    this.table = table;
-    this.query = query;
+export const basicErrorScenarios: ErrorScenario[] = [
+  {
+    name: 'standard_error',
+    description: 'Standard JavaScript Error',
+    error: (() => {
+      const error = new Error('A standard JavaScript error');
+      error.stack = createStackTrace(
+        'Error',
+        'A standard JavaScript error',
+        '/src/service.js',
+        123,
+        45,
+        [
+          { func: 'processRequest', file: '/src/handlers.js', line: 89, col: 12 },
+          { func: 'handleAPI', file: '/src/api.js', line: 45, col: 23 },
+          { func: 'main', file: '/src/index.js', line: 10, col: 5 }
+        ]
+      );
+      return error;
+    })(),
+    expectedSpanStatus: SpanStatusCode.ERROR,
+    expectedStatusMessage: 'A standard JavaScript error',
+    expectedAttributes: {
+      'error.type': 'Error',
+      'error.message': 'A standard JavaScript error'
+    }
+  },
+  {
+    name: 'type_error',
+    description: 'TypeError from invalid operation',
+    error: (() => {
+      const error = new TypeError('Cannot read property \'id\' of undefined');
+      error.stack = createStackTrace(
+        'TypeError',
+        'Cannot read property \'id\' of undefined',
+        '/src/user-service.js',
+        78,
+        23,
+        [
+          { func: 'getUserById', file: '/src/user-service.js', line: 78, col: 23 },
+          { func: 'processUserRequest', file: '/src/handlers.js', line: 42, col: 15 },
+          { func: 'handleAPI', file: '/src/api.js', line: 30, col: 18 }
+        ]
+      );
+      return error;
+    })(),
+    expectedSpanStatus: SpanStatusCode.ERROR,
+    expectedStatusMessage: 'Cannot read property \'id\' of undefined',
+    expectedAttributes: {
+      'error.type': 'TypeError',
+      'error.message': 'Cannot read property \'id\' of undefined'
+    }
+  },
+  {
+    name: 'reference_error',
+    description: 'ReferenceError from undefined variable',
+    error: (() => {
+      const error = new ReferenceError('undefinedVariable is not defined');
+      error.stack = createStackTrace(
+        'ReferenceError',
+        'undefinedVariable is not defined',
+        '/src/calculation-service.js',
+        156,
+        34,
+        [
+          { func: 'calculateTotal', file: '/src/calculation-service.js', line: 156, col: 34 },
+          { func: 'processOrder', file: '/src/order-service.js', line: 89, col: 12 },
+          { func: 'checkout', file: '/src/checkout.js', line: 45, col: 8 }
+        ]
+      );
+      return error;
+    })(),
+    expectedSpanStatus: SpanStatusCode.ERROR,
+    expectedStatusMessage: 'undefinedVariable is not defined',
+    expectedAttributes: {
+      'error.type': 'ReferenceError',
+      'error.message': 'undefinedVariable is not defined'
+    }
+  },
+  {
+    name: 'syntax_error',
+    description: 'SyntaxError from invalid code',
+    error: (() => {
+      const error = new SyntaxError('Unexpected token }');
+      error.stack = createStackTrace(
+        'SyntaxError',
+        'Unexpected token }',
+        '/src/config-parser.js',
+        42,
+        10,
+        [
+          { func: 'parseConfig', file: '/src/config-parser.js', line: 42, col: 10 },
+          { func: 'loadConfiguration', file: '/src/app-config.js', line: 23, col: 15 },
+          { func: 'initializeApp', file: '/src/app.js', line: 12, col: 8 }
+        ]
+      );
+      return error;
+    })(),
+    expectedSpanStatus: SpanStatusCode.ERROR,
+    expectedStatusMessage: 'Unexpected token }',
+    expectedAttributes: {
+      'error.type': 'SyntaxError',
+      'error.message': 'Unexpected token }'
+    }
   }
-}
-
-/** Error for internal server errors */
-export class InternalServerError extends BaseError {
-  /** Component where the error occurred */
-  component: string;
-  /** Function where the error occurred */
-  functionName: string;
-
-  constructor(message: string, component: string, functionName: string) {
-    super(message, ErrorCodes.TRACING_OPERATION_FAILED, 500, true);
-    this.component = component;
-    this.functionName = functionName;
-  }
-}
-
-/** Error for configuration issues */
-export class ConfigurationError extends BaseError {
-  /** Configuration key that caused the issue */
-  configKey: string;
-  /** Expected configuration value type */
-  expectedType: string;
-  /** Actual configuration value received */
-  actualValue: any;
-
-  constructor(configKey: string, expectedType: string, actualValue: any) {
-    super(
-      `Invalid configuration for ${configKey}: expected ${expectedType}, got ${typeof actualValue}`,
-      ErrorCodes.TRACING_CONFIGURATION_INVALID,
-      500,
-      false
-    );
-    this.configKey = configKey;
-    this.expectedType = expectedType;
-    this.actualValue = actualValue;
-  }
-}
-
-/**
- * Transient error classes (retryable)
- */
-
-/** Error for network timeouts */
-export class NetworkTimeoutError extends BaseError {
-  /** URL that timed out */
-  url: string;
-  /** Timeout duration in milliseconds */
-  timeoutMs: number;
-
-  constructor(url: string, timeoutMs: number) {
-    super(
-      `Request to ${url} timed out after ${timeoutMs}ms`,
-      ErrorCodes.BATCH_EXPORT_TIMEOUT,
-      504,
-      true
-    );
-    this.url = url;
-    this.timeoutMs = timeoutMs;
-  }
-}
-
-/** Error for temporary service unavailability */
-export class TemporaryUnavailableError extends BaseError {
-  /** Service that is unavailable */
-  serviceName: string;
-  /** Estimated retry after time in seconds */
-  retryAfterSec: number;
-
-  constructor(serviceName: string, retryAfterSec: number) {
-    super(
-      `Service ${serviceName} temporarily unavailable, retry after ${retryAfterSec} seconds`,
-      ErrorCodes.INSTRUMENTATION_DISABLED,
-      503,
-      true
-    );
-    this.serviceName = serviceName;
-    this.retryAfterSec = retryAfterSec;
-  }
-}
-
-/** Error for rate limiting */
-export class RateLimitError extends BaseError {
-  /** Resource that is rate limited */
-  resource: string;
-  /** Rate limit in requests per second */
-  rateLimit: number;
-  /** Current usage in requests per second */
-  currentUsage: number;
-  /** Reset time in seconds */
-  resetInSec: number;
-
-  constructor(resource: string, rateLimit: number, currentUsage: number, resetInSec: number) {
-    super(
-      `Rate limit exceeded for ${resource}: ${currentUsage}/${rateLimit} requests, resets in ${resetInSec} seconds`,
-      ErrorCodes.BATCH_PROCESSING_FAILED,
-      429,
-      true
-    );
-    this.resource = resource;
-    this.rateLimit = rateLimit;
-    this.currentUsage = currentUsage;
-    this.resetInSec = resetInSec;
-  }
-}
-
-/**
- * External dependency error classes
- */
-
-/** Error for external service failures */
-export class ExternalServiceError extends BaseError {
-  /** External service name */
-  serviceName: string;
-  /** External service endpoint */
-  endpoint: string;
-  /** External service response status code */
-  externalStatusCode: number;
-  /** External service response body */
-  responseBody?: string;
-
-  constructor(
-    serviceName: string,
-    endpoint: string,
-    externalStatusCode: number,
-    responseBody?: string
-  ) {
-    super(
-      `External service ${serviceName} failed with status ${externalStatusCode}`,
-      ErrorCodes.EXPORTER_CONNECTION_FAILED,
-      502,
-      true
-    );
-    this.serviceName = serviceName;
-    this.endpoint = endpoint;
-    this.externalStatusCode = externalStatusCode;
-    this.responseBody = responseBody;
-  }
-}
-
-/** Error for API integration issues */
-export class ApiIntegrationError extends BaseError {
-  /** API name */
-  apiName: string;
-  /** API version */
-  apiVersion: string;
-  /** API method */
-  method: string;
-  /** Error details from the API */
-  details: Record<string, any>;
-
-  constructor(apiName: string, apiVersion: string, method: string, details: Record<string, any>) {
-    super(
-      `API integration error with ${apiName} v${apiVersion} ${method}`,
-      ErrorCodes.EXPORTER_CONFIGURATION_INVALID,
-      502,
-      true
-    );
-    this.apiName = apiName;
-    this.apiVersion = apiVersion;
-    this.method = method;
-    this.details = details;
-  }
-}
-
-/** Error for dependency timeout */
-export class DependencyTimeoutError extends BaseError {
-  /** Dependency name */
-  dependencyName: string;
-  /** Operation that timed out */
-  operation: string;
-  /** Timeout duration in milliseconds */
-  timeoutMs: number;
-
-  constructor(dependencyName: string, operation: string, timeoutMs: number) {
-    super(
-      `Dependency ${dependencyName} operation ${operation} timed out after ${timeoutMs}ms`,
-      ErrorCodes.BATCH_EXPORT_TIMEOUT,
-      504,
-      true
-    );
-    this.dependencyName = dependencyName;
-    this.operation = operation;
-    this.timeoutMs = timeoutMs;
-  }
-}
-
-/**
- * Journey-specific error contexts
- */
-
-/** Health journey context */
-export const healthJourneyContext: JourneyContextInfo = {
-  journeyType: 'health',
-  journeyId: 'health-journey-123',
-  userId: 'user-456',
-  sessionId: 'session-789',
-  requestId: 'req-abc-123',
-};
-
-/** Care journey context */
-export const careJourneyContext: JourneyContextInfo = {
-  journeyType: 'care',
-  journeyId: 'care-journey-456',
-  userId: 'user-789',
-  sessionId: 'session-abc',
-  requestId: 'req-def-456',
-};
-
-/** Plan journey context */
-export const planJourneyContext: JourneyContextInfo = {
-  journeyType: 'plan',
-  journeyId: 'plan-journey-789',
-  userId: 'user-abc',
-  sessionId: 'session-def',
-  requestId: 'req-ghi-789',
-};
-
-/**
- * Predefined error scenarios for testing
- */
-export const errorScenarios: ErrorScenario[] = [
-  // Client errors (4xx)
-  {
-    name: 'validation_error',
-    error: new ValidationError('Invalid input data', {
-      email: ['Email is invalid'],
-      password: ['Password must be at least 8 characters'],
-    }).withJourneyContext(healthJourneyContext),
-    expectedStatus: SpanStatusCode.ERROR,
-    expectedAttributes: {
-      'error.type': 'ValidationError',
-      'error.code': ErrorCodes.SPAN_ATTRIBUTE_INVALID,
-      'error.http.status_code': 400,
-      'error.retryable': false,
-      'journey.type': 'health',
-      'journey.id': 'health-journey-123',
-    },
-    journeyContext: healthJourneyContext,
-    description: 'Validation error for health journey user input',
-  },
-  {
-    name: 'authentication_error',
-    error: new AuthenticationError('Invalid credentials').withJourneyContext(careJourneyContext),
-    expectedStatus: SpanStatusCode.ERROR,
-    expectedAttributes: {
-      'error.type': 'AuthenticationError',
-      'error.code': ErrorCodes.CONTEXT_EXTRACTION_FAILED,
-      'error.http.status_code': 401,
-      'error.retryable': false,
-      'journey.type': 'care',
-      'journey.id': 'care-journey-456',
-    },
-    journeyContext: careJourneyContext,
-    description: 'Authentication error for care journey login',
-  },
-  {
-    name: 'not_found_error',
-    error: new NotFoundError('Appointment', '12345').withJourneyContext(careJourneyContext),
-    expectedStatus: SpanStatusCode.ERROR,
-    expectedAttributes: {
-      'error.type': 'NotFoundError',
-      'error.code': ErrorCodes.RESOURCE_DETECTION_FAILED,
-      'error.http.status_code': 404,
-      'error.retryable': false,
-      'error.resource.type': 'Appointment',
-      'error.resource.id': '12345',
-      'journey.type': 'care',
-      'journey.id': 'care-journey-456',
-    },
-    journeyContext: careJourneyContext,
-    description: 'Resource not found error for care journey appointment',
-  },
-
-  // System errors (5xx)
-  {
-    name: 'database_error',
-    error: new DatabaseError(
-      'Failed to execute query',
-      'SELECT',
-      'health_metrics',
-      'SELECT * FROM health_metrics WHERE user_id = ?'
-    ).withJourneyContext(healthJourneyContext),
-    expectedStatus: SpanStatusCode.ERROR,
-    expectedAttributes: {
-      'error.type': 'DatabaseError',
-      'error.code': ErrorCodes.TRACING_OPERATION_FAILED,
-      'error.http.status_code': 500,
-      'error.retryable': true,
-      'error.db.operation': 'SELECT',
-      'error.db.table': 'health_metrics',
-      'journey.type': 'health',
-      'journey.id': 'health-journey-123',
-    },
-    journeyContext: healthJourneyContext,
-    description: 'Database error for health journey metrics query',
-  },
-  {
-    name: 'internal_server_error',
-    error: new InternalServerError(
-      'Unexpected error processing request',
-      'HealthMetricsService',
-      'processMetricUpdate'
-    ).withJourneyContext(healthJourneyContext),
-    expectedStatus: SpanStatusCode.ERROR,
-    expectedAttributes: {
-      'error.type': 'InternalServerError',
-      'error.code': ErrorCodes.TRACING_OPERATION_FAILED,
-      'error.http.status_code': 500,
-      'error.retryable': true,
-      'error.component': 'HealthMetricsService',
-      'error.function': 'processMetricUpdate',
-      'journey.type': 'health',
-      'journey.id': 'health-journey-123',
-    },
-    journeyContext: healthJourneyContext,
-    description: 'Internal server error for health journey metric processing',
-  },
-  {
-    name: 'configuration_error',
-    error: new ConfigurationError('database.maxConnections', 'number', 'ten').withJourneyContext(planJourneyContext),
-    expectedStatus: SpanStatusCode.ERROR,
-    expectedAttributes: {
-      'error.type': 'ConfigurationError',
-      'error.code': ErrorCodes.TRACING_CONFIGURATION_INVALID,
-      'error.http.status_code': 500,
-      'error.retryable': false,
-      'error.config.key': 'database.maxConnections',
-      'error.config.expected_type': 'number',
-      'journey.type': 'plan',
-      'journey.id': 'plan-journey-789',
-    },
-    journeyContext: planJourneyContext,
-    description: 'Configuration error for plan journey database settings',
-  },
-
-  // Transient errors
-  {
-    name: 'network_timeout_error',
-    error: new NetworkTimeoutError('https://api.external-health-provider.com/metrics', 5000).withJourneyContext(
-      healthJourneyContext
-    ),
-    expectedStatus: SpanStatusCode.ERROR,
-    expectedAttributes: {
-      'error.type': 'NetworkTimeoutError',
-      'error.code': ErrorCodes.BATCH_EXPORT_TIMEOUT,
-      'error.http.status_code': 504,
-      'error.retryable': true,
-      'error.url': 'https://api.external-health-provider.com/metrics',
-      'error.timeout_ms': 5000,
-      'journey.type': 'health',
-      'journey.id': 'health-journey-123',
-    },
-    journeyContext: healthJourneyContext,
-    description: 'Network timeout error for health journey external API call',
-  },
-  {
-    name: 'temporary_unavailable_error',
-    error: new TemporaryUnavailableError('appointment-service', 30).withJourneyContext(careJourneyContext),
-    expectedStatus: SpanStatusCode.ERROR,
-    expectedAttributes: {
-      'error.type': 'TemporaryUnavailableError',
-      'error.code': ErrorCodes.INSTRUMENTATION_DISABLED,
-      'error.http.status_code': 503,
-      'error.retryable': true,
-      'error.service': 'appointment-service',
-      'error.retry_after_sec': 30,
-      'journey.type': 'care',
-      'journey.id': 'care-journey-456',
-    },
-    journeyContext: careJourneyContext,
-    description: 'Temporary unavailable error for care journey appointment service',
-  },
-  {
-    name: 'rate_limit_error',
-    error: new RateLimitError('insurance-api', 100, 120, 60).withJourneyContext(planJourneyContext),
-    expectedStatus: SpanStatusCode.ERROR,
-    expectedAttributes: {
-      'error.type': 'RateLimitError',
-      'error.code': ErrorCodes.BATCH_PROCESSING_FAILED,
-      'error.http.status_code': 429,
-      'error.retryable': true,
-      'error.resource': 'insurance-api',
-      'error.rate_limit': 100,
-      'error.current_usage': 120,
-      'error.reset_in_sec': 60,
-      'journey.type': 'plan',
-      'journey.id': 'plan-journey-789',
-    },
-    journeyContext: planJourneyContext,
-    description: 'Rate limit error for plan journey insurance API',
-  },
-
-  // External dependency errors
-  {
-    name: 'external_service_error',
-    error: new ExternalServiceError(
-      'health-data-provider',
-      '/api/v1/sync',
-      500,
-      '{"error":"Internal server error"}'
-    ).withJourneyContext(healthJourneyContext),
-    expectedStatus: SpanStatusCode.ERROR,
-    expectedAttributes: {
-      'error.type': 'ExternalServiceError',
-      'error.code': ErrorCodes.EXPORTER_CONNECTION_FAILED,
-      'error.http.status_code': 502,
-      'error.retryable': true,
-      'error.external.service': 'health-data-provider',
-      'error.external.endpoint': '/api/v1/sync',
-      'error.external.status_code': 500,
-      'journey.type': 'health',
-      'journey.id': 'health-journey-123',
-    },
-    journeyContext: healthJourneyContext,
-    description: 'External service error for health journey data provider',
-  },
-  {
-    name: 'api_integration_error',
-    error: new ApiIntegrationError('telemedicine-api', '2.0', 'POST /sessions', {
-      code: 'INVALID_PARAMETERS',
-      message: 'Missing required parameters',
-      details: ['provider_id is required'],
-    }).withJourneyContext(careJourneyContext),
-    expectedStatus: SpanStatusCode.ERROR,
-    expectedAttributes: {
-      'error.type': 'ApiIntegrationError',
-      'error.code': ErrorCodes.EXPORTER_CONFIGURATION_INVALID,
-      'error.http.status_code': 502,
-      'error.retryable': true,
-      'error.api.name': 'telemedicine-api',
-      'error.api.version': '2.0',
-      'error.api.method': 'POST /sessions',
-      'journey.type': 'care',
-      'journey.id': 'care-journey-456',
-    },
-    journeyContext: careJourneyContext,
-    description: 'API integration error for care journey telemedicine session',
-  },
-  {
-    name: 'dependency_timeout_error',
-    error: new DependencyTimeoutError('claims-processor', 'submitClaim', 10000).withJourneyContext(
-      planJourneyContext
-    ),
-    expectedStatus: SpanStatusCode.ERROR,
-    expectedAttributes: {
-      'error.type': 'DependencyTimeoutError',
-      'error.code': ErrorCodes.BATCH_EXPORT_TIMEOUT,
-      'error.http.status_code': 504,
-      'error.retryable': true,
-      'error.dependency': 'claims-processor',
-      'error.operation': 'submitClaim',
-      'error.timeout_ms': 10000,
-      'journey.type': 'plan',
-      'journey.id': 'plan-journey-789',
-    },
-    journeyContext: planJourneyContext,
-    description: 'Dependency timeout error for plan journey claim submission',
-  },
 ];
 
 /**
- * Creates a realistic stack trace for an error
- * @param error Error to enhance with a stack trace
- * @param depth Stack depth to generate
- * @returns The error with an enhanced stack trace
+ * Validation error scenarios for testing input validation error handling
  */
-export function createRealisticStackTrace(error: Error, depth = 5): Error {
-  const originalStack = error.stack || '';
-  const firstLine = originalStack.split('\n')[0];
-  let newStack = `${firstLine}\n`;
-  
-  // Add some realistic stack frames
-  const frames = [
-    '    at processRequest (/src/backend/api-gateway/src/controllers/request.controller.ts:42:23)',
-    '    at validateInput (/src/backend/shared/src/validation/input-validator.ts:87:12)',
-    '    at handleRequest (/src/backend/api-gateway/src/middleware/request-handler.ts:156:18)',
-    '    at async NestMiddleware.handle (/src/backend/api-gateway/src/middleware/base.middleware.ts:32:5)',
-    '    at async ExpressAdapter.callback (/node_modules/@nestjs/platform-express/adapters/express-adapter.js:74:20)',
-    '    at async Server.handleRequest (/node_modules/express/lib/server.js:335:10)',
-    '    at async emitTwo (/node_modules/events/events.js:126:13)',
-    '    at async Server.emit (/node_modules/events/events.js:214:7)',
-    '    at async Server.EventEmitter.emit (node:events:394:28)',
-    '    at async TCP.onStreamRead (node:internal/stream_base_commons:217:20)',
-  ];
-  
-  // Add random frames from the list up to the specified depth
-  for (let i = 0; i < depth; i++) {
-    const frameIndex = Math.floor(Math.random() * frames.length);
-    newStack += frames[frameIndex] + '\n';
+export const validationErrorScenarios: ErrorScenario[] = [
+  {
+    name: 'missing_required_field',
+    description: 'Missing required field in request',
+    error: (() => {
+      const error = new ValidationError(
+        'Missing required field: email',
+        'MISSING_REQUIRED_FIELD',
+        { field: 'email', location: 'body' }
+      );
+      error.stack = createStackTrace(
+        'ValidationError',
+        'Missing required field: email',
+        '/src/validators/user-validator.js',
+        45,
+        12,
+        [
+          { func: 'validateUserInput', file: '/src/validators/user-validator.js', line: 45, col: 12 },
+          { func: 'createUser', file: '/src/services/user-service.js', line: 78, col: 23 },
+          { func: 'handleCreateUser', file: '/src/controllers/user-controller.js', line: 34, col: 10 }
+        ]
+      );
+      return error;
+    })(),
+    expectedSpanStatus: SpanStatusCode.ERROR,
+    expectedStatusMessage: 'Missing required field: email',
+    expectedAttributes: {
+      'error.type': 'validation',
+      'error.code': 'MISSING_REQUIRED_FIELD',
+      'error.message': 'Missing required field: email',
+      'error.handled': true
+    },
+    isHandled: true
+  },
+  {
+    name: 'invalid_format',
+    description: 'Invalid format for input field',
+    error: (() => {
+      const error = new ValidationError(
+        'Invalid email format',
+        'INVALID_FORMAT',
+        { field: 'email', value: 'not-an-email', expected: 'valid email address' }
+      );
+      error.stack = createStackTrace(
+        'ValidationError',
+        'Invalid email format',
+        '/src/validators/email-validator.js',
+        28,
+        15,
+        [
+          { func: 'validateEmail', file: '/src/validators/email-validator.js', line: 28, col: 15 },
+          { func: 'validateUserInput', file: '/src/validators/user-validator.js', line: 52, col: 18 },
+          { func: 'createUser', file: '/src/services/user-service.js', line: 78, col: 23 }
+        ]
+      );
+      return error;
+    })(),
+    expectedSpanStatus: SpanStatusCode.ERROR,
+    expectedStatusMessage: 'Invalid email format',
+    expectedAttributes: {
+      'error.type': 'validation',
+      'error.code': 'INVALID_FORMAT',
+      'error.message': 'Invalid email format',
+      'error.handled': true
+    },
+    isHandled: true
+  },
+  {
+    name: 'value_out_of_range',
+    description: 'Value out of allowed range',
+    error: (() => {
+      const error = new ValidationError(
+        'Value out of allowed range',
+        'VALUE_OUT_OF_RANGE',
+        { field: 'age', value: 150, min: 0, max: 120 }
+      );
+      error.stack = createStackTrace(
+        'ValidationError',
+        'Value out of allowed range',
+        '/src/validators/range-validator.js',
+        35,
+        20,
+        [
+          { func: 'validateRange', file: '/src/validators/range-validator.js', line: 35, col: 20 },
+          { func: 'validateUserInput', file: '/src/validators/user-validator.js', line: 65, col: 22 },
+          { func: 'updateUserProfile', file: '/src/services/user-service.js', line: 112, col: 18 }
+        ]
+      );
+      return error;
+    })(),
+    expectedSpanStatus: SpanStatusCode.ERROR,
+    expectedStatusMessage: 'Value out of allowed range',
+    expectedAttributes: {
+      'error.type': 'validation',
+      'error.code': 'VALUE_OUT_OF_RANGE',
+      'error.message': 'Value out of allowed range',
+      'error.handled': true
+    },
+    isHandled: true
   }
-  
-  error.stack = newStack;
-  return error;
-}
-
-// Enhance all error scenarios with realistic stack traces
-errorScenarios.forEach(scenario => {
-  createRealisticStackTrace(scenario.error, 7);
-});
+];
 
 /**
- * Gets an error scenario by name
- * @param name Name of the error scenario to retrieve
+ * Business error scenarios for testing business logic error handling
+ */
+export const businessErrorScenarios: ErrorScenario[] = [
+  {
+    name: 'insufficient_funds',
+    description: 'Insufficient funds for transaction',
+    error: (() => {
+      const error = new BusinessError(
+        'Insufficient funds for transaction',
+        'INSUFFICIENT_FUNDS',
+        { accountId: '12345', required: 100.50, available: 75.25 }
+      );
+      error.stack = createStackTrace(
+        'BusinessError',
+        'Insufficient funds for transaction',
+        '/src/services/payment-service.js',
+        87,
+        23,
+        [
+          { func: 'processPayment', file: '/src/services/payment-service.js', line: 87, col: 23 },
+          { func: 'checkout', file: '/src/services/order-service.js', line: 142, col: 15 },
+          { func: 'completeOrder', file: '/src/controllers/order-controller.js', line: 56, col: 12 }
+        ]
+      );
+      return error;
+    })(),
+    expectedSpanStatus: SpanStatusCode.ERROR,
+    expectedStatusMessage: 'Insufficient funds for transaction',
+    expectedAttributes: {
+      'error.type': 'business',
+      'error.code': 'INSUFFICIENT_FUNDS',
+      'error.message': 'Insufficient funds for transaction',
+      'error.handled': true
+    },
+    isHandled: true
+  },
+  {
+    name: 'resource_already_exists',
+    description: 'Resource already exists',
+    error: (() => {
+      const error = new BusinessError(
+        'User with this email already exists',
+        'RESOURCE_ALREADY_EXISTS',
+        { resourceType: 'user', identifier: 'email', value: 'user@example.com' }
+      );
+      error.stack = createStackTrace(
+        'BusinessError',
+        'User with this email already exists',
+        '/src/services/user-service.js',
+        112,
+        18,
+        [
+          { func: 'createUser', file: '/src/services/user-service.js', line: 112, col: 18 },
+          { func: 'registerUser', file: '/src/controllers/auth-controller.js', line: 45, col: 20 },
+          { func: 'handleRegistration', file: '/src/routes/auth-routes.js', line: 28, col: 15 }
+        ]
+      );
+      return error;
+    })(),
+    expectedSpanStatus: SpanStatusCode.ERROR,
+    expectedStatusMessage: 'User with this email already exists',
+    expectedAttributes: {
+      'error.type': 'business',
+      'error.code': 'RESOURCE_ALREADY_EXISTS',
+      'error.message': 'User with this email already exists',
+      'error.handled': true
+    },
+    isHandled: true
+  },
+  {
+    name: 'business_rule_violation',
+    description: 'Business rule violation',
+    error: (() => {
+      const error = new BusinessError(
+        'Cannot cancel order that has been shipped',
+        'BUSINESS_RULE_VIOLATION',
+        { orderId: '67890', status: 'SHIPPED', allowedStatuses: ['PENDING', 'PROCESSING'] }
+      );
+      error.stack = createStackTrace(
+        'BusinessError',
+        'Cannot cancel order that has been shipped',
+        '/src/services/order-service.js',
+        187,
+        25,
+        [
+          { func: 'cancelOrder', file: '/src/services/order-service.js', line: 187, col: 25 },
+          { func: 'processCancellation', file: '/src/controllers/order-controller.js', line: 98, col: 18 },
+          { func: 'handleCancelOrder', file: '/src/routes/order-routes.js', line: 45, col: 12 }
+        ]
+      );
+      return error;
+    })(),
+    expectedSpanStatus: SpanStatusCode.ERROR,
+    expectedStatusMessage: 'Cannot cancel order that has been shipped',
+    expectedAttributes: {
+      'error.type': 'business',
+      'error.code': 'BUSINESS_RULE_VIOLATION',
+      'error.message': 'Cannot cancel order that has been shipped',
+      'error.handled': true
+    },
+    isHandled: true
+  }
+];
+
+/**
+ * Technical error scenarios for testing system error handling
+ */
+export const technicalErrorScenarios: ErrorScenario[] = [
+  {
+    name: 'database_connection_error',
+    description: 'Database connection error',
+    error: (() => {
+      const error = DatabaseError.connectionError(
+        'Failed to connect to database',
+        { host: 'db.example.com', port: 5432, database: 'users' },
+        { component: 'database', severity: 'critical', isTransient: true },
+        new Error('ECONNREFUSED')
+      );
+      error.stack = createStackTrace(
+        'DatabaseError',
+        'Failed to connect to database',
+        '/src/database/connection.js',
+        45,
+        12,
+        [
+          { func: 'connectToDatabase', file: '/src/database/connection.js', line: 45, col: 12 },
+          { func: 'initializeDatabase', file: '/src/services/database-service.js', line: 28, col: 15 },
+          { func: 'startServer', file: '/src/server.js', line: 34, col: 10 }
+        ]
+      );
+      return error;
+    })(),
+    expectedSpanStatus: SpanStatusCode.ERROR,
+    expectedStatusMessage: 'Failed to connect to database',
+    expectedAttributes: {
+      'error.type': 'technical',
+      'error.code': 'DATABASE_CONNECTION_ERROR',
+      'error.message': 'Failed to connect to database',
+      'error.category': 'database_error',
+      'error.handled': false
+    },
+    isHandled: false
+  },
+  {
+    name: 'service_timeout',
+    description: 'Service timeout error',
+    error: (() => {
+      const error = TimeoutError.apiTimeout(
+        5000,
+        3000,
+        '/api/users',
+        'API request to /api/users timed out after 5000ms (threshold: 3000ms)',
+        { requestId: 'req-123-456-789' },
+        { component: 'api-client', severity: 'error', isTransient: true },
+        new Error('Request timed out')
+      );
+      error.stack = createStackTrace(
+        'TimeoutError',
+        'API request to /api/users timed out after 5000ms (threshold: 3000ms)',
+        '/src/clients/api-client.js',
+        78,
+        23,
+        [
+          { func: 'fetchUsers', file: '/src/clients/api-client.js', line: 78, col: 23 },
+          { func: 'getUserList', file: '/src/services/user-service.js', line: 45, col: 18 },
+          { func: 'handleGetUsers', file: '/src/controllers/user-controller.js', line: 28, col: 15 }
+        ]
+      );
+      return error;
+    })(),
+    expectedSpanStatus: SpanStatusCode.ERROR,
+    expectedStatusMessage: 'API request to /api/users timed out after 5000ms (threshold: 3000ms)',
+    expectedAttributes: {
+      'error.type': 'technical',
+      'error.code': 'API_TIMEOUT',
+      'error.message': 'API request to /api/users timed out after 5000ms (threshold: 3000ms)',
+      'error.category': 'timeout_error',
+      'error.handled': false
+    },
+    isHandled: false
+  },
+  {
+    name: 'service_unavailable',
+    description: 'Service unavailable error',
+    error: (() => {
+      const error = ServiceUnavailableError.forService(
+        'payment-service',
+        'Payment service is currently unavailable',
+        { lastAttempt: new Date().toISOString() },
+        { component: 'payment-gateway', severity: 'critical', isTransient: true },
+        new Error('Service unavailable')
+      );
+      error.stack = createStackTrace(
+        'ServiceUnavailableError',
+        'Payment service is currently unavailable',
+        '/src/clients/payment-client.js',
+        112,
+        18,
+        [
+          { func: 'processPayment', file: '/src/clients/payment-client.js', line: 112, col: 18 },
+          { func: 'checkout', file: '/src/services/order-service.js', line: 87, col: 23 },
+          { func: 'completeOrder', file: '/src/controllers/order-controller.js', line: 56, col: 12 }
+        ]
+      );
+      return error;
+    })(),
+    expectedSpanStatus: SpanStatusCode.ERROR,
+    expectedStatusMessage: 'Payment service is currently unavailable',
+    expectedAttributes: {
+      'error.type': 'technical',
+      'error.code': 'SERVICE_UNAVAILABLE',
+      'error.message': 'Payment service is currently unavailable',
+      'error.category': 'external_service_error',
+      'error.handled': false
+    },
+    isHandled: false
+  },
+  {
+    name: 'data_processing_error',
+    description: 'Data processing error',
+    error: (() => {
+      const error = DataProcessingError.parsingError(
+        'JSON',
+        'Failed to parse JSON data: Unexpected token in JSON at position 42',
+        { data: '{"user":"John","age":30,"email":"john@example.com","roles":["admin","user"' },
+        { component: 'json-parser', severity: 'error' },
+        new SyntaxError('Unexpected token in JSON at position 42')
+      );
+      error.stack = createStackTrace(
+        'DataProcessingError',
+        'Failed to parse JSON data: Unexpected token in JSON at position 42',
+        '/src/utils/json-parser.js',
+        34,
+        10,
+        [
+          { func: 'parseJSON', file: '/src/utils/json-parser.js', line: 34, col: 10 },
+          { func: 'processRequest', file: '/src/middleware/body-parser.js', line: 45, col: 18 },
+          { func: 'handleRequest', file: '/src/server.js', line: 78, col: 23 }
+        ]
+      );
+      return error;
+    })(),
+    expectedSpanStatus: SpanStatusCode.ERROR,
+    expectedStatusMessage: 'Failed to parse JSON data: Unexpected token in JSON at position 42',
+    expectedAttributes: {
+      'error.type': 'technical',
+      'error.code': 'JSON_PARSING_ERROR',
+      'error.message': 'Failed to parse JSON data: Unexpected token in JSON at position 42',
+      'error.category': 'data_processing_error',
+      'error.handled': true
+    },
+    isHandled: true
+  },
+  {
+    name: 'configuration_error',
+    description: 'Configuration error',
+    error: (() => {
+      const error = ConfigurationError.missingConfig(
+        'DATABASE_URL',
+        'Missing required configuration: DATABASE_URL',
+        { requiredFor: 'database connection' },
+        { component: 'configuration', severity: 'critical' }
+      );
+      error.stack = createStackTrace(
+        'ConfigurationError',
+        'Missing required configuration: DATABASE_URL',
+        '/src/config/database-config.js',
+        28,
+        15,
+        [
+          { func: 'validateDatabaseConfig', file: '/src/config/database-config.js', line: 28, col: 15 },
+          { func: 'initializeDatabase', file: '/src/services/database-service.js', line: 34, col: 10 },
+          { func: 'startServer', file: '/src/server.js', line: 45, col: 12 }
+        ]
+      );
+      return error;
+    })(),
+    expectedSpanStatus: SpanStatusCode.ERROR,
+    expectedStatusMessage: 'Missing required configuration: DATABASE_URL',
+    expectedAttributes: {
+      'error.type': 'technical',
+      'error.code': 'MISSING_CONFIGURATION',
+      'error.message': 'Missing required configuration: DATABASE_URL',
+      'error.category': 'configuration_error',
+      'error.handled': false
+    },
+    isHandled: false
+  },
+  {
+    name: 'initialization_error',
+    description: 'Initialization error',
+    error: (() => {
+      const error = InitializationError.dependencyError(
+        'redis-client',
+        'Failed to initialize dependency: redis-client',
+        { host: 'redis.example.com', port: 6379 },
+        { component: 'cache', severity: 'critical' },
+        new Error('ECONNREFUSED')
+      );
+      error.stack = createStackTrace(
+        'InitializationError',
+        'Failed to initialize dependency: redis-client',
+        '/src/cache/redis-client.js',
+        45,
+        12,
+        [
+          { func: 'initializeRedisClient', file: '/src/cache/redis-client.js', line: 45, col: 12 },
+          { func: 'initializeCache', file: '/src/services/cache-service.js', line: 28, col: 15 },
+          { func: 'startServer', file: '/src/server.js', line: 56, col: 18 }
+        ]
+      );
+      return error;
+    })(),
+    expectedSpanStatus: SpanStatusCode.ERROR,
+    expectedStatusMessage: 'Failed to initialize dependency: redis-client',
+    expectedAttributes: {
+      'error.type': 'technical',
+      'error.code': 'DEPENDENCY_INITIALIZATION_ERROR',
+      'error.message': 'Failed to initialize dependency: redis-client',
+      'error.category': 'initialization_error',
+      'error.handled': false
+    },
+    isHandled: false
+  }
+];
+
+/**
+ * External error scenarios for testing external system error handling
+ */
+export const externalErrorScenarios: ErrorScenario[] = [
+  {
+    name: 'external_api_error',
+    description: 'External API error',
+    error: (() => {
+      const error = new ExternalError(
+        'External payment API returned an error',
+        'EXTERNAL_API_ERROR',
+        { statusCode: 500, response: { error: 'Internal Server Error' } },
+        { component: 'payment-gateway', service: 'payment-api', severity: 'error' },
+        new Error('Request failed with status code 500')
+      );
+      error.stack = createStackTrace(
+        'ExternalError',
+        'External payment API returned an error',
+        '/src/clients/payment-api-client.js',
+        87,
+        23,
+        [
+          { func: 'processPayment', file: '/src/clients/payment-api-client.js', line: 87, col: 23 },
+          { func: 'checkout', file: '/src/services/order-service.js', line: 112, col: 18 },
+          { func: 'completeOrder', file: '/src/controllers/order-controller.js', line: 56, col: 12 }
+        ]
+      );
+      return error;
+    })(),
+    expectedSpanStatus: SpanStatusCode.ERROR,
+    expectedStatusMessage: 'External payment API returned an error',
+    expectedAttributes: {
+      'error.type': 'external',
+      'error.code': 'EXTERNAL_API_ERROR',
+      'error.message': 'External payment API returned an error',
+      'error.category': 'external_service_error',
+      'error.handled': true
+    },
+    isHandled: true
+  },
+  {
+    name: 'external_dependency_unavailable',
+    description: 'External dependency unavailable',
+    error: (() => {
+      const error = new ExternalError(
+        'External authentication service is unavailable',
+        'EXTERNAL_DEPENDENCY_UNAVAILABLE',
+        { service: 'auth-service', lastAttempt: new Date().toISOString() },
+        { component: 'auth-client', service: 'auth-service', severity: 'critical', isTransient: true },
+        new Error('ECONNREFUSED')
+      );
+      error.stack = createStackTrace(
+        'ExternalError',
+        'External authentication service is unavailable',
+        '/src/clients/auth-client.js',
+        45,
+        12,
+        [
+          { func: 'verifyToken', file: '/src/clients/auth-client.js', line: 45, col: 12 },
+          { func: 'authenticate', file: '/src/middleware/auth-middleware.js', line: 28, col: 15 },
+          { func: 'handleRequest', file: '/src/server.js', line: 67, col: 20 }
+        ]
+      );
+      return error;
+    })(),
+    expectedSpanStatus: SpanStatusCode.ERROR,
+    expectedStatusMessage: 'External authentication service is unavailable',
+    expectedAttributes: {
+      'error.type': 'external',
+      'error.code': 'EXTERNAL_DEPENDENCY_UNAVAILABLE',
+      'error.message': 'External authentication service is unavailable',
+      'error.category': 'external_service_error',
+      'error.handled': false
+    },
+    isHandled: false
+  },
+  {
+    name: 'external_rate_limit_exceeded',
+    description: 'External rate limit exceeded',
+    error: (() => {
+      const error = new ExternalError(
+        'Rate limit exceeded for external API',
+        'EXTERNAL_RATE_LIMIT_EXCEEDED',
+        { service: 'weather-api', limit: 100, period: '1 minute', retryAfter: 30 },
+        { component: 'weather-client', service: 'weather-api', severity: 'warning', isTransient: true },
+        new Error('Too Many Requests')
+      );
+      error.stack = createStackTrace(
+        'ExternalError',
+        'Rate limit exceeded for external API',
+        '/src/clients/weather-api-client.js',
+        78,
+        23,
+        [
+          { func: 'getWeatherData', file: '/src/clients/weather-api-client.js', line: 78, col: 23 },
+          { func: 'fetchWeatherForecast', file: '/src/services/weather-service.js', line: 45, col: 18 },
+          { func: 'getWeatherForecast', file: '/src/controllers/weather-controller.js', line: 34, col: 10 }
+        ]
+      );
+      return error;
+    })(),
+    expectedSpanStatus: SpanStatusCode.ERROR,
+    expectedStatusMessage: 'Rate limit exceeded for external API',
+    expectedAttributes: {
+      'error.type': 'external',
+      'error.code': 'EXTERNAL_RATE_LIMIT_EXCEEDED',
+      'error.message': 'Rate limit exceeded for external API',
+      'error.category': 'external_service_error',
+      'error.handled': true
+    },
+    isHandled: true
+  }
+];
+
+/**
+ * Health journey error scenarios for testing health journey-specific error handling
+ */
+export const healthJourneyErrorScenarios: JourneyErrorScenario[] = [
+  {
+    name: 'health_device_connection_error',
+    description: 'Health device connection error',
+    journeyType: JourneyType.HEALTH,
+    journeyContext: {
+      userId: 'user-123',
+      deviceId: 'device-456',
+      deviceType: 'smartwatch',
+      operation: 'sync_data'
+    },
+    error: (() => {
+      const error = BaseError.journeyError(
+        'Failed to connect to health device',
+        ErrorType.TECHNICAL,
+        'HEALTH_DEVICE_CONNECTION_ERROR',
+        JourneyType.HEALTH,
+        {
+          component: 'device-connector',
+          operation: 'connect',
+          deviceId: 'device-456',
+          deviceType: 'smartwatch',
+          isTransient: true
+        },
+        { lastAttempt: new Date().toISOString(), attemptCount: 3 },
+        new Error('Device connection timeout')
+      );
+      error.stack = createStackTrace(
+        'BaseError',
+        'Failed to connect to health device',
+        '/src/health/device-connector.js',
+        87,
+        23,
+        [
+          { func: 'connectToDevice', file: '/src/health/device-connector.js', line: 87, col: 23 },
+          { func: 'syncDeviceData', file: '/src/health/device-service.js', line: 45, col: 18 },
+          { func: 'handleDeviceSync', file: '/src/health/device-controller.js', line: 34, col: 10 }
+        ]
+      );
+      return error;
+    })(),
+    expectedSpanStatus: SpanStatusCode.ERROR,
+    expectedStatusMessage: 'Failed to connect to health device',
+    expectedAttributes: {
+      'error.type': 'technical',
+      'error.code': 'HEALTH_DEVICE_CONNECTION_ERROR',
+      'error.message': 'Failed to connect to health device',
+      'error.category': 'external_service_error',
+      'error.handled': false,
+      'journey.type': 'health'
+    },
+    isHandled: false
+  },
+  {
+    name: 'health_metric_validation_error',
+    description: 'Health metric validation error',
+    journeyType: JourneyType.HEALTH,
+    journeyContext: {
+      userId: 'user-123',
+      metricType: 'heart_rate',
+      metricValue: 250,
+      operation: 'record_metric'
+    },
+    error: (() => {
+      const error = BaseError.journeyError(
+        'Heart rate value is outside of valid range',
+        ErrorType.VALIDATION,
+        'HEALTH_METRIC_VALIDATION_ERROR',
+        JourneyType.HEALTH,
+        {
+          component: 'metric-validator',
+          operation: 'validate',
+          metricType: 'heart_rate',
+          metricValue: 250
+        },
+        { validRange: { min: 30, max: 220 } }
+      );
+      error.stack = createStackTrace(
+        'BaseError',
+        'Heart rate value is outside of valid range',
+        '/src/health/metric-validator.js',
+        45,
+        12,
+        [
+          { func: 'validateMetric', file: '/src/health/metric-validator.js', line: 45, col: 12 },
+          { func: 'recordMetric', file: '/src/health/metric-service.js', line: 78, col: 23 },
+          { func: 'handleRecordMetric', file: '/src/health/metric-controller.js', line: 56, col: 18 }
+        ]
+      );
+      return error;
+    })(),
+    expectedSpanStatus: SpanStatusCode.ERROR,
+    expectedStatusMessage: 'Heart rate value is outside of valid range',
+    expectedAttributes: {
+      'error.type': 'validation',
+      'error.code': 'HEALTH_METRIC_VALIDATION_ERROR',
+      'error.message': 'Heart rate value is outside of valid range',
+      'error.category': 'validation_error',
+      'error.handled': true,
+      'journey.type': 'health',
+      'health.metric.type': 'heart_rate',
+      'health.metric.value': 250
+    },
+    isHandled: true
+  },
+  {
+    name: 'health_goal_not_found',
+    description: 'Health goal not found',
+    journeyType: JourneyType.HEALTH,
+    journeyContext: {
+      userId: 'user-123',
+      goalId: 'goal-789',
+      operation: 'update_goal'
+    },
+    error: (() => {
+      const error = BaseError.journeyError(
+        'Health goal not found',
+        ErrorType.NOT_FOUND,
+        'HEALTH_GOAL_NOT_FOUND',
+        JourneyType.HEALTH,
+        {
+          component: 'goal-service',
+          operation: 'find',
+          goalId: 'goal-789',
+          userId: 'user-123'
+        },
+        { searchCriteria: { id: 'goal-789', userId: 'user-123' } }
+      );
+      error.stack = createStackTrace(
+        'BaseError',
+        'Health goal not found',
+        '/src/health/goal-service.js',
+        112,
+        18,
+        [
+          { func: 'findGoalById', file: '/src/health/goal-service.js', line: 112, col: 18 },
+          { func: 'updateGoal', file: '/src/health/goal-service.js', line: 156, col: 23 },
+          { func: 'handleUpdateGoal', file: '/src/health/goal-controller.js', line: 78, col: 15 }
+        ]
+      );
+      return error;
+    })(),
+    expectedSpanStatus: SpanStatusCode.ERROR,
+    expectedStatusMessage: 'Health goal not found',
+    expectedAttributes: {
+      'error.type': 'not_found',
+      'error.code': 'HEALTH_GOAL_NOT_FOUND',
+      'error.message': 'Health goal not found',
+      'error.category': 'not_found',
+      'error.handled': true,
+      'journey.type': 'health',
+      'health.goal.id': 'goal-789'
+    },
+    isHandled: true
+  }
+];
+
+/**
+ * Care journey error scenarios for testing care journey-specific error handling
+ */
+export const careJourneyErrorScenarios: JourneyErrorScenario[] = [
+  {
+    name: 'care_appointment_scheduling_conflict',
+    description: 'Care appointment scheduling conflict',
+    journeyType: JourneyType.CARE,
+    journeyContext: {
+      userId: 'user-123',
+      providerId: 'provider-456',
+      appointmentTime: '2023-05-15T10:00:00Z',
+      operation: 'schedule_appointment'
+    },
+    error: (() => {
+      const error = BaseError.journeyError(
+        'Appointment time slot is already booked',
+        ErrorType.CONFLICT,
+        'CARE_APPOINTMENT_SCHEDULING_CONFLICT',
+        JourneyType.CARE,
+        {
+          component: 'appointment-service',
+          operation: 'schedule',
+          providerId: 'provider-456',
+          appointmentTime: '2023-05-15T10:00:00Z'
+        },
+        { conflictingAppointmentId: 'appointment-789' }
+      );
+      error.stack = createStackTrace(
+        'BaseError',
+        'Appointment time slot is already booked',
+        '/src/care/appointment-service.js',
+        87,
+        23,
+        [
+          { func: 'scheduleAppointment', file: '/src/care/appointment-service.js', line: 87, col: 23 },
+          { func: 'createAppointment', file: '/src/care/appointment-service.js', line: 112, col: 18 },
+          { func: 'handleCreateAppointment', file: '/src/care/appointment-controller.js', line: 56, col: 12 }
+        ]
+      );
+      return error;
+    })(),
+    expectedSpanStatus: SpanStatusCode.ERROR,
+    expectedStatusMessage: 'Appointment time slot is already booked',
+    expectedAttributes: {
+      'error.type': 'conflict',
+      'error.code': 'CARE_APPOINTMENT_SCHEDULING_CONFLICT',
+      'error.message': 'Appointment time slot is already booked',
+      'error.category': 'conflict',
+      'error.handled': true,
+      'journey.type': 'care',
+      'care.provider.id': 'provider-456'
+    },
+    isHandled: true
+  },
+  {
+    name: 'care_provider_not_available',
+    description: 'Care provider not available',
+    journeyType: JourneyType.CARE,
+    journeyContext: {
+      userId: 'user-123',
+      providerId: 'provider-456',
+      specialtyId: 'specialty-789',
+      operation: 'find_provider'
+    },
+    error: (() => {
+      const error = BaseError.journeyError(
+        'No providers available for the requested specialty',
+        ErrorType.BUSINESS,
+        'CARE_PROVIDER_NOT_AVAILABLE',
+        JourneyType.CARE,
+        {
+          component: 'provider-service',
+          operation: 'find',
+          specialtyId: 'specialty-789',
+          locationId: 'location-123'
+        },
+        { searchCriteria: { specialtyId: 'specialty-789', locationId: 'location-123' } }
+      );
+      error.stack = createStackTrace(
+        'BaseError',
+        'No providers available for the requested specialty',
+        '/src/care/provider-service.js',
+        45,
+        12,
+        [
+          { func: 'findProvidersBySpecialty', file: '/src/care/provider-service.js', line: 45, col: 12 },
+          { func: 'searchProviders', file: '/src/care/provider-service.js', line: 78, col: 23 },
+          { func: 'handleSearchProviders', file: '/src/care/provider-controller.js', line: 34, col: 10 }
+        ]
+      );
+      return error;
+    })(),
+    expectedSpanStatus: SpanStatusCode.ERROR,
+    expectedStatusMessage: 'No providers available for the requested specialty',
+    expectedAttributes: {
+      'error.type': 'business',
+      'error.code': 'CARE_PROVIDER_NOT_AVAILABLE',
+      'error.message': 'No providers available for the requested specialty',
+      'error.category': 'business_error',
+      'error.handled': true,
+      'journey.type': 'care',
+      'care.provider.specialty': 'specialty-789'
+    },
+    isHandled: true
+  },
+  {
+    name: 'care_telemedicine_connection_error',
+    description: 'Care telemedicine connection error',
+    journeyType: JourneyType.CARE,
+    journeyContext: {
+      userId: 'user-123',
+      appointmentId: 'appointment-456',
+      sessionId: 'session-789',
+      operation: 'join_telemedicine_session'
+    },
+    error: (() => {
+      const error = BaseError.journeyError(
+        'Failed to establish telemedicine connection',
+        ErrorType.TECHNICAL,
+        'CARE_TELEMEDICINE_CONNECTION_ERROR',
+        JourneyType.CARE,
+        {
+          component: 'telemedicine-service',
+          operation: 'connect',
+          sessionId: 'session-789',
+          isTransient: true
+        },
+        { lastAttempt: new Date().toISOString(), attemptCount: 2 },
+        new Error('WebRTC connection failed')
+      );
+      error.stack = createStackTrace(
+        'BaseError',
+        'Failed to establish telemedicine connection',
+        '/src/care/telemedicine-service.js',
+        112,
+        18,
+        [
+          { func: 'establishConnection', file: '/src/care/telemedicine-service.js', line: 112, col: 18 },
+          { func: 'joinSession', file: '/src/care/telemedicine-service.js', line: 156, col: 23 },
+          { func: 'handleJoinSession', file: '/src/care/telemedicine-controller.js', line: 78, col: 15 }
+        ]
+      );
+      return error;
+    })(),
+    expectedSpanStatus: SpanStatusCode.ERROR,
+    expectedStatusMessage: 'Failed to establish telemedicine connection',
+    expectedAttributes: {
+      'error.type': 'technical',
+      'error.code': 'CARE_TELEMEDICINE_CONNECTION_ERROR',
+      'error.message': 'Failed to establish telemedicine connection',
+      'error.category': 'network_error',
+      'error.handled': false,
+      'journey.type': 'care',
+      'care.telemedicine.session.id': 'session-789'
+    },
+    isHandled: false
+  }
+];
+
+/**
+ * Plan journey error scenarios for testing plan journey-specific error handling
+ */
+export const planJourneyErrorScenarios: JourneyErrorScenario[] = [
+  {
+    name: 'plan_claim_validation_error',
+    description: 'Plan claim validation error',
+    journeyType: JourneyType.PLAN,
+    journeyContext: {
+      userId: 'user-123',
+      planId: 'plan-456',
+      claimId: 'claim-789',
+      operation: 'submit_claim'
+    },
+    error: (() => {
+      const error = BaseError.journeyError(
+        'Missing required documentation for claim',
+        ErrorType.VALIDATION,
+        'PLAN_CLAIM_VALIDATION_ERROR',
+        JourneyType.PLAN,
+        {
+          component: 'claim-validator',
+          operation: 'validate',
+          claimId: 'claim-789',
+          planId: 'plan-456'
+        },
+        { missingDocuments: ['receipt', 'medical_report'] }
+      );
+      error.stack = createStackTrace(
+        'BaseError',
+        'Missing required documentation for claim',
+        '/src/plan/claim-validator.js',
+        87,
+        23,
+        [
+          { func: 'validateClaimDocuments', file: '/src/plan/claim-validator.js', line: 87, col: 23 },
+          { func: 'submitClaim', file: '/src/plan/claim-service.js', line: 112, col: 18 },
+          { func: 'handleSubmitClaim', file: '/src/plan/claim-controller.js', line: 56, col: 12 }
+        ]
+      );
+      return error;
+    })(),
+    expectedSpanStatus: SpanStatusCode.ERROR,
+    expectedStatusMessage: 'Missing required documentation for claim',
+    expectedAttributes: {
+      'error.type': 'validation',
+      'error.code': 'PLAN_CLAIM_VALIDATION_ERROR',
+      'error.message': 'Missing required documentation for claim',
+      'error.category': 'validation_error',
+      'error.handled': true,
+      'journey.type': 'plan',
+      'plan.claim.id': 'claim-789'
+    },
+    isHandled: true
+  },
+  {
+    name: 'plan_benefit_not_covered',
+    description: 'Plan benefit not covered',
+    journeyType: JourneyType.PLAN,
+    journeyContext: {
+      userId: 'user-123',
+      planId: 'plan-456',
+      benefitId: 'benefit-789',
+      operation: 'check_coverage'
+    },
+    error: (() => {
+      const error = BaseError.journeyError(
+        'Requested benefit is not covered by the plan',
+        ErrorType.BUSINESS,
+        'PLAN_BENEFIT_NOT_COVERED',
+        JourneyType.PLAN,
+        {
+          component: 'coverage-service',
+          operation: 'check',
+          benefitId: 'benefit-789',
+          planId: 'plan-456'
+        },
+        { benefitType: 'dental_orthodontics', planType: 'basic_health' }
+      );
+      error.stack = createStackTrace(
+        'BaseError',
+        'Requested benefit is not covered by the plan',
+        '/src/plan/coverage-service.js',
+        45,
+        12,
+        [
+          { func: 'checkBenefitCoverage', file: '/src/plan/coverage-service.js', line: 45, col: 12 },
+          { func: 'verifyBenefit', file: '/src/plan/benefit-service.js', line: 78, col: 23 },
+          { func: 'handleCheckCoverage', file: '/src/plan/benefit-controller.js', line: 34, col: 10 }
+        ]
+      );
+      return error;
+    })(),
+    expectedSpanStatus: SpanStatusCode.ERROR,
+    expectedStatusMessage: 'Requested benefit is not covered by the plan',
+    expectedAttributes: {
+      'error.type': 'business',
+      'error.code': 'PLAN_BENEFIT_NOT_COVERED',
+      'error.message': 'Requested benefit is not covered by the plan',
+      'error.category': 'business_error',
+      'error.handled': true,
+      'journey.type': 'plan',
+      'plan.benefit.id': 'benefit-789',
+      'plan.id': 'plan-456'
+    },
+    isHandled: true
+  },
+  {
+    name: 'plan_external_provider_error',
+    description: 'Plan external provider error',
+    journeyType: JourneyType.PLAN,
+    journeyContext: {
+      userId: 'user-123',
+      planId: 'plan-456',
+      providerId: 'provider-789',
+      operation: 'verify_provider'
+    },
+    error: (() => {
+      const error = BaseError.journeyError(
+        'Failed to verify provider with external system',
+        ErrorType.EXTERNAL,
+        'PLAN_EXTERNAL_PROVIDER_ERROR',
+        JourneyType.PLAN,
+        {
+          component: 'provider-verification-service',
+          operation: 'verify',
+          providerId: 'provider-789',
+          externalSystem: 'provider-directory-api',
+          isTransient: true
+        },
+        { lastAttempt: new Date().toISOString(), attemptCount: 3 },
+        new Error('External API returned status 503')
+      );
+      error.stack = createStackTrace(
+        'BaseError',
+        'Failed to verify provider with external system',
+        '/src/plan/provider-verification-service.js',
+        112,
+        18,
+        [
+          { func: 'verifyProvider', file: '/src/plan/provider-verification-service.js', line: 112, col: 18 },
+          { func: 'checkProviderNetwork', file: '/src/plan/network-service.js', line: 156, col: 23 },
+          { func: 'handleVerifyProvider', file: '/src/plan/provider-controller.js', line: 78, col: 15 }
+        ]
+      );
+      return error;
+    })(),
+    expectedSpanStatus: SpanStatusCode.ERROR,
+    expectedStatusMessage: 'Failed to verify provider with external system',
+    expectedAttributes: {
+      'error.type': 'external',
+      'error.code': 'PLAN_EXTERNAL_PROVIDER_ERROR',
+      'error.message': 'Failed to verify provider with external system',
+      'error.category': 'external_service_error',
+      'error.handled': false,
+      'journey.type': 'plan',
+      'plan.id': 'plan-456'
+    },
+    isHandled: false
+  }
+];
+
+/**
+ * Gamification error scenarios for testing gamification-specific error handling
+ */
+export const gamificationErrorScenarios: JourneyErrorScenario[] = [
+  {
+    name: 'gamification_event_processing_error',
+    description: 'Gamification event processing error',
+    journeyType: JourneyType.GAMIFICATION,
+    journeyContext: {
+      userId: 'user-123',
+      eventId: 'event-456',
+      eventType: 'achievement_progress',
+      operation: 'process_event'
+    },
+    error: (() => {
+      const error = BaseError.journeyError(
+        'Failed to process gamification event',
+        ErrorType.TECHNICAL,
+        'GAMIFICATION_EVENT_PROCESSING_ERROR',
+        JourneyType.GAMIFICATION,
+        {
+          component: 'event-processor',
+          operation: 'process',
+          eventId: 'event-456',
+          eventType: 'achievement_progress'
+        },
+        { processingStage: 'rule_evaluation', ruleId: 'rule-789' },
+        new Error('Invalid rule configuration')
+      );
+      error.stack = createStackTrace(
+        'BaseError',
+        'Failed to process gamification event',
+        '/src/gamification/event-processor.js',
+        87,
+        23,
+        [
+          { func: 'processEvent', file: '/src/gamification/event-processor.js', line: 87, col: 23 },
+          { func: 'handleEvent', file: '/src/gamification/event-service.js', line: 112, col: 18 },
+          { func: 'consumeEvent', file: '/src/gamification/event-consumer.js', line: 56, col: 12 }
+        ]
+      );
+      return error;
+    })(),
+    expectedSpanStatus: SpanStatusCode.ERROR,
+    expectedStatusMessage: 'Failed to process gamification event',
+    expectedAttributes: {
+      'error.type': 'technical',
+      'error.code': 'GAMIFICATION_EVENT_PROCESSING_ERROR',
+      'error.message': 'Failed to process gamification event',
+      'error.category': 'data_processing_error',
+      'error.handled': false,
+      'journey.type': 'gamification',
+      'gamification.event.id': 'event-456',
+      'gamification.event.type': 'achievement_progress'
+    },
+    isHandled: false
+  },
+  {
+    name: 'gamification_achievement_already_unlocked',
+    description: 'Gamification achievement already unlocked',
+    journeyType: JourneyType.GAMIFICATION,
+    journeyContext: {
+      userId: 'user-123',
+      achievementId: 'achievement-456',
+      operation: 'unlock_achievement'
+    },
+    error: (() => {
+      const error = BaseError.journeyError(
+        'Achievement already unlocked for user',
+        ErrorType.CONFLICT,
+        'GAMIFICATION_ACHIEVEMENT_ALREADY_UNLOCKED',
+        JourneyType.GAMIFICATION,
+        {
+          component: 'achievement-service',
+          operation: 'unlock',
+          achievementId: 'achievement-456',
+          userId: 'user-123'
+        },
+        { unlockedAt: '2023-04-15T10:30:00Z' }
+      );
+      error.stack = createStackTrace(
+        'BaseError',
+        'Achievement already unlocked for user',
+        '/src/gamification/achievement-service.js',
+        45,
+        12,
+        [
+          { func: 'unlockAchievement', file: '/src/gamification/achievement-service.js', line: 45, col: 12 },
+          { func: 'processAchievement', file: '/src/gamification/achievement-processor.js', line: 78, col: 23 },
+          { func: 'handleAchievementEvent', file: '/src/gamification/achievement-consumer.js', line: 34, col: 10 }
+        ]
+      );
+      return error;
+    })(),
+    expectedSpanStatus: SpanStatusCode.ERROR,
+    expectedStatusMessage: 'Achievement already unlocked for user',
+    expectedAttributes: {
+      'error.type': 'conflict',
+      'error.code': 'GAMIFICATION_ACHIEVEMENT_ALREADY_UNLOCKED',
+      'error.message': 'Achievement already unlocked for user',
+      'error.category': 'conflict',
+      'error.handled': true,
+      'journey.type': 'gamification',
+      'gamification.achievement.id': 'achievement-456'
+    },
+    isHandled: true
+  },
+  {
+    name: 'gamification_reward_insufficient_points',
+    description: 'Gamification reward insufficient points',
+    journeyType: JourneyType.GAMIFICATION,
+    journeyContext: {
+      userId: 'user-123',
+      rewardId: 'reward-456',
+      operation: 'claim_reward'
+    },
+    error: (() => {
+      const error = BaseError.journeyError(
+        'Insufficient points to claim reward',
+        ErrorType.BUSINESS,
+        'GAMIFICATION_REWARD_INSUFFICIENT_POINTS',
+        JourneyType.GAMIFICATION,
+        {
+          component: 'reward-service',
+          operation: 'claim',
+          rewardId: 'reward-456',
+          userId: 'user-123'
+        },
+        { requiredPoints: 500, userPoints: 350 }
+      );
+      error.stack = createStackTrace(
+        'BaseError',
+        'Insufficient points to claim reward',
+        '/src/gamification/reward-service.js',
+        112,
+        18,
+        [
+          { func: 'claimReward', file: '/src/gamification/reward-service.js', line: 112, col: 18 },
+          { func: 'processRewardClaim', file: '/src/gamification/reward-processor.js', line: 156, col: 23 },
+          { func: 'handleClaimReward', file: '/src/gamification/reward-controller.js', line: 78, col: 15 }
+        ]
+      );
+      return error;
+    })(),
+    expectedSpanStatus: SpanStatusCode.ERROR,
+    expectedStatusMessage: 'Insufficient points to claim reward',
+    expectedAttributes: {
+      'error.type': 'business',
+      'error.code': 'GAMIFICATION_REWARD_INSUFFICIENT_POINTS',
+      'error.message': 'Insufficient points to claim reward',
+      'error.category': 'business_error',
+      'error.handled': true,
+      'journey.type': 'gamification',
+      'gamification.reward.id': 'reward-456',
+      'gamification.points.earned': 350
+    },
+    isHandled: true
+  }
+];
+
+/**
+ * All error scenarios combined for easy access
+ */
+export const allErrorScenarios: ErrorScenario[] = [
+  ...basicErrorScenarios,
+  ...validationErrorScenarios,
+  ...businessErrorScenarios,
+  ...technicalErrorScenarios,
+  ...externalErrorScenarios,
+  ...healthJourneyErrorScenarios,
+  ...careJourneyErrorScenarios,
+  ...planJourneyErrorScenarios,
+  ...gamificationErrorScenarios
+];
+
+/**
+ * Get an error scenario by name
+ * @param name The name of the error scenario to retrieve
  * @returns The error scenario or undefined if not found
  */
-export function getErrorScenario(name: string): ErrorScenario | undefined {
-  return errorScenarios.find(scenario => scenario.name === name);
+export function getErrorScenarioByName(name: string): ErrorScenario | undefined {
+  return allErrorScenarios.find(scenario => scenario.name === name);
 }
 
 /**
- * Gets all error scenarios for a specific journey type
- * @param journeyType Type of journey to filter by
- * @returns Array of error scenarios for the specified journey type
+ * Get error scenarios by type
+ * @param type The error type to filter by
+ * @returns Array of error scenarios matching the type
  */
-export function getErrorScenariosByJourney(journeyType: 'health' | 'care' | 'plan'): ErrorScenario[] {
-  return errorScenarios.filter(
-    scenario => scenario.journeyContext?.journeyType === journeyType
-  );
-}
-
-/**
- * Gets all error scenarios by HTTP status code range
- * @param statusCodeRange Range of HTTP status codes to filter by (e.g., '4xx' or '5xx')
- * @returns Array of error scenarios matching the status code range
- */
-export function getErrorScenariosByStatusCode(statusCodeRange: '4xx' | '5xx'): ErrorScenario[] {
-  const minStatus = statusCodeRange === '4xx' ? 400 : 500;
-  const maxStatus = statusCodeRange === '4xx' ? 499 : 599;
-  
-  return errorScenarios.filter(scenario => {
-    const error = scenario.error as BaseError;
-    return error.statusCode >= minStatus && error.statusCode <= maxStatus;
+export function getErrorScenariosByType(type: ErrorType): ErrorScenario[] {
+  return allErrorScenarios.filter(scenario => {
+    if (scenario.error instanceof BaseError) {
+      return scenario.error.type === type;
+    }
+    return false;
   });
 }
 
 /**
- * Gets all retryable error scenarios
- * @returns Array of error scenarios that are retryable
+ * Get error scenarios by journey type
+ * @param journeyType The journey type to filter by
+ * @returns Array of journey error scenarios matching the journey type
  */
-export function getRetryableErrorScenarios(): ErrorScenario[] {
-  return errorScenarios.filter(scenario => {
-    const error = scenario.error as BaseError;
-    return error.retryable;
-  });
+export function getErrorScenariosByJourney(journeyType: JourneyType): JourneyErrorScenario[] {
+  return allErrorScenarios.filter(scenario => {
+    if ('journeyType' in scenario) {
+      return (scenario as JourneyErrorScenario).journeyType === journeyType;
+    }
+    return false;
+  }) as JourneyErrorScenario[];
 }
 
 /**
- * Gets all non-retryable error scenarios
- * @returns Array of error scenarios that are not retryable
+ * Get error scenarios by handling status
+ * @param isHandled Whether to get handled or unhandled errors
+ * @returns Array of error scenarios matching the handling status
  */
-export function getNonRetryableErrorScenarios(): ErrorScenario[] {
-  return errorScenarios.filter(scenario => {
-    const error = scenario.error as BaseError;
-    return !error.retryable;
-  });
+export function getErrorScenariosByHandlingStatus(isHandled: boolean): ErrorScenario[] {
+  return allErrorScenarios.filter(scenario => scenario.isHandled === isHandled);
 }
