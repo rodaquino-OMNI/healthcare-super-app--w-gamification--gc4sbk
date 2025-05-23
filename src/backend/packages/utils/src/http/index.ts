@@ -12,6 +12,21 @@ export { createInternalApiClient } from './internal';
 // Export from security module
 export { createSecureHttpClient } from './security';
 
+// Export from retry module
+export {
+  createRetryableAxios,
+  createRetryableInternalApiClient,
+  retryRequest,
+  calculateBackoffDelay,
+  isRetryableError,
+  DEFAULT_RETRY_POLICY,
+  AGGRESSIVE_RETRY_POLICY,
+  MINIMAL_RETRY_POLICY,
+  type RetryPolicy,
+  type RetryOptions,
+  type RetryableAxiosOptions
+} from './retry';
+
 // Export from response-helpers module
 export {
   parseErrorResponse,
