@@ -1,355 +1,314 @@
 /**
- * @file Journey Context Utilities for E2E Testing
+ * @file Journey Context Utilities
  * @description Provides utilities for creating and manipulating journey-specific contexts in tests.
- * These utilities make it easy to generate realistic journey contexts for testing that logs
- * correctly include journey context information.
+ * Includes functions to generate Health, Care, and Plan journey contexts with appropriate metadata
+ * and user information. Essential for testing that logs correctly include journey context information
+ * for proper filtering and analysis.
+ *
+ * @module @austa/logging/test/e2e/utils
  */
 
 import { v4 as uuidv4 } from 'uuid';
-import {
-  JourneyContext,
-  JourneyState,
-  JourneyType,
-  CrossJourneyContext,
-  LoggingContext
-} from '../../../src/context';
+import { JourneyContext, JourneyType, LogContext } from '../../../src/interfaces/log-entry.interface';
 
 /**
- * Default base context properties that are common across all logging contexts
+ * Options for creating a journey context
  */
-const DEFAULT_BASE_CONTEXT: Partial<LoggingContext> = {
-  correlationId: uuidv4(),
-  timestamp: new Date().toISOString(),
-  serviceName: 'test-service',
-  applicationName: 'austa-superapp',
-  environment: 'test',
-  version: '1.0.0',
-};
-
-/**
- * Creates a timestamp string in ISO format for a specified number of minutes ago
- * @param minutesAgo Number of minutes in the past
- * @returns ISO timestamp string
- */
-export function createTimestampMinutesAgo(minutesAgo: number): string {
-  const date = new Date();
-  date.setMinutes(date.getMinutes() - minutesAgo);
-  return date.toISOString();
+export interface JourneyContextOptions {
+  /**
+   * Optional resource ID to use (generates a UUID if not provided)
+   */
+  resourceId?: string;
+  
+  /**
+   * Optional action being performed in the journey
+   */
+  action?: string;
+  
+  /**
+   * Optional additional journey-specific data
+   */
+  data?: Record<string, any>;
 }
 
 /**
- * Creates a basic journey state object with default values
- * @param overrides Optional properties to override defaults
- * @returns JourneyState object
+ * Options for creating a log context with journey information
  */
-export function createJourneyState(overrides: Partial<JourneyState> = {}): JourneyState {
+export interface LogContextWithJourneyOptions extends JourneyContextOptions {
+  /**
+   * Optional user ID to include in the context
+   */
+  userId?: string;
+  
+  /**
+   * Optional request ID to include in the context
+   */
+  requestId?: string;
+  
+  /**
+   * Optional session ID to include in the context
+   */
+  sessionId?: string;
+  
+  /**
+   * Optional trace ID for distributed tracing
+   */
+  traceId?: string;
+  
+  /**
+   * Optional context name (e.g., class or method name)
+   */
+  context?: string;
+  
+  /**
+   * Optional client IP address
+   */
+  clientIp?: string;
+  
+  /**
+   * Optional user agent string
+   */
+  userAgent?: string;
+  
+  /**
+   * Optional additional context data
+   */
+  [key: string]: any;
+}
+
+/**
+ * Creates a Health journey context for testing
+ * 
+ * @param options Optional configuration for the journey context
+ * @returns A JourneyContext object for the Health journey
+ */
+export function createHealthJourneyContext(options: JourneyContextOptions = {}): JourneyContext {
   return {
-    journeySessionId: uuidv4(),
-    currentStep: 'dashboard',
-    previousStep: 'login',
-    stepDuration: 45000, // 45 seconds in milliseconds
-    ...overrides,
+    type: JourneyType.HEALTH,
+    resourceId: options.resourceId || uuidv4(),
+    action: options.action || 'view_health_metrics',
+    data: options.data || {
+      metricType: 'blood_pressure',
+      deviceId: `device_${uuidv4().substring(0, 8)}`,
+      timestamp: new Date().toISOString(),
+    },
   };
 }
 
 /**
- * Creates a cross-journey context for testing flows between journeys
- * @param sourceJourney The source journey type
- * @param targetJourney The target journey type
- * @param overrides Optional properties to override defaults
- * @returns CrossJourneyContext object
+ * Creates a Care journey context for testing
+ * 
+ * @param options Optional configuration for the journey context
+ * @returns A JourneyContext object for the Care journey
  */
-export function createCrossJourneyContext(
-  sourceJourney: JourneyType,
-  targetJourney: JourneyType,
-  overrides: Partial<CrossJourneyContext> = {}
-): CrossJourneyContext {
+export function createCareJourneyContext(options: JourneyContextOptions = {}): JourneyContext {
   return {
-    sourceJourney,
-    targetJourney,
-    flowId: uuidv4(),
-    startedAt: new Date().toISOString(),
-    metadata: {
-      reason: 'User initiated journey switch',
-      entryPoint: 'navigation_menu',
+    type: JourneyType.CARE,
+    resourceId: options.resourceId || uuidv4(),
+    action: options.action || 'schedule_appointment',
+    data: options.data || {
+      providerId: `provider_${uuidv4().substring(0, 8)}`,
+      specialtyId: `specialty_${uuidv4().substring(0, 8)}`,
+      appointmentDate: new Date(Date.now() + 86400000).toISOString(), // Tomorrow
     },
-    ...overrides,
   };
 }
 
 /**
- * Creates business transaction data for journey context
- * @param transactionType Type of business transaction
- * @param status Current status of the transaction
- * @param overrides Optional properties to override defaults
- * @returns Business transaction object
+ * Creates a Plan journey context for testing
+ * 
+ * @param options Optional configuration for the journey context
+ * @returns A JourneyContext object for the Plan journey
  */
-export function createBusinessTransaction(
-  transactionType: string,
-  status: string,
-  overrides: Partial<JourneyContext['businessTransaction']> = {}
-): NonNullable<JourneyContext['businessTransaction']> {
+export function createPlanJourneyContext(options: JourneyContextOptions = {}): JourneyContext {
   return {
-    transactionId: uuidv4(),
-    transactionType,
-    status,
-    startedAt: createTimestampMinutesAgo(5),
-    updatedAt: new Date().toISOString(),
-    metadata: {
-      originatedFrom: 'mobile_app',
-      priority: 'normal',
+    type: JourneyType.PLAN,
+    resourceId: options.resourceId || uuidv4(),
+    action: options.action || 'submit_claim',
+    data: options.data || {
+      claimType: 'medical',
+      amount: Math.floor(Math.random() * 1000) + 100,
+      policyId: `policy_${uuidv4().substring(0, 8)}`,
+      documentIds: [uuidv4(), uuidv4()],
     },
-    ...overrides,
   };
 }
 
 /**
- * Creates user interaction data for journey context
- * @param interactionType Type of user interaction
- * @param interactionTarget Target of the interaction
- * @param overrides Optional properties to override defaults
- * @returns User interaction object
+ * Creates a log context with Health journey information for testing
+ * 
+ * @param options Optional configuration for the log context
+ * @returns A LogContext object with Health journey information
  */
-export function createUserInteraction(
-  interactionType: string,
-  interactionTarget: string,
-  overrides: Partial<JourneyContext['userInteraction']> = {}
-): NonNullable<JourneyContext['userInteraction']> {
+export function createHealthLogContext(options: LogContextWithJourneyOptions = {}): LogContext {
   return {
-    interactionType,
-    interactionTarget,
-    interactionResult: 'success',
-    interactionDuration: 350, // 350 milliseconds
-    ...overrides,
+    context: options.context || 'HealthMetricsService',
+    requestId: options.requestId || uuidv4(),
+    userId: options.userId || `user_${uuidv4().substring(0, 8)}`,
+    sessionId: options.sessionId || uuidv4(),
+    traceId: options.traceId || uuidv4(),
+    clientIp: options.clientIp || '192.168.1.1',
+    userAgent: options.userAgent || 'Mozilla/5.0 (iPhone; CPU iPhone OS 14_7_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148',
+    journey: createHealthJourneyContext(options),
+    ...Object.fromEntries(Object.entries(options).filter(([key]) => 
+      !['context', 'requestId', 'userId', 'sessionId', 'traceId', 'clientIp', 'userAgent', 'resourceId', 'action', 'data'].includes(key)
+    )),
   };
 }
 
 /**
- * Creates journey performance metrics for testing
- * @param overrides Optional properties to override defaults
- * @returns Journey performance object
+ * Creates a log context with Care journey information for testing
+ * 
+ * @param options Optional configuration for the log context
+ * @returns A LogContext object with Care journey information
  */
-export function createJourneyPerformance(
-  overrides: Partial<NonNullable<JourneyContext['journeyPerformance']>> = {}
-): NonNullable<JourneyContext['journeyPerformance']> {
+export function createCareLogContext(options: LogContextWithJourneyOptions = {}): LogContext {
   return {
-    timeToInteractive: 1200, // 1.2 seconds
-    actionDuration: 350, // 350 milliseconds
-    apiCallCount: 3,
-    renderTime: 250, // 250 milliseconds
-    networkLatency: 120, // 120 milliseconds
-    ...overrides,
+    context: options.context || 'AppointmentService',
+    requestId: options.requestId || uuidv4(),
+    userId: options.userId || `user_${uuidv4().substring(0, 8)}`,
+    sessionId: options.sessionId || uuidv4(),
+    traceId: options.traceId || uuidv4(),
+    clientIp: options.clientIp || '192.168.1.2',
+    userAgent: options.userAgent || 'Mozilla/5.0 (Linux; Android 11; SM-G998B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.120 Mobile Safari/537.36',
+    journey: createCareJourneyContext(options),
+    ...Object.fromEntries(Object.entries(options).filter(([key]) => 
+      !['context', 'requestId', 'userId', 'sessionId', 'traceId', 'clientIp', 'userAgent', 'resourceId', 'action', 'data'].includes(key)
+    )),
   };
 }
 
 /**
- * Creates a complete Health journey context for testing
- * @param userId Optional user ID
- * @param overrides Optional properties to override defaults
- * @returns JourneyContext for Health journey
+ * Creates a log context with Plan journey information for testing
+ * 
+ * @param options Optional configuration for the log context
+ * @returns A LogContext object with Plan journey information
  */
-export function createHealthJourneyContext(
-  userId?: string,
-  overrides: Partial<JourneyContext> = {}
-): JourneyContext {
+export function createPlanLogContext(options: LogContextWithJourneyOptions = {}): LogContext {
   return {
-    ...DEFAULT_BASE_CONTEXT,
-    journeyType: JourneyType.HEALTH,
-    userId,
-    journeyState: createJourneyState({
-      currentStep: 'health_dashboard',
-      previousStep: 'health_metrics',
-    }),
-    journeyFeatureFlags: {
-      enableWearableSync: true,
-      showHealthInsights: true,
-      enableGoalTracking: true,
-    },
-    journeyPerformance: createJourneyPerformance({
-      healthMetricsLoadTime: 450, // 450 milliseconds
-    }),
-    businessTransaction: createBusinessTransaction('health_metric_update', 'completed'),
-    userInteraction: createUserInteraction('view', 'health_dashboard'),
-    ...overrides,
-  } as JourneyContext;
+    context: options.context || 'ClaimsService',
+    requestId: options.requestId || uuidv4(),
+    userId: options.userId || `user_${uuidv4().substring(0, 8)}`,
+    sessionId: options.sessionId || uuidv4(),
+    traceId: options.traceId || uuidv4(),
+    clientIp: options.clientIp || '192.168.1.3',
+    userAgent: options.userAgent || 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+    journey: createPlanJourneyContext(options),
+    ...Object.fromEntries(Object.entries(options).filter(([key]) => 
+      !['context', 'requestId', 'userId', 'sessionId', 'traceId', 'clientIp', 'userAgent', 'resourceId', 'action', 'data'].includes(key)
+    )),
+  };
 }
 
 /**
- * Creates a complete Care journey context for testing
- * @param userId Optional user ID
- * @param overrides Optional properties to override defaults
- * @returns JourneyContext for Care journey
+ * Creates a consistent set of journey contexts for all three journeys with the same user information
+ * Useful for testing cross-journey scenarios
+ * 
+ * @param baseOptions Base options to apply to all contexts
+ * @returns An object containing contexts for all three journeys
  */
-export function createCareJourneyContext(
-  userId?: string,
-  overrides: Partial<JourneyContext> = {}
-): JourneyContext {
+export function createAllJourneyContexts(baseOptions: Partial<LogContextWithJourneyOptions> = {}): {
+  health: LogContext;
+  care: LogContext;
+  plan: LogContext;
+} {
+  const userId = baseOptions.userId || `user_${uuidv4().substring(0, 8)}`;
+  const sessionId = baseOptions.sessionId || uuidv4();
+  const traceId = baseOptions.traceId || uuidv4();
+  
   return {
-    ...DEFAULT_BASE_CONTEXT,
-    journeyType: JourneyType.CARE,
-    userId,
-    journeyState: createJourneyState({
-      currentStep: 'appointment_booking',
-      previousStep: 'provider_search',
-    }),
-    journeyFeatureFlags: {
-      enableTelemedicine: true,
-      showProviderRatings: true,
-      enableInstantBooking: false,
-    },
-    journeyPerformance: createJourneyPerformance({
-      providerSearchTime: 650, // 650 milliseconds
-    }),
-    businessTransaction: createBusinessTransaction('appointment_booking', 'in_progress'),
-    userInteraction: createUserInteraction('form_submit', 'appointment_form'),
-    ...overrides,
-  } as JourneyContext;
+    health: createHealthLogContext({ ...baseOptions, userId, sessionId, traceId }),
+    care: createCareLogContext({ ...baseOptions, userId, sessionId, traceId }),
+    plan: createPlanLogContext({ ...baseOptions, userId, sessionId, traceId }),
+  };
 }
 
 /**
- * Creates a complete Plan journey context for testing
- * @param userId Optional user ID
- * @param overrides Optional properties to override defaults
- * @returns JourneyContext for Plan journey
+ * Verifies that a log entry contains the expected journey context
+ * 
+ * @param logEntry The log entry to verify
+ * @param expectedJourneyType The expected journey type
+ * @param expectedResourceId Optional expected resource ID
+ * @returns True if the log entry contains the expected journey context, false otherwise
  */
-export function createPlanJourneyContext(
-  userId?: string,
-  overrides: Partial<JourneyContext> = {}
-): JourneyContext {
-  return {
-    ...DEFAULT_BASE_CONTEXT,
-    journeyType: JourneyType.PLAN,
-    userId,
-    journeyState: createJourneyState({
-      currentStep: 'claim_submission',
-      previousStep: 'coverage_details',
-    }),
-    journeyFeatureFlags: {
-      enableDigitalCards: true,
-      showCoverageComparison: true,
-      enableClaimTracking: true,
-    },
-    journeyPerformance: createJourneyPerformance({
-      coverageCheckTime: 550, // 550 milliseconds
-    }),
-    businessTransaction: createBusinessTransaction('claim_submission', 'submitted'),
-    userInteraction: createUserInteraction('upload', 'claim_documents'),
-    ...overrides,
-  } as JourneyContext;
+export function verifyJourneyContext(
+  logEntry: any,
+  expectedJourneyType: JourneyType,
+  expectedResourceId?: string
+): boolean {
+  if (!logEntry || !logEntry.journey || logEntry.journey.type !== expectedJourneyType) {
+    return false;
+  }
+  
+  if (expectedResourceId && logEntry.journey.resourceId !== expectedResourceId) {
+    return false;
+  }
+  
+  return true;
 }
 
 /**
- * Creates a cross-journey context that spans multiple journeys
- * @param sourceJourney The source journey type
- * @param targetJourney The target journey type
- * @param userId Optional user ID
- * @param overrides Optional properties to override defaults
- * @returns JourneyContext with cross-journey information
+ * Extracts all log entries for a specific journey type from an array of log entries
+ * 
+ * @param logEntries Array of log entries to filter
+ * @param journeyType The journey type to filter by
+ * @returns Array of log entries for the specified journey type
  */
-export function createCrossJourneyFlowContext(
-  sourceJourney: JourneyType,
-  targetJourney: JourneyType,
-  userId?: string,
-  overrides: Partial<JourneyContext> = {}
-): JourneyContext {
-  return {
-    ...DEFAULT_BASE_CONTEXT,
-    journeyType: sourceJourney,
-    userId,
-    journeyState: createJourneyState({
-      currentStep: 'transition',
-    }),
-    crossJourneyContext: createCrossJourneyContext(sourceJourney, targetJourney),
-    journeyFeatureFlags: {
-      enableCrossJourneyNavigation: true,
-      preserveJourneyState: true,
-    },
-    businessTransaction: createBusinessTransaction('cross_journey_navigation', 'in_progress'),
-    userInteraction: createUserInteraction('navigation', 'journey_switcher'),
-    ...overrides,
-  } as JourneyContext;
-}
-
-/**
- * Verifies that a journey context contains all required properties
- * @param context The journey context to verify
- * @returns Boolean indicating if the context is valid
- */
-export function isValidJourneyContext(context: JourneyContext): boolean {
-  return (
-    !!context &&
-    !!context.journeyType &&
-    !!context.correlationId &&
-    !!context.timestamp &&
-    !!context.serviceName &&
-    !!context.applicationName &&
-    !!context.environment &&
-    !!context.version
+export function filterLogsByJourney(logEntries: any[], journeyType: JourneyType): any[] {
+  return logEntries.filter(entry => 
+    entry && entry.journey && entry.journey.type === journeyType
   );
 }
 
 /**
- * Verifies that a journey context contains journey-specific properties for the given journey type
- * @param context The journey context to verify
- * @param journeyType The expected journey type
- * @returns Boolean indicating if the context has the expected journey-specific properties
+ * Extracts all log entries for a specific resource ID from an array of log entries
+ * 
+ * @param logEntries Array of log entries to filter
+ * @param resourceId The resource ID to filter by
+ * @returns Array of log entries for the specified resource ID
  */
-export function hasJourneySpecificProperties(
-  context: JourneyContext,
-  journeyType: JourneyType
-): boolean {
-  if (!isValidJourneyContext(context) || context.journeyType !== journeyType) {
-    return false;
-  }
-
-  // Check for journey-specific feature flags based on journey type
-  switch (journeyType) {
-    case JourneyType.HEALTH:
-      return (
-        !!context.journeyFeatureFlags?.enableWearableSync !== undefined &&
-        !!context.journeyFeatureFlags?.showHealthInsights !== undefined
-      );
-    case JourneyType.CARE:
-      return (
-        !!context.journeyFeatureFlags?.enableTelemedicine !== undefined &&
-        !!context.journeyFeatureFlags?.showProviderRatings !== undefined
-      );
-    case JourneyType.PLAN:
-      return (
-        !!context.journeyFeatureFlags?.enableDigitalCards !== undefined &&
-        !!context.journeyFeatureFlags?.showCoverageComparison !== undefined
-      );
-    default:
-      return false;
-  }
+export function filterLogsByResourceId(logEntries: any[], resourceId: string): any[] {
+  return logEntries.filter(entry => 
+    entry && entry.journey && entry.journey.resourceId === resourceId
+  );
 }
 
 /**
- * Creates a journey context with randomized data for testing
- * @param journeyType Optional journey type (random if not specified)
- * @param userId Optional user ID
- * @returns JourneyContext with randomized data
+ * Extracts all log entries for a specific user ID from an array of log entries
+ * 
+ * @param logEntries Array of log entries to filter
+ * @param userId The user ID to filter by
+ * @returns Array of log entries for the specified user ID
  */
-export function createRandomJourneyContext(
-  journeyType?: JourneyType,
-  userId?: string
-): JourneyContext {
-  // If no journey type specified, pick one randomly
-  const type = journeyType || [
-    JourneyType.HEALTH,
-    JourneyType.CARE,
-    JourneyType.PLAN
-  ][Math.floor(Math.random() * 3)];
-  
-  // Create journey context based on the selected type
-  switch (type) {
-    case JourneyType.HEALTH:
-      return createHealthJourneyContext(userId);
-    case JourneyType.CARE:
-      return createCareJourneyContext(userId);
-    case JourneyType.PLAN:
-      return createPlanJourneyContext(userId);
-    default:
-      return createHealthJourneyContext(userId);
-  }
+export function filterLogsByUserId(logEntries: any[], userId: string): any[] {
+  return logEntries.filter(entry => entry && entry.userId === userId);
+}
+
+/**
+ * Extracts all log entries for a specific trace ID from an array of log entries
+ * Useful for following a request across multiple services
+ * 
+ * @param logEntries Array of log entries to filter
+ * @param traceId The trace ID to filter by
+ * @returns Array of log entries for the specified trace ID
+ */
+export function filterLogsByTraceId(logEntries: any[], traceId: string): any[] {
+  return logEntries.filter(entry => entry && entry.traceId === traceId);
+}
+
+/**
+ * Creates a mock log entry with journey context for testing
+ * 
+ * @param message The log message
+ * @param level The log level
+ * @param context The log context with journey information
+ * @returns A mock log entry
+ */
+export function createMockLogEntry(message: string, level: string, context: LogContext): any {
+  return {
+    message,
+    level,
+    timestamp: new Date(),
+    ...context,
+  };
 }
