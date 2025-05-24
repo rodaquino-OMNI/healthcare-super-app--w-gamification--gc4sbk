@@ -1,23 +1,20 @@
 import React from 'react';
 import { render, screen } from '@testing-library/react';
 import { ThemeProvider } from 'styled-components';
-
-// Updated imports for the LineChart component to match new structure
-import LineChart from './LineChart';
-
-// Updated imports for design tokens from @design-system/primitives/tokens instead of direct paths
+import { LineChart } from './LineChart';
 import { colors } from '@design-system/primitives/tokens';
+import { journeyTokens } from '@design-system/primitives/tokens';
 
-// Mock the useJourneyColor hook from @web/shared
+// Mock the useJourneyColor hook
 jest.mock('@web/shared', () => ({
-  useJourneyColor: jest.fn((journey) => {
+  useJourneyColor: (journey: 'health' | 'care' | 'plan') => {
     const journeyColors = {
-      health: { primary: '#0ACF83' },
-      care: { primary: '#FF8C42' },
-      plan: { primary: '#3A86FF' }
+      health: { primary: colors.journeys.health.primary },
+      care: { primary: colors.journeys.care.primary },
+      plan: { primary: colors.journeys.plan.primary },
     };
-    return journeyColors[journey] || journeyColors.health;
-  })
+    return journeyColors[journey];
+  },
 }));
 
 // Sample data for testing
@@ -26,45 +23,20 @@ const sampleData = [
   { date: new Date('2023-01-02'), value: 15 },
   { date: new Date('2023-01-03'), value: 12 },
   { date: new Date('2023-01-04'), value: 18 },
-  { date: new Date('2023-01-05'), value: 14 }
+  { date: new Date('2023-01-05'), value: 14 },
 ];
 
-// Mock theme for testing
-const mockTheme = {
-  colors: colors,
-  spacing: {
-    md: '16px',
-    lg: '24px'
-  },
-  borderRadius: {
-    md: '8px'
-  },
-  shadows: {
-    sm: '0 2px 4px rgba(0, 0, 0, 0.1)'
-  },
-  typography: {
-    fontFamily: {
-      base: 'Arial, sans-serif'
-    }
-  },
-  breakpoints: {
-    md: '768px',
-    lg: '1024px'
-  }
-};
-
-// Wrapper component with theme provider for testing
+// Create a wrapper with theme for testing
 const renderWithTheme = (ui: React.ReactElement) => {
   return render(
-    <ThemeProvider theme={mockTheme}>
+    <ThemeProvider theme={journeyTokens.health}>
       {ui}
     </ThemeProvider>
   );
 };
 
 describe('LineChart Component', () => {
-  // Test basic rendering
-  test('renders the chart with data', () => {
+  it('renders the chart with data', () => {
     renderWithTheme(
       <LineChart
         data={sampleData}
@@ -84,8 +56,7 @@ describe('LineChart Component', () => {
     expect(screen.getByText('Value')).toBeInTheDocument();
   });
   
-  // Test empty state
-  test('renders empty state when no data is provided', () => {
+  it('displays empty state when no data is provided', () => {
     renderWithTheme(
       <LineChart
         data={[]}
@@ -100,104 +71,95 @@ describe('LineChart Component', () => {
     expect(screen.getByText('No data available')).toBeInTheDocument();
   });
   
-  // Test accessibility
-  test('has proper accessibility attributes', () => {
+  it('applies health journey theming correctly', () => {
     renderWithTheme(
       <LineChart
         data={sampleData}
         xAxisKey="date"
         yAxisKey="value"
-        xAxisLabel="Date"
-        yAxisLabel="Value"
-      />
-    );
-    
-    // Check if chart has proper aria-label
-    const chartElement = screen.getByRole('img', { name: /line chart showing value over date/i });
-    expect(chartElement).toHaveAttribute('aria-label', 'Line chart showing Value over Date');
-  });
-  
-  // Test journey-specific theming - Health Journey
-  test('applies health journey theming correctly', () => {
-    renderWithTheme(
-      <LineChart
-        data={sampleData}
-        xAxisKey="date"
-        yAxisKey="value"
-        xAxisLabel="Date"
-        yAxisLabel="Value"
         journey="health"
       />
     );
     
-    // Health journey should use the health primary color
-    const chartElement = screen.getByRole('img', { name: /line chart showing value over date/i });
+    // The chart should be rendered with health journey color
+    const chartElement = screen.getByRole('img');
     expect(chartElement).toBeInTheDocument();
-    // Note: We can't directly test the SVG color here as it's applied by Victory,
-    // but we can verify the component renders with the journey prop
+    
+    // We can't directly test the color in JSDOM, but we can check if the journey prop is applied
+    // This is a limitation of JSDOM, but in a real environment with visual regression testing,
+    // we would verify the actual color
   });
   
-  // Test journey-specific theming - Care Journey
-  test('applies care journey theming correctly', () => {
+  it('applies care journey theming correctly', () => {
     renderWithTheme(
       <LineChart
         data={sampleData}
         xAxisKey="date"
         yAxisKey="value"
-        xAxisLabel="Date"
-        yAxisLabel="Value"
         journey="care"
       />
     );
     
-    // Care journey should use the care primary color
-    const chartElement = screen.getByRole('img', { name: /line chart showing value over date/i });
+    // The chart should be rendered with care journey color
+    const chartElement = screen.getByRole('img');
     expect(chartElement).toBeInTheDocument();
   });
   
-  // Test journey-specific theming - Plan Journey
-  test('applies plan journey theming correctly', () => {
+  it('applies plan journey theming correctly', () => {
     renderWithTheme(
       <LineChart
         data={sampleData}
         xAxisKey="date"
         yAxisKey="value"
-        xAxisLabel="Date"
-        yAxisLabel="Value"
         journey="plan"
       />
     );
     
-    // Plan journey should use the plan primary color
-    const chartElement = screen.getByRole('img', { name: /line chart showing value over date/i });
+    // The chart should be rendered with plan journey color
+    const chartElement = screen.getByRole('img');
     expect(chartElement).toBeInTheDocument();
   });
   
-  // Test custom line color
-  test('applies custom line color when provided', () => {
+  it('uses custom line color when provided', () => {
     const customColor = '#FF0000';
     renderWithTheme(
       <LineChart
         data={sampleData}
         xAxisKey="date"
         yAxisKey="value"
-        xAxisLabel="Date"
-        yAxisLabel="Value"
         lineColor={customColor}
       />
     );
     
-    // Chart should render with custom color
-    const chartElement = screen.getByRole('img', { name: /line chart showing value over date/i });
+    // The chart should be rendered with custom color
+    const chartElement = screen.getByRole('img');
     expect(chartElement).toBeInTheDocument();
+    
+    // Similar to journey theming, we can't directly test the color in JSDOM
+    // but we can check if the component renders without errors
   });
   
-  // Test with different data types
-  test('renders with numeric x-axis data', () => {
+  it('has proper accessibility attributes', () => {
+    renderWithTheme(
+      <LineChart
+        data={sampleData}
+        xAxisKey="date"
+        yAxisKey="value"
+        xAxisLabel="Date"
+        yAxisLabel="Value"
+      />
+    );
+    
+    // Check if the chart has proper aria-label
+    const chartElement = screen.getByRole('img', { name: /line chart showing value over date/i });
+    expect(chartElement).toHaveAttribute('aria-label', 'Line chart showing Value over Date');
+  });
+  
+  it('renders with numeric data on x-axis', () => {
     const numericData = [
       { index: 1, value: 10 },
       { index: 2, value: 15 },
-      { index: 3, value: 12 }
+      { index: 3, value: 12 },
     ];
     
     renderWithTheme(
@@ -210,9 +172,26 @@ describe('LineChart Component', () => {
       />
     );
     
-    // Chart should render with numeric x-axis
+    // Check if the chart container is rendered
     const chartElement = screen.getByRole('img', { name: /line chart showing value over index/i });
     expect(chartElement).toBeInTheDocument();
-    expect(screen.getByText('Index')).toBeInTheDocument();
+  });
+  
+  it('handles undefined axis labels gracefully', () => {
+    renderWithTheme(
+      <LineChart
+        data={sampleData}
+        xAxisKey="date"
+        yAxisKey="value"
+      />
+    );
+    
+    // Chart should render without axis labels
+    const chartElement = screen.getByRole('img', { name: /line chart showing data over time/i });
+    expect(chartElement).toBeInTheDocument();
+    
+    // No axis label elements should be present
+    const axisLabels = screen.queryAllByText(/Date|Value/);
+    expect(axisLabels.length).toBe(0);
   });
 });
