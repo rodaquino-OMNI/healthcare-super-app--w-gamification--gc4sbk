@@ -1,33 +1,41 @@
 /**
- * Default configurations and fallback values for journey state management
- * in the AUSTA SuperApp. These defaults ensure consistent behavior across
- * platforms when no explicit journey is selected or when initializing new
- * user sessions.
+ * Default configurations and fallback values for journey state management in the AUSTA SuperApp.
+ * This file provides standardized defaults to ensure consistent behavior across platforms
+ * when no explicit journey is selected or when initializing new user sessions.
  */
 
-/**
- * Default journey ID to use when no journey is explicitly selected
- * This ensures a consistent starting point across platforms
- */
-export const DEFAULT_JOURNEY_ID = 'HEALTH';
+import { JourneyId, JOURNEY_IDS, JourneyConfig, Journey } from '../types/journey.types';
+import { ALL_JOURNEYS, JOURNEY_DISPLAY_ORDER } from './journeys';
 
 /**
- * Fallback journey ID to use if the selected journey is invalid
- * This provides a safety mechanism to prevent UI errors
+ * Default journey ID to use when none is explicitly selected
+ * This ensures a consistent fallback journey across all platforms
  */
-export const FALLBACK_JOURNEY_ID = 'HEALTH';
+export const DEFAULT_JOURNEY_ID: JourneyId = JOURNEY_IDS.HEALTH;
 
 /**
- * Preferred order for displaying journeys in navigation and selection UI
- * This standardizes the presentation across platforms
+ * Default journey object to use when none is explicitly selected
+ * Provides the complete journey data for the default journey
  */
-export const JOURNEY_DISPLAY_ORDER = ['HEALTH', 'CARE', 'PLAN'];
+export const DEFAULT_JOURNEY: Journey = ALL_JOURNEYS.find(
+  (journey) => journey.id === DEFAULT_JOURNEY_ID
+) || ALL_JOURNEYS[0];
 
 /**
- * Default initialization parameters for journey context providers
- * These ensure consistent behavior when creating new journey contexts
+ * Default journey configuration for initializing journey context providers
+ * Contains all necessary parameters for proper journey state management
  */
-export const JOURNEY_PROVIDER_DEFAULTS = {
+export const DEFAULT_JOURNEY_CONFIG: JourneyConfig = {
+  availableJourneys: ALL_JOURNEYS,
+  defaultJourney: DEFAULT_JOURNEY_ID,
+  displayOrder: JOURNEY_DISPLAY_ORDER,
+};
+
+/**
+ * Default journey provider initialization options
+ * Used when creating new journey context providers
+ */
+export const DEFAULT_PROVIDER_OPTIONS = {
   /**
    * Whether to persist journey selection in storage
    */
@@ -41,50 +49,57 @@ export const JOURNEY_PROVIDER_DEFAULTS = {
   /**
    * Whether to restore the last selected journey on initialization
    */
-  restoreLastSelected: true,
+  restoreLastJourney: true,
   
   /**
-   * Whether to validate journey IDs against available journeys
+   * Whether to validate journey selection against available journeys
    */
-  validateJourneyId: true,
+  validateJourney: true,
 };
 
 /**
- * Default journey theme mapping
- * Maps journey IDs to their corresponding theme names
+ * Default journey transition options
+ * Controls how transitions between journeys are handled
  */
-export const DEFAULT_JOURNEY_THEMES = {
-  HEALTH: 'healthTheme',
-  CARE: 'careTheme',
-  PLAN: 'planTheme',
+export const DEFAULT_TRANSITION_OPTIONS = {
+  /**
+   * Whether to animate journey transitions
+   */
+  animate: true,
+  
+  /**
+   * Duration of journey transition animations in milliseconds
+   */
+  animationDuration: 300,
+  
+  /**
+   * Whether to preserve journey state during transitions
+   */
+  preserveState: true,
 };
 
 /**
- * Default journey icon mapping
- * Maps journey IDs to their corresponding icon names
+ * Fallback values for edge cases in journey state management
+ * Used when encountering unexpected or invalid states
  */
-export const DEFAULT_JOURNEY_ICONS = {
-  HEALTH: 'health',
-  CARE: 'care',
-  PLAN: 'plan',
-};
-
-/**
- * Default journey display names
- * Provides human-readable names for each journey
- */
-export const DEFAULT_JOURNEY_NAMES = {
-  HEALTH: 'Minha Saúde',
-  CARE: 'Cuidar-me Agora',
-  PLAN: 'Meu Plano & Benefícios',
-};
-
-/**
- * Default journey route mapping
- * Maps journey IDs to their corresponding root routes
- */
-export const DEFAULT_JOURNEY_ROUTES = {
-  HEALTH: '/health',
-  CARE: '/care',
-  PLAN: '/plan',
+export const FALLBACK_VALUES = {
+  /**
+   * Fallback journey ID when an invalid journey is selected
+   */
+  journeyId: DEFAULT_JOURNEY_ID,
+  
+  /**
+   * Fallback journey object when an invalid journey is selected
+   */
+  journey: DEFAULT_JOURNEY,
+  
+  /**
+   * Fallback journey display name when journey data is unavailable
+   */
+  journeyName: DEFAULT_JOURNEY.name,
+  
+  /**
+   * Fallback journey color when theme data is unavailable
+   */
+  journeyColor: DEFAULT_JOURNEY.color,
 };
