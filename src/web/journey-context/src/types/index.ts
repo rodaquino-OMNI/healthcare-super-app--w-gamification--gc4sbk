@@ -3,24 +3,22 @@
  * 
  * This file centralizes exports of all journey-related type definitions through a barrel pattern,
  * making types from journey.types.ts, context.types.ts, and platform.types.ts available through
- * a single import path. This simplifies importing of journey context types throughout the application,
- * reducing import complexity and ensuring consistency.
+ * a single import path. This streamlines importing of journey context types throughout the
+ * application, reducing import complexity and ensuring consistency.
  */
 
 /**
  * Journey Types
- * Core type definitions for journeys, including identifiers, constants, and interfaces
+ * Core type definitions for journey-related data structures
  */
-export type {
+export type { 
   JourneyId,
+  JourneyTheme,
   Journey,
-  JourneyConfig,
+  JourneyConfig
 } from './journey.types';
 
-export {
-  JOURNEY_IDS,
-  DEFAULT_JOURNEY,
-} from './journey.types';
+export { JOURNEY_IDS } from './journey.types';
 
 /**
  * Context Types
@@ -31,17 +29,17 @@ export type {
   BaseJourneyContextType,
   WebJourneyContextType,
   MobileJourneyContextType,
-  JourneyContextType,
+  JourneyContextType
 } from './context.types';
 
 /**
  * Platform Types
- * Type definitions for platform-specific adaptations
+ * Platform-specific type adaptations for journey context
  */
 export type {
   Platform,
   PlatformContextMap,
   PlatformJourneyContextType,
   PlatformJourneyStateMap,
-  PlatformJourneyState,
+  PlatformJourneyState
 } from './platform.types';
