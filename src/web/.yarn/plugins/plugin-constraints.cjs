@@ -2,180 +2,196 @@
  * @file plugin-constraints.cjs
  * @description Yarn plugin that enforces workspace-wide constraints on dependencies,
  * ensuring consistent versioning, preventing duplicates, and validating dependency
- * integrity across the AUSTA SuperApp monorepo.
+ * integrity across the monorepo.
  */
 
 // @ts-check
 
-/** @type {import('@yarnpkg/types')} */
-const { defineConfig } = require('@yarnpkg/types');
-
 /**
- * Core libraries with specific version requirements
- * These are libraries that have known version conflicts in the monorepo
- * and need to be standardized across all workspaces
+ * @typedef {import('@yarnpkg/core').Plugin} Plugin
+ * @typedef {import('@yarnpkg/core').Workspace} Workspace
+ * @typedef {import('@yarnpkg/core').Descriptor} Descriptor
+ * @typedef {import('@yarnpkg/core').Ident} Ident
+ * @typedef {import('@yarnpkg/core').Project} Project
+ * @typedef {import('@yarnpkg/core').Manifest} Manifest
+ * @typedef {import('@yarnpkg/core').MessageName} MessageName
+ * @typedef {import('@yarnpkg/core').Configuration} Configuration
  */
-const CORE_DEPENDENCIES = {
-  // React ecosystem
-  'react': '18.2.0',
-  'react-dom': '18.2.0',
-  'react-native': '0.73.4',
-  
-  // Core libraries with version conflicts mentioned in the spec
-  'minimatch': '9.0.3',
-  'semver': '7.5.4',
-  'ws': '8.16.0',
-  
-  // Framework versions from the spec
-  'next': '14.2.0',
-  '@nestjs/core': '10.3.0',
-  '@nestjs/common': '10.3.0',
-  'typescript': '5.3.3',
-  
-  // UI libraries from the spec
-  'styled-components': '6.1.8',
-  '@mui/material': '5.15.12',
-  'framer-motion': '11.0.8',
-  
-  // State management from the spec
-  '@tanstack/react-query': '5.25.0',
-  '@apollo/client': '3.8.10',
-  '@reduxjs/toolkit': '2.1.0',
-};
 
-/**
- * Journey-specific packages that must be consistent across the monorepo
- */
-const JOURNEY_PACKAGES = [
-  '@austa/design-system',
-  '@design-system/primitives',
-  '@austa/interfaces',
-  '@austa/journey-context'
-];
-
-/**
- * Enforces consistent dependency versions across all workspaces
- * @param {object} context - The Yarn constraints context
- * @param {string} dependencyIdent - The dependency identifier
- * @param {string} version - The version to enforce
- */
-function enforcePackageVersion(context, dependencyIdent, version) {
-  for (const dependency of context.Yarn.dependencies({ ident: dependencyIdent })) {
-    if (dependency.type === 'peerDependencies') continue;
-    dependency.update(version);
-  }
-}
-
-/**
- * Enforces that all workspaces use the same version of a dependency
- * @param {object} context - The Yarn constraints context
- */
-function enforceConsistentDependencyVersions(context) {
-  // For each dependency in the project
-  for (const dependency of context.Yarn.dependencies()) {
-    // Skip peer dependencies as they often have broader version ranges
-    if (dependency.type === 'peerDependencies') continue;
-    
-    // For each other instance of the same dependency
-    for (const otherDependency of context.Yarn.dependencies({ ident: dependency.ident })) {
-      if (otherDependency.type === 'peerDependencies') continue;
-      
-      // Update to use the same version
-      dependency.update(otherDependency.range);
-    }
-  }
-}
-
-/**
- * Enforces that journey-specific packages are used consistently
- * @param {object} context - The Yarn constraints context
- */
-function enforceJourneyPackages(context) {
-  for (const packageName of JOURNEY_PACKAGES) {
-    // Check if the package exists in any workspace
-    const dependencies = Array.from(context.Yarn.dependencies({ ident: packageName }));
-    
-    if (dependencies.length > 0) {
-      // Get the highest version used
-      let highestVersion = dependencies[0].range;
-      
-      for (const dep of dependencies) {
-        if (dep.type === 'peerDependencies') continue;
+/** @type {Plugin} */
+const plugin = {
+  hooks: {
+    // This hook is called when the constraints command is run
+    // It allows us to define our own constraints
+    constraints: async (project, constraints) => {
+      // Define core dependencies that must have specific versions
+      const CORE_DEPENDENCIES = {
+        // Backend
+        'nestjs': '10.3.0',
+        'express': '4.18.2',
+        'graphql': '16.9.0',
+        'socket.io': '4.7.4',
         
-        // Simple version comparison - in a real implementation, you'd use semver
-        if (dep.range > highestVersion) {
-          highestVersion = dep.range;
+        // Frontend Web
+        'next': '14.2.0',
+        'react': '18.2.0',
+        'react-dom': '18.2.0',
+        
+        // Frontend Mobile
+        'react-native': '0.73.4',
+        
+        // UI & Design
+        'styled-components': '6.1.8',
+        '@mui/material': '5.15.12',
+        'framer-motion': '11.0.8',
+        '@design-system/primitives': '1.0.0',
+        '@austa/design-system': '1.0.0',
+        
+        // State Management & Data Fetching
+        '@reduxjs/toolkit': '2.1.0',
+        '@tanstack/react-query': '5.25.0',
+        '@apollo/client': '3.8.10',
+        '@austa/journey-context': '1.0.0',
+        
+        // Forms & Validation
+        'react-hook-form': '7.51.0',
+        'yup': '1.3.3',
+        'zod': '3.22.4',
+        'joi': '17.12.2',
+        
+        // Utilities & Tools
+        'i18next': '23.8.2',
+        'date-fns': '3.3.1',
+        '@austa/interfaces': '1.0.0',
+        
+        // Development Tools
+        'typescript': '5.3.3',
+        'eslint': '8.57.0',
+        'prettier': '3.2.5',
+        
+        // Testing Framework
+        'jest': '29.7.0',
+      };
+      
+      // Define problematic dependencies that need specific version resolutions
+      const RESOLUTION_DEPENDENCIES = {
+        'minimatch': '9.0.3',
+        'semver': '7.5.4',
+        'ws': '8.16.0',
+      };
+
+      /**
+       * Enforce consistent dependency versions across all workspaces
+       */
+      for (const workspace of project.workspaces) {
+        // Enforce core dependencies to have the specified versions
+        for (const [name, version] of Object.entries(CORE_DEPENDENCIES)) {
+          for (const dependencyType of ['dependencies', 'devDependencies', 'peerDependencies']) {
+            const dependency = workspace.manifest.getForScope(dependencyType).get(name);
+            if (dependency) {
+              constraints.set(workspace.anchoredLocator.locatorHash, dependencyType, name, version, {
+                userProvided: true,
+              });
+            }
+          }
+        }
+
+        // Enforce resolution dependencies to have the specified versions
+        for (const [name, version] of Object.entries(RESOLUTION_DEPENDENCIES)) {
+          constraints.set(workspace.anchoredLocator.locatorHash, 'resolutions', name, version, {
+            userProvided: true,
+          });
         }
       }
-      
-      // Enforce the highest version across all workspaces
-      for (const dep of dependencies) {
-        if (dep.type === 'peerDependencies') continue;
-        dep.update(highestVersion);
+
+      /**
+       * Enforce consistent dependency versions across workspaces
+       * This ensures that if multiple workspaces use the same dependency,
+       * they all use the same version
+       */
+      const allDependencies = new Map();
+
+      // First pass: collect all dependencies and their versions
+      for (const workspace of project.workspaces) {
+        for (const dependencyType of ['dependencies', 'devDependencies']) {
+          for (const [name, descriptor] of workspace.manifest.getForScope(dependencyType).entries()) {
+            // Skip core dependencies as they are already enforced
+            if (CORE_DEPENDENCIES[name]) continue;
+            
+            // Skip resolution dependencies as they are already enforced
+            if (RESOLUTION_DEPENDENCIES[name]) continue;
+
+            if (!allDependencies.has(name)) {
+              allDependencies.set(name, { version: descriptor.range, workspaces: new Set() });
+            }
+            
+            allDependencies.get(name).workspaces.add(workspace.anchoredLocator.locatorHash);
+          }
+        }
       }
-    }
-  }
-}
 
-/**
- * Prevents duplicate packages with different versions
- * @param {object} context - The Yarn constraints context
- */
-function preventDuplicatePackages(context) {
-  // Get all workspaces
-  const workspaces = Array.from(context.Yarn.workspaces());
-  
-  // Track packages that have been seen
-  const seenPackages = new Map();
-  
-  for (const workspace of workspaces) {
-    const name = workspace.manifest.name;
-    
-    // Skip if no name (shouldn't happen in a well-formed workspace)
-    if (!name) continue;
-    
-    // Check if this package name has been seen before
-    if (seenPackages.has(name)) {
-      const existingWorkspace = seenPackages.get(name);
-      workspace.error(
-        `Duplicate package name: ${name} is used by both ${workspace.cwd} and ${existingWorkspace.cwd}`
-      );
-    } else {
-      seenPackages.set(name, workspace);
-    }
-  }
-}
+      // Second pass: enforce consistent versions
+      for (const [name, { version, workspaces }] of allDependencies.entries()) {
+        // Only enforce if the dependency is used in multiple workspaces
+        if (workspaces.size > 1) {
+          for (const workspaceHash of workspaces) {
+            const workspace = project.workspacesByLocator.get(workspaceHash);
+            if (!workspace) continue;
 
-/**
- * Enforces Node.js engine compatibility across all workspaces
- * @param {object} context - The Yarn constraints context
- */
-function enforceNodeEngineCompatibility(context) {
-  for (const workspace of context.Yarn.workspaces()) {
-    workspace.set('engines.node', '>=18.0.0');
-  }
-}
+            for (const dependencyType of ['dependencies', 'devDependencies']) {
+              const dependency = workspace.manifest.getForScope(dependencyType).get(name);
+              if (dependency) {
+                constraints.set(workspaceHash, dependencyType, name, version, {
+                  userProvided: true,
+                });
+              }
+            }
+          }
+        }
+      }
 
-/**
- * Main constraints configuration
- */
-module.exports = defineConfig({
-  async constraints(context) {
-    // Enforce specific versions for core dependencies
-    for (const [dependencyIdent, version] of Object.entries(CORE_DEPENDENCIES)) {
-      enforcePackageVersion(context, dependencyIdent, version);
-    }
-    
-    // Enforce consistent dependency versions across workspaces
-    enforceConsistentDependencyVersions(context);
-    
-    // Enforce journey-specific packages
-    enforceJourneyPackages(context);
-    
-    // Prevent duplicate packages
-    preventDuplicatePackages(context);
-    
-    // Enforce Node.js engine compatibility
-    enforceNodeEngineCompatibility(context);
-  }
-});
+      /**
+       * Enforce proper workspace references
+       * This ensures that workspace references use the correct protocol
+       */
+      for (const workspace of project.workspaces) {
+        for (const dependencyType of ['dependencies', 'devDependencies']) {
+          for (const [name, descriptor] of workspace.manifest.getForScope(dependencyType).entries()) {
+            // Check if this is a workspace reference
+            if (descriptor.range.startsWith('workspace:')) {
+              // Ensure it's a valid workspace reference
+              const targetWorkspace = project.tryWorkspaceByIdent({ scope: descriptor.scope, name });
+              if (!targetWorkspace) {
+                constraints.reportError(
+                  workspace.anchoredLocator.locatorHash,
+                  `${dependencyType}.${name}`,
+                  `References non-existent workspace`
+                );
+              }
+            }
+          }
+        }
+      }
+
+      /**
+       * Enforce proper package naming conventions
+       * This ensures that package names follow the organization's conventions
+       */
+      for (const workspace of project.workspaces) {
+        const name = workspace.manifest.name;
+        if (!name) continue;
+
+        // Enforce that internal packages follow the @austa/ or @design-system/ naming convention
+        if (name.scope && !['austa', 'design-system'].includes(name.scope)) {
+          constraints.reportError(
+            workspace.anchoredLocator.locatorHash,
+            'name',
+            `Package scope must be @austa/ or @design-system/`
+          );
+        }
+      }
+    },
+  },
+};
+
+module.exports = plugin;
