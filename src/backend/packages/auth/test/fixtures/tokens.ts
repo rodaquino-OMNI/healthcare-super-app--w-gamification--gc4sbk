@@ -1,262 +1,270 @@
 /**
  * Test fixtures for JWT tokens with various states (valid, expired, malformed)
- * for testing authentication and authorization functionality.
- * 
- * These fixtures are used across test suites to validate token handling,
- * guard behavior, and error scenarios.
+ * for testing token validation, guard behavior, and error handling.
  */
-
 import * as jwt from 'jsonwebtoken';
 
 /**
  * Test signing keys for different environments
  */
 export const TEST_JWT_KEYS = {
-  // Secret key for HMAC algorithms (HS256)
-  secret: 'test-jwt-secret-key-for-unit-testing-purposes-only',
-  // RSA keys for asymmetric algorithms (RS256)
-  privateKey: `-----BEGIN RSA PRIVATE KEY-----
-MIIEowIBAAKCAQEAwaZ3afW0/zYy3HfJwAAr83PDdZvADuSJ8v8+LIAsnT3OHZ1e
-QoMeJuV6QxR1EgCi9K5Xg2ZYjQXMPRMYw1MEE0xwgmOlx0AoAkpx5H3s78xQJW2d
-eDPxMBKLe1vKFaD8wfQBLYR5v4v/HcJxrXnWbYCpAZJIlhh3weK+w+5yCp9NoDQs
-CxIrfA7GdKqTUPDHfxemXQwDRWGUju9JvJVomzOiNiQKuOXx7K23mKvq6IDZpJQM
-JCVVnYqwQEZYUWlc/al3/kCOWLMXvQQPAGz8NeFn8hWYL5GeyUJ+Mh9JxEo7CT8h
-fBrxzTXZvCXNrirNUcM3G7Bq6TvnTHGiYVQI2QIDAQABAoIBAEV+41xmK/egPYxz
-JgFVnJKJKBNwOCwHiHeq+jNtAWVQiGqTVLnJjUHDWFhdYIQtfGYC0hb9duvVYlKh
-+iJsLQUwNHjYKXUrqQCKMKxVV+Z0QcpMiDHJCdLHL7BDVw1H4DxSjHGgX+ZC6zQP
-TkxZvQH/nBnZ5KBKhXJQ4Ei6Jv8tMjvSv/JU4xS73xfBFRFKsqm9MmJ9z0M0jlck
-WMUWRmrFGl+VAE1hJh3ZLwSRkHpBYJQzHNtGWpAITjEd4yRdQXLBn2ocPpZel8PD
-DiGYt2fYQgenfGiKxQJVG6R/HWY0mQRlCJyuBcHSZEVAoLEVeNPTuKEU5rHovf6M
-OWIAHAECgYEA/CXkCRbADcPGjhqQb+mycYBmQL4EQgmklWhIeUdFN2SXzmRGBg4+
-AXCpXtLKK5VLYBnKRIUVCZMRdN+JWGGHPpQbLGGj4DmQvR77JbZl5x0+jRoLzH5h
-ELpeVxo/ruD+Jh+fmGMSvXX3cQhHvPMsJI6fOqWwZeWMqCkLCiJinuECgYEAxMtB
-1w8+/xpAQOlg0TUz+TJ3Rh1t93tMh9F7EtN8Y4YQTv4DTtC0wF3fYFYklZJkXSj7
-fulgn01kgnOXCiGydGcLv5wrkwAP0qDmO1siLvR7HtZU5TQeX5oMQAsY4mYxwIV/
-A3+syfOv8jLMUjOJ3PPV9zPWENiRJMjKVginJJkCgYBIJSaWQwvf3RxGYHDzbS9V
-Gy0bl+XgOYwL/dHhLvg59mZ6fallITj8kFDviPBjK9fxQ+Xq7/xgqodqMEMFw+AV
-DGR8iyxOQNi9gn4sZLweJUYE3tqHczR6VDIYda8UmsvUo3PrWKPw+pkJKboL0GqJ
-GH+deICVNhQYRyJKIjXAAQKBgQCN87YGJ40Y3YEfQnBJh7qQ9rOXGcLjMnQqAGe4
-UZGMzCH5H+8p0apvEPCgptWaCKl9IxCG9nzSyMhaMO9/0QnALqcXGnEJlUKfVLwP
-EyuRDXY3kGkLECXN7vtiXHCj1LD5kwOZIgQGlWlCj7nHJitVZ0F8I59/JrzFHQng
-BYA+2QKBgHKvy7zyHqL01UHXtSQQvZ0DRuXqcJwBfKG4vQHOGJUjrJGVrALIUNZA
-O+frGsM4ZTLLYoLAyBCGdL/iQKFK8BQ+Qf5XoPuUjQnGXKL8tK/g5HVjv0R2Ht57
-Tq6Vhm6Jsh5uZq9IRERSxamxQwPGYUK7Hqh6QJHLrYRXlC91HJqi
------END RSA PRIVATE KEY-----`,
-  publicKey: `-----BEGIN PUBLIC KEY-----
-MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAwaZ3afW0/zYy3HfJwAAr
-83PDdZvADuSJ8v8+LIAsnT3OHZ1eQoMeJuV6QxR1EgCi9K5Xg2ZYjQXMPRMYw1ME
-E0xwgmOlx0AoAkpx5H3s78xQJW2deDPxMBKLe1vKFaD8wfQBLYR5v4v/HcJxrXnW
-bYCpAZJIlhh3weK+w+5yCp9NoDQsCxIrfA7GdKqTUPDHfxemXQwDRWGUju9JvJVo
-mzOiNiQKuOXx7K23mKvq6IDZpJQMJCVVnYqwQEZYUWlc/al3/kCOWLMXvQQPAGz8
-NeFn8hWYL5GeyUJ+Mh9JxEo7CT8hfBrxzTXZvCXNrirNUcM3G7Bq6TvnTHGiYVQI
-2QIDAQAB
------END PUBLIC KEY-----`
+  /** Secret key for signing tokens in test environment */
+  SECRET: 'test-jwt-secret-key-for-unit-testing-purposes-only',
+  /** Public key for asymmetric signing (if needed) */
+  PUBLIC_KEY: '-----BEGIN PUBLIC KEY-----\nMIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQCqGKukO1De7zhZj6+H0qtjTkVxwTCpvKe4eCZ0\nFPqri0cb2JZfXJ/DgYSF6vUpwmJG8wVQZKjeGcjDOL5UlsuusFncCzWBQ7RKNUSesmQRMSGkVb1/\n3j+skZ6UtW+5u09lHNsj6tQ51s1SPrCBkedbNf0Tp0GbMJDyR4e9T04ZZwIDAQAB\n-----END PUBLIC KEY-----',
+  /** Private key for asymmetric signing (if needed) */
+  PRIVATE_KEY: '-----BEGIN PRIVATE KEY-----\nMIICdgIBADANBgkqhkiG9w0BAQEFAASCAmAwggJcAgEAAoGBAKoYq6Q7UN7vOFmPr4fSq2NORXHBMKm8p7h4JnQU+quLRxvYll9cn8OBhIXq9SnCYkbzBVBkqN4ZyMM4vlSWy66wWdwLNYFDtEo1RJ6yZBExIaRVvX/eP6yRnpS1b7m7T2Uc2yPq1DnWzVI+sIGR51s1/ROnQZswkPJHh71PThlnAgMBAAECgYBYWVtleUzavkbrPjy0T5FMou8HX9u2AC2ry8vD/l7cqedtwMPp9k7TubgNFo+NGvKsl2ynyprOZR1xjQ7WgrgVB+mmuScOM/5HVceFuGRDhYTCObE+y1kxRloNYXnx3ei1zbeYLPCHdhxRYW7T0qcynNmwrn05/KO2RLjgQNalsQJBANeA3Q4Nugqy4QBUCEC09SqylT2K9FrrItqL2QKc9v0ZzO2uwllCbg0dwpVuYPYXYvikNHHg+aCWF+VXsb9rpPsCQQDKm8ZGE0rcR2nvRuppIXqiAEQ7YA4OQgNcA2xvAjJZKjXWuFgXx7prPN+1VO2y6xI1uiMKelKw/aPHh5g7d+NdAkEAoggv2WBJxIYbOurJmVhP2gffoiomyEYYIDcAp6KXLdffKOkuJulLIv0GzTiwEMWZ5MWbPOHN78Gg+naU/AM5aQJAZ5SsZyCP7SiAb3+9Yf5vKiHZVNUbIHZrPSzXq8KXiRNEQKyTW6wfzwFcnYYcETW5Zm+a1vKnNBZ4W4snYVVYIQJAVPjrZX+5gIGwXPcbLfqF55l9MciKvmVMFLa0cBDq4Uqq2a7WBvqZOF+t7/Yqu/l55/JfHXgr+iqoXuQwlq7Xtg==\n-----END PRIVATE KEY-----',
+  /** Audience value for test tokens */
+  AUDIENCE: 'test-audience',
+  /** Issuer value for test tokens */
+  ISSUER: 'test-issuer',
 };
 
 /**
- * Standard JWT configuration for tests
+ * Standard token payload interface matching the auth service
  */
-export const TEST_JWT_CONFIG = {
-  issuer: 'austa-auth-service',
-  audience: 'austa-api',
-  expiresIn: '1h',
-  algorithm: 'HS256' as jwt.Algorithm
-};
+export interface TokenPayload {
+  /** User ID (subject) */
+  sub: string;
+  /** User name (optional) */
+  name?: string;
+  /** User email (optional) */
+  email?: string;
+  /** User roles (optional) */
+  roles?: string[];
+  /** Token issued at timestamp */
+  iat?: number;
+  /** Token expiration timestamp */
+  exp?: number;
+  /** Token audience */
+  aud?: string;
+  /** Token issuer */
+  iss?: string;
+  /** Token not valid before timestamp */
+  nbf?: number;
+  /** Token ID */
+  jti?: string;
+  /** Custom claims (optional) */
+  [key: string]: any;
+}
 
 /**
- * Standard user payload for test tokens
- */
-export const TEST_USER_PAYLOAD = {
-  sub: 'user-123',
-  email: 'test@example.com',
-  name: 'Test User',
-  roles: ['user'],
-  journeys: ['health', 'care', 'plan']
-};
-
-/**
- * Admin user payload for test tokens with elevated permissions
- */
-export const TEST_ADMIN_PAYLOAD = {
-  sub: 'admin-456',
-  email: 'admin@example.com',
-  name: 'Admin User',
-  roles: ['admin', 'user'],
-  journeys: ['health', 'care', 'plan', 'admin']
-};
-
-/**
- * Generates a JWT token with the specified payload and options
+ * Helper function to generate a token with specific properties
  * 
- * @param payload - The token payload
+ * @param payload - Token payload
+ * @param secret - Secret key for signing
  * @param options - JWT sign options
- * @returns The signed JWT token
+ * @returns Signed JWT token
  */
 export function generateToken(
-  payload: Record<string, any> = TEST_USER_PAYLOAD,
+  payload: Partial<TokenPayload>,
+  secret: string = TEST_JWT_KEYS.SECRET,
   options: jwt.SignOptions = {}
 ): string {
-  const signOptions: jwt.SignOptions = {
-    algorithm: TEST_JWT_CONFIG.algorithm,
-    issuer: TEST_JWT_CONFIG.issuer,
-    audience: TEST_JWT_CONFIG.audience,
-    expiresIn: TEST_JWT_CONFIG.expiresIn,
-    ...options
+  const defaultPayload: Partial<TokenPayload> = {
+    sub: '12345',
+    name: 'Test User',
+    iat: Math.floor(Date.now() / 1000),
+    exp: Math.floor(Date.now() / 1000) + 3600, // 1 hour from now
+    aud: TEST_JWT_KEYS.AUDIENCE,
+    iss: TEST_JWT_KEYS.ISSUER,
   };
 
-  return jwt.sign(payload, TEST_JWT_KEYS.secret, signOptions);
+  const finalPayload = { ...defaultPayload, ...payload };
+  return jwt.sign(finalPayload, secret, options);
 }
 
 /**
- * Generates an RS256 signed JWT token
+ * Helper function to generate an expired token
  * 
- * @param payload - The token payload
- * @param options - JWT sign options
- * @returns The signed JWT token using RSA
- */
-export function generateRSAToken(
-  payload: Record<string, any> = TEST_USER_PAYLOAD,
-  options: jwt.SignOptions = {}
-): string {
-  const signOptions: jwt.SignOptions = {
-    algorithm: 'RS256',
-    issuer: TEST_JWT_CONFIG.issuer,
-    audience: TEST_JWT_CONFIG.audience,
-    expiresIn: TEST_JWT_CONFIG.expiresIn,
-    ...options
-  };
-
-  return jwt.sign(payload, TEST_JWT_KEYS.privateKey, signOptions);
-}
-
-/**
- * Generates a token that will expire in the specified number of seconds
- * 
- * @param seconds - Seconds until expiration
- * @param payload - The token payload
- * @returns JWT token that will expire in the specified time
- */
-export function generateExpiringToken(
-  seconds: number,
-  payload: Record<string, any> = TEST_USER_PAYLOAD
-): string {
-  return generateToken(payload, { expiresIn: `${seconds}s` });
-}
-
-/**
- * Generates a token that has already expired
- * 
- * @param payload - The token payload
- * @returns An expired JWT token
+ * @param payload - Token payload
+ * @param expiresInSeconds - Seconds in the past for expiration
+ * @returns Expired JWT token
  */
 export function generateExpiredToken(
-  payload: Record<string, any> = TEST_USER_PAYLOAD
+  payload: Partial<TokenPayload> = {},
+  expiresInSeconds: number = 3600 // 1 hour ago by default
 ): string {
-  // Set expiration to 1 second ago
   const now = Math.floor(Date.now() / 1000);
-  const expiredPayload = { ...payload, exp: now - 1 };
-  
-  return generateToken(expiredPayload, { expiresIn: undefined });
+  return generateToken({
+    ...payload,
+    iat: now - expiresInSeconds - 10, // Issued before expiration
+    exp: now - 10, // Expired 10 seconds ago
+  });
 }
 
 /**
- * Generates a token with an invalid signature
+ * Helper function to generate a token with future validity
  * 
- * @param payload - The token payload
- * @returns A JWT token with an invalid signature
+ * @param payload - Token payload
+ * @param validInSeconds - Seconds in the future when token becomes valid
+ * @returns JWT token valid in the future
  */
-export function generateInvalidSignatureToken(
-  payload: Record<string, any> = TEST_USER_PAYLOAD
+export function generateFutureToken(
+  payload: Partial<TokenPayload> = {},
+  validInSeconds: number = 3600 // Valid 1 hour from now
 ): string {
-  const token = generateToken(payload);
-  const parts = token.split('.');
+  const now = Math.floor(Date.now() / 1000);
+  return generateToken({
+    ...payload,
+    iat: now,
+    nbf: now + validInSeconds, // Not valid before future time
+    exp: now + validInSeconds + 3600, // Expires 1 hour after becoming valid
+  });
+}
+
+/**
+ * Helper function to generate a malformed token
+ * 
+ * @param type - Type of malformation
+ * @returns Malformed JWT token
+ */
+export function generateMalformedToken(type: 'header' | 'payload' | 'signature' = 'signature'): string {
+  const validToken = generateToken({ sub: '12345' });
+  const [header, payload, signature] = validToken.split('.');
   
-  // Modify the signature part to make it invalid
-  // Keep the header and payload intact
-  if (parts.length === 3) {
-    const invalidSignature = parts[2].split('').reverse().join('');
-    return `${parts[0]}.${parts[1]}.${invalidSignature}`;
+  switch (type) {
+    case 'header':
+      return `invalid${header}.${payload}.${signature}`;
+    case 'payload':
+      return `${header}.invalid${payload}.${signature}`;
+    case 'signature':
+      return `${header}.${payload}.invalidsignature`;
+    default:
+      return validToken;
   }
-  
-  return token;
-}
-
-/**
- * Generates a malformed token that doesn't follow JWT structure
- * 
- * @returns A malformed token string
- */
-export function generateMalformedToken(): string {
-  return 'not-a-valid-jwt-token';
-}
-
-/**
- * Generates a token with missing required claims
- * 
- * @returns A JWT token missing required claims
- */
-export function generateTokenWithMissingClaims(): string {
-  // Create a payload without subject (sub) claim
-  const { sub, ...payloadWithoutSub } = TEST_USER_PAYLOAD;
-  return generateToken(payloadWithoutSub);
-}
-
-/**
- * Generates a token with an incorrect issuer
- * 
- * @returns A JWT token with incorrect issuer
- */
-export function generateTokenWithIncorrectIssuer(): string {
-  return generateToken(TEST_USER_PAYLOAD, { issuer: 'wrong-issuer' });
-}
-
-/**
- * Generates a token with an incorrect audience
- * 
- * @returns A JWT token with incorrect audience
- */
-export function generateTokenWithIncorrectAudience(): string {
-  return generateToken(TEST_USER_PAYLOAD, { audience: 'wrong-audience' });
 }
 
 /**
  * Pre-generated tokens for common test cases
  */
 export const TEST_TOKENS = {
-  // Valid tokens
-  valid: generateToken(),
-  validAdmin: generateToken(TEST_ADMIN_PAYLOAD),
-  validRS256: generateRSAToken(),
-  validShortLived: generateExpiringToken(30), // Expires in 30 seconds
-  validLongLived: generateToken(TEST_USER_PAYLOAD, { expiresIn: '30d' }), // Expires in 30 days
+  /** Valid token with default claims */
+  VALID: generateToken({
+    sub: '12345',
+    name: 'Test User',
+    email: 'test@example.com',
+  }),
   
-  // Invalid tokens
-  expired: generateExpiredToken(),
-  invalidSignature: generateInvalidSignatureToken(),
-  malformed: generateMalformedToken(),
-  missingClaims: generateTokenWithMissingClaims(),
-  wrongIssuer: generateTokenWithIncorrectIssuer(),
-  wrongAudience: generateTokenWithIncorrectAudience(),
+  /** Valid token with admin role */
+  ADMIN: generateToken({
+    sub: '12345',
+    name: 'Admin User',
+    email: 'admin@example.com',
+    roles: ['admin'],
+  }),
+  
+  /** Valid token with user role */
+  USER: generateToken({
+    sub: '67890',
+    name: 'Regular User',
+    email: 'user@example.com',
+    roles: ['user'],
+  }),
+  
+  /** Token that expires in 5 minutes */
+  SHORT_LIVED: generateToken({
+    sub: '12345',
+    exp: Math.floor(Date.now() / 1000) + 300, // 5 minutes
+  }),
+  
+  /** Token that expires in 30 days */
+  LONG_LIVED: generateToken({
+    sub: '12345',
+    exp: Math.floor(Date.now() / 1000) + 2592000, // 30 days
+  }),
+  
+  /** Expired token */
+  EXPIRED: generateExpiredToken(),
+  
+  /** Token not valid yet */
+  FUTURE: generateFutureToken(),
+  
+  /** Token with invalid signature */
+  INVALID_SIGNATURE: generateMalformedToken('signature'),
+  
+  /** Token with malformed header */
+  MALFORMED_HEADER: generateMalformedToken('header'),
+  
+  /** Token with malformed payload */
+  MALFORMED_PAYLOAD: generateMalformedToken('payload'),
+  
+  /** Token signed with wrong secret */
+  WRONG_SECRET: generateToken({ sub: '12345' }, 'wrong-secret'),
+  
+  /** Token with wrong audience */
+  WRONG_AUDIENCE: generateToken({ sub: '12345', aud: 'wrong-audience' }),
+  
+  /** Token with wrong issuer */
+  WRONG_ISSUER: generateToken({ sub: '12345', iss: 'wrong-issuer' }),
+  
+  /** Token with journey-specific claims for health journey */
+  HEALTH_JOURNEY: generateToken({
+    sub: '12345',
+    name: 'Health User',
+    journeyAccess: ['health'],
+    healthMetrics: ['heart_rate', 'steps', 'sleep'],
+  }),
+  
+  /** Token with journey-specific claims for care journey */
+  CARE_JOURNEY: generateToken({
+    sub: '12345',
+    name: 'Care User',
+    journeyAccess: ['care'],
+    careAccess: ['appointments', 'medications', 'providers'],
+  }),
+  
+  /** Token with journey-specific claims for plan journey */
+  PLAN_JOURNEY: generateToken({
+    sub: '12345',
+    name: 'Plan User',
+    journeyAccess: ['plan'],
+    planAccess: ['benefits', 'claims', 'coverage'],
+  }),
+  
+  /** Token with access to all journeys */
+  ALL_JOURNEYS: generateToken({
+    sub: '12345',
+    name: 'Super User',
+    journeyAccess: ['health', 'care', 'plan'],
+    roles: ['admin', 'user'],
+  }),
 };
 
 /**
- * Helper function to create a Bearer token header
- * 
- * @param token - The JWT token
- * @returns Authorization header with Bearer token
+ * Mock token payloads for testing without actual token generation
  */
-export function createBearerToken(token: string): string {
-  return `Bearer ${token}`;
-}
-
-/**
- * Helper function to create Authorization headers for requests
- * 
- * @param token - The JWT token
- * @returns Headers object with Authorization
- */
-export function createAuthHeaders(token: string): Record<string, string> {
-  return {
-    Authorization: createBearerToken(token)
-  };
-}
+export const TEST_PAYLOADS = {
+  /** Valid user payload */
+  VALID_USER: {
+    sub: '12345',
+    name: 'Test User',
+    email: 'test@example.com',
+    iat: Math.floor(Date.now() / 1000),
+    exp: Math.floor(Date.now() / 1000) + 3600,
+    aud: TEST_JWT_KEYS.AUDIENCE,
+    iss: TEST_JWT_KEYS.ISSUER,
+  },
+  
+  /** Admin user payload */
+  ADMIN_USER: {
+    sub: '12345',
+    name: 'Admin User',
+    email: 'admin@example.com',
+    roles: ['admin'],
+    iat: Math.floor(Date.now() / 1000),
+    exp: Math.floor(Date.now() / 1000) + 3600,
+    aud: TEST_JWT_KEYS.AUDIENCE,
+    iss: TEST_JWT_KEYS.ISSUER,
+  },
+  
+  /** Expired token payload */
+  EXPIRED: {
+    sub: '12345',
+    name: 'Test User',
+    iat: Math.floor(Date.now() / 1000) - 7200,
+    exp: Math.floor(Date.now() / 1000) - 3600, // Expired 1 hour ago
+    aud: TEST_JWT_KEYS.AUDIENCE,
+    iss: TEST_JWT_KEYS.ISSUER,
+  },
+};
