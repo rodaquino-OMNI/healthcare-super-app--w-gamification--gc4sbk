@@ -1,17 +1,8 @@
 import React, { useEffect, useRef } from 'react';
-import { Modal as RNModal, Platform } from 'react-native';
+import { Modal as RNModal } from 'react-native';
 import { ModalProps } from '@austa/interfaces/components/Modal';
-import { Box } from '@design-system/primitives/components/Box';
-import { Text } from '@design-system/primitives/components/Text';
-import { Touchable } from '@design-system/primitives/components/Touchable';
-import { useTheme } from '../../themes/ThemeProvider';
-import {
-  ModalBackdrop,
-  ModalContainer,
-  ModalHeader,
-  ModalContent,
-  ModalActions
-} from './Modal.styles';
+import { Box, Text, Touchable } from '@design-system/primitives/components';
+import { ModalBackdrop, ModalContainer, ModalHeader, ModalContent, ModalActions } from './Modal.styles';
 
 /**
  * Modal component for the AUSTA SuperApp design system.
@@ -25,10 +16,12 @@ import {
  *   visible={isModalVisible}
  *   onClose={() => setIsModalVisible(false)}
  *   title="Confirmation"
- *   journey="health"
+ *   journeyTheme="health"
  * >
  *   <Text>Are you sure you want to proceed?</Text>
- *   <Button onPress={handleConfirm}>Confirm</Button>
+ *   <Box marginTop="md">
+ *     <Button onPress={handleConfirm}>Confirm</Button>
+ *   </Box>
  * </Modal>
  * ```
  */
@@ -37,25 +30,24 @@ export const Modal: React.FC<ModalProps> = ({
   onClose,
   title,
   children,
-  journey = 'health',
-  actions,
-  testID,
+  journeyTheme = 'health',
+  showCloseButton = true,
+  closeOnClickOutside = true,
+  closeOnEscape = true,
+  footer,
+  centered = true,
+  hasBackdrop = true,
+  backdropOpacity,
+  scrollable = true,
+  zIndex,
   ...rest
 }) => {
-  const { getJourneyColor, getJourneyToken } = useTheme();
   const modalRef = useRef<HTMLDivElement>(null);
-  
-  // Get journey-specific styling tokens
-  const headerColor = getJourneyColor(journey, 'primary');
-  const borderColor = getJourneyColor(journey, 'border');
-  const backgroundColor = getJourneyColor(journey, 'background');
-  const textColor = getJourneyColor(journey, 'text');
-  const borderRadius = getJourneyToken(journey, 'borderRadius', 'md');
   
   // Handle escape key for accessibility
   useEffect(() => {
     const handleEscKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape' && visible) {
+      if (event.key === 'Escape' && visible && closeOnEscape) {
         onClose();
       }
     };
@@ -64,7 +56,7 @@ export const Modal: React.FC<ModalProps> = ({
     return () => {
       document.removeEventListener('keydown', handleEscKey);
     };
-  }, [visible, onClose]);
+  }, [visible, onClose, closeOnEscape]);
   
   // Prevent body scrolling when modal is open
   useEffect(() => {
@@ -79,204 +71,112 @@ export const Modal: React.FC<ModalProps> = ({
     };
   }, [visible]);
 
-  // Focus trap for accessibility
+  // Focus trap implementation
   useEffect(() => {
-    if (!visible || Platform.OS !== 'web' || !modalRef.current) return;
-    
-    // Focus the modal when it opens
-    modalRef.current.focus();
-    
-    // Save the element that had focus before the modal opened
-    const previouslyFocused = document.activeElement as HTMLElement;
-    
-    // Handle tab key to trap focus within modal
-    const handleTabKey = (e: KeyboardEvent) => {
-      if (e.key !== 'Tab' || !modalRef.current) return;
-      
-      // Get all focusable elements in the modal
+    if (visible && modalRef.current) {
+      // Find all focusable elements
       const focusableElements = modalRef.current.querySelectorAll(
         'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
       );
       
-      if (focusableElements.length === 0) return;
-      
-      const firstElement = focusableElements[0] as HTMLElement;
-      const lastElement = focusableElements[focusableElements.length - 1] as HTMLElement;
-      
-      // If shift+tab on first element, move to last element
-      if (e.shiftKey && document.activeElement === firstElement) {
-        e.preventDefault();
-        lastElement.focus();
-      } 
-      // If tab on last element, move to first element
-      else if (!e.shiftKey && document.activeElement === lastElement) {
-        e.preventDefault();
-        firstElement.focus();
+      if (focusableElements.length > 0) {
+        // Focus the first element
+        (focusableElements[0] as HTMLElement).focus();
+        
+        // Handle tab key to trap focus within modal
+        const handleTabKey = (e: KeyboardEvent) => {
+          if (e.key === 'Tab') {
+            if (focusableElements.length === 1) {
+              e.preventDefault();
+              return;
+            }
+            
+            // If shift key pressed, go to the last element if we're on the first
+            if (e.shiftKey && document.activeElement === focusableElements[0]) {
+              e.preventDefault();
+              (focusableElements[focusableElements.length - 1] as HTMLElement).focus();
+            } 
+            // If we're on the last element, circle back to the first
+            else if (!e.shiftKey && document.activeElement === focusableElements[focusableElements.length - 1]) {
+              e.preventDefault();
+              (focusableElements[0] as HTMLElement).focus();
+            }
+          }
+        };
+        
+        document.addEventListener('keydown', handleTabKey);
+        return () => {
+          document.removeEventListener('keydown', handleTabKey);
+        };
       }
-    };
-    
-    document.addEventListener('keydown', handleTabKey);
-    
-    return () => {
-      document.removeEventListener('keydown', handleTabKey);
-      // Restore focus when modal closes
-      if (previouslyFocused && 'focus' in previouslyFocused) {
-        previouslyFocused.focus();
-      }
-    };
+    }
   }, [visible]);
   
-  // Web implementation using styled components
-  if (Platform.OS === 'web') {
-    return (
-      <ModalBackdrop 
-        visible={visible}
-        onClick={(e) => {
-          // Close modal when clicking outside content
-          if (e.target === e.currentTarget) {
-            onClose();
-          }
-        }}
-        aria-modal="true"
-        role="dialog"
-        aria-hidden={!visible}
-        data-testid={testID}
-        {...rest}
-      >
-        <ModalContainer 
-          visible={visible}
-          ref={modalRef}
-          tabIndex={-1}
-          onClick={(e) => e.stopPropagation()}
-          aria-labelledby={title ? "modal-title" : undefined}
-          aria-describedby="modal-description"
-          journey={journey}
-          backgroundColor={backgroundColor}
-          borderRadius={borderRadius}
-          borderColor={borderColor}
-        >
-          <ModalHeader borderColor={headerColor} backgroundColor={getJourneyColor(journey, 'headerBackground')}>
-            {title && (
-              <Text
-                fontSize="lg"
-                fontWeight="medium"
-                id="modal-title"
-                journey={journey}
-                color={headerColor}
-              >
-                {title}
-              </Text>
-            )}
-            <Touchable
-              onPress={onClose}
-              accessibilityLabel="Close modal"
-              accessibilityRole="button"
-              journey={journey}
-            >
-              <Box padding="xs">
-                <Text fontSize="xl">×</Text>
-              </Box>
-            </Touchable>
-          </ModalHeader>
-          
-          <ModalContent id="modal-description">
-            {children}
-          </ModalContent>
-
-          {actions && (
-            <ModalActions>
-              {actions}
-            </ModalActions>
-          )}
-        </ModalContainer>
-      </ModalBackdrop>
-    );
-  }
-  
-  // React Native implementation
   return (
     <RNModal
       visible={visible}
       transparent={true}
       animationType="fade"
       onRequestClose={onClose}
-      testID={testID}
-      accessible={true}
-      accessibilityViewIsModal={true}
       {...rest}
     >
-      <Box 
-        flex={1}
-        alignItems="center"
-        justifyContent="center"
-        backgroundColor="rgba(0, 0, 0, 0.5)"
-        onPress={(e) => {
+      <ModalBackdrop 
+        visible={visible}
+        onClick={(e) => {
           // Close modal when clicking outside content
-          if (e.target === e.currentTarget) {
+          if (closeOnClickOutside && e.target === e.currentTarget) {
             onClose();
           }
         }}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={title ? "modal-title" : undefined}
+        aria-describedby="modal-description"
       >
-        <Box 
-          width="80%"
-          backgroundColor={backgroundColor}
-          borderRadius={borderRadius}
-          overflow="hidden"
-          maxHeight="80%"
-          borderColor={borderColor}
-          borderWidth={1}
+        <ModalContainer 
+          ref={modalRef}
+          visible={visible}
+          onClick={(e) => e.stopPropagation()}
+          journeyTheme={journeyTheme}
         >
-          <Box 
-            flexDirection="row"
-            justifyContent="space-between"
-            alignItems="center"
-            padding="md"
-            borderBottomWidth={1}
-            borderBottomColor={headerColor}
-            backgroundColor={getJourneyColor(journey, 'headerBackground')}
-          >
+          <ModalHeader>
             {title && (
               <Text
                 fontSize="lg"
                 fontWeight="medium"
-                journey={journey}
-                color={headerColor}
-                accessibilityRole="header"
-                accessibilityLabel={`${title} dialog`}
+                id="modal-title"
+                journeyTheme={journeyTheme}
               >
                 {title}
               </Text>
             )}
-            <Touchable
-              onPress={onClose}
-              accessibilityLabel="Close modal"
-              accessibilityRole="button"
-              journey={journey}
-            >
-              <Box padding="xs">
-                <Text fontSize="xl">×</Text>
-              </Box>
-            </Touchable>
-          </Box>
+            {showCloseButton && (
+              <Touchable
+                onPress={onClose}
+                accessibilityLabel="Close modal"
+                accessibilityRole="button"
+                journeyTheme={journeyTheme}
+              >
+                <Box padding="xs">
+                  <Text fontSize="xl">×</Text>
+                </Box>
+              </Touchable>
+            )}
+          </ModalHeader>
           
-          <Box padding="md">
+          <ModalContent id="modal-description" scrollable={scrollable}>
             {children}
-          </Box>
-
-          {actions && (
-            <Box 
-              flexDirection="row"
-              justifyContent="flex-end"
-              padding="md"
-              borderTopWidth={1}
-              borderTopColor={borderColor}
-              backgroundColor={getJourneyColor(journey, 'actionBackground')}
-            >
-              {actions}
-            </Box>
+          </ModalContent>
+          
+          {footer && (
+            <ModalActions>
+              {footer}
+            </ModalActions>
           )}
-        </Box>
-      </Box>
+        </ModalContainer>
+      </ModalBackdrop>
     </RNModal>
   );
 };
+
+export default Modal;
