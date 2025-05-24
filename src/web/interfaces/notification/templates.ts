@@ -6,233 +6,146 @@
  * journeys (Health, Care, Plan) while maintaining type safety for placeholder substitution.
  */
 
-/**
- * Enum representing the three main journeys in the AUSTA SuperApp
- */
-export enum JourneyType {
-  HEALTH = 'health',    // "Minha Saúde" journey
-  CARE = 'care',        // "Cuidar-me Agora" journey
-  PLAN = 'plan',        // "Meu Plano & Benefícios" journey
-  ALL = 'all'           // Cross-journey context
-}
+import { NotificationType, NotificationChannel } from './types';
 
 /**
  * Supported languages for notification templates
  */
-export enum NotificationLanguage {
-  EN_US = 'en-US',
-  PT_BR = 'pt-BR',
-  ES_ES = 'es-ES',
-}
+export type SupportedLanguage = 'en' | 'pt-BR' | 'es';
 
 /**
- * Template placeholder types to ensure type safety when substituting values
+ * Journey context for notification templates
  */
-export enum TemplatePlaceholderType {
-  STRING = 'string',
-  NUMBER = 'number',
-  DATE = 'date',
-  CURRENCY = 'currency',
-  PERCENTAGE = 'percentage',
-  URL = 'url',
-  HTML = 'html',
-}
+export type JourneyContext = 'health' | 'care' | 'plan' | 'global';
 
 /**
- * Definition of a template placeholder with type information
+ * Defines the structure for a template placeholder
+ * Used to ensure type safety when substituting values in templates
  */
 export interface TemplatePlaceholder {
-  /** Unique identifier for the placeholder (e.g., "{{userName}}") */
+  /** Unique identifier for the placeholder */
   key: string;
-  
-  /** Data type of the placeholder for validation */
-  type: TemplatePlaceholderType;
-  
+  /** Description of what the placeholder represents */
+  description: string;
+  /** Example value for documentation and testing */
+  example: string;
+  /** Optional default value if none is provided */
+  defaultValue?: string;
   /** Whether this placeholder is required */
   required: boolean;
-  
-  /** Optional default value if not provided */
-  defaultValue?: string | number | Date;
-  
-  /** Optional description of the placeholder for documentation */
-  description?: string;
 }
 
 /**
- * Template content for a specific language
+ * Defines the content structure for a notification template
+ * with support for different notification channels
  */
 export interface TemplateContent {
-  /** The language code for this content */
-  language: NotificationLanguage;
-  
-  /** The subject line for email or title for push notifications */
-  subject: string;
-  
-  /** The main content of the notification with placeholders */
+  /** Subject line for email and push notifications */
+  subject?: string;
+  /** Main content body */
   body: string;
-  
-  /** Optional short version for SMS or preview text */
+  /** Short version for push notifications */
   shortBody?: string;
-  
-  /** Optional HTML version for email notifications */
-  htmlBody?: string;
+  /** Call to action text */
+  actionText?: string;
+  /** Deep link or URL for the action */
+  actionLink?: string;
 }
 
 /**
- * Journey-specific context for templates
+ * Defines a localized template content for a specific language
  */
-export interface JourneyTemplateContext {
-  /** The journey this template belongs to */
-  journeyType: JourneyType;
-  
-  /** Journey-specific styling information */
-  styling?: {
-    primaryColor?: string;
-    secondaryColor?: string;
-    logoUrl?: string;
-    bannerUrl?: string;
-  };
-  
-  /** Journey-specific deep links */
-  deepLinks?: {
-    /** Base URL for deep links */
-    baseUrl: string;
-    /** Additional path parameters */
-    pathParams?: Record<string, string>;
-  };
+export interface LocalizedTemplateContent extends TemplateContent {
+  /** The language code for this content */
+  language: SupportedLanguage;
 }
 
 /**
- * Notification template interface for defining reusable notification structures
+ * Defines channel-specific template configurations
+ */
+export interface ChannelTemplateConfig {
+  /** Whether this template is enabled for this channel */
+  enabled: boolean;
+  /** Channel-specific template overrides */
+  content?: Partial<TemplateContent>;
+}
+
+/**
+ * Maps notification channels to their specific template configurations
+ */
+export interface ChannelTemplateMap {
+  [NotificationChannel.InApp]?: ChannelTemplateConfig;
+  [NotificationChannel.Push]?: ChannelTemplateConfig;
+  [NotificationChannel.Email]?: ChannelTemplateConfig;
+  [NotificationChannel.SMS]?: ChannelTemplateConfig;
+}
+
+/**
+ * Defines a notification template with versioning, localization, and journey context
  */
 export interface NotificationTemplate {
   /** Unique identifier for the template */
   id: string;
-  
-  /** Template name for administrative purposes */
+  /** Human-readable name for the template */
   name: string;
-  
-  /** Template description */
-  description: string;
-  
   /** Template version for tracking changes */
   version: string;
-  
-  /** Template content in different languages */
-  content: TemplateContent[];
-  
-  /** Placeholders used in this template */
-  placeholders: TemplatePlaceholder[];
-  
-  /** Journey context for this template */
-  journeyContext?: JourneyTemplateContext;
-  
   /** When this template was created */
   createdAt: Date;
-  
   /** When this template was last updated */
   updatedAt: Date;
-  
+  /** The notification type this template is for */
+  type: NotificationType;
+  /** The journey context this template belongs to */
+  journeyContext: JourneyContext;
+  /** Default language for this template */
+  defaultLanguage: SupportedLanguage;
+  /** Localized content for different languages */
+  localizedContent: LocalizedTemplateContent[];
+  /** Channel-specific configurations */
+  channelConfig: ChannelTemplateMap;
+  /** Placeholders that can be used in this template */
+  placeholders: TemplatePlaceholder[];
   /** Whether this template is active */
-  isActive: boolean;
+  active: boolean;
+  /** Optional description of the template's purpose */
+  description?: string;
 }
 
 /**
- * Type for template placeholder values when sending a notification
+ * Input for creating a new notification template
  */
-export type TemplatePlaceholderValues = Record<string, string | number | Date>;
+export type CreateNotificationTemplateInput = Omit<NotificationTemplate, 'id' | 'createdAt' | 'updatedAt'>;
 
 /**
- * Interface for rendering a template with specific values
+ * Input for updating an existing notification template
  */
-export interface TemplateRenderRequest {
+export type UpdateNotificationTemplateInput = Partial<Omit<NotificationTemplate, 'id' | 'createdAt' | 'updatedAt'>>;
+
+/**
+ * Parameters for rendering a notification template with placeholder values
+ */
+export interface RenderTemplateParams {
   /** Template ID to render */
   templateId: string;
-  
-  /** Preferred language for the notification */
-  preferredLanguage: NotificationLanguage;
-  
-  /** Fallback language if preferred is not available */
-  fallbackLanguage?: NotificationLanguage;
-  
-  /** Values to substitute in the template placeholders */
-  placeholderValues: TemplatePlaceholderValues;
-  
-  /** Optional journey-specific context overrides */
-  journeyContextOverrides?: Partial<JourneyTemplateContext>;
+  /** Language to render the template in */
+  language?: SupportedLanguage;
+  /** Values to substitute for placeholders */
+  placeholderValues: Record<string, string | number | boolean | null>;
+  /** Notification channel to render for */
+  channel?: NotificationChannel;
 }
 
 /**
- * Result of rendering a template
+ * Result of rendering a notification template
  */
 export interface RenderedTemplate {
-  /** The rendered subject/title */
-  subject: string;
-  
-  /** The rendered body text */
-  body: string;
-  
-  /** The rendered short body (if available) */
-  shortBody?: string;
-  
-  /** The rendered HTML body (if available) */
-  htmlBody?: string;
-  
-  /** The language that was used for rendering */
-  language: NotificationLanguage;
-  
-  /** Journey context used in rendering */
-  journeyContext?: JourneyTemplateContext;
-}
-
-/**
- * Interface for creating a new notification template
- */
-export interface CreateNotificationTemplateRequest {
-  /** Template name */
-  name: string;
-  
-  /** Template description */
-  description: string;
-  
-  /** Initial version */
-  version: string;
-  
-  /** Template content in different languages */
-  content: TemplateContent[];
-  
-  /** Placeholders used in this template */
-  placeholders: TemplatePlaceholder[];
-  
-  /** Optional journey context */
-  journeyContext?: JourneyTemplateContext;
-}
-
-/**
- * Interface for updating an existing notification template
- */
-export interface UpdateNotificationTemplateRequest {
-  /** Template ID to update */
-  id: string;
-  
-  /** New template name (optional) */
-  name?: string;
-  
-  /** New template description (optional) */
-  description?: string;
-  
-  /** New version (required when updating content or placeholders) */
-  version?: string;
-  
-  /** Updated template content (optional) */
-  content?: TemplateContent[];
-  
-  /** Updated placeholders (optional) */
-  placeholders?: TemplatePlaceholder[];
-  
-  /** Updated journey context (optional) */
-  journeyContext?: JourneyTemplateContext;
-  
-  /** Whether to activate or deactivate the template */
-  isActive?: boolean;
+  /** The rendered template content */
+  content: TemplateContent;
+  /** The template that was rendered */
+  template: NotificationTemplate;
+  /** The language the template was rendered in */
+  language: SupportedLanguage;
+  /** Any placeholders that were missing values */
+  missingPlaceholders?: string[];
 }
