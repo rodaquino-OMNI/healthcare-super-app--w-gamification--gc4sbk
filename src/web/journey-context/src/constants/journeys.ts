@@ -1,119 +1,84 @@
 /**
- * @file Journey Constants
- * @description Defines the core journey constants for the AUSTA SuperApp.
- * 
- * This file provides the fundamental journey definitions used throughout the application
- * for navigation, state management, and UI rendering. It includes journey IDs, localized
- * display names, and a comprehensive ALL_JOURNEYS array that combines all journey metadata.
- * 
- * The constants defined here are used by both web and mobile platforms to ensure consistency
- * across the entire application.
+ * Core journey constants for the AUSTA SuperApp.
+ * Defines journey IDs, localized display names, and a comprehensive ALL_JOURNEYS array
+ * that combines all journey metadata.
  */
 
-/**
- * Journey IDs
- * 
- * These constants define the unique identifiers for each journey in the application.
- * They are used for routing, state management, and identifying journey-specific components.
- */
-export const JOURNEY_IDS = {
-  /** Health journey ID - used for health monitoring and wellness tracking */
-  HEALTH: 'health',
-  /** Care journey ID - used for healthcare access and appointment management */
-  CARE: 'care',
-  /** Plan journey ID - used for insurance management and claims */
-  PLAN: 'plan',
-} as const;
+import { Journey, JourneyId, JOURNEY_IDS } from '../types/journey.types';
 
 /**
- * Journey ID Type
- * 
- * A type representing the valid journey IDs in the application.
- * This ensures type safety when referencing journey IDs.
+ * Health journey theme colors
  */
-export type JourneyId = typeof JOURNEY_IDS[keyof typeof JOURNEY_IDS];
+const HEALTH_THEME = {
+  primary: '#2E7D32', // Green 800
+  secondary: '#81C784', // Green 300
+  accent: '#00C853', // Green A700
+  background: '#E8F5E9', // Green 50
+  text: '#1B5E20', // Green 900
+};
 
 /**
- * Journey Display Names
- * 
- * Localized display names for each journey in Portuguese.
- * These are used for UI rendering and user-facing text.
+ * Care journey theme colors
  */
-export const JOURNEY_DISPLAY_NAMES = {
-  /** Health journey display name in Portuguese */
-  [JOURNEY_IDS.HEALTH]: 'Minha Saúde',
-  /** Care journey display name in Portuguese */
-  [JOURNEY_IDS.CARE]: 'Cuidar-me Agora',
-  /** Plan journey display name in Portuguese */
-  [JOURNEY_IDS.PLAN]: 'Meu Plano & Benefícios',
-} as const;
+const CARE_THEME = {
+  primary: '#EF6C00', // Orange 800
+  secondary: '#FFB74D', // Orange 300
+  accent: '#FF9100', // Orange A400
+  background: '#FFF3E0', // Orange 50
+  text: '#E65100', // Orange 900
+};
 
 /**
- * Journey Interface
- * 
- * Defines the structure of a journey object with all its metadata.
- * This interface ensures consistency in journey definitions.
+ * Plan journey theme colors
  */
-export interface Journey {
-  /** Unique identifier for the journey */
-  id: JourneyId;
-  /** Localized display name for the journey */
-  displayName: string;
-  /** Optional path for routing (used in web application) */
-  path?: string;
-  /** Optional icon name for the journey (used in navigation) */
-  icon?: string;
-  /** Optional color theme key for the journey */
-  themeKey?: string;
-}
+const PLAN_THEME = {
+  primary: '#1565C0', // Blue 800
+  secondary: '#64B5F6', // Blue 300
+  accent: '#2979FF', // Blue A400
+  background: '#E3F2FD', // Blue 50
+  text: '#0D47A1', // Blue 900
+};
 
 /**
- * All Journeys
- * 
- * A comprehensive array of all journeys in the application with their metadata.
- * This is the primary export used by components to access journey information.
+ * Comprehensive array of all journeys in the AUSTA SuperApp
  */
 export const ALL_JOURNEYS: Journey[] = [
   {
     id: JOURNEY_IDS.HEALTH,
-    displayName: JOURNEY_DISPLAY_NAMES[JOURNEY_IDS.HEALTH],
-    path: '/health',
-    icon: 'health',
-    themeKey: 'health',
+    name: 'Minha Sau00fade',
+    color: HEALTH_THEME.primary,
+    icon: 'heart-pulse',
+    route: '/health',
+    theme: HEALTH_THEME,
   },
   {
     id: JOURNEY_IDS.CARE,
-    displayName: JOURNEY_DISPLAY_NAMES[JOURNEY_IDS.CARE],
-    path: '/care',
-    icon: 'care',
-    themeKey: 'care',
+    name: 'Cuidar-me Agora',
+    color: CARE_THEME.primary,
+    icon: 'medical-bag',
+    route: '/care',
+    theme: CARE_THEME,
   },
   {
     id: JOURNEY_IDS.PLAN,
-    displayName: JOURNEY_DISPLAY_NAMES[JOURNEY_IDS.PLAN],
-    path: '/plan',
-    icon: 'plan',
-    themeKey: 'plan',
+    name: 'Meu Plano & Benefu00edcios',
+    color: PLAN_THEME.primary,
+    icon: 'shield-check',
+    route: '/plan',
+    theme: PLAN_THEME,
   },
 ];
 
 /**
- * Get Journey By ID
- * 
- * Helper function to retrieve a journey object by its ID.
- * Returns undefined if the journey ID is not found.
- * 
- * @param id - The journey ID to look up
- * @returns The journey object or undefined if not found
+ * Default journey to use when none is selected
  */
-export function getJourneyById(id: JourneyId): Journey | undefined {
-  return ALL_JOURNEYS.find(journey => journey.id === id);
-}
+export const DEFAULT_JOURNEY = JOURNEY_IDS.HEALTH;
 
 /**
- * Default Journey
- * 
- * The default journey to use when no journey is specified.
- * This is used as a fallback in context providers and navigation.
+ * Preferred order for displaying journeys
  */
-export const DEFAULT_JOURNEY = ALL_JOURNEYS[0];
+export const JOURNEY_DISPLAY_ORDER: JourneyId[] = [
+  JOURNEY_IDS.HEALTH,
+  JOURNEY_IDS.CARE,
+  JOURNEY_IDS.PLAN,
+];
