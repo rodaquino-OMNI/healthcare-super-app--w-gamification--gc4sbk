@@ -1,77 +1,59 @@
 /**
- * Authentication Session Interface for the AUSTA SuperApp
- * 
- * This file defines the core interface for managing authentication sessions
- * across both web and mobile platforms. It provides a standardized contract
- * for storing and accessing JWT token data throughout the application.
- * 
+ * Authentication session types for the AUSTA SuperApp
  * @packageDocumentation
+ * @module @austa/interfaces/auth
  */
 
-import { TokenSchema } from '@austa/interfaces/auth';
-
 /**
- * Represents an authenticated user session with JWT tokens and expiration information.
+ * Represents an authentication session with tokens and expiration
  * 
- * This interface is used across the platform to maintain consistent authentication state
- * and provides the foundation for secure API access through JWT token management.
+ * This interface is used to store and manage JWT authentication tokens
+ * across the application. It contains the necessary information to
+ * authenticate API requests and determine when tokens need to be refreshed.
  * 
  * @example
  * ```typescript
- * // Creating a new auth session
- * const session: AuthSession = {
- *   accessToken: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...', 
- *   refreshToken: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...',
- *   expiresAt: Date.now() + 3600000 // 1 hour from now
+ * // Using AuthSession in an API request
+ * const makeAuthenticatedRequest = async (url: string, session: AuthSession) => {
+ *   const response = await fetch(url, {
+ *     headers: {
+ *       Authorization: `Bearer ${session.accessToken}`
+ *     }
+ *   });
+ *   
+ *   return response.json();
+ * };
+ * 
+ * // Checking if a session is expired
+ * const isSessionExpired = (session: AuthSession): boolean => {
+ *   return Date.now() >= session.expiresAt;
  * };
  * ```
  */
 export interface AuthSession {
   /**
-   * JWT access token used for API authorization
+   * JWT access token for API authorization
    * 
-   * This token should be included in the Authorization header for all authenticated API requests.
-   * The token contains encoded user identity and permission claims that are validated by the server.
-   * 
-   * @see TokenSchema.AccessToken for the detailed token structure
+   * This token should be included in the Authorization header
+   * for all authenticated API requests. It contains encoded user
+   * information and permissions.
    */
   accessToken: string;
   
   /**
    * JWT refresh token used to obtain a new access token when expired
    * 
-   * This token has a longer lifespan than the access token and should be securely stored.
-   * It is used to request a new access token without requiring the user to log in again.
-   * 
-   * @see TokenSchema.RefreshToken for the detailed token structure
+   * This token has a longer lifespan than the access token and is used
+   * to request a new access token when the current one expires, without
+   * requiring the user to log in again.
    */
   refreshToken: string;
   
   /**
    * Timestamp (in milliseconds since epoch) when the access token expires
    * 
-   * This value is used to determine when a token refresh should be triggered.
-   * The application should proactively refresh tokens before they expire to
-   * maintain a seamless user experience.
+   * This value can be compared with Date.now() to determine if the
+   * access token has expired and needs to be refreshed.
    */
   expiresAt: number;
-}
-
-/**
- * Type guard to check if an object is a valid AuthSession
- * 
- * @param obj - The object to check
- * @returns True if the object is a valid AuthSession, false otherwise
- */
-export function isAuthSession(obj: unknown): obj is AuthSession {
-  return (
-    typeof obj === 'object' &&
-    obj !== null &&
-    'accessToken' in obj &&
-    'refreshToken' in obj &&
-    'expiresAt' in obj &&
-    typeof (obj as AuthSession).accessToken === 'string' &&
-    typeof (obj as AuthSession).refreshToken === 'string' &&
-    typeof (obj as AuthSession).expiresAt === 'number'
-  );
 }
