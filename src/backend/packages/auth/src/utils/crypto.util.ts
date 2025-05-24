@@ -1,246 +1,291 @@
 /**
- * Authentication cryptographic utilities
+ * Cryptographic utilities for generating secure random values used in authentication processes.
  * 
- * This module provides cryptographic utilities for generating secure random values
- * used in authentication processes, including secure tokens, session identifiers,
- * CSRF protection tokens, and password reset keys. These pure functions provide a
- * standardized approach to generating cryptographically secure random values across
- * the auth system.
+ * This module provides a standardized approach to generating cryptographically secure random values
+ * across the auth system, including secure tokens, session identifiers, CSRF protection tokens,
+ * and password reset keys.
  * 
  * @module crypto.util
- * @packageDocumentation
- * @preferred
  */
+
+import * as crypto from 'crypto';
+
+/**
+ * Options for generating random strings
+ */
+export interface RandomStringOptions {
+  /** Length of the random string to generate */
+  length: number;
+  /** Character encoding to use (hex, base64, base64url) */
+  encoding?: 'hex' | 'base64' | 'base64url';
+  /** Whether to remove non-alphanumeric characters */
+  alphanumericOnly?: boolean;
+}
+
+/**
+ * Options for generating TOTP secrets
+ */
+export interface TOTPSecretOptions {
+  /** Length of the secret in bytes (before encoding) */
+  length?: number;
+  /** Whether to include a checksum */
+  checksum?: boolean;
+  /** Whether to include padding characters */
+  padding?: boolean;
+}
 
 /**
  * Generates cryptographically secure random bytes.
- * This is the core function used by other utility functions to generate random values.
  * 
- * @param length - The number of bytes to generate
- * @returns A Buffer containing random bytes
- * @throws Error if secure random number generation is not available
+ * @param size - Number of bytes to generate
+ * @returns Buffer containing random bytes
+ * @throws Error if there is not enough entropy available
  */
-export const generateRandomBytes = (length: number): Buffer => {
-  // In Node.js environment, use crypto module
-  if (typeof process !== 'undefined' && process.versions && process.versions.node) {
-    try {
-      // Use Node.js crypto module
-      const crypto = require('crypto');
-      return crypto.randomBytes(length);
-    } catch (e) {
-      throw new Error('Secure random number generation not supported in this Node.js environment');
-    }
+export function generateRandomBytes(size: number): Buffer {
+  try {
+    return crypto.randomBytes(size);
+  } catch (error) {
+    throw new Error(`Failed to generate secure random bytes: ${error.message}`);
   }
-  // In browser environment, use Web Crypto API
-  else if (typeof window !== 'undefined' && window.crypto && window.crypto.getRandomValues) {
-    const bytes = new Uint8Array(length);
-    window.crypto.getRandomValues(bytes);
-    
-    // Convert Uint8Array to Buffer in browser environment
-    return Buffer.from(bytes);
-  }
-  
-  throw new Error('No secure random number generator available');
-};
+}
 
 /**
- * Generates a cryptographically secure random string with the specified encoding.
+ * Generates a cryptographically secure random string with the specified options.
  * 
- * @param length - The length of the string to generate
- * @param encoding - The encoding to use (default: 'base64')
- * @returns A random string with the specified encoding
+ * @param options - Options for generating the random string
+ * @returns Random string with the specified encoding
  */
-export const generateRandomString = (
-  length: number,
-  encoding: 'hex' | 'base64' | 'base64url' = 'base64'
-): string => {
-  // Calculate the number of bytes needed based on encoding
-  // base64 encodes 3 bytes into 4 characters, so we need 3/4 of the requested length
-  // hex encodes 1 byte into 2 characters, so we need 1/2 of the requested length
+export function generateRandomString(options: RandomStringOptions): string {
+  const { length, encoding = 'hex', alphanumericOnly = false } = options;
+  
+  // Calculate the number of bytes needed based on the encoding
+  // hex encoding: each byte becomes 2 characters
+  // base64 encoding: every 3 bytes become 4 characters
   const bytesNeeded = encoding === 'hex' 
     ? Math.ceil(length / 2)
-    : Math.ceil((length * 3) / 4);
+    : Math.ceil(length * 0.75); // For base64 and base64url
   
   const randomBytes = generateRandomBytes(bytesNeeded);
-  const result = randomBytes.toString(encoding);
   
-  // Trim to the exact requested length
-  return result.slice(0, length);
-};
+  let result: string;
+  switch (encoding) {
+    case 'base64':
+      result = randomBytes.toString('base64');
+      break;
+    case 'base64url':
+      // Convert to base64 then make URL-safe
+      result = randomBytes.toString('base64')
+        .replace(/\+/g, '-')
+        .replace(/\//g, '_')
+        .replace(/=/g, '');
+      break;
+    case 'hex':
+    default:
+      result = randomBytes.toString('hex');
+      break;
+  }
+  
+  // Trim to the requested length
+  result = result.slice(0, length);
+  
+  // Remove non-alphanumeric characters if requested
+  if (alphanumericOnly) {
+    result = result.replace(/[^a-zA-Z0-9]/g, '');
+    
+    // If we removed characters, we might need to generate more to reach the desired length
+    if (result.length < length) {
+      const additionalOptions = { ...options, length: length - result.length };
+      result += generateRandomString(additionalOptions);
+    }
+  }
+  
+  return result;
+}
 
 /**
- * Generates a secure token for authentication purposes.
+ * Generates a URL-safe token suitable for use in URLs or headers.
  * 
- * @param length - The length of the token (default: 32)
- * @returns A secure random token string
+ * @param length - Length of the token to generate
+ * @returns URL-safe token string
  */
-export const generateSecureToken = (length: number = 32): string => {
-  return generateRandomString(length, 'base64');
-};
+export function generateUrlSafeToken(length: number = 32): string {
+  return generateRandomString({
+    length,
+    encoding: 'base64url'
+  });
+}
 
 /**
- * Generates a URL-safe token that can be safely used in URLs without encoding issues.
- * Uses base64url encoding which replaces '+' with '-' and '/' with '_' and removes padding.
+ * Generates a secure session identifier for authentication sessions.
  * 
- * @param length - The length of the token (default: 32)
- * @returns A URL-safe token string
+ * @param length - Length of the session ID to generate
+ * @returns Secure session identifier string
  */
-export const generateUrlSafeToken = (length: number = 32): string => {
-  return generateRandomString(length, 'base64url');
-};
+export function generateSessionId(length: number = 64): string {
+  return generateRandomString({
+    length,
+    encoding: 'base64url'
+  });
+}
 
 /**
- * Generates a secure session identifier for tracking user sessions.
+ * Generates a CSRF (Cross-Site Request Forgery) token for form protection.
  * 
- * @param length - The length of the session ID (default: 64)
- * @returns A secure session identifier string
+ * @param length - Length of the CSRF token to generate
+ * @returns CSRF token string
  */
-export const generateSessionId = (length: number = 64): string => {
-  return generateRandomString(length, 'hex');
-};
-
-/**
- * Generates a CSRF (Cross-Site Request Forgery) protection token.
- * 
- * @param length - The length of the CSRF token (default: 32)
- * @returns A secure CSRF token string
- */
-export const generateCsrfToken = (length: number = 32): string => {
-  return generateRandomString(length, 'hex');
-};
+export function generateCsrfToken(length: number = 32): string {
+  return generateRandomString({
+    length,
+    encoding: 'hex'
+  });
+}
 
 /**
  * Generates a password reset token for secure password reset flows.
  * 
- * @param length - The length of the password reset token (default: 64)
- * @returns A secure password reset token string
+ * @param length - Length of the password reset token to generate
+ * @returns Password reset token string
  */
-export const generatePasswordResetToken = (length: number = 64): string => {
-  return generateUrlSafeToken(length);
-};
+export function generatePasswordResetToken(length: number = 64): string {
+  return generateRandomString({
+    length,
+    encoding: 'base64url'
+  });
+}
 
 /**
- * Generates a secret key for Time-based One-Time Password (TOTP) authentication.
- * The secret is compatible with standard TOTP authenticator apps.
+ * Generates a device fingerprint token for device tracking and suspicious access detection.
  * 
- * @param length - The length of the secret in bytes (default: 20, recommended by RFC 6238)
- * @returns A base32-encoded TOTP secret
+ * @param length - Length of the device fingerprint token to generate
+ * @returns Device fingerprint token string
  */
-export const generateTotpSecret = (length: number = 20): string => {
-  const bytes = generateRandomBytes(length);
+export function generateDeviceFingerprint(length: number = 32): string {
+  return generateRandomString({
+    length,
+    encoding: 'hex'
+  });
+}
+
+/**
+ * Generates a refresh token for token rotation in authentication flows.
+ * 
+ * @param length - Length of the refresh token to generate
+ * @returns Refresh token string
+ */
+export function generateRefreshToken(length: number = 64): string {
+  return generateRandomString({
+    length,
+    encoding: 'base64url'
+  });
+}
+
+/**
+ * Generates a base32-encoded secret key suitable for TOTP (Time-based One-Time Password) applications.
+ * 
+ * This function creates a secret that can be used with Google Authenticator, Authy, and other
+ * TOTP-compatible applications for multi-factor authentication.
+ * 
+ * @param options - Options for generating the TOTP secret
+ * @returns Base32-encoded TOTP secret
+ */
+export function generateTOTPSecret(options: TOTPSecretOptions = {}): string {
+  const { length = 20, padding = true } = options;
   
-  // Convert to base32 encoding (used by authenticator apps)
-  // This is a simplified base32 implementation
+  // Generate random bytes for the secret
+  const secretBytes = generateRandomBytes(length);
+  
+  // Convert to base32 encoding (RFC 4648)
+  // Base32 alphabet: ABCDEFGHIJKLMNOPQRSTUVWXYZ234567
   const base32Chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
-  let result = '';
+  let base32Secret = '';
   
-  // Process 5 bits at a time (base32 uses 5 bits per character)
-  let bits = 0;
-  let value = 0;
-  
-  for (let i = 0; i < bytes.length; i++) {
-    value = (value << 8) | bytes[i];
-    bits += 8;
+  // Process 5 bits at a time (since base32 uses 5 bits per character)
+  for (let i = 0; i < secretBytes.length; i += 5) {
+    const chunk = secretBytes.slice(i, i + 5);
+    let buffer = 0;
+    let bitsLeft = 0;
     
-    while (bits >= 5) {
-      bits -= 5;
-      result += base32Chars[(value >>> bits) & 31];
+    for (let j = 0; j < chunk.length; j++) {
+      buffer = (buffer << 8) | chunk[j];
+      bitsLeft += 8;
+      
+      while (bitsLeft >= 5) {
+        bitsLeft -= 5;
+        base32Secret += base32Chars[(buffer >> bitsLeft) & 0x1f];
+      }
+    }
+    
+    // Handle remaining bits if any
+    if (bitsLeft > 0 && padding) {
+      base32Secret += base32Chars[(buffer << (5 - bitsLeft)) & 0x1f];
     }
   }
   
-  // Handle remaining bits if any
-  if (bits > 0) {
-    result += base32Chars[(value << (5 - bits)) & 31];
-  }
-  
-  return result;
-};
-
-/**
- * Generates a device fingerprint for device identification and suspicious access detection.
- * 
- * @param deviceInfo - Object containing device information
- * @returns A hash representing the device fingerprint
- */
-export const generateDeviceFingerprint = (deviceInfo: {
-  userAgent?: string;
-  platform?: string;
-  screenResolution?: string;
-  timezone?: string;
-  language?: string;
-  [key: string]: string | undefined;
-}): string => {
-  // Create a string representation of the device info
-  const infoString = Object.entries(deviceInfo)
-    .filter(([_, value]) => value !== undefined)
-    .map(([key, value]) => `${key}:${value}`)
-    .join('|');
-  
-  // In Node.js environment
-  if (typeof process !== 'undefined' && process.versions && process.versions.node) {
-    try {
-      const crypto = require('crypto');
-      return crypto.createHash('sha256').update(infoString).digest('hex');
-    } catch (e) {
-      // Fallback to a simple hash if crypto is not available
-      return simpleHash(infoString);
+  // Add padding if needed and requested
+  if (padding) {
+    while (base32Secret.length % 8 !== 0) {
+      base32Secret += '=';
     }
   }
-  // In browser environment
-  else if (typeof window !== 'undefined' && window.crypto && window.crypto.subtle) {
-    // Note: In a real implementation, you would use the Web Crypto API
-    // with crypto.subtle.digest, but that's async and would change the function signature
-    // For simplicity, we're using a synchronous fallback here
-    return simpleHash(infoString);
+  
+  return base32Secret;
+}
+
+/**
+ * Generates a verification code for email or phone verification.
+ * 
+ * @param length - Length of the verification code to generate
+ * @param numericOnly - Whether to generate a numeric-only code
+ * @returns Verification code string
+ */
+export function generateVerificationCode(length: number = 6, numericOnly: boolean = true): string {
+  if (numericOnly) {
+    // Generate a numeric code by using random bytes and modulo 10
+    const bytes = generateRandomBytes(length);
+    let code = '';
+    
+    for (let i = 0; i < length; i++) {
+      // Use modulo 10 to get a digit (0-9)
+      code += bytes[i] % 10;
+    }
+    
+    return code;
+  } else {
+    // Generate an alphanumeric code
+    return generateRandomString({
+      length,
+      encoding: 'hex',
+      alphanumericOnly: true
+    });
   }
-  
-  return simpleHash(infoString);
-};
+}
 
 /**
- * Simple hash function for fallback when crypto is not available.
- * This is NOT cryptographically secure and should only be used as a last resort.
+ * Generates a nonce for use in security headers or cryptographic operations.
  * 
- * @param input - The string to hash
- * @returns A simple hash of the input string
+ * @param length - Length of the nonce to generate
+ * @returns Nonce string
  */
-const simpleHash = (input: string): string => {
-  let hash = 0;
-  for (let i = 0; i < input.length; i++) {
-    const char = input.charCodeAt(i);
-    hash = ((hash << 5) - hash) + char;
-    hash = hash & hash; // Convert to 32bit integer
-  }
-  
-  // Convert to hex string and ensure it's positive
-  return (hash >>> 0).toString(16).padStart(8, '0');
-};
+export function generateNonce(length: number = 16): string {
+  return generateRandomString({
+    length,
+    encoding: 'base64url'
+  });
+}
 
 /**
- * Generates a refresh token with a unique identifier.
+ * Generates a secure API key for external API access.
  * 
- * @param userId - The user ID to associate with the token
- * @param expiresAt - Optional expiration timestamp
- * @returns A secure refresh token string
+ * @param length - Length of the API key to generate
+ * @param prefix - Optional prefix to add to the API key
+ * @returns API key string
  */
-export const generateRefreshToken = (userId: string, expiresAt?: number): string => {
-  // Create a token with format: {random}-{userId}-{timestamp}
-  const randomPart = generateRandomString(32, 'hex');
-  const timestamp = expiresAt || Math.floor(Date.now() / 1000) + 30 * 24 * 60 * 60; // Default 30 days
+export function generateApiKey(length: number = 32, prefix?: string): string {
+  const key = generateRandomString({
+    length,
+    encoding: 'base64url'
+  });
   
-  // Encode the parts
-  const encodedUserId = Buffer.from(userId).toString('base64url');
-  
-  // Combine the parts with a separator
-  return `${randomPart}.${encodedUserId}.${timestamp}`;
-};
-
-/**
- * Generates a nonce for use in security headers like Content-Security-Policy.
- * 
- * @param length - The length of the nonce (default: 16)
- * @returns A secure random nonce string
- */
-export const generateNonce = (length: number = 16): string => {
-  return generateRandomString(length, 'base64');
-};
+  return prefix ? `${prefix}_${key}` : key;
+}
