@@ -1,240 +1,247 @@
 import { Platform, PermissionsAndroid } from 'react-native';
+import { ApiResponse, ErrorResponse } from '@austa/interfaces/common';
 
 /**
- * Type definitions for permission results
+ * Enum representing the types of permissions that can be requested in the app.
+ * This is used to standardize permission requests across the application.
  */
-export enum PermissionResult {
-  GRANTED = 'granted',
-  DENIED = 'denied',
-  NEVER_ASK_AGAIN = 'never_ask_again'
+export enum PermissionType {
+  STORAGE = 'STORAGE',
+  CAMERA = 'CAMERA',
+  LOCATION = 'LOCATION',
 }
 
 /**
- * Type definition for permission request options
+ * Interface representing the result of a permission request.
+ * Contains information about whether the permission was granted and any error that occurred.
  */
-export interface PermissionRequestOptions {
-  title: string;
-  message: string;
-  buttonNeutral?: string;
-  buttonNegative?: string;
-  buttonPositive?: string;
+export interface PermissionResult {
+  granted: boolean;
+  permissionType: PermissionType;
+  error?: string;
 }
 
 /**
- * Type definition for permission request result
+ * Interface representing the result of multiple permission requests.
+ * Maps each permission type to its corresponding result.
  */
-export interface PermissionRequestResult {
-  permission: string;
-  result: PermissionResult;
+export interface MultiplePermissionResult {
+  results: Record<PermissionType, PermissionResult>;
+  allGranted: boolean;
 }
 
 /**
- * Default permission request options with user-friendly messages
+ * Maps permission types to their corresponding Android permission strings.
  */
-const defaultPermissionOptions: Record<string, PermissionRequestOptions> = {
-  [PermissionsAndroid.PERMISSIONS.READ_EXTERNAL_STORAGE]: {
-    title: 'Storage Permission',
-    message: 'AUSTA SuperApp needs access to your storage to access files',
-    buttonNeutral: 'Ask Me Later',
-    buttonNegative: 'Cancel',
-    buttonPositive: 'OK',
-  },
-  [PermissionsAndroid.PERMISSIONS.CAMERA]: {
-    title: 'Camera Permission',
-    message: 'AUSTA SuperApp needs access to your camera for telemedicine sessions',
-    buttonNeutral: 'Ask Me Later',
-    buttonNegative: 'Cancel',
-    buttonPositive: 'OK',
-  },
-  [PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION]: {
-    title: 'Location Permission',
-    message: 'AUSTA SuperApp needs access to your location to find nearby healthcare providers',
-    buttonNeutral: 'Ask Me Later',
-    buttonNegative: 'Cancel',
-    buttonPositive: 'OK',
-  },
+const PERMISSION_MAP: Record<PermissionType, string> = {
+  [PermissionType.STORAGE]: PermissionsAndroid.PERMISSIONS.READ_EXTERNAL_STORAGE,
+  [PermissionType.CAMERA]: PermissionsAndroid.PERMISSIONS.CAMERA,
+  [PermissionType.LOCATION]: PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
 };
 
 /**
- * Checks if the app has been granted a specific Android permission.
- * 
- * @param permission The Android permission to check
- * @returns A promise that resolves to `true` if the permission is granted, and `false` otherwise.
+ * Maps permission types to their user-friendly names for display in permission requests.
  */
-export const checkAndroidPermission = async (permission: string): Promise<boolean> => {
-  // Check if the platform is Android
-  if (Platform.OS !== 'android') {
-    // If not Android, return true (permissions not relevant)
-    return true;
-  }
-
-  try {
-    const result = await PermissionsAndroid.check(permission);
-    return result;
-  } catch (error) {
-    console.error(`Error checking permission ${permission}:`, error);
-    return false;
-  }
+const PERMISSION_NAMES: Record<PermissionType, string> = {
+  [PermissionType.STORAGE]: 'Storage',
+  [PermissionType.CAMERA]: 'Camera',
+  [PermissionType.LOCATION]: 'Location',
 };
 
 /**
- * Requests a specific Android permission.
- * 
- * @param permission The Android permission to request
- * @param options Custom options for the permission request dialog
- * @returns A promise that resolves to a PermissionRequestResult object
+ * Maps permission types to their rationale messages explaining why the app needs the permission.
  */
-export const requestAndroidPermission = async (
-  permission: string,
-  options?: PermissionRequestOptions
-): Promise<PermissionRequestResult> => {
-  // Check if the platform is Android
-  if (Platform.OS !== 'android') {
-    // If not Android, return granted (permissions not relevant)
-    return {
-      permission,
-      result: PermissionResult.GRANTED
-    };
-  }
-
-  try {
-    // Use provided options or default options for this permission type
-    const requestOptions = options || defaultPermissionOptions[permission] || {
-      title: 'Permission Required',
-      message: 'AUSTA SuperApp needs this permission to function properly',
-      buttonNeutral: 'Ask Me Later',
-      buttonNegative: 'Cancel',
-      buttonPositive: 'OK',
-    };
-
-    const result = await PermissionsAndroid.request(permission, requestOptions);
-    
-    return {
-      permission,
-      result: result as PermissionResult
-    };
-  } catch (error) {
-    console.error(`Error requesting permission ${permission}:`, error);
-    return {
-      permission,
-      result: PermissionResult.DENIED
-    };
-  }
+const PERMISSION_RATIONALES: Record<PermissionType, string> = {
+  [PermissionType.STORAGE]: 'AUSTA SuperApp needs access to your storage to access files',
+  [PermissionType.CAMERA]: 'AUSTA SuperApp needs access to your camera for telemedicine sessions and document scanning',
+  [PermissionType.LOCATION]: 'AUSTA SuperApp needs access to your location to find nearby healthcare providers',
 };
 
 /**
- * Checks if the app has been granted necessary permissions on Android.
- * Specifically, it checks for the `READ_EXTERNAL_STORAGE` permission,
- * which is required to access files on the device's storage.
+ * Requests a single permission on Android.
  * 
- * @returns A promise that resolves to `true` if the permission is granted, and `false` otherwise.
+ * @param permissionType - The type of permission to request
+ * @returns A promise that resolves to a PermissionResult object
  */
-export const checkAndroidPermissions = async (): Promise<boolean> => {
-  // Check if the platform is Android
-  if (Platform.OS !== 'android') {
-    // If not Android, return true (permissions not relevant)
-    return true;
-  }
-
+async function requestAndroidPermission(permissionType: PermissionType): Promise<PermissionResult> {
   try {
-    // Try to grant the READ_EXTERNAL_STORAGE permission
+    // Check if the platform is Android
+    if (Platform.OS !== 'android') {
+      // If not Android, return true (permissions not relevant for other platforms)
+      return {
+        granted: true,
+        permissionType,
+      };
+    }
+
+    const androidPermission = PERMISSION_MAP[permissionType];
+    if (!androidPermission) {
+      return {
+        granted: false,
+        permissionType,
+        error: `Unsupported permission type: ${permissionType}`,
+      };
+    }
+
+    // Try to request the permission
     const granted = await PermissionsAndroid.request(
-      PermissionsAndroid.PERMISSIONS.READ_EXTERNAL_STORAGE,
+      androidPermission,
       {
-        title: 'Storage Permission',
-        message: 'AUSTA SuperApp needs access to your storage to access files',
+        title: `${PERMISSION_NAMES[permissionType]} Permission`,
+        message: PERMISSION_RATIONALES[permissionType],
         buttonNeutral: 'Ask Me Later',
         buttonNegative: 'Cancel',
         buttonPositive: 'OK',
       },
     );
 
-    // Return true if permission is granted, false otherwise
-    return granted === PermissionsAndroid.RESULTS.GRANTED;
+    // Return result based on the permission status
+    return {
+      granted: granted === PermissionsAndroid.RESULTS.GRANTED,
+      permissionType,
+    };
   } catch (error) {
     // Catch any errors during permission request and return false
-    console.error('Error requesting permission:', error);
+    console.error(`Error requesting ${PERMISSION_NAMES[permissionType]} permission:`, error);
+    return {
+      granted: false,
+      permissionType,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+/**
+ * Checks if the app has been granted a specific permission on Android.
+ * 
+ * @param permissionType - The type of permission to check
+ * @returns A promise that resolves to a boolean indicating if the permission is granted
+ */
+export async function checkAndroidPermission(permissionType: PermissionType): Promise<boolean> {
+  // Check if the platform is Android
+  if (Platform.OS !== 'android') {
+    // If not Android, return true (permissions not relevant)
+    return true;
+  }
+
+  try {
+    const androidPermission = PERMISSION_MAP[permissionType];
+    if (!androidPermission) {
+      console.error(`Unsupported permission type: ${permissionType}`);
+      return false;
+    }
+
+    const result = await PermissionsAndroid.check(androidPermission);
+    return result;
+  } catch (error) {
+    console.error(`Error checking ${PERMISSION_NAMES[permissionType]} permission:`, error);
     return false;
   }
-};
+}
 
 /**
- * Checks and requests multiple Android permissions at once.
+ * Requests multiple permissions on Android.
  * 
- * @param permissions Array of Android permissions to request
- * @returns A promise that resolves to an array of PermissionRequestResult objects
+ * @param permissionTypes - An array of permission types to request
+ * @returns A promise that resolves to a MultiplePermissionResult object
  */
-export const requestMultipleAndroidPermissions = async (
-  permissions: string[]
-): Promise<PermissionRequestResult[]> => {
+export async function requestMultipleAndroidPermissions(
+  permissionTypes: PermissionType[]
+): Promise<MultiplePermissionResult> {
   // Check if the platform is Android
   if (Platform.OS !== 'android') {
-    // If not Android, return all as granted (permissions not relevant)
-    return permissions.map(permission => ({
-      permission,
-      result: PermissionResult.GRANTED
-    }));
+    // If not Android, return all granted (permissions not relevant)
+    const results: Record<PermissionType, PermissionResult> = {};
+    permissionTypes.forEach(type => {
+      results[type] = { granted: true, permissionType: type };
+    });
+    return { results, allGranted: true };
   }
 
   try {
-    const results = await PermissionsAndroid.requestMultiple(permissions);
-    
-    return Object.entries(results).map(([permission, result]) => ({
-      permission,
-      result: result as PermissionResult
-    }));
-  } catch (error) {
-    console.error('Error requesting multiple permissions:', error);
-    return permissions.map(permission => ({
-      permission,
-      result: PermissionResult.DENIED
-    }));
-  }
-};
-
-/**
- * Checks and requests permissions needed for the Health journey.
- * This includes camera and location permissions.
- * 
- * @returns A promise that resolves to an object containing the results for each permission
- */
-export const requestHealthJourneyPermissions = async (): Promise<{
-  camera: PermissionResult;
-  location: PermissionResult;
-}> => {
-  // Check if the platform is Android
-  if (Platform.OS !== 'android') {
-    // If not Android, return all as granted (permissions not relevant)
-    return {
-      camera: PermissionResult.GRANTED,
-      location: PermissionResult.GRANTED
-    };
-  }
-
-  try {
-    const results = await requestMultipleAndroidPermissions([
-      PermissionsAndroid.PERMISSIONS.CAMERA,
-      PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION
-    ]);
-
-    const resultMap = results.reduce((acc, { permission, result }) => {
-      if (permission === PermissionsAndroid.PERMISSIONS.CAMERA) {
-        acc.camera = result;
-      } else if (permission === PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION) {
-        acc.location = result;
+    // Create a map of Android permissions to request
+    const permissionsToRequest: Record<string, string> = {};
+    permissionTypes.forEach(type => {
+      const androidPermission = PERMISSION_MAP[type];
+      if (androidPermission) {
+        permissionsToRequest[type] = androidPermission;
       }
-      return acc;
-    }, { 
-      camera: PermissionResult.DENIED, 
-      location: PermissionResult.DENIED 
     });
 
-    return resultMap;
+    // Request all permissions
+    const permissionResults = await Promise.all(
+      permissionTypes.map(type => requestAndroidPermission(type))
+    );
+
+    // Process results
+    const results: Record<PermissionType, PermissionResult> = {};
+    permissionResults.forEach(result => {
+      results[result.permissionType] = result;
+    });
+
+    // Check if all permissions were granted
+    const allGranted = permissionResults.every(result => result.granted);
+
+    return { results, allGranted };
   } catch (error) {
-    console.error('Error requesting Health journey permissions:', error);
+    console.error('Error requesting multiple permissions:', error);
+    
+    // Create error results for all permissions
+    const results: Record<PermissionType, PermissionResult> = {};
+    permissionTypes.forEach(type => {
+      results[type] = {
+        granted: false,
+        permissionType: type,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    });
+
+    return { results, allGranted: false };
+  }
+}
+
+/**
+ * Checks if the app has been granted necessary permissions on Android.
+ * This is a backward-compatible function that maintains the original API.
+ * 
+ * @returns A promise that resolves to `true` if the storage permission is granted, and `false` otherwise.
+ */
+export const checkAndroidPermissions = async (): Promise<boolean> => {
+  return checkAndroidPermission(PermissionType.STORAGE);
+};
+
+/**
+ * Requests all permissions required for the health journey.
+ * This includes camera and location permissions.
+ * 
+ * @returns A promise that resolves to a MultiplePermissionResult object
+ */
+export async function requestHealthJourneyPermissions(): Promise<ApiResponse<MultiplePermissionResult>> {
+  try {
+    const result = await requestMultipleAndroidPermissions([
+      PermissionType.CAMERA,
+      PermissionType.LOCATION,
+    ]);
+
     return {
-      camera: PermissionResult.DENIED,
-      location: PermissionResult.DENIED
+      data: result,
+      success: result.allGranted,
+      message: result.allGranted 
+        ? 'All health journey permissions granted' 
+        : 'Some health journey permissions were denied',
+    };
+  } catch (error) {
+    console.error('Error requesting health journey permissions:', error);
+    return {
+      data: {
+        results: {},
+        allGranted: false,
+      },
+      success: false,
+      message: 'Failed to request health journey permissions',
+      errors: {
+        permissions: [error instanceof Error ? error.message : String(error)],
+      },
     };
   }
-};
+}
