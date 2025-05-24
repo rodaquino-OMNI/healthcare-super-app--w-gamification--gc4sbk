@@ -1,6 +1,9 @@
 import styled, { css } from 'styled-components';
 import { ThemeProps } from '@austa/interfaces/themes';
-import { JourneyType } from '@austa/interfaces/themes';
+import { JourneySpecificTheme } from '@austa/interfaces/themes';
+
+// Type for journey keys
+type JourneyType = 'health' | 'care' | 'plan';
 
 export const CheckboxContainer = styled.div<{ disabled?: boolean }>`
   display: flex;
@@ -39,16 +42,16 @@ export const StyledCheckbox = styled.div<{
     if (disabled) return theme.colors.neutral.gray400;
     if (error) return theme.colors.semantic.error;
     if (checked) {
-      if (journey) return theme.colors.journeys[journey].primary;
-      return theme.colors.brand.primary;
+      // Use journey-specific color if available, otherwise use brand primary
+      return journey ? theme.colors.journeys[journey].primary : theme.colors.brand.primary;
     }
     return theme.colors.neutral.gray500;
   }};
   background-color: ${({ theme, checked, disabled, journey }) => {
     if (disabled) return theme.colors.neutral.gray100;
     if (checked) {
-      if (journey) return theme.colors.journeys[journey].primary;
-      return theme.colors.brand.primary;
+      // Use journey-specific color if available, otherwise use brand primary
+      return journey ? theme.colors.journeys[journey].primary : theme.colors.brand.primary;
     }
     return theme.colors.neutral.white;
   }};
@@ -76,11 +79,11 @@ export const StyledCheckbox = styled.div<{
       `}
   }
   
-  /* Improved accessibility styling for focus states */
+  /* Improved focus state for accessibility */
   &:focus-within {
-    outline: none;
-    box-shadow: 0 0 0 2px ${({ theme, journey }) => 
-      journey ? theme.colors.journeys[journey].focus : theme.colors.brand.focus};
+    outline: 2px solid ${({ theme, journey }) => 
+      journey ? theme.colors.journeys[journey].primary : theme.colors.brand.primary};
+    outline-offset: 2px;
   }
 `;
 
