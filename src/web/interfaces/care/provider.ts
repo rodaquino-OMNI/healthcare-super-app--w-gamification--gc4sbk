@@ -1,18 +1,52 @@
 /**
- * Provider Interface
+ * @file Provider interface for the AUSTA SuperApp Care journey
  * 
- * Defines the structure for healthcare providers in the AUSTA SuperApp Care journey.
- * This interface represents healthcare providers available in the system, including
- * properties for provider identification, specialty, location, contact information,
- * availability, and telemedicine capabilities.
+ * This file defines the Provider interface which represents healthcare providers
+ * available in the system. It includes properties for provider identification,
+ * specialty, location, contact information, availability, and telemedicine capabilities.
  * 
- * @module care
+ * The Provider interface is used throughout the Care journey for provider search,
+ * appointment scheduling, and displaying provider information.
  */
 
+import { Nullable } from '../common/types';
+
 /**
- * Represents a geographic coordinate point for provider location
+ * Represents a medical specialty that a healthcare provider may practice
  */
-export interface GeoCoordinates {
+export enum MedicalSpecialty {
+  GENERAL_PRACTICE = 'GENERAL_PRACTICE',
+  CARDIOLOGY = 'CARDIOLOGY',
+  DERMATOLOGY = 'DERMATOLOGY',
+  ENDOCRINOLOGY = 'ENDOCRINOLOGY',
+  GASTROENTEROLOGY = 'GASTROENTEROLOGY',
+  NEUROLOGY = 'NEUROLOGY',
+  OBSTETRICS_GYNECOLOGY = 'OBSTETRICS_GYNECOLOGY',
+  ONCOLOGY = 'ONCOLOGY',
+  OPHTHALMOLOGY = 'OPHTHALMOLOGY',
+  ORTHOPEDICS = 'ORTHOPEDICS',
+  PEDIATRICS = 'PEDIATRICS',
+  PSYCHIATRY = 'PSYCHIATRY',
+  PULMONOLOGY = 'PULMONOLOGY',
+  RHEUMATOLOGY = 'RHEUMATOLOGY',
+  UROLOGY = 'UROLOGY',
+  OTHER = 'OTHER',
+}
+
+/**
+ * Represents a provider's certification status
+ */
+export enum ProviderCertificationStatus {
+  ACTIVE = 'ACTIVE',
+  PENDING = 'PENDING',
+  EXPIRED = 'EXPIRED',
+  REVOKED = 'REVOKED',
+}
+
+/**
+ * Represents a geographic location with coordinates
+ */
+export interface GeoLocation {
   /** Latitude coordinate */
   latitude: number;
   /** Longitude coordinate */
@@ -20,29 +54,42 @@ export interface GeoCoordinates {
 }
 
 /**
- * Represents a physical address for a provider
+ * Represents a physical address
  */
-export interface ProviderAddress {
-  /** Street address including building/suite number */
+export interface Address {
+  /** Street name and number */
   street: string;
+  /** Additional address details (apt, suite, etc.) */
+  complement?: string;
   /** City name */
   city: string;
   /** State or province */
   state: string;
-  /** Postal code */
-  zipCode: string;
-  /** Country */
+  /** Postal or ZIP code */
+  postalCode: string;
+  /** Country name */
   country: string;
-  /** Geographic coordinates for mapping and distance calculations */
-  coordinates?: GeoCoordinates;
-  /** Whether this is the primary practice location */
-  isPrimary: boolean;
+  /** Geographic coordinates for mapping */
+  coordinates?: GeoLocation;
 }
 
 /**
- * Represents a time slot in a provider's schedule
+ * Represents a day of the week
  */
-export interface TimeSlot {
+export enum DayOfWeek {
+  MONDAY = 'MONDAY',
+  TUESDAY = 'TUESDAY',
+  WEDNESDAY = 'WEDNESDAY',
+  THURSDAY = 'THURSDAY',
+  FRIDAY = 'FRIDAY',
+  SATURDAY = 'SATURDAY',
+  SUNDAY = 'SUNDAY',
+}
+
+/**
+ * Represents a time range with start and end times
+ */
+export interface TimeRange {
   /** Start time in 24-hour format (HH:MM) */
   startTime: string;
   /** End time in 24-hour format (HH:MM) */
@@ -50,191 +97,158 @@ export interface TimeSlot {
 }
 
 /**
- * Days of the week
- */
-export enum WeekDay {
-  MONDAY = 'MONDAY',
-  TUESDAY = 'TUESDAY',
-  WEDNESDAY = 'WEDNESDAY',
-  THURSDAY = 'THURSDAY',
-  FRIDAY = 'FRIDAY',
-  SATURDAY = 'SATURDAY',
-  SUNDAY = 'SUNDAY'
-}
-
-/**
  * Represents a provider's availability for a specific day
  */
 export interface DailyAvailability {
   /** Day of the week */
-  day: WeekDay;
-  /** Available time slots for this day */
-  timeSlots: TimeSlot[];
+  day: DayOfWeek;
   /** Whether the provider is available on this day */
   isAvailable: boolean;
+  /** Time ranges when the provider is available */
+  timeRanges: TimeRange[];
 }
 
 /**
- * Types of telemedicine services offered by providers
- */
-export enum TelemedicineServiceType {
-  VIDEO_CONSULTATION = 'VIDEO_CONSULTATION',
-  AUDIO_ONLY = 'AUDIO_ONLY',
-  SECURE_MESSAGING = 'SECURE_MESSAGING',
-  REMOTE_MONITORING = 'REMOTE_MONITORING'
-}
-
-/**
- * Represents a provider's telemedicine capabilities
+ * Represents a healthcare provider's telemedicine capabilities
  */
 export interface TelemedicineCapability {
-  /** Whether the provider offers telemedicine services */
-  isAvailable: boolean;
-  /** Types of telemedicine services offered */
-  serviceTypes: TelemedicineServiceType[];
-  /** Supported platforms or applications */
-  platforms: string[];
-  /** Special instructions for telemedicine appointments */
-  instructions?: string;
+  /** Whether the provider supports telemedicine */
+  isSupported: boolean;
+  /** Platforms supported for telemedicine (e.g., 'app', 'web', 'phone') */
+  supportedPlatforms?: string[];
+  /** Additional notes about telemedicine services */
+  notes?: string;
 }
 
 /**
- * Provider specialties based on standard medical taxonomy
- */
-export enum ProviderSpecialty {
-  FAMILY_MEDICINE = 'FAMILY_MEDICINE',
-  INTERNAL_MEDICINE = 'INTERNAL_MEDICINE',
-  PEDIATRICS = 'PEDIATRICS',
-  OBSTETRICS_GYNECOLOGY = 'OBSTETRICS_GYNECOLOGY',
-  CARDIOLOGY = 'CARDIOLOGY',
-  DERMATOLOGY = 'DERMATOLOGY',
-  ENDOCRINOLOGY = 'ENDOCRINOLOGY',
-  GASTROENTEROLOGY = 'GASTROENTEROLOGY',
-  NEUROLOGY = 'NEUROLOGY',
-  ONCOLOGY = 'ONCOLOGY',
-  OPHTHALMOLOGY = 'OPHTHALMOLOGY',
-  ORTHOPEDICS = 'ORTHOPEDICS',
-  PSYCHIATRY = 'PSYCHIATRY',
-  PSYCHOLOGY = 'PSYCHOLOGY',
-  PULMONOLOGY = 'PULMONOLOGY',
-  RADIOLOGY = 'RADIOLOGY',
-  UROLOGY = 'UROLOGY',
-  PHYSICAL_THERAPY = 'PHYSICAL_THERAPY',
-  NUTRITION = 'NUTRITION',
-  OTHER = 'OTHER'
-}
-
-/**
- * Provider types in the healthcare system
- */
-export enum ProviderType {
-  PHYSICIAN = 'PHYSICIAN',
-  NURSE_PRACTITIONER = 'NURSE_PRACTITIONER',
-  PHYSICIAN_ASSISTANT = 'PHYSICIAN_ASSISTANT',
-  REGISTERED_NURSE = 'REGISTERED_NURSE',
-  THERAPIST = 'THERAPIST',
-  COUNSELOR = 'COUNSELOR',
-  DIETITIAN = 'DIETITIAN',
-  SPECIALIST = 'SPECIALIST',
-  OTHER = 'OTHER'
-}
-
-/**
- * Represents a healthcare provider's education
- */
-export interface ProviderEducation {
-  /** Name of the institution */
-  institution: string;
-  /** Degree or certification obtained */
-  degree: string;
-  /** Field of study */
-  fieldOfStudy: string;
-  /** Year the degree was obtained */
-  graduationYear: number;
-}
-
-/**
- * Represents a healthcare provider's certification
- */
-export interface ProviderCertification {
-  /** Name of the certification */
-  name: string;
-  /** Organization that issued the certification */
-  issuingOrganization: string;
-  /** Year the certification was obtained */
-  issueYear: number;
-  /** Year the certification expires (if applicable) */
-  expirationYear?: number;
-}
-
-/**
- * Represents a healthcare provider's hospital affiliation
- */
-export interface HospitalAffiliation {
-  /** Hospital name */
-  hospitalName: string;
-  /** Affiliation status (e.g., "Active", "Courtesy") */
-  affiliationStatus: string;
-  /** Start year of the affiliation */
-  startYear: number;
-  /** End year of the affiliation (if applicable) */
-  endYear?: number;
-}
-
-/**
- * Represents a healthcare provider in the AUSTA SuperApp Care journey
+ * Represents a healthcare provider in the AUSTA SuperApp
  */
 export interface Provider {
   /** Unique identifier for the provider */
   id: string;
-  /** National Provider Identifier number */
-  npiNumber?: string;
+  
   /** Provider's full name */
   name: string;
-  /** Provider's professional credentials (e.g., MD, RN, etc.) */
-  credentials: string;
-  /** Provider type */
-  type: ProviderType;
-  /** Provider's primary specialty */
-  primarySpecialty: ProviderSpecialty;
-  /** Provider's additional specialties */
-  additionalSpecialties?: ProviderSpecialty[];
-  /** Brief professional description */
-  biography?: string;
-  /** URL to provider's profile image */
+  
+  /** Provider's professional title (e.g., 'MD', 'DO', 'NP') */
+  title: string;
+  
+  /** URL to the provider's profile image */
   profileImageUrl?: string;
-  /** Provider's practice locations */
-  locations: ProviderAddress[];
-  /** Provider's contact phone number */
-  phoneNumber: string;
-  /** Provider's fax number */
-  faxNumber?: string;
-  /** Provider's email address */
-  email?: string;
-  /** Provider's website */
-  website?: string;
+  
+  /** Provider's medical license number */
+  licenseNumber: string;
+  
+  /** Current status of the provider's certification */
+  certificationStatus: ProviderCertificationStatus;
+  
+  /** Primary medical specialty */
+  primarySpecialty: MedicalSpecialty;
+  
+  /** Additional medical specialties */
+  additionalSpecialties?: MedicalSpecialty[];
+  
+  /** Years of professional experience */
+  yearsOfExperience: number;
+  
+  /** Brief professional biography */
+  biography?: string;
+  
   /** Languages spoken by the provider */
   languages: string[];
-  /** Provider's regular availability schedule */
-  availability: DailyAvailability[];
-  /** Provider's telemedicine capabilities */
-  telemedicineCapability: TelemedicineCapability;
+  
+  /** Provider's office address */
+  address: Address;
+  
+  /** Provider's contact phone number */
+  phoneNumber: string;
+  
+  /** Provider's email address */
+  email: string;
+  
+  /** Provider's website URL */
+  website?: string;
+  
   /** Whether the provider is accepting new patients */
   acceptingNewPatients: boolean;
-  /** Insurance plans accepted by the provider */
-  acceptedInsurancePlans: string[];
-  /** Provider's educational background */
-  education?: ProviderEducation[];
-  /** Provider's professional certifications */
-  certifications?: ProviderCertification[];
-  /** Provider's hospital affiliations */
-  hospitalAffiliations?: HospitalAffiliation[];
-  /** Years of professional experience */
-  yearsOfExperience?: number;
-  /** Average patient rating (1-5 scale) */
-  rating?: number;
+  
+  /** Insurance networks accepted by the provider */
+  acceptedInsurance: string[];
+  
+  /** Provider's regular availability schedule */
+  availability: DailyAvailability[];
+  
+  /** Provider's telemedicine capabilities */
+  telemedicineCapability: TelemedicineCapability;
+  
+  /** Average rating from patient reviews (1-5 scale) */
+  averageRating?: Nullable<number>;
+  
   /** Number of patient reviews */
   reviewCount?: number;
+  
+  /** Whether the provider offers home visits */
+  offersHomeVisits: boolean;
+  
+  /** Additional services offered by the provider */
+  additionalServices?: string[];
+  
+  /** Date when the provider joined the platform */
+  joinedDate: string;
+  
   /** Date when the provider information was last updated */
-  lastUpdated: Date;
+  lastUpdated: string;
+}
+
+/**
+ * Represents search parameters for finding providers
+ */
+export interface ProviderSearchParams {
+  /** Search by provider name */
+  name?: string;
+  
+  /** Filter by medical specialty */
+  specialty?: MedicalSpecialty;
+  
+  /** Filter by location (city, state, or postal code) */
+  location?: string;
+  
+  /** Filter by proximity to coordinates (requires radius) */
+  coordinates?: GeoLocation;
+  
+  /** Radius in kilometers for proximity search */
+  radius?: number;
+  
+  /** Filter by insurance accepted */
+  insurance?: string;
+  
+  /** Filter by languages spoken */
+  language?: string;
+  
+  /** Filter by availability on specific day */
+  availableDay?: DayOfWeek;
+  
+  /** Filter by gender */
+  gender?: string;
+  
+  /** Filter by minimum rating */
+  minRating?: number;
+  
+  /** Filter to only show providers accepting new patients */
+  acceptingNewPatientsOnly?: boolean;
+  
+  /** Filter to only show providers with telemedicine capability */
+  telemedicineOnly?: boolean;
+  
+  /** Number of results to return per page */
+  limit?: number;
+  
+  /** Page number for paginated results */
+  page?: number;
+  
+  /** Field to sort results by */
+  sortBy?: 'name' | 'rating' | 'distance' | 'availability';
+  
+  /** Sort direction */
+  sortDirection?: 'asc' | 'desc';
 }
