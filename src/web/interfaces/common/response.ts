@@ -1,203 +1,330 @@
 /**
- * Common API response interfaces for the AUSTA SuperApp
+ * @file response.ts
+ * @description Standardized API response interfaces for the AUSTA SuperApp
  * 
- * This file defines standardized response structures used across all domains
- * in the application. These interfaces ensure consistent API response formats
- * and provide type safety for frontend components consuming API data.
+ * This file defines the common response interfaces used across all domains and journeys
+ * in the AUSTA SuperApp. These interfaces ensure consistent API response structures
+ * throughout the application and provide type safety for frontend components consuming
+ * API data.
+ * 
+ * The interfaces include:
+ * - Base response interface (IApiResponse)
+ * - Success response interfaces (ISuccessResponse)
+ * - Error response interfaces (IErrorResponse)
+ * - Paginated response interfaces (IPaginatedResponse)
+ * - Collection response interfaces (ICollectionResponse)
  */
 
 /**
- * Base response interface that all API responses extend
- * Contains common fields present in all responses
+ * Base API response interface that all other response types extend
+ * Contains common fields for all API responses
  */
-export interface ApiResponse<T> {
-  /** Indicates if the request was successful */
+export interface IApiResponse {
+  /** 
+   * Success status of the response 
+   * true for successful responses, false for error responses
+   */
   success: boolean;
-  /** Optional message providing additional context about the response */
-  message?: string;
-  /** The response data payload (only present in successful responses) */
-  data?: T;
-  /** ISO timestamp when the response was generated */
+  
+  /** 
+   * Timestamp when the response was generated 
+   * ISO 8601 format string
+   */
   timestamp: string;
-  /** Unique request identifier for tracing and debugging */
-  requestId: string;
+  
+  /** 
+   * Optional request ID for tracing and debugging 
+   * Used for correlating logs and tracking request flow
+   */
+  requestId?: string;
 }
 
 /**
- * Success response containing a single item
- * @template T - The type of data returned
+ * Success response interface for single item responses
+ * @template T - The type of data being returned
  */
-export interface SuccessResponse<T> extends ApiResponse<T> {
+export interface ISuccessResponse<T> extends IApiResponse {
+  /** Always true for success responses */
   success: true;
+  
+  /** The data payload of the response */
   data: T;
+  
+  /** Optional metadata about the response */
+  meta?: Record<string, unknown>;
 }
 
 /**
- * Metadata for paginated responses
+ * Error code enum for standardized error classification
+ * Used to categorize errors across the application
  */
-export interface PaginationMeta {
-  /** Current page number (1-based) */
-  page: number;
-  /** Number of items per page */
-  pageSize: number;
-  /** Total number of items across all pages */
-  totalItems: number;
-  /** Total number of pages */
-  totalPages: number;
-  /** Whether there is a next page available */
-  hasNextPage: boolean;
-  /** Whether there is a previous page available */
-  hasPreviousPage: boolean;
+export enum ErrorCode {
+  // Client errors (4xx)
+  BAD_REQUEST = 'BAD_REQUEST',
+  UNAUTHORIZED = 'UNAUTHORIZED',
+  FORBIDDEN = 'FORBIDDEN',
+  NOT_FOUND = 'NOT_FOUND',
+  VALIDATION_ERROR = 'VALIDATION_ERROR',
+  CONFLICT = 'CONFLICT',
+  TOO_MANY_REQUESTS = 'TOO_MANY_REQUESTS',
+  
+  // Server errors (5xx)
+  INTERNAL_SERVER_ERROR = 'INTERNAL_SERVER_ERROR',
+  SERVICE_UNAVAILABLE = 'SERVICE_UNAVAILABLE',
+  GATEWAY_TIMEOUT = 'GATEWAY_TIMEOUT',
+  
+  // Journey-specific errors
+  HEALTH_SERVICE_ERROR = 'HEALTH_SERVICE_ERROR',
+  CARE_SERVICE_ERROR = 'CARE_SERVICE_ERROR',
+  PLAN_SERVICE_ERROR = 'PLAN_SERVICE_ERROR',
+  
+  // Integration errors
+  EXTERNAL_SERVICE_ERROR = 'EXTERNAL_SERVICE_ERROR',
+  INTEGRATION_ERROR = 'INTEGRATION_ERROR',
+  
+  // Data errors
+  DATA_INTEGRITY_ERROR = 'DATA_INTEGRITY_ERROR',
+  DATABASE_ERROR = 'DATABASE_ERROR',
+  
+  // Authentication/Authorization errors
+  TOKEN_EXPIRED = 'TOKEN_EXPIRED',
+  INVALID_TOKEN = 'INVALID_TOKEN',
+  INSUFFICIENT_PERMISSIONS = 'INSUFFICIENT_PERMISSIONS',
+  
+  // Validation errors
+  INVALID_INPUT = 'INVALID_INPUT',
+  MISSING_REQUIRED_FIELD = 'MISSING_REQUIRED_FIELD',
+  INVALID_FORMAT = 'INVALID_FORMAT',
+  
+  // Business logic errors
+  BUSINESS_RULE_VIOLATION = 'BUSINESS_RULE_VIOLATION',
+  RESOURCE_LIMIT_EXCEEDED = 'RESOURCE_LIMIT_EXCEEDED',
+  
+  // Unknown/unclassified errors
+  UNKNOWN_ERROR = 'UNKNOWN_ERROR'
 }
 
 /**
- * Metadata for collection responses
- */
-export interface CollectionMeta {
-  /** Total number of items in the collection */
-  totalItems: number;
-  /** ISO timestamp when the collection was last updated */
-  lastUpdated?: string;
-}
-
-/**
- * Success response containing a paginated collection of items
- * @template T - The type of items in the collection
- */
-export interface PaginatedResponse<T> extends ApiResponse<T[]> {
-  success: true;
-  data: T[];
-  /** Pagination metadata */
-  pagination: PaginationMeta;
-}
-
-/**
- * Success response containing a collection of items (non-paginated)
- * @template T - The type of items in the collection
- */
-export interface CollectionResponse<T> extends ApiResponse<T[]> {
-  success: true;
-  data: T[];
-  /** Collection metadata */
-  meta: CollectionMeta;
-}
-
-/**
- * Error severity levels
+ * Error severity levels for classifying the impact of errors
  */
 export enum ErrorSeverity {
-  INFO = 'info',
-  WARNING = 'warning',
-  ERROR = 'error',
-  CRITICAL = 'critical',
+  /** Informational issues that don't affect functionality */
+  INFO = 'INFO',
+  
+  /** Minor issues that don't significantly impact the user experience */
+  WARNING = 'WARNING',
+  
+  /** Serious issues that prevent specific functionality from working */
+  ERROR = 'ERROR',
+  
+  /** Critical issues that prevent core application functionality */
+  CRITICAL = 'CRITICAL'
 }
 
 /**
- * Error categories
+ * Validation error interface for field-specific validation errors
  */
-export enum ErrorCategory {
-  /** Client-side errors (4xx) */
-  CLIENT = 'client',
-  /** Server-side errors (5xx) */
-  SERVER = 'server',
-  /** Validation errors */
-  VALIDATION = 'validation',
-  /** Authentication/authorization errors */
-  AUTH = 'auth',
-  /** Business logic errors */
-  BUSINESS = 'business',
-  /** External service errors */
-  EXTERNAL = 'external',
-}
-
-/**
- * Base error details interface
- */
-export interface ErrorDetails {
-  /** Unique error code */
-  code: string;
-  /** Human-readable error message */
+export interface IValidationError {
+  /** Field that failed validation */
+  field: string;
+  
+  /** Error message for this field */
   message: string;
-  /** Error category */
-  category: ErrorCategory;
+  
+  /** Optional error code specific to this validation error */
+  code?: string;
+  
+  /** Optional value that was rejected */
+  rejectedValue?: unknown;
+}
+
+/**
+ * Error response interface for error responses
+ */
+export interface IErrorResponse extends IApiResponse {
+  /** Always false for error responses */
+  success: false;
+  
+  /** Error message describing what went wrong */
+  message: string;
+  
+  /** Error code for programmatic error handling */
+  code: ErrorCode;
+  
+  /** HTTP status code associated with this error */
+  status: number;
+  
   /** Error severity level */
   severity: ErrorSeverity;
-  /** Optional field name for validation errors */
-  field?: string;
-  /** Optional additional error context */
-  context?: Record<string, unknown>;
-  /** Optional HTTP status code */
-  status?: number;
-  /** Optional journey identifier for journey-specific errors */
-  journey?: 'health' | 'care' | 'plan' | 'gamification';
+  
+  /** Optional array of validation errors for validation failures */
+  validationErrors?: IValidationError[];
+  
+  /** Optional error details for debugging (not exposed in production) */
+  details?: Record<string, unknown>;
+  
+  /** Optional journey context where the error occurred */
+  journey?: 'health' | 'care' | 'plan';
+  
+  /** Optional error source (service or component that generated the error) */
+  source?: string;
+  
+  /** Optional error ID for tracking specific error instances */
+  errorId?: string;
+  
+  /** Optional suggestions for resolving the error */
+  suggestions?: string[];
 }
 
 /**
- * Validation error details for a specific field
+ * Pagination metadata interface for paginated responses
  */
-export interface ValidationErrorDetails extends ErrorDetails {
-  category: ErrorCategory.VALIDATION;
-  /** The field that failed validation */
-  field: string;
-  /** The validation rule that failed */
-  rule?: string;
-  /** The expected value or pattern */
-  expected?: string;
-  /** The received value */
-  received?: string;
+export interface IPaginationMeta {
+  /** Current page number (1-based) */
+  currentPage: number;
+  
+  /** Number of items per page */
+  pageSize: number;
+  
+  /** Total number of items across all pages */
+  totalItems: number;
+  
+  /** Total number of pages */
+  totalPages: number;
+  
+  /** Whether there is a previous page */
+  hasPreviousPage: boolean;
+  
+  /** Whether there is a next page */
+  hasNextPage: boolean;
 }
 
 /**
- * Error response interface
+ * Paginated response interface for paginated data
+ * @template T - The type of items in the paginated response
  */
-export interface ErrorResponse extends ApiResponse<never> {
-  success: false;
-  /** Primary error details */
-  error: ErrorDetails;
-  /** Optional additional errors (e.g., for validation errors on multiple fields) */
-  errors?: ErrorDetails[];
+export interface IPaginatedResponse<T> extends ISuccessResponse<T[]> {
+  /** Pagination metadata */
+  meta: IPaginationMeta & Record<string, unknown>;
 }
 
 /**
- * Validation error response interface
+ * Collection metadata interface for collection responses
  */
-export interface ValidationErrorResponse extends ErrorResponse {
-  error: ValidationErrorDetails;
-  /** List of all validation errors */
-  errors: ValidationErrorDetails[];
+export interface ICollectionMeta {
+  /** Total number of items in the collection */
+  totalItems: number;
+  
+  /** Timestamp when the collection was last updated */
+  lastUpdated?: string;
+  
+  /** Optional filtering information applied to the collection */
+  filters?: Record<string, unknown>;
+  
+  /** Optional sorting information applied to the collection */
+  sort?: {
+    /** Field used for sorting */
+    field: string;
+    
+    /** Sort direction (asc or desc) */
+    direction: 'asc' | 'desc';
+  };
 }
 
 /**
- * Type guard to check if a response is a success response
+ * Collection response interface for lists of data
+ * @template T - The type of items in the collection
  */
-export function isSuccessResponse<T>(response: ApiResponse<T>): response is SuccessResponse<T> {
-  return response.success === true;
+export interface ICollectionResponse<T> extends ISuccessResponse<T[]> {
+  /** Collection metadata */
+  meta: ICollectionMeta & Record<string, unknown>;
 }
 
 /**
- * Type guard to check if a response is an error response
+ * Empty success response interface for operations that don't return data
  */
-export function isErrorResponse(response: ApiResponse<unknown>): response is ErrorResponse {
-  return response.success === false;
+export interface IEmptySuccessResponse extends IApiResponse {
+  /** Always true for success responses */
+  success: true;
+  
+  /** Optional metadata about the response */
+  meta?: Record<string, unknown>;
 }
 
 /**
- * Type guard to check if a response is a paginated response
+ * Batch operation result interface for bulk operations
+ * @template T - The type of items in the batch operation
  */
-export function isPaginatedResponse<T>(response: ApiResponse<T[] | T>): response is PaginatedResponse<T> {
-  return response.success === true && Array.isArray(response.data) && 'pagination' in response;
+export interface IBatchOperationResult<T> extends ISuccessResponse<{
+  /** Successfully processed items */
+  successful: T[];
+  
+  /** Failed items with their errors */
+  failed: Array<{
+    /** The item that failed */
+    item: Partial<T>;
+    
+    /** Error information */
+    error: {
+      /** Error message */
+      message: string;
+      
+      /** Error code */
+      code: ErrorCode;
+    };
+  }>;
+}> {
+  /** Batch operation metadata */
+  meta: {
+    /** Total number of items processed */
+    totalProcessed: number;
+    
+    /** Number of successful items */
+    successCount: number;
+    
+    /** Number of failed items */
+    failureCount: number;
+  } & Record<string, unknown>;
 }
 
 /**
- * Type guard to check if a response is a collection response
+ * Stream response interface for streaming data
+ * @template T - The type of items in the stream
  */
-export function isCollectionResponse<T>(response: ApiResponse<T[] | T>): response is CollectionResponse<T> {
-  return response.success === true && Array.isArray(response.data) && 'meta' in response;
+export interface IStreamResponse<T> extends ISuccessResponse<T[]> {
+  /** Stream metadata */
+  meta: {
+    /** Whether the stream has more data */
+    hasMore: boolean;
+    
+    /** Cursor for fetching the next batch of data */
+    nextCursor?: string;
+    
+    /** Timestamp of the oldest item in the stream */
+    oldestTimestamp?: string;
+    
+    /** Timestamp of the newest item in the stream */
+    newestTimestamp?: string;
+  } & Record<string, unknown>;
 }
 
 /**
- * Type guard to check if an error response is a validation error response
+ * Event response interface for event-based operations
+ * @template T - The type of event data
  */
-export function isValidationErrorResponse(response: ErrorResponse): response is ValidationErrorResponse {
-  return response.error.category === ErrorCategory.VALIDATION && Array.isArray(response.errors);
+export interface IEventResponse<T> extends ISuccessResponse<T> {
+  /** Event metadata */
+  meta: {
+    /** Event type */
+    eventType: string;
+    
+    /** Event source */
+    source: string;
+    
+    /** Event timestamp */
+    eventTimestamp: string;
+    
+    /** Event ID */
+    eventId: string;
+  } & Record<string, unknown>;
 }
