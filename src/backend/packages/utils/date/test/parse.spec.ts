@@ -1,127 +1,161 @@
-/**
- * @file parse.spec.ts
- * @description Tests for the date parsing utility re-exports
- */
-
 import { parseDate } from '../parse';
 
-describe('Date Parse Utilities', () => {
-  describe('parseDate', () => {
-    it('should parse a date string with default format (dd/MM/yyyy)', () => {
-      const dateStr = '25/12/2023';
-      const result = parseDate(dateStr);
-      
-      expect(result).toBeInstanceOf(Date);
-      expect(result.getDate()).toBe(25);
-      expect(result.getMonth()).toBe(11); // December is 11 (0-based)
-      expect(result.getFullYear()).toBe(2023);
+describe('Date Parse Module', () => {
+  describe('parseDate function', () => {
+    it('should be properly exported from parse module', () => {
+      expect(parseDate).toBeDefined();
+      expect(typeof parseDate).toBe('function');
     });
 
-    it('should parse a date string with custom format', () => {
-      const dateStr = '2023-12-25';
-      const format = 'yyyy-MM-dd';
-      const result = parseDate(dateStr, format);
+    it('should parse date strings with default format (dd/MM/yyyy)', () => {
+      const dateStr = '15/01/2023';
+      const parsedDate = parseDate(dateStr);
       
-      expect(result).toBeInstanceOf(Date);
-      expect(result.getDate()).toBe(25);
-      expect(result.getMonth()).toBe(11); // December is 11 (0-based)
-      expect(result.getFullYear()).toBe(2023);
+      expect(parsedDate).toBeInstanceOf(Date);
+      expect(parsedDate.getDate()).toBe(15);
+      expect(parsedDate.getMonth()).toBe(0); // January is 0
+      expect(parsedDate.getFullYear()).toBe(2023);
     });
 
-    it('should parse a date string with time components', () => {
-      const dateStr = '25/12/2023 14:30';
-      const format = 'dd/MM/yyyy HH:mm';
-      const result = parseDate(dateStr, format);
+    it('should parse date strings with custom format', () => {
+      const dateStr = '2023-01-15';
+      const formatStr = 'yyyy-MM-dd';
+      const parsedDate = parseDate(dateStr, formatStr);
       
-      expect(result).toBeInstanceOf(Date);
-      expect(result.getDate()).toBe(25);
-      expect(result.getMonth()).toBe(11); // December is 11 (0-based)
-      expect(result.getFullYear()).toBe(2023);
-      expect(result.getHours()).toBe(14);
-      expect(result.getMinutes()).toBe(30);
+      expect(parsedDate).toBeInstanceOf(Date);
+      expect(parsedDate.getDate()).toBe(15);
+      expect(parsedDate.getMonth()).toBe(0); // January is 0
+      expect(parsedDate.getFullYear()).toBe(2023);
     });
 
-    it('should parse a date string with pt-BR locale', () => {
-      const dateStr = '25/dez/2023'; // Portuguese abbreviated month
-      const format = 'dd/MMM/yyyy';
+    it('should parse date strings with time components', () => {
+      const dateStr = '15/01/2023 14:30';
+      const formatStr = 'dd/MM/yyyy HH:mm';
+      const parsedDate = parseDate(dateStr, formatStr);
+      
+      expect(parsedDate).toBeInstanceOf(Date);
+      expect(parsedDate.getDate()).toBe(15);
+      expect(parsedDate.getMonth()).toBe(0); // January is 0
+      expect(parsedDate.getFullYear()).toBe(2023);
+      expect(parsedDate.getHours()).toBe(14);
+      expect(parsedDate.getMinutes()).toBe(30);
+    });
+
+    it('should parse date strings with pt-BR locale', () => {
+      const dateStr = 'segunda-feira, 15 de janeiro de 2023';
+      const formatStr = 'EEEE, dd \\de MMMM \\de yyyy';
       const locale = 'pt-BR';
-      const result = parseDate(dateStr, format, locale);
+      const parsedDate = parseDate(dateStr, formatStr, locale);
       
-      expect(result).toBeInstanceOf(Date);
-      expect(result.getDate()).toBe(25);
-      expect(result.getMonth()).toBe(11); // December is 11 (0-based)
-      expect(result.getFullYear()).toBe(2023);
+      expect(parsedDate).toBeInstanceOf(Date);
+      expect(parsedDate.getDate()).toBe(15);
+      expect(parsedDate.getMonth()).toBe(0); // January is 0
+      expect(parsedDate.getFullYear()).toBe(2023);
     });
 
-    it('should parse a date string with en-US locale', () => {
-      const dateStr = '25/Dec/2023'; // English abbreviated month
-      const format = 'dd/MMM/yyyy';
+    it('should parse date strings with en-US locale', () => {
+      const dateStr = 'Monday, January 15, 2023';
+      const formatStr = 'EEEE, MMMM dd, yyyy';
       const locale = 'en-US';
-      const result = parseDate(dateStr, format, locale);
+      const parsedDate = parseDate(dateStr, formatStr, locale);
       
-      expect(result).toBeInstanceOf(Date);
-      expect(result.getDate()).toBe(25);
-      expect(result.getMonth()).toBe(11); // December is 11 (0-based)
-      expect(result.getFullYear()).toBe(2023);
+      expect(parsedDate).toBeInstanceOf(Date);
+      expect(parsedDate.getDate()).toBe(15);
+      expect(parsedDate.getMonth()).toBe(0); // January is 0
+      expect(parsedDate.getFullYear()).toBe(2023);
     });
 
-    it('should throw an error for invalid date string', () => {
-      const dateStr = 'invalid-date';
+    it('should throw an error for invalid date strings', () => {
+      const invalidDateStr = 'not-a-date';
       
       expect(() => {
-        parseDate(dateStr);
-      }).toThrow('Invalid date string: invalid-date for format: dd/MM/yyyy');
+        parseDate(invalidDateStr);
+      }).toThrow(Error);
+      expect(() => {
+        parseDate(invalidDateStr);
+      }).toThrow(`Invalid date string: ${invalidDateStr} for format: dd/MM/yyyy`);
     });
 
-    it('should throw an error when date string does not match format', () => {
-      const dateStr = '2023-12-25';
-      const format = 'dd/MM/yyyy';
+    it('should throw an error for date strings that do not match the format', () => {
+      const dateStr = '2023-01-15';
+      const formatStr = 'dd/MM/yyyy'; // Format doesn't match the date string
       
       expect(() => {
-        parseDate(dateStr, format);
-      }).toThrow(`Invalid date string: ${dateStr} for format: ${format}`);
+        parseDate(dateStr, formatStr);
+      }).toThrow(Error);
+      expect(() => {
+        parseDate(dateStr, formatStr);
+      }).toThrow(`Invalid date string: ${dateStr} for format: ${formatStr}`);
     });
 
-    it('should handle edge cases like leap years correctly', () => {
-      // February 29 in a leap year
-      const leapYearStr = '29/02/2020';
-      const leapYearResult = parseDate(leapYearStr);
-      
-      expect(leapYearResult).toBeInstanceOf(Date);
-      expect(leapYearResult.getDate()).toBe(29);
-      expect(leapYearResult.getMonth()).toBe(1); // February is 1 (0-based)
-      expect(leapYearResult.getFullYear()).toBe(2020);
-      
-      // February 29 in a non-leap year should throw an error
-      const nonLeapYearStr = '29/02/2023';
+    it('should throw an error for invalid dates (e.g., February 30)', () => {
+      const invalidDateStr = '30/02/2023'; // February 30 doesn't exist
       
       expect(() => {
-        parseDate(nonLeapYearStr);
-      }).toThrow(`Invalid date string: ${nonLeapYearStr} for format: dd/MM/yyyy`);
+        parseDate(invalidDateStr);
+      }).toThrow(Error);
     });
 
-    it('should handle different day and month positions based on locale', () => {
-      // MM/dd/yyyy format with en-US locale
-      const usDateStr = '12/25/2023';
-      const usFormat = 'MM/dd/yyyy';
-      const usLocale = 'en-US';
-      const usResult = parseDate(usDateStr, usFormat, usLocale);
+    it('should handle leap year edge cases correctly', () => {
+      // February 29 in leap year (valid)
+      const leapYearDateStr = '29/02/2020';
+      const leapYearDate = parseDate(leapYearDateStr);
       
-      expect(usResult).toBeInstanceOf(Date);
-      expect(usResult.getDate()).toBe(25);
-      expect(usResult.getMonth()).toBe(11); // December is 11 (0-based)
-      expect(usResult.getFullYear()).toBe(2023);
+      expect(leapYearDate).toBeInstanceOf(Date);
+      expect(leapYearDate.getDate()).toBe(29);
+      expect(leapYearDate.getMonth()).toBe(1); // February is 1
+      expect(leapYearDate.getFullYear()).toBe(2020);
       
-      // dd/MM/yyyy format with pt-BR locale
-      const brDateStr = '25/12/2023';
-      const brFormat = 'dd/MM/yyyy';
-      const brLocale = 'pt-BR';
-      const brResult = parseDate(brDateStr, brFormat, brLocale);
+      // February 29 in non-leap year (invalid)
+      const nonLeapYearDateStr = '29/02/2023';
       
-      expect(brResult).toBeInstanceOf(Date);
-      expect(brResult.getDate()).toBe(25);
-      expect(brResult.getMonth()).toBe(11); // December is 11 (0-based)
-      expect(brResult.getFullYear()).toBe(2023);
+      expect(() => {
+        parseDate(nonLeapYearDateStr);
+      }).toThrow(Error);
+    });
+
+    it('should parse dates with different separators', () => {
+      // Using hyphens
+      const hyphenDateStr = '15-01-2023';
+      const hyphenFormatStr = 'dd-MM-yyyy';
+      const hyphenDate = parseDate(hyphenDateStr, hyphenFormatStr);
+      
+      expect(hyphenDate).toBeInstanceOf(Date);
+      expect(hyphenDate.getDate()).toBe(15);
+      expect(hyphenDate.getMonth()).toBe(0); // January is 0
+      expect(hyphenDate.getFullYear()).toBe(2023);
+      
+      // Using dots
+      const dotDateStr = '15.01.2023';
+      const dotFormatStr = 'dd.MM.yyyy';
+      const dotDate = parseDate(dotDateStr, dotFormatStr);
+      
+      expect(dotDate).toBeInstanceOf(Date);
+      expect(dotDate.getDate()).toBe(15);
+      expect(dotDate.getMonth()).toBe(0); // January is 0
+      expect(dotDate.getFullYear()).toBe(2023);
+    });
+
+    it('should parse dates with different format patterns', () => {
+      // Year first (ISO format)
+      const isoDateStr = '2023-01-15';
+      const isoFormatStr = 'yyyy-MM-dd';
+      const isoDate = parseDate(isoDateStr, isoFormatStr);
+      
+      expect(isoDate).toBeInstanceOf(Date);
+      expect(isoDate.getDate()).toBe(15);
+      expect(isoDate.getMonth()).toBe(0); // January is 0
+      expect(isoDate.getFullYear()).toBe(2023);
+      
+      // Month first (US format)
+      const usDateStr = '01/15/2023';
+      const usFormatStr = 'MM/dd/yyyy';
+      const usDate = parseDate(usDateStr, usFormatStr);
+      
+      expect(usDate).toBeInstanceOf(Date);
+      expect(usDate.getDate()).toBe(15);
+      expect(usDate.getMonth()).toBe(0); // January is 0
+      expect(usDate.getFullYear()).toBe(2023);
     });
   });
 });
