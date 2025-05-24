@@ -7,326 +7,178 @@
  * for path aliases, and configures the language service to properly recognize shared packages.
  * 
  * It ensures that IDEs can provide accurate code navigation, auto-completion, and type checking
- * for TypeScript files across the monorepo, particularly for path aliases like @app/auth, 
+ * for TypeScript files across the monorepo, particularly for path aliases like @app/auth,
  * @app/shared, and @austa/* packages.
+ * 
+ * Key features:
+ * - Configures PnP-aware TypeScript resolution for the four new packages
+ *   (@austa/design-system, @design-system/primitives, @austa/interfaces, @austa/journey-context)
+ * - Registers path aliases from tsconfig.json to ensure proper module resolution for imports with @ prefix
+ * - Adds support for cross-platform type resolution between web and mobile applications
+ * - Enables proper IDE integration for TypeScript language features in the monorepo
  */
 
-const { existsSync, readFileSync } = require('fs');
-const { resolve, dirname, join } = require('path');
-const { createRequire, createRequireFromPath } = require('module');
+'use strict';
 
-// Support for older Node.js versions
-const createRequireImpl = createRequire || createRequireFromPath;
-const requireFn = createRequireImpl(__filename);
+const fs = require('fs');
+const path = require('path');
 
-// Find the project root directory (where the top-level package.json is located)
-const findProjectRoot = () => {
-  let currentDir = __dirname;
-  
-  while (currentDir !== '/') {
-    const packageJsonPath = join(currentDir, 'package.json');
-    
-    if (existsSync(packageJsonPath)) {
-      try {
-        const packageJson = JSON.parse(readFileSync(packageJsonPath, 'utf8'));
-        
-        // Check if this is the root package.json (has workspaces)
-        if (packageJson.workspaces) {
-          return currentDir;
-        }
-      } catch (e) {
-        // Ignore JSON parsing errors
-      }
-    }
-    
-    currentDir = dirname(currentDir);
+// Determine the project root directory
+const pnpFile = path.resolve(__dirname, '../../../.pnp.cjs');
+const projectRoot = path.resolve(path.dirname(pnpFile), '../..');
+
+// Check if the .pnp.cjs file exists
+if (!fs.existsSync(pnpFile)) {
+  console.error(`Failed to locate the .pnp.cjs file at ${pnpFile}`);
+  process.exit(1);
+}
+
+// Load the PnP API
+const pnpApi = require(pnpFile);
+
+// Register the TypeScript SDK with the PnP API
+if (typeof pnpApi.setup === 'function') {
+  pnpApi.setup();
+}
+
+// Load the TypeScript module
+let ts;
+try {
+  // First try to load from the project's dependencies
+  ts = require('typescript');
+} catch (e) {
+  try {
+    // Fallback to the SDK's own TypeScript version
+    ts = require(path.resolve(__dirname, './node_modules/typescript'));
+  } catch (e) {
+    console.error('Failed to load TypeScript. Make sure it\'s installed in your project.');
+    process.exit(1);
   }
-  
-  return process.cwd();
+}
+
+// Load the resolver and hook modules
+const resolver = require('./lib/resolver');
+const hook = require('./lib/hook');
+const pnpify = require('./lib/pnpify');
+const tsserver = require('./lib/tsserver');
+
+// Define the path aliases for the monorepo
+const pathAliases = {
+  '@app/auth': 'src/backend/auth-service',
+  '@app/shared': 'src/backend/shared',
+  '@austa/design-system': 'src/web/design-system',
+  '@design-system/primitives': 'src/web/primitives',
+  '@austa/interfaces': 'src/web/interfaces',
+  '@austa/journey-context': 'src/web/journey-context'
 };
 
-const projectRoot = findProjectRoot();
-const webRoot = join(projectRoot, 'src', 'web');
+// Initialize the TypeScript SDK with the PnP API and path aliases
+function initializeTypeScriptSdk() {
+  // Register the path aliases with the resolver
+  resolver.registerPathAliases(pathAliases, projectRoot);
+  
+  // Apply the PnP hook to TypeScript's module resolution
+  hook.applyPnPHook(ts, pnpApi);
+  
+  // Configure the TypeScript language service for IDE integration
+  tsserver.patchTypeScriptServer(ts);
+  
+  // Enable PnP-aware module resolution for TypeScript
+  pnpify.enablePnPInTypeScript(ts, pnpApi);
+  
+  // Log successful initialization
+  console.log('TypeScript SDK initialized with Yarn PnP integration');
+  console.log(`Using TypeScript version: ${ts.version}`);
+  
+  // Register the new packages with the TypeScript module resolution system
+  registerNewPackages();
+}
 
-// Get the Yarn PnP API
-let pnpApi;
+// Register the four new packages with the TypeScript module resolution system
+function registerNewPackages() {
+  const newPackages = [
+    {
+      name: '@austa/design-system',
+      path: path.resolve(projectRoot, 'src/web/design-system'),
+      description: 'Design system with journey-specific theming and component library'
+    },
+    {
+      name: '@design-system/primitives',
+      path: path.resolve(projectRoot, 'src/web/primitives'),
+      description: 'Fundamental design elements (colors, typography, spacing)'
+    },
+    {
+      name: '@austa/interfaces',
+      path: path.resolve(projectRoot, 'src/web/interfaces'),
+      description: 'Shared TypeScript interfaces for cross-journey data models'
+    },
+    {
+      name: '@austa/journey-context',
+      path: path.resolve(projectRoot, 'src/web/journey-context'),
+      description: 'Context provider for journey-specific state management'
+    }
+  ];
+  
+  // Register each package with the resolver
+  newPackages.forEach(pkg => {
+    resolver.registerPackage(pkg.name, pkg.path);
+    console.log(`Registered package: ${pkg.name} (${pkg.description})`);
+  });
+}
 
+// Load the tsconfig.json files to extract path mappings
+function loadTsConfigPathMappings() {
+  const tsconfigPaths = [
+    path.resolve(projectRoot, 'src/web/tsconfig.json'),
+    path.resolve(projectRoot, 'src/web/mobile/tsconfig.json'),
+    path.resolve(projectRoot, 'src/web/web/tsconfig.json')
+  ];
+  
+  tsconfigPaths.forEach(tsconfigPath => {
+    if (fs.existsSync(tsconfigPath)) {
+      try {
+        const tsconfig = JSON.parse(fs.readFileSync(tsconfigPath, 'utf8'));
+        if (tsconfig.compilerOptions && tsconfig.compilerOptions.paths) {
+          // Register the path mappings with the resolver
+          resolver.registerTsConfigPaths(tsconfig.compilerOptions.paths, path.dirname(tsconfigPath));
+          console.log(`Loaded path mappings from: ${tsconfigPath}`);
+        }
+      } catch (e) {
+        console.warn(`Failed to parse tsconfig.json at ${tsconfigPath}: ${e.message}`);
+      }
+    }
+  });
+}
+
+// Configure cross-platform type resolution between web and mobile
+function configureCrossPlatformResolution() {
+  // Define platform-specific file extensions
+  const platformExtensions = {
+    web: ['.web.ts', '.web.tsx', '.web.js', '.web.jsx'],
+    mobile: ['.native.ts', '.native.tsx', '.native.js', '.native.jsx', '.ios.ts', '.ios.js', '.android.ts', '.android.js']
+  };
+  
+  // Register platform-specific resolution strategies
+  resolver.registerPlatformExtensions(platformExtensions);
+  console.log('Configured cross-platform type resolution between web and mobile');
+}
+
+// Main execution
 try {
-  pnpApi = requireFn('pnpapi');
-} catch {
-  // The Plug'n'Play API might not be available in all environments
-  // In this case, we fall back to the standard resolution
-  console.warn('Yarn PnP API not available, falling back to standard resolution');
+  // Initialize the TypeScript SDK
+  initializeTypeScriptSdk();
+  
+  // Load path mappings from tsconfig.json files
+  loadTsConfigPathMappings();
+  
+  // Configure cross-platform resolution
+  configureCrossPlatformResolution();
+  
+  console.log('TypeScript SDK successfully configured for the AUSTA SuperApp monorepo');
+} catch (error) {
+  console.error('Failed to initialize TypeScript SDK:', error);
+  process.exit(1);
 }
 
-// Load TypeScript
-const ts = requireFn('typescript');
-
-// Patch TypeScript's module resolution
-if (pnpApi) {
-  // Save the original resolveModuleNames function
-  const originalResolveModuleNames = ts.resolveModuleNames;
-  
-  // Override the resolveModuleNames function to use PnP resolution
-  ts.resolveModuleNames = function(moduleNames, containingFile, reusedNames, redirectedReference, options, containingSourceFile) {
-    // First try to resolve using the original function
-    const originalResult = originalResolveModuleNames.call(ts, moduleNames, containingFile, reusedNames, redirectedReference, options, containingSourceFile);
-    
-    // For any modules that couldn't be resolved, try using PnP
-    return moduleNames.map((moduleName, index) => {
-      if (originalResult[index]) {
-        return originalResult[index];
-      }
-      
-      // Handle path aliases (@app/*, @austa/*, etc.)
-      if (moduleName.startsWith('@')) {
-        // Special handling for the new packages
-        if (
-          moduleName.startsWith('@austa/design-system') ||
-          moduleName.startsWith('@austa/interfaces') ||
-          moduleName.startsWith('@austa/journey-context') ||
-          moduleName.startsWith('@design-system/primitives')
-        ) {
-          try {
-            // Extract the package name and subpath
-            const [, scope, name, ...subPathParts] = moduleName.split('/');
-            const packageName = `@${scope}/${name}`;
-            const subPath = subPathParts.join('/');
-            
-            // Map to the actual package location
-            let packagePath;
-            
-            switch (packageName) {
-              case '@austa/design-system':
-                packagePath = join(webRoot, 'design-system');
-                break;
-              case '@austa/interfaces':
-                packagePath = join(webRoot, 'interfaces');
-                break;
-              case '@austa/journey-context':
-                packagePath = join(webRoot, 'journey-context');
-                break;
-              case '@design-system/primitives':
-                packagePath = join(webRoot, 'primitives');
-                break;
-              default:
-                return undefined;
-            }
-            
-            // Resolve to the actual file
-            const resolvedPath = subPath ? join(packagePath, 'src', subPath) : join(packagePath, 'src');
-            
-            if (existsSync(resolvedPath)) {
-              return {
-                resolvedFileName: resolvedPath,
-                isExternalLibraryImport: false,
-                extension: ts.Extension.Ts
-              };
-            }
-            
-            // Try with .ts, .tsx, .d.ts extensions
-            const extensions = ['.ts', '.tsx', '.d.ts', '.js', '.jsx'];
-            
-            for (const ext of extensions) {
-              const pathWithExt = `${resolvedPath}${ext}`;
-              
-              if (existsSync(pathWithExt)) {
-                return {
-                  resolvedFileName: pathWithExt,
-                  isExternalLibraryImport: false,
-                  extension: ext === '.ts' ? ts.Extension.Ts : 
-                             ext === '.tsx' ? ts.Extension.Tsx : 
-                             ext === '.d.ts' ? ts.Extension.Dts : 
-                             ext === '.js' ? ts.Extension.Js : 
-                             ts.Extension.Jsx
-                };
-              }
-            }
-          } catch (e) {
-            console.error(`Error resolving module ${moduleName}:`, e);
-          }
-        }
-        
-        // Handle other path aliases from tsconfig.json
-        try {
-          // Try to resolve using PnP API
-          const resolution = pnpApi.resolveRequest(moduleName, containingFile, { extensions: ['.ts', '.tsx', '.d.ts', '.js', '.jsx'] });
-          
-          if (resolution) {
-            const extension = resolution.endsWith('.ts') ? ts.Extension.Ts : 
-                             resolution.endsWith('.tsx') ? ts.Extension.Tsx : 
-                             resolution.endsWith('.d.ts') ? ts.Extension.Dts : 
-                             resolution.endsWith('.js') ? ts.Extension.Js : 
-                             resolution.endsWith('.jsx') ? ts.Extension.Jsx : 
-                             ts.Extension.Ts;
-            
-            return {
-              resolvedFileName: resolution,
-              isExternalLibraryImport: false,
-              extension
-            };
-          }
-        } catch (e) {
-          // PnP resolution failed, continue with other strategies
-        }
-      }
-      
-      // For non-alias imports, try standard Node resolution
-      try {
-        const resolution = requireFn.resolve(moduleName, { paths: [dirname(containingFile)] });
-        
-        if (resolution) {
-          const extension = resolution.endsWith('.ts') ? ts.Extension.Ts : 
-                           resolution.endsWith('.tsx') ? ts.Extension.Tsx : 
-                           resolution.endsWith('.d.ts') ? ts.Extension.Dts : 
-                           resolution.endsWith('.js') ? ts.Extension.Js : 
-                           resolution.endsWith('.jsx') ? ts.Extension.Jsx : 
-                           ts.Extension.Ts;
-          
-          return {
-            resolvedFileName: resolution,
-            isExternalLibraryImport: true,
-            extension
-          };
-        }
-      } catch (e) {
-        // Node resolution failed
-      }
-      
-      // Module couldn't be resolved
-      return undefined;
-    });
-  };
-  
-  // Patch TypeScript's file existence check
-  const originalFileExists = ts.sys.fileExists;
-  ts.sys.fileExists = function(path) {
-    // First try the original function
-    if (originalFileExists.call(ts.sys, path)) {
-      return true;
-    }
-    
-    // If the file doesn't exist normally, try to resolve it through PnP
-    try {
-      // Check if this is a path within our monorepo packages
-      if (path.includes('node_modules') || path.includes('@austa/') || path.includes('@design-system/')) {
-        const resolved = pnpApi.resolveRequest(path, null, { considerBuiltins: false });
-        return resolved ? originalFileExists.call(ts.sys, resolved) : false;
-      }
-      
-      return false;
-    } catch (e) {
-      return false;
-    }
-  };
-  
-  // Patch TypeScript's directory existence check
-  const originalDirectoryExists = ts.sys.directoryExists;
-  ts.sys.directoryExists = function(path) {
-    // First try the original function
-    if (originalDirectoryExists.call(ts.sys, path)) {
-      return true;
-    }
-    
-    // Special handling for our monorepo packages
-    if (path.includes('@austa/') || path.includes('@design-system/')) {
-      // Map virtual paths to actual paths
-      if (path.includes('@austa/design-system')) {
-        const mappedPath = path.replace(/@austa\/design-system/, join(webRoot, 'design-system/src'));
-        return originalDirectoryExists.call(ts.sys, mappedPath);
-      }
-      
-      if (path.includes('@austa/interfaces')) {
-        const mappedPath = path.replace(/@austa\/interfaces/, join(webRoot, 'interfaces/src'));
-        return originalDirectoryExists.call(ts.sys, mappedPath);
-      }
-      
-      if (path.includes('@austa/journey-context')) {
-        const mappedPath = path.replace(/@austa\/journey-context/, join(webRoot, 'journey-context/src'));
-        return originalDirectoryExists.call(ts.sys, mappedPath);
-      }
-      
-      if (path.includes('@design-system/primitives')) {
-        const mappedPath = path.replace(/@design-system\/primitives/, join(webRoot, 'primitives/src'));
-        return originalDirectoryExists.call(ts.sys, mappedPath);
-      }
-    }
-    
-    return false;
-  };
-  
-  // Patch TypeScript's readDirectory function
-  const originalReadDirectory = ts.sys.readDirectory;
-  ts.sys.readDirectory = function(path, extensions, exclude, include, depth) {
-    // First try the original function
-    try {
-      const originalResult = originalReadDirectory.call(ts.sys, path, extensions, exclude, include, depth);
-      if (originalResult.length > 0) {
-        return originalResult;
-      }
-    } catch (e) {
-      // Ignore errors from the original function
-    }
-    
-    // Special handling for our monorepo packages
-    if (path.includes('@austa/') || path.includes('@design-system/')) {
-      let mappedPath = path;
-      
-      // Map virtual paths to actual paths
-      if (path.includes('@austa/design-system')) {
-        mappedPath = path.replace(/@austa\/design-system/, join(webRoot, 'design-system/src'));
-      } else if (path.includes('@austa/interfaces')) {
-        mappedPath = path.replace(/@austa\/interfaces/, join(webRoot, 'interfaces/src'));
-      } else if (path.includes('@austa/journey-context')) {
-        mappedPath = path.replace(/@austa\/journey-context/, join(webRoot, 'journey-context/src'));
-      } else if (path.includes('@design-system/primitives')) {
-        mappedPath = path.replace(/@design-system\/primitives/, join(webRoot, 'primitives/src'));
-      }
-      
-      try {
-        return originalReadDirectory.call(ts.sys, mappedPath, extensions, exclude, include, depth);
-      } catch (e) {
-        // Ignore errors
-      }
-    }
-    
-    return [];
-  };
-  
-  // Configure TypeScript language service plugins
-  const projectService = ts.server?.ProjectService;
-  
-  if (projectService) {
-    const { configurePlugin } = projectService.prototype;
-    
-    projectService.prototype.configurePlugin = function(pluginName, configuration) {
-      // Add additional configuration for path mapping plugin if it exists
-      if (pluginName === 'typescript-plugin-path-mapping') {
-        const pathMappingConfig = configuration || {};
-        
-        // Add our package mappings
-        pathMappingConfig.paths = pathMappingConfig.paths || {};
-        
-        // Add mappings for our new packages
-        pathMappingConfig.paths['@austa/design-system'] = [join(webRoot, 'design-system/src')];
-        pathMappingConfig.paths['@austa/design-system/*'] = [join(webRoot, 'design-system/src/*')];
-        
-        pathMappingConfig.paths['@design-system/primitives'] = [join(webRoot, 'primitives/src')];
-        pathMappingConfig.paths['@design-system/primitives/*'] = [join(webRoot, 'primitives/src/*')];
-        
-        pathMappingConfig.paths['@austa/interfaces'] = [join(webRoot, 'interfaces/src')];
-        pathMappingConfig.paths['@austa/interfaces/*'] = [join(webRoot, 'interfaces/src/*')];
-        
-        pathMappingConfig.paths['@austa/journey-context'] = [join(webRoot, 'journey-context/src')];
-        pathMappingConfig.paths['@austa/journey-context/*'] = [join(webRoot, 'journey-context/src/*')];
-        
-        configuration = pathMappingConfig;
-      }
-      
-      return configurePlugin.call(this, pluginName, configuration);
-    };
-  }
-}
-
-// Export the patched TypeScript module
+// Export the TypeScript module for use by other scripts
 module.exports = ts;
