@@ -7,9 +7,9 @@ module.exports = {
       sourceDir: './ios',
       podfile: './ios/Podfile',
       xcodeProject: './ios/mobile.xcodeproj',
-      deploymentTarget: '14.0', // Updated minimum iOS version for better compatibility
+      deploymentTarget: '14.0', // Updated minimum iOS version supported
       buildSettings: {
-        EXCLUDED_ARCHS: '"arm64"', // Exclude arm64 for simulator builds to prevent architecture conflicts
+        EXCLUDED_ARCHS: '"arm64"', // For simulator builds on Apple Silicon
         IPHONEOS_DEPLOYMENT_TARGET: '14.0',
       },
     },
@@ -19,16 +19,12 @@ module.exports = {
       packageName: 'br.com.austa.superapp',
       buildGradlePath: './android/app/build.gradle',
       settingsGradlePath: './android/settings.gradle',
-      // Added specific Android configuration for better build performance
-      kotlinVersion: '1.8.0',
-      ndkVersion: '23.1.7779620',
-      compileSdkVersion: 33,
-      targetSdkVersion: 33,
-      minSdkVersion: 24,
+      kotlinVersion: '1.8.0', // Added Kotlin version for compatibility
+      ndkVersion: '23.1.7779620', // Added NDK version for native modules
     },
   },
 
-  // Native module dependencies configuration updated for React Native 0.73.4
+  // Native module dependencies configuration - updated for React Native 0.73.4
   dependencies: {
     // Icon library for journey-specific icons and navigation elements
     'react-native-vector-icons': {
@@ -88,8 +84,15 @@ module.exports = {
           packageImportPath: 'import com.swmansion.reanimated.ReanimatedPackage;',
           packageInstance: 'new ReanimatedPackage()',
           buildTypes: ['release', 'debug'],
-          // Enable hermes support for better performance
-          hermesEnabled: true,
+        },
+      },
+      // Add Babel plugin configuration for Reanimated
+      pluginConfig: {
+        babelPlugin: {
+          name: 'react-native-reanimated/plugin',
+          options: {
+            globals: ['__scanCodes'],
+          },
         },
       },
     },
@@ -104,10 +107,11 @@ module.exports = {
           sourceDir: './node_modules/react-native-svg/android',
           packageImportPath: 'import com.horcrux.svg.SvgPackage;',
           packageInstance: 'new SvgPackage()',
+          buildTypes: ['release', 'debug'],
         },
       },
     },
-    // Added fast image for optimized image loading in journey screens
+    // Fast Image for optimized image loading in journey screens
     'react-native-fast-image': {
       platforms: {
         ios: {
@@ -120,22 +124,22 @@ module.exports = {
         },
       },
     },
-    // Added safe area context for proper layout on notched devices
-    'react-native-safe-area-context': {
+    // Lottie for animations in gamification rewards
+    'lottie-react-native': {
       platforms: {
         ios: {
-          podspecPath: './node_modules/react-native-safe-area-context/react-native-safe-area-context.podspec',
+          podspecPath: './node_modules/lottie-react-native/lottie-react-native.podspec',
         },
         android: {
-          sourceDir: './node_modules/react-native-safe-area-context/android',
-          packageImportPath: 'import com.th3rdwave.safeareacontext.SafeAreaContextPackage;',
-          packageInstance: 'new SafeAreaContextPackage()',
+          sourceDir: './node_modules/lottie-react-native/src/android',
+          packageImportPath: 'import com.airbnb.android.react.lottie.LottiePackage;',
+          packageInstance: 'new LottiePackage()',
         },
       },
     },
   },
 
-  // Assets to be bundled with the application
+  // Assets to be bundled with the application - enhanced to include design system assets
   assets: [
     // Journey-specific fonts for consistent typography
     './src/assets/fonts',
@@ -143,30 +147,38 @@ module.exports = {
     './src/assets/images',
     // Animations for gamification rewards and journey transitions
     './src/assets/animations',
-    // Design system assets
+    // Design system assets from workspace packages
     '../design-system/src/assets',
-    // Design primitives assets
     '../primitives/src/assets',
   ],
 
-  // Source directories for resolving components
+  // Source code directories to include in the bundle
+  sourceExts: [
+    'js',
+    'jsx',
+    'ts',
+    'tsx',
+    'json',
+    'svg',
+    'png',
+    'jpg',
+    'ttf',
+    'otf',
+  ],
+
+  // Workspace package resolution for monorepo structure
   resolver: {
-    sourceExts: ['js', 'jsx', 'ts', 'tsx', 'json'],
-    // Include design system and journey context packages in module resolution
-    nodeModulesPaths: [
-      'node_modules',
-      '../design-system',
-      '../primitives',
-      '../interfaces',
-      '../journey-context',
-    ],
-    // Enable symlinks for monorepo workspace packages
-    enableSymlinks: true,
-    // Exclude specific directories from the resolver to improve performance
-    blockList: [/\.git/, /\.hg/, /node_modules\/react-native\/Libraries\/Animated\/src\/polyfills\/.*/, /\android\/build/, /\ios\/build/],
+    extraNodeModules: {
+      '@austa/design-system': path.resolve(__dirname, '../design-system'),
+      '@design-system/primitives': path.resolve(__dirname, '../primitives'),
+      '@austa/interfaces': path.resolve(__dirname, '../interfaces'),
+      '@austa/journey-context': path.resolve(__dirname, '../journey-context'),
+    },
+    // Ensure node_modules are properly resolved
+    nodeModulesPaths: ['./node_modules'],
   },
 
-  // Added transformer configuration for better TypeScript support
+  // Transformer configuration for handling various file types
   transformer: {
     getTransformOptions: async () => ({
       transform: {
@@ -174,9 +186,33 @@ module.exports = {
         inlineRequires: true,
       },
     }),
-    // Enable hermes for better performance
-    hermesEnabled: true,
-    // Enable source maps for better debugging
-    sourceMaps: true,
+    // SVG transformer for journey and gamification icons
+    svgTransformer: {
+      svgoConfig: {
+        plugins: [
+          {
+            name: 'preset-default',
+            params: {
+              overrides: {
+                removeViewBox: false,
+              },
+            },
+          },
+        ],
+      },
+    },
+  },
+
+  // Metro bundler configuration
+  metro: {
+    resetCache: true,
+    maxWorkers: 4,
+    // Ensure proper resolution of workspace packages
+    watchFolders: [
+      path.resolve(__dirname, '../design-system'),
+      path.resolve(__dirname, '../primitives'),
+      path.resolve(__dirname, '../interfaces'),
+      path.resolve(__dirname, '../journey-context'),
+    ],
   },
 };
