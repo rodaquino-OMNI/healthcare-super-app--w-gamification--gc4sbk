@@ -1,17 +1,15 @@
 import { Service } from '@austa/interfaces/common';
 import { FilterDto, PaginatedResponse, PaginationDto } from '@austa/interfaces/common/dto';
-
-// Import types from @austa/interfaces to ensure consistency across services
-import { User, CreateUserDto, UpdateUserDto } from '@austa/interfaces/auth';
-import { Role, CreateRoleDto, UpdateRoleDto } from '@austa/interfaces/auth';
-import { Permission, CreatePermissionDto, UpdatePermissionDto } from '@austa/interfaces/auth';
-import { TokenResponseDto } from '../dto/token-response.dto';
-import { RefreshTokenDto } from '../dto/refresh-token.dto';
+import { User } from '../dto/user.dto';
+import { Role } from '../dto/role.dto';
+import { Permission } from '../dto/permission.dto';
+import { CreateUserDto, UpdateUserDto } from '../dto/user.dto';
+import { CreateRoleDto, UpdateRoleDto } from '../dto/role.dto';
+import { CreatePermissionDto, UpdatePermissionDto } from '../dto/permission.dto';
 
 /**
  * Interface for the Authentication Service
- * Provides authentication-specific methods for user authentication, token generation,
- * and session management across the AUSTA SuperApp.
+ * Extends the generic Service interface with auth-specific methods
  */
 export interface IAuthService {
   /**
@@ -20,45 +18,42 @@ export interface IAuthService {
    * @param email - User's email address
    * @param password - User's password
    * @returns A promise resolving to the authenticated user if credentials are valid
-   * @throws Unauthorized exception if credentials are invalid
+   * @throws UnauthorizedException if credentials are invalid
    */
   validateCredentials(email: string, password: string): Promise<User>;
   
   /**
-   * Generates authentication tokens for the authenticated user
+   * Generates a JWT access token for the authenticated user
    * 
    * @param user - The authenticated user
-   * @returns A promise resolving to the token response containing access and refresh tokens
+   * @returns A promise resolving to the JWT access token
    */
-  generateTokens(user: User): Promise<TokenResponseDto>;
+  generateAccessToken(user: User): Promise<string>;
   
   /**
-   * Validates a refresh token and issues new access and refresh tokens
+   * Generates a refresh token for the authenticated user
    * 
-   * @param refreshTokenDto - The refresh token DTO containing the token to validate
-   * @returns A promise resolving to a new token response containing access and refresh tokens
-   * @throws UnauthorizedException if the refresh token is invalid or expired
+   * @param user - The authenticated user
+   * @returns A promise resolving to the refresh token
    */
-  refreshTokens(refreshTokenDto: RefreshTokenDto): Promise<TokenResponseDto>;
+  generateRefreshToken(user: User): Promise<string>;
+  
+  /**
+   * Validates a refresh token and returns a new access token
+   * 
+   * @param refreshToken - The refresh token to validate
+   * @returns A promise resolving to a new access token
+   * @throws UnauthorizedException if the refresh token is invalid
+   */
+  refreshAccessToken(refreshToken: string): Promise<string>;
   
   /**
    * Invalidates all tokens for a user (logout)
    * 
    * @param userId - The ID of the user to logout
-   * @param refreshToken - Optional refresh token to invalidate specifically
    * @returns A promise resolving to true if successful
-   * @throws NotFoundException if the user is not found
    */
-  logout(userId: string, refreshToken?: string): Promise<boolean>;
-  
-  /**
-   * Validates a JWT access token
-   * 
-   * @param token - The JWT access token to validate
-   * @returns A promise resolving to the decoded user data if valid
-   * @throws UnauthorizedException if the token is invalid or expired
-   */
-  validateToken(token: string): Promise<User>;
+  logout(userId: string): Promise<boolean>;
 }
 
 /**
@@ -81,7 +76,7 @@ export interface IUserService extends Service<User, CreateUserDto, UpdateUserDto
    * @param email - User's email address
    * @param password - User's password
    * @returns A promise resolving to the authenticated user if credentials are valid
-   * @throws Unauthorized exception if credentials are invalid
+   * @throws UnauthorizedException if credentials are invalid
    */
   validateCredentials(email: string, password: string): Promise<User>;
   
@@ -91,6 +86,7 @@ export interface IUserService extends Service<User, CreateUserDto, UpdateUserDto
    * @param userId - The ID of the user
    * @param roleId - The ID of the role to assign
    * @returns A promise resolving to the updated user
+   * @throws NotFoundException if the user or role is not found
    */
   assignRole(userId: string, roleId: string): Promise<User>;
   
@@ -100,27 +96,26 @@ export interface IUserService extends Service<User, CreateUserDto, UpdateUserDto
    * @param userId - The ID of the user
    * @param roleId - The ID of the role to remove
    * @returns A promise resolving to the updated user
+   * @throws NotFoundException if the user or role is not found
    */
   removeRole(userId: string, roleId: string): Promise<User>;
-  
-  /**
-   * Gets all permissions for a user (including those from roles)
-   * 
-   * @param userId - The ID of the user
-   * @returns A promise resolving to an array of permissions
-   * @throws NotFoundException if the user is not found
-   */
-  getUserPermissions(userId: string): Promise<Permission[]>;
   
   /**
    * Checks if a user has a specific permission
    * 
    * @param userId - The ID of the user
-   * @param permissionCode - The permission code to check
+   * @param permissionKey - The permission key to check
    * @returns A promise resolving to true if the user has the permission
-   * @throws NotFoundException if the user is not found
    */
-  hasPermission(userId: string, permissionCode: string): Promise<boolean>;
+  hasPermission(userId: string, permissionKey: string): Promise<boolean>;
+  
+  /**
+   * Gets all permissions for a user (from roles and direct assignments)
+   * 
+   * @param userId - The ID of the user
+   * @returns A promise resolving to an array of permissions
+   */
+  getPermissions(userId: string): Promise<Permission[]>;
 }
 
 /**
@@ -138,19 +133,12 @@ export interface IRoleService extends Service<Role, CreateRoleDto, UpdateRoleDto
   findByName(name: string): Promise<Role>;
   
   /**
-   * Gets the default role for new users
-   * 
-   * @returns A promise resolving to the default role
-   * @throws NotFoundException if no default role is configured
-   */
-  getDefaultRole(): Promise<Role>;
-  
-  /**
    * Assigns a permission to a role
    * 
    * @param roleId - The ID of the role
    * @param permissionId - The ID of the permission to assign
    * @returns A promise resolving to the updated role
+   * @throws NotFoundException if the role or permission is not found
    */
   assignPermission(roleId: string, permissionId: string): Promise<Role>;
   
@@ -160,6 +148,7 @@ export interface IRoleService extends Service<Role, CreateRoleDto, UpdateRoleDto
    * @param roleId - The ID of the role
    * @param permissionId - The ID of the permission to remove
    * @returns A promise resolving to the updated role
+   * @throws NotFoundException if the role or permission is not found
    */
   removePermission(roleId: string, permissionId: string): Promise<Role>;
   
@@ -169,7 +158,16 @@ export interface IRoleService extends Service<Role, CreateRoleDto, UpdateRoleDto
    * @param roleId - The ID of the role
    * @returns A promise resolving to an array of permissions
    */
-  getRolePermissions(roleId: string): Promise<Permission[]>;
+  getPermissions(roleId: string): Promise<Permission[]>;
+  
+  /**
+   * Gets all users assigned to a role
+   * 
+   * @param roleId - The ID of the role
+   * @param pagination - Optional pagination parameters
+   * @returns A promise resolving to a paginated response of users
+   */
+  getUsers(roleId: string, pagination?: PaginationDto): Promise<PaginatedResponse<User>>;
 }
 
 /**
@@ -178,54 +176,45 @@ export interface IRoleService extends Service<Role, CreateRoleDto, UpdateRoleDto
  */
 export interface IPermissionService extends Service<Permission, CreatePermissionDto, UpdatePermissionDto> {
   /**
-   * Finds a permission by its code
+   * Finds a permission by its key
    * 
-   * @param code - The permission code (e.g., 'health:metrics:read')
+   * @param key - The permission key (e.g., 'health:metrics:read')
    * @returns A promise resolving to the permission if found
    * @throws NotFoundException if the permission is not found
    */
-  findByCode(code: string): Promise<Permission>;
+  findByKey(key: string): Promise<Permission>;
   
   /**
-   * Checks if a user has a specific permission
+   * Gets all roles that have a specific permission
    * 
-   * @param userId - The ID of the user
-   * @param permissionCode - The permission code to check
-   * @returns A promise resolving to true if the user has the permission
+   * @param permissionId - The ID of the permission
+   * @param pagination - Optional pagination parameters
+   * @returns A promise resolving to a paginated response of roles
    */
-  hasPermission(userId: string, permissionCode: string): Promise<boolean>;
+  getRoles(permissionId: string, pagination?: PaginationDto): Promise<PaginatedResponse<Role>>;
   
   /**
-   * Gets all permissions for a journey
+   * Gets all users that have a specific permission (directly or via roles)
    * 
-   * @param journey - The journey name (e.g., 'health', 'care', 'plan')
-   * @returns A promise resolving to an array of permissions for the journey
+   * @param permissionId - The ID of the permission
+   * @param pagination - Optional pagination parameters
+   * @returns A promise resolving to a paginated response of users
    */
-  getJourneyPermissions(journey: string): Promise<Permission[]>;
+  getUsers(permissionId: string, pagination?: PaginationDto): Promise<PaginatedResponse<User>>;
   
   /**
-   * Creates default journey permissions if they don't exist
+   * Creates multiple permissions at once
    * 
-   * @param journey - The journey name (e.g., 'health', 'care', 'plan')
+   * @param permissions - Array of permission data to create
    * @returns A promise resolving to an array of created permissions
    */
-  createDefaultJourneyPermissions(journey: string): Promise<Permission[]>;
+  createMany(permissions: CreatePermissionDto[]): Promise<Permission[]>;
   
   /**
-   * Assigns a permission directly to a user (not through a role)
+   * Checks if a permission exists by its key
    * 
-   * @param userId - The ID of the user
-   * @param permissionId - The ID of the permission to assign
-   * @returns A promise resolving to true if successful
+   * @param key - The permission key to check
+   * @returns A promise resolving to true if the permission exists
    */
-  assignToUser(userId: string, permissionId: string): Promise<boolean>;
-  
-  /**
-   * Removes a permission directly from a user (not through a role)
-   * 
-   * @param userId - The ID of the user
-   * @param permissionId - The ID of the permission to remove
-   * @returns A promise resolving to true if successful
-   */
-  removeFromUser(userId: string, permissionId: string): Promise<boolean>;
+  exists(key: string): Promise<boolean>;
 }
