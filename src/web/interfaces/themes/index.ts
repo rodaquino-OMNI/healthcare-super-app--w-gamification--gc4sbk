@@ -14,12 +14,13 @@
  */
 
 // Core theme interfaces
-export type { 
+export type {
   Theme,
   ThemeContext,
   ThemeProviderProps,
   ThemeMode,
-  ThemeName,
+  ThemeProps,
+  WithTheme,
   UseThemeResult
 } from './theme.types';
 
@@ -33,9 +34,9 @@ export type {
   ZIndexTokens,
   OpacityTokens,
   RadiiTokens,
-  TransitionTokens,
   BreakpointTokens,
-  MediaQueryTokens
+  AnimationTokens,
+  SemanticColorTokens
 } from './tokens.types';
 
 // Style prop interfaces
