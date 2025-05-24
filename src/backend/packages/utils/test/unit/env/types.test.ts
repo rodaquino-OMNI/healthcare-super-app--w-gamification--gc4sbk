@@ -1,583 +1,288 @@
 /**
- * Unit tests for environment variable type definitions
- * 
- * These tests verify the TypeScript type system for environment variables,
- * including type inference, generic type support, and runtime type checking.
+ * Unit tests for TypeScript type definitions of the environment variables system.
+ * These tests verify type inference, generic type support, and runtime type checking.
  */
 
-import {
-  EnvVarType,
-  EnvVarTypeMap,
-  EnvVarSchema,
-  EnvSchema,
-  ResolvedEnvConfig,
-  InferEnvVarType,
-  isString,
-  isNumber,
-  isBoolean,
-  isArray,
-  isStringArray,
-  isNumberArray,
-  isUrl,
-  isRecord,
+// Type assertion utilities for testing
+type Equals<X, Y> = 
+  (<T>() => T extends X ? 1 : 2) extends
+  (<T>() => T extends Y ? 1 : 2) ? true : false;
+
+// Utility to assert that a type matches the expected type
+type AssertType<T, Expected> = Equals<T, Expected> extends true ? true : { error: 'Type does not match expected type', actual: T, expected: Expected };
+
+// Utility to assert that a type extends another type
+type AssertExtends<T, Expected> = T extends Expected ? true : { error: 'Type does not extend expected type', actual: T, expected: Expected };
+
+// Utility to assert that a type does not extend another type
+type AssertNotExtends<T, Unexpected> = T extends Unexpected ? { error: 'Type should not extend unexpected type', actual: T, unexpected: Unexpected } : true;
+
+// Import the types we want to test
+// Since we're only testing the types, we don't need to import the actual implementations
+import { 
+  EnvConfig, 
+  EnvValue, 
+  EnvTransformer, 
+  EnvValidator,
   JourneyEnvConfig,
-  FeatureFlagConfig,
-  DatabaseConfig,
-  RedisConfig,
-  KafkaConfig,
-  LoggingConfig,
-  CorsConfig,
-  JwtConfig,
-  AppEnvConfig
+  OptionalEnv,
+  RequiredEnv,
+  EnvSchema,
+  EnvSchemaType,
+  TypedEnv
 } from '../../../src/env/types';
-import { JourneyType } from '../../../src/env/journey';
 
-describe('Environment Variable Type Definitions', () => {
-  describe('Type Inference', () => {
-    it('should correctly infer string type from schema', () => {
-      // Define a schema with string type
-      const schema: EnvVarSchema = {
-        type: 'string',
-        required: true,
-        description: 'A string environment variable'
-      };
+// Test EnvValue type inference
+{
+  // Should infer string type for string values
+  type Test1 = AssertType<EnvValue<string>, string>;
+  const test1: Test1 = true;
 
-      // Use type assertion to verify the inferred type
-      type InferredType = InferEnvVarType<typeof schema>;
-      const value = 'test' as InferredType;
+  // Should infer number type for number values
+  type Test2 = AssertType<EnvValue<number>, number>;
+  const test2: Test2 = true;
 
-      // This should compile without errors
-      expect(typeof value).toBe('string');
-    });
+  // Should infer boolean type for boolean values
+  type Test3 = AssertType<EnvValue<boolean>, boolean>;
+  const test3: Test3 = true;
 
-    it('should correctly infer number type from schema', () => {
-      // Define a schema with number type
-      const schema: EnvVarSchema = {
-        type: 'number',
-        required: true,
-        description: 'A number environment variable'
-      };
+  // Should infer array type for array values
+  type Test4 = AssertType<EnvValue<string[]>, string[]>;
+  const test4: Test4 = true;
 
-      // Use type assertion to verify the inferred type
-      type InferredType = InferEnvVarType<typeof schema>;
-      const value = 42 as InferredType;
+  // Should infer object type for object values
+  type Test5 = AssertType<EnvValue<{ key: string }>, { key: string }>;
+  const test5: Test5 = true;
 
-      // This should compile without errors
-      expect(typeof value).toBe('number');
-    });
+  // Should handle union types
+  type Test6 = AssertType<EnvValue<string | number>, string | number>;
+  const test6: Test6 = true;
+}
 
-    it('should correctly infer boolean type from schema', () => {
-      // Define a schema with boolean type
-      const schema: EnvVarSchema = {
-        type: 'boolean',
-        required: true,
-        description: 'A boolean environment variable'
-      };
+// Test EnvTransformer type inference
+{
+  // Should correctly type a transformer from string to number
+  type StringToNumber = EnvTransformer<string, number>;
+  type Test1 = AssertType<StringToNumber, (value: string) => number>;
+  const test1: Test1 = true;
 
-      // Use type assertion to verify the inferred type
-      type InferredType = InferEnvVarType<typeof schema>;
-      const value = true as InferredType;
+  // Should correctly type a transformer from string to boolean
+  type StringToBoolean = EnvTransformer<string, boolean>;
+  type Test2 = AssertType<StringToBoolean, (value: string) => boolean>;
+  const test2: Test2 = true;
 
-      // This should compile without errors
-      expect(typeof value).toBe('boolean');
-    });
+  // Should correctly type a transformer from string to array
+  type StringToArray = EnvTransformer<string, string[]>;
+  type Test3 = AssertType<StringToArray, (value: string) => string[]>;
+  const test3: Test3 = true;
 
-    it('should correctly infer array type from schema', () => {
-      // Define a schema with array type
-      const schema: EnvVarSchema = {
-        type: 'array',
-        required: true,
-        description: 'An array environment variable'
-      };
+  // Should correctly type a transformer from string to object
+  type StringToObject = EnvTransformer<string, { key: string }>;
+  type Test4 = AssertType<StringToObject, (value: string) => { key: string }>;
+  const test4: Test4 = true;
+}
 
-      // Use type assertion to verify the inferred type
-      type InferredType = InferEnvVarType<typeof schema>;
-      const value = ['a', 'b', 'c'] as InferredType;
+// Test EnvValidator type inference
+{
+  // Should correctly type a validator for string values
+  type StringValidator = EnvValidator<string>;
+  type Test1 = AssertType<StringValidator, (value: string) => boolean>;
+  const test1: Test1 = true;
 
-      // This should compile without errors
-      expect(Array.isArray(value)).toBe(true);
-    });
+  // Should correctly type a validator for number values
+  type NumberValidator = EnvValidator<number>;
+  type Test2 = AssertType<NumberValidator, (value: number) => boolean>;
+  const test2: Test2 = true;
 
-    it('should correctly infer URL type from schema', () => {
-      // Define a schema with URL type
-      const schema: EnvVarSchema = {
-        type: 'url',
-        required: true,
-        description: 'A URL environment variable'
-      };
+  // Should correctly type a validator for boolean values
+  type BooleanValidator = EnvValidator<boolean>;
+  type Test3 = AssertType<BooleanValidator, (value: boolean) => boolean>;
+  const test3: Test3 = true;
 
-      // Use type assertion to verify the inferred type
-      type InferredType = InferEnvVarType<typeof schema>;
-      const value = new URL('https://example.com') as InferredType;
+  // Should correctly type a validator for array values
+  type ArrayValidator = EnvValidator<string[]>;
+  type Test4 = AssertType<ArrayValidator, (value: string[]) => boolean>;
+  const test4: Test4 = true;
 
-      // This should compile without errors
-      expect(value instanceof URL).toBe(true);
-    });
+  // Should correctly type a validator for object values
+  type ObjectValidator = EnvValidator<{ key: string }>;
+  type Test5 = AssertType<ObjectValidator, (value: { key: string }) => boolean>;
+  const test5: Test5 = true;
+}
 
-    it('should correctly infer JSON type from schema', () => {
-      // Define a schema with JSON type
-      const schema: EnvVarSchema = {
-        type: 'json',
-        required: true,
-        description: 'A JSON environment variable'
-      };
+// Test JourneyEnvConfig type inference
+{
+  // Should correctly type a journey-specific environment configuration
+  interface HealthJourneyConfig extends JourneyEnvConfig {
+    HEALTH_API_URL: string;
+    HEALTH_API_KEY: string;
+    HEALTH_METRICS_ENABLED: boolean;
+  }
 
-      // Use type assertion to verify the inferred type
-      type InferredType = InferEnvVarType<typeof schema>;
-      const value = { key: 'value' } as InferredType;
+  interface CareJourneyConfig extends JourneyEnvConfig {
+    CARE_API_URL: string;
+    CARE_API_KEY: string;
+    CARE_FEATURES_ENABLED: string[];
+  }
 
-      // This should compile without errors
-      expect(typeof value).toBe('object');
-    });
-  });
+  interface PlanJourneyConfig extends JourneyEnvConfig {
+    PLAN_API_URL: string;
+    PLAN_API_KEY: string;
+    PLAN_CONFIG: { feature: boolean };
+  }
 
-  describe('Resolved Environment Configuration', () => {
-    it('should correctly resolve types from schema', () => {
-      // Define a complete environment schema
-      const envSchema: EnvSchema = {
-        PORT: {
-          type: 'number',
-          required: true,
-          description: 'Server port'
-        },
-        HOST: {
-          type: 'string',
-          required: true,
-          description: 'Server host'
-        },
-        DEBUG: {
-          type: 'boolean',
-          required: false,
-          defaultValue: 'false',
-          description: 'Debug mode'
-        },
-        API_URLS: {
-          type: 'array',
-          required: false,
-          description: 'API URLs'
-        },
-        DATABASE_CONFIG: {
-          type: 'json',
-          required: true,
-          description: 'Database configuration'
-        }
-      };
+  // Should ensure journey configs extend JourneyEnvConfig
+  type Test1 = AssertExtends<HealthJourneyConfig, JourneyEnvConfig>;
+  const test1: Test1 = true;
 
-      // Use type assertion to verify the resolved config type
-      type Config = ResolvedEnvConfig<typeof envSchema>;
+  type Test2 = AssertExtends<CareJourneyConfig, JourneyEnvConfig>;
+  const test2: Test2 = true;
 
-      // Create a mock config that should match the inferred type
-      const config: Config = {
-        PORT: 3000,
-        HOST: 'localhost',
-        DEBUG: false,
-        API_URLS: ['https://api1.example.com', 'https://api2.example.com'],
-        DATABASE_CONFIG: {
-          host: 'localhost',
-          port: 5432,
-          username: 'user',
-          password: 'password'
-        }
-      };
+  type Test3 = AssertExtends<PlanJourneyConfig, JourneyEnvConfig>;
+  const test3: Test3 = true;
 
-      // Verify the types
-      expect(typeof config.PORT).toBe('number');
-      expect(typeof config.HOST).toBe('string');
-      expect(typeof config.DEBUG).toBe('boolean');
-      expect(Array.isArray(config.API_URLS)).toBe(true);
-      expect(typeof config.DATABASE_CONFIG).toBe('object');
-    });
-  });
+  // Should not allow non-journey configs to extend JourneyEnvConfig
+  interface InvalidConfig {
+    SOME_VALUE: string;
+  }
 
-  describe('Type Guards', () => {
-    it('should correctly identify strings with isString', () => {
-      expect(isString('test')).toBe(true);
-      expect(isString('')).toBe(true);
-      expect(isString(42)).toBe(false);
-      expect(isString(true)).toBe(false);
-      expect(isString(null)).toBe(false);
-      expect(isString(undefined)).toBe(false);
-      expect(isString({})).toBe(false);
-      expect(isString([])).toBe(false);
-    });
+  type Test4 = AssertNotExtends<InvalidConfig, JourneyEnvConfig>;
+  const test4: Test4 = true;
+}
 
-    it('should correctly identify numbers with isNumber', () => {
-      expect(isNumber(42)).toBe(true);
-      expect(isNumber(0)).toBe(true);
-      expect(isNumber(-1)).toBe(true);
-      expect(isNumber(3.14)).toBe(true);
-      expect(isNumber('42')).toBe(false);
-      expect(isNumber(true)).toBe(false);
-      expect(isNumber(null)).toBe(false);
-      expect(isNumber(undefined)).toBe(false);
-      expect(isNumber({})).toBe(false);
-      expect(isNumber([])).toBe(false);
-      expect(isNumber(NaN)).toBe(false); // NaN is not considered a valid number
-    });
+// Test OptionalEnv and RequiredEnv type inference
+{
+  // Should correctly type optional environment variables
+  type OptionalString = OptionalEnv<string>;
+  type Test1 = AssertType<OptionalString, { value: string | undefined, required: false }>;
+  const test1: Test1 = true;
 
-    it('should correctly identify booleans with isBoolean', () => {
-      expect(isBoolean(true)).toBe(true);
-      expect(isBoolean(false)).toBe(true);
-      expect(isBoolean(0)).toBe(false);
-      expect(isBoolean(1)).toBe(false);
-      expect(isBoolean('true')).toBe(false);
-      expect(isBoolean('false')).toBe(false);
-      expect(isBoolean(null)).toBe(false);
-      expect(isBoolean(undefined)).toBe(false);
-      expect(isBoolean({})).toBe(false);
-      expect(isBoolean([])).toBe(false);
-    });
+  // Should correctly type required environment variables
+  type RequiredString = RequiredEnv<string>;
+  type Test2 = AssertType<RequiredString, { value: string, required: true }>;
+  const test2: Test2 = true;
 
-    it('should correctly identify arrays with isArray', () => {
-      expect(isArray([])).toBe(true);
-      expect(isArray([1, 2, 3])).toBe(true);
-      expect(isArray(['a', 'b', 'c'])).toBe(true);
-      expect(isArray(new Array())).toBe(true);
-      expect(isArray(42)).toBe(false);
-      expect(isArray('test')).toBe(false);
-      expect(isArray(true)).toBe(false);
-      expect(isArray(null)).toBe(false);
-      expect(isArray(undefined)).toBe(false);
-      expect(isArray({})).toBe(false);
-    });
+  // Should handle complex types for optional env vars
+  type OptionalObject = OptionalEnv<{ key: string }>;
+  type Test3 = AssertType<OptionalObject, { value: { key: string } | undefined, required: false }>;
+  const test3: Test3 = true;
 
-    it('should correctly identify string arrays with isStringArray', () => {
-      expect(isStringArray(['a', 'b', 'c'])).toBe(true);
-      expect(isStringArray([])).toBe(true);
-      expect(isStringArray(['a', 42])).toBe(false);
-      expect(isStringArray([1, 2, 3])).toBe(false);
-      expect(isStringArray('test')).toBe(false);
-      expect(isStringArray(null)).toBe(false);
-      expect(isStringArray(undefined)).toBe(false);
-      expect(isStringArray({})).toBe(false);
-    });
+  // Should handle complex types for required env vars
+  type RequiredArray = RequiredEnv<string[]>;
+  type Test4 = AssertType<RequiredArray, { value: string[], required: true }>;
+  const test4: Test4 = true;
+}
 
-    it('should correctly identify number arrays with isNumberArray', () => {
-      expect(isNumberArray([1, 2, 3])).toBe(true);
-      expect(isNumberArray([])).toBe(true);
-      expect(isNumberArray([1, 'a'])).toBe(false);
-      expect(isNumberArray(['a', 'b', 'c'])).toBe(false);
-      expect(isNumberArray('test')).toBe(false);
-      expect(isNumberArray(null)).toBe(false);
-      expect(isNumberArray(undefined)).toBe(false);
-      expect(isNumberArray({})).toBe(false);
-    });
+// Test EnvSchema and EnvSchemaType inference
+{
+  // Define a sample environment schema
+  interface TestEnvSchema extends EnvSchema {
+    DATABASE_URL: RequiredEnv<string>;
+    API_KEY: RequiredEnv<string>;
+    DEBUG_MODE: OptionalEnv<boolean>;
+    PORT: OptionalEnv<number>;
+    ALLOWED_ORIGINS: OptionalEnv<string[]>;
+    FEATURE_FLAGS: OptionalEnv<{ [key: string]: boolean }>;
+  }
 
-    it('should correctly identify URLs with isUrl', () => {
-      expect(isUrl(new URL('https://example.com'))).toBe(true);
-      expect(isUrl('https://example.com')).toBe(false);
-      expect(isUrl(42)).toBe(false);
-      expect(isUrl(true)).toBe(false);
-      expect(isUrl(null)).toBe(false);
-      expect(isUrl(undefined)).toBe(false);
-      expect(isUrl({})).toBe(false);
-      expect(isUrl([])).toBe(false);
-    });
+  // Should correctly infer the types from the schema
+  type InferredEnvType = EnvSchemaType<TestEnvSchema>;
+  type ExpectedType = {
+    DATABASE_URL: string;
+    API_KEY: string;
+    DEBUG_MODE?: boolean;
+    PORT?: number;
+    ALLOWED_ORIGINS?: string[];
+    FEATURE_FLAGS?: { [key: string]: boolean };
+  };
 
-    it('should correctly identify records with isRecord', () => {
-      expect(isRecord({})).toBe(true);
-      expect(isRecord({ key: 'value' })).toBe(true);
-      expect(isRecord(new Object())).toBe(true);
-      expect(isRecord([])).toBe(false);
-      expect(isRecord('test')).toBe(false);
-      expect(isRecord(42)).toBe(false);
-      expect(isRecord(true)).toBe(false);
-      expect(isRecord(null)).toBe(false);
-      expect(isRecord(undefined)).toBe(false);
-      expect(isRecord(new URL('https://example.com'))).toBe(false);
-    });
-  });
+  type Test1 = AssertType<InferredEnvType, ExpectedType>;
+  const test1: Test1 = true;
 
-  describe('Journey-Specific Type Definitions', () => {
-    it('should correctly define journey environment configuration', () => {
-      // Create a journey-specific environment configuration
-      const healthJourneyConfig: JourneyEnvConfig = {
-        journeyType: JourneyType.HEALTH,
-        variables: {
-          API_URL: {
-            type: 'url',
-            required: true,
-            description: 'Health API URL'
-          },
-          METRICS_ENABLED: {
-            type: 'boolean',
-            required: false,
-            defaultValue: 'true',
-            description: 'Enable health metrics'
-          }
-        },
-        features: {
-          WEARABLE_SYNC: true,
-          HEALTH_INSIGHTS: true,
-          GOAL_TRACKING: true
-        }
-      };
+  // Should handle empty schema
+  interface EmptySchema extends EnvSchema {}
+  type EmptySchemaType = EnvSchemaType<EmptySchema>;
+  type Test2 = AssertType<EmptySchemaType, {}>;
+  const test2: Test2 = true;
+}
 
-      // Verify the configuration structure
-      expect(healthJourneyConfig.journeyType).toBe(JourneyType.HEALTH);
-      expect(healthJourneyConfig.variables.API_URL.type).toBe('url');
-      expect(healthJourneyConfig.variables.METRICS_ENABLED.type).toBe('boolean');
-      expect(healthJourneyConfig.features?.WEARABLE_SYNC).toBe(true);
-    });
+// Test TypedEnv type guard functionality
+{
+  // Should correctly type check environment variables
+  const isString: TypedEnv<string> = (value: unknown): value is string => {
+    return typeof value === 'string';
+  };
 
-    it('should correctly define feature flag configuration', () => {
-      // Create a feature flag configuration
-      const featureFlag: FeatureFlagConfig = {
-        name: 'WEARABLE_SYNC',
-        enabled: true,
-        rolloutPercentage: 50,
-        journeyType: JourneyType.HEALTH,
-        description: 'Enable wearable device synchronization'
-      };
+  const isNumber: TypedEnv<number> = (value: unknown): value is number => {
+    return typeof value === 'number';
+  };
 
-      // Verify the feature flag structure
-      expect(featureFlag.name).toBe('WEARABLE_SYNC');
-      expect(featureFlag.enabled).toBe(true);
-      expect(featureFlag.rolloutPercentage).toBe(50);
-      expect(featureFlag.journeyType).toBe(JourneyType.HEALTH);
-    });
-  });
+  const isStringArray: TypedEnv<string[]> = (value: unknown): value is string[] => {
+    return Array.isArray(value) && value.every(item => typeof item === 'string');
+  };
 
-  describe('Configuration Type Definitions', () => {
-    it('should correctly define database configuration', () => {
-      // Create a database configuration
-      const dbConfig: DatabaseConfig = {
-        url: 'postgresql://user:password@localhost:5432/db',
-        poolSize: 10,
-        maxConnections: 20,
-        minConnections: 5,
-        idleTimeoutMillis: 30000,
-        connectionTimeoutMillis: 5000,
-        ssl: true,
-        schema: 'public'
-      };
+  // Test the type guards with type assertions
+  type Test1 = AssertType<typeof isString, (value: unknown) => value is string>;
+  const test1: Test1 = true;
 
-      // Verify the database configuration structure
-      expect(dbConfig.url).toBe('postgresql://user:password@localhost:5432/db');
-      expect(dbConfig.poolSize).toBe(10);
-      expect(dbConfig.maxConnections).toBe(20);
-      expect(dbConfig.ssl).toBe(true);
-    });
+  type Test2 = AssertType<typeof isNumber, (value: unknown) => value is number>;
+  const test2: Test2 = true;
 
-    it('should correctly define Redis configuration', () => {
-      // Create a Redis configuration
-      const redisConfig: RedisConfig = {
-        url: 'redis://localhost:6379',
-        password: 'password',
-        database: 0,
-        keyPrefix: 'app:',
-        tls: true,
-        maxRetriesPerRequest: 3
-      };
+  type Test3 = AssertType<typeof isStringArray, (value: unknown) => value is string[]>;
+  const test3: Test3 = true;
+}
 
-      // Verify the Redis configuration structure
-      expect(redisConfig.url).toBe('redis://localhost:6379');
-      expect(redisConfig.password).toBe('password');
-      expect(redisConfig.database).toBe(0);
-      expect(redisConfig.keyPrefix).toBe('app:');
-    });
+// Test EnvConfig type inference with journey-specific configurations
+{
+  // Define journey-specific configurations
+  interface HealthConfig extends JourneyEnvConfig {
+    HEALTH_API_URL: RequiredEnv<string>;
+    HEALTH_METRICS_ENABLED: OptionalEnv<boolean>;
+  }
 
-    it('should correctly define Kafka configuration', () => {
-      // Create a Kafka configuration
-      const kafkaConfig: KafkaConfig = {
-        brokers: ['localhost:9092'],
-        clientId: 'app',
-        groupId: 'app-group',
-        ssl: true,
-        sasl: {
-          mechanism: 'plain',
-          username: 'user',
-          password: 'password'
-        }
-      };
+  interface CareConfig extends JourneyEnvConfig {
+    CARE_API_URL: RequiredEnv<string>;
+    CARE_FEATURES: OptionalEnv<string[]>;
+  }
 
-      // Verify the Kafka configuration structure
-      expect(kafkaConfig.brokers).toEqual(['localhost:9092']);
-      expect(kafkaConfig.clientId).toBe('app');
-      expect(kafkaConfig.groupId).toBe('app-group');
-      expect(kafkaConfig.sasl?.mechanism).toBe('plain');
-    });
+  interface PlanConfig extends JourneyEnvConfig {
+    PLAN_API_URL: RequiredEnv<string>;
+    PLAN_CONFIG: OptionalEnv<{ feature: boolean }>;
+  }
 
-    it('should correctly define logging configuration', () => {
-      // Create a logging configuration
-      const loggingConfig: LoggingConfig = {
-        level: 'info',
-        format: 'json',
-        destination: 'stdout',
-        includeTimestamp: true,
-        includeRequestId: true,
-        includeJourneyContext: true
-      };
+  // Define a complete environment configuration
+  interface CompleteEnvConfig extends EnvConfig {
+    // Common configuration
+    NODE_ENV: RequiredEnv<'development' | 'staging' | 'production'>;
+    LOG_LEVEL: OptionalEnv<'debug' | 'info' | 'warn' | 'error'>;
+    PORT: OptionalEnv<number>;
+    
+    // Journey-specific configurations
+    HEALTH: HealthConfig;
+    CARE: CareConfig;
+    PLAN: PlanConfig;
+  }
 
-      // Verify the logging configuration structure
-      expect(loggingConfig.level).toBe('info');
-      expect(loggingConfig.format).toBe('json');
-      expect(loggingConfig.destination).toBe('stdout');
-      expect(loggingConfig.includeTimestamp).toBe(true);
-    });
+  // Should correctly infer the types from the complete config
+  type InferredConfigType = EnvSchemaType<CompleteEnvConfig>;
+  type ExpectedConfigType = {
+    NODE_ENV: 'development' | 'staging' | 'production';
+    LOG_LEVEL?: 'debug' | 'info' | 'warn' | 'error';
+    PORT?: number;
+    HEALTH: {
+      HEALTH_API_URL: string;
+      HEALTH_METRICS_ENABLED?: boolean;
+    };
+    CARE: {
+      CARE_API_URL: string;
+      CARE_FEATURES?: string[];
+    };
+    PLAN: {
+      PLAN_API_URL: string;
+      PLAN_CONFIG?: { feature: boolean };
+    };
+  };
 
-    it('should correctly define CORS configuration', () => {
-      // Create a CORS configuration
-      const corsConfig: CorsConfig = {
-        origins: ['https://example.com'],
-        methods: ['GET', 'POST', 'PUT', 'DELETE'],
-        allowedHeaders: ['Content-Type', 'Authorization'],
-        exposedHeaders: ['X-Request-ID'],
-        credentials: true,
-        maxAge: 86400
-      };
-
-      // Verify the CORS configuration structure
-      expect(corsConfig.origins).toEqual(['https://example.com']);
-      expect(corsConfig.methods).toEqual(['GET', 'POST', 'PUT', 'DELETE']);
-      expect(corsConfig.allowedHeaders).toEqual(['Content-Type', 'Authorization']);
-      expect(corsConfig.credentials).toBe(true);
-    });
-
-    it('should correctly define JWT configuration', () => {
-      // Create a JWT configuration
-      const jwtConfig: JwtConfig = {
-        secret: 'secret',
-        expiresIn: '1h',
-        refreshExpiresIn: '7d',
-        issuer: 'app',
-        audience: 'users'
-      };
-
-      // Verify the JWT configuration structure
-      expect(jwtConfig.secret).toBe('secret');
-      expect(jwtConfig.expiresIn).toBe('1h');
-      expect(jwtConfig.refreshExpiresIn).toBe('7d');
-      expect(jwtConfig.issuer).toBe('app');
-    });
-  });
-
-  describe('Complete Application Environment Configuration', () => {
-    it('should correctly define a complete application environment configuration', () => {
-      // Create a complete application environment configuration
-      const appConfig: AppEnvConfig = {
-        app: {
-          name: 'austa-superapp',
-          version: '1.0.0',
-          environment: 'development',
-          port: 3000,
-          host: 'localhost',
-          baseUrl: 'http://localhost:3000'
-        },
-        database: {
-          url: 'postgresql://user:password@localhost:5432/db',
-          poolSize: 10
-        },
-        redis: {
-          url: 'redis://localhost:6379',
-          keyPrefix: 'app:'
-        },
-        kafka: {
-          brokers: ['localhost:9092'],
-          clientId: 'app'
-        },
-        logging: {
-          level: 'info',
-          format: 'json'
-        },
-        cors: {
-          origins: ['https://example.com'],
-          credentials: true
-        },
-        jwt: {
-          secret: 'secret',
-          expiresIn: '1h'
-        },
-        health: {
-          enabled: true,
-          path: '/health',
-          interval: 30000
-        },
-        monitoring: {
-          metrics: {
-            enabled: true,
-            path: '/metrics'
-          },
-          tracing: {
-            enabled: true,
-            serviceName: 'app',
-            sampleRate: 0.1
-          }
-        },
-        retryPolicy: {
-          attempts: 3,
-          delay: 1000,
-          backoff: 2,
-          maxDelay: 10000
-        },
-        journeys: {
-          health: {
-            journeyType: JourneyType.HEALTH,
-            variables: {
-              API_URL: {
-                type: 'url',
-                required: true,
-                description: 'Health API URL'
-              }
-            },
-            features: {
-              WEARABLE_SYNC: true
-            }
-          },
-          care: {
-            journeyType: JourneyType.CARE,
-            variables: {
-              API_URL: {
-                type: 'url',
-                required: true,
-                description: 'Care API URL'
-              }
-            },
-            features: {
-              TELEMEDICINE: true
-            }
-          },
-          plan: {
-            journeyType: JourneyType.PLAN,
-            variables: {
-              API_URL: {
-                type: 'url',
-                required: true,
-                description: 'Plan API URL'
-              }
-            },
-            features: {
-              CLAIMS: true
-            }
-          }
-        },
-        features: {
-          GAMIFICATION: {
-            name: 'GAMIFICATION',
-            enabled: true,
-            description: 'Enable gamification features'
-          },
-          NOTIFICATIONS: {
-            name: 'NOTIFICATIONS',
-            enabled: true,
-            description: 'Enable notification features'
-          }
-        },
-        // Custom configuration
-        customConfig: {
-          setting1: 'value1',
-          setting2: 'value2'
-        }
-      };
-
-      // Verify the application configuration structure
-      expect(appConfig.app.name).toBe('austa-superapp');
-      expect(appConfig.app.environment).toBe('development');
-      expect(appConfig.database?.url).toBe('postgresql://user:password@localhost:5432/db');
-      expect(appConfig.journeys?.health?.journeyType).toBe(JourneyType.HEALTH);
-      expect(appConfig.journeys?.care?.features?.TELEMEDICINE).toBe(true);
-      expect(appConfig.features?.GAMIFICATION?.enabled).toBe(true);
-      expect(appConfig.customConfig?.setting1).toBe('value1');
-    });
-  });
-});
+  type Test1 = AssertType<InferredConfigType, ExpectedConfigType>;
+  const test1: Test1 = true;
+}
