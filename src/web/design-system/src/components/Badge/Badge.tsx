@@ -1,36 +1,68 @@
 import React from 'react';
-import { Text } from '@design-system/primitives/components/Text';
-import { BadgeProps as BaseBadgeProps } from '@austa/interfaces/components/core.types';
-import { BadgeContainer, BadgeIcon, BadgeSize, BadgeStatus } from './Badge.styles';
+import { Text } from '@design-system/primitives';
+import type { BadgeProps as InterfaceBadgeProps, ComponentSize, ComponentStatus, JourneyTheme } from '@austa/interfaces/components';
+import { BadgeContainer, BadgeIcon, BadgeContent, getBadgeSize } from './Badge.styles';
 
 /**
  * Props interface for the Badge component
- * Extends the base BadgeProps from @austa/interfaces with additional properties
+ * Extends the standard BadgeProps interface from @austa/interfaces/components
+ * while maintaining backward compatibility with existing usage patterns
  */
-export interface BadgeProps extends BaseBadgeProps {
+export interface BadgeProps extends Partial<InterfaceBadgeProps> {
   /**
-   * The status of the badge for semantic coloring.
-   * @default undefined
+   * The size of the badge.
+   * @default 'md'
    */
-  status?: BadgeStatus;
-}
+  size?: ComponentSize;
 
-/**
- * Determines the size of the badge based on the provided size prop.
- * @param size The size of the badge: 'sm', 'md', or 'lg'
- * @returns The size of the badge in pixels.
- */
-export function getBadgeSize(size: BadgeSize): number {
-  switch (size) {
-    case 'sm':
-      return 24;
-    case 'md':
-      return 32;
-    case 'lg':
-      return 40;
-    default:
-      return 32;
-  }
+  /**
+   * Whether the badge is unlocked.
+   * @default false
+   */
+  unlocked?: boolean;
+
+  /**
+   * The journey to which the badge belongs (health, care, or plan).
+   * @default 'health'
+   */
+  journey?: JourneyTheme;
+
+  /**
+   * The status of the badge for semantic styling.
+   * @default 'default'
+   */
+  status?: ComponentStatus;
+
+  /**
+   * The content of the badge.
+   */
+  children?: React.ReactNode;
+
+  /**
+   * Function called when the badge is pressed
+   */
+  onPress?: () => void;
+
+  /**
+   * Accessibility label for screen readers
+   */
+  accessibilityLabel?: string;
+
+  /**
+   * Test ID for testing purposes
+   */
+  testID?: string;
+
+  /**
+   * Whether the badge is standalone (not attached to children)
+   * @default true
+   */
+  standalone?: boolean;
+
+  /**
+   * Icon to display in the badge
+   */
+  icon?: React.ReactNode;
 }
 
 /**
@@ -39,37 +71,105 @@ export function getBadgeSize(size: BadgeSize): number {
  * 
  * @example
  * // Basic usage
- * <Badge>New</Badge>
+ * <Badge>3</Badge>
  * 
  * @example
- * // With journey and status
- * <Badge journey="health" status="success" unlocked>
- *   Achievement Unlocked
+ * // Journey-specific badge
+ * <Badge journey="care" unlocked>
+ *   New
+ * </Badge>
+ * 
+ * @example
+ * // Status badge
+ * <Badge status="success">
+ *   Success
  * </Badge>
  */
 export const Badge: React.FC<BadgeProps> = ({
   size = 'md',
   unlocked = false,
   journey = 'health',
-  status,
+  status = 'default',
   children,
   onPress,
   accessibilityLabel,
   testID,
+  standalone = true,
+  icon,
+  // Support for new InterfaceBadgeProps properties with defaults
+  content,
+  visible = true,
+  maxCount,
+  showZero = false,
+  dot = false,
+  color,
+  textColor,
+  position,
+  offset,
+  pulse = false,
+  outlined = false,
+  shape = 'rounded',
 }) => {
+  // Don't render if not visible
+  if (!visible) return null;
+
+  // Handle content formatting
+  const displayContent = () => {
+    // If dot is true, don't show content
+    if (dot) return null;
+
+    // Use children or content prop
+    const contentValue = children || content;
+
+    // Format number content with maxCount
+    if (typeof contentValue === 'number' && maxCount && contentValue > maxCount) {
+      return `${maxCount}+`;
+    }
+
+    // Don't show zero unless showZero is true
+    if (contentValue === 0 && !showZero) {
+      return null;
+    }
+
+    return contentValue;
+  };
+
   const badgeSize = getBadgeSize(size);
+  const displayedContent = displayContent();
 
   return (
     <BadgeContainer
       size={size}
       unlocked={unlocked}
-      journey={journey}
+      journeyTheme={journey}
       status={status}
       onPress={onPress}
       accessibilityLabel={accessibilityLabel}
       testID={testID}
+      standalone={standalone}
     >
-      {children}
+      <BadgeContent>
+        {icon && (
+          <BadgeIcon 
+            name={typeof icon === 'string' ? icon : undefined}
+            size={badgeSize / 2}
+            color="currentColor"
+          >
+            {typeof icon !== 'string' ? icon : null}
+          </BadgeIcon>
+        )}
+        {displayedContent && (
+          <Text 
+            size={size === 'xs' || size === 'sm' ? 'xs' : 'sm'}
+            weight="medium"
+            color="inherit"
+          >
+            {displayedContent}
+          </Text>
+        )}
+      </BadgeContent>
     </BadgeContainer>
   );
 };
+
+export default Badge;
