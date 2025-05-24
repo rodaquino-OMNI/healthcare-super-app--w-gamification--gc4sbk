@@ -2,493 +2,372 @@
 
 ## Overview
 
-The `@austa/interfaces` package centralizes all TypeScript interfaces and type definitions used across the AUSTA SuperApp. It serves as the single source of truth for data structures, component props, API contracts, and other type definitions, ensuring consistency between frontend and backend implementations while maintaining type safety across all platforms.
+The `@austa/interfaces` package is a central repository for all shared TypeScript interfaces, types, and schemas used across the AUSTA SuperApp. It serves as the single source of truth for type definitions, ensuring consistency between frontend and backend, web and mobile platforms, and across all user journeys.
 
-This package is a critical part of the AUSTA SuperApp architecture, enabling:
+This package is a critical foundation of the AUSTA SuperApp architecture, providing:
 
-- **Type Safety**: Ensures consistent data structures across all services and platforms
-- **Cross-Platform Compatibility**: Provides shared types for both web (Next.js) and mobile (React Native) frontends
-- **Journey-Centered Architecture**: Organizes interfaces according to the three main user journeys (Health, Care, Plan)
-- **Developer Experience**: Improves code completion, documentation, and error detection
+- **Type Safety**: Ensures consistent data structures across the entire application
+- **Cross-Platform Compatibility**: Shared types between web (Next.js) and mobile (React Native)
+- **Journey-Specific Interfaces**: Specialized types for each user journey (Health, Care, Plan)
+- **Design System Integration**: Type definitions for themes, components, and style props
+- **API Contract Enforcement**: Consistent interfaces for requests and responses
 
-## Package Structure
+## Directory Structure
 
-The package is organized into domain-specific modules that reflect the journey-centered architecture of the AUSTA SuperApp:
+The `@austa/interfaces` package is organized into domain-specific directories:
 
 ```
-@austa/interfaces/
-├── api/                  # API request/response interfaces
-├── auth/                 # Authentication and authorization types
-├── care/                 # Care journey domain models
-├── common/               # Shared utility types and common models
-├── components/           # UI component prop interfaces
-├── gamification/         # Gamification system interfaces
-├── health/               # Health journey domain models
-├── next/                 # Next.js specific type extensions
-├── notification/         # Notification system interfaces
-├── plan/                 # Plan journey domain models
-├── themes/               # Design system and theming interfaces
-├── index.ts              # Main barrel export file
-├── package.json          # Package configuration
-└── tsconfig.json         # TypeScript configuration
+src/web/interfaces/
+├── auth/               # Authentication-related interfaces
+├── care/               # Care journey interfaces
+├── common/             # Shared utility interfaces
+├── components/         # UI component interfaces
+├── gamification/       # Gamification system interfaces
+├── health/             # Health journey interfaces
+├── plan/               # Plan journey interfaces
+├── themes/             # Design system theme interfaces
+├── index.ts            # Main barrel file
+├── package.json        # Package configuration
+├── tsconfig.json       # TypeScript configuration
+└── README.md           # This documentation
 ```
 
-Each domain directory contains its own barrel file (`index.ts`) that re-exports all interfaces from that domain, allowing for granular imports while maintaining a clean import structure.
+Each domain directory contains:
+
+- Specialized interface files for that domain
+- An `index.ts` barrel file that re-exports all interfaces from that domain
 
 ## Usage Patterns
 
-### Basic Import Patterns
+### Basic Import Pattern
 
-You can import interfaces in several ways depending on your needs:
-
-#### 1. Import from the main package (includes all interfaces)
+The package supports multiple import patterns to suit different use cases:
 
 ```typescript
-import { HealthMetric, Appointment, Plan } from '@austa/interfaces';
+// Import everything from a specific domain
+import * as HealthInterfaces from '@austa/interfaces/health';
+
+// Import specific interfaces from a domain
+import { HealthMetric, HealthGoal } from '@austa/interfaces/health';
+
+// Import from the root for cross-domain interfaces
+import { AuthSession, HealthMetric, PlanCoverage } from '@austa/interfaces';
 ```
 
-#### 2. Import from a specific domain (recommended for better tree-shaking)
+### Journey-Specific Imports
+
+For journey-specific components, import the relevant interfaces directly from their domain:
 
 ```typescript
-import { HealthMetric } from '@austa/interfaces/health';
-import { Appointment } from '@austa/interfaces/care';
-import { Plan } from '@austa/interfaces/plan';
+// Health Journey
+import { HealthMetric, HealthMetricType, HealthGoal } from '@austa/interfaces/health';
+
+// Care Journey
+import { Appointment, Provider, TelemedicineSession } from '@austa/interfaces/care';
+
+// Plan Journey
+import { Plan, Coverage, Claim, ClaimStatus } from '@austa/interfaces/plan';
 ```
 
-#### 3. Import from a specific file (for very targeted imports)
+### Cross-Cutting Concerns
+
+For cross-cutting concerns, import from their specialized domains:
 
 ```typescript
-import { HealthMetric } from '@austa/interfaces/health/metric';
-import { Appointment } from '@austa/interfaces/care/appointment';
-import { Plan } from '@austa/interfaces/plan/plans.types';
+// Authentication
+import { AuthSession, UserProfile } from '@austa/interfaces/auth';
+
+// Gamification
+import { Achievement, Quest, Reward } from '@austa/interfaces/gamification';
+
+// Common Utilities
+import { ApiResponse, PaginatedResponse } from '@austa/interfaces/common';
 ```
 
-### Platform-Specific Usage
+### Design System Integration
 
-#### Web (Next.js)
+For UI components and theming, use the specialized theme and component interfaces:
 
-In web applications, you can leverage path aliases configured in `tsconfig.json`:
+```typescript
+// Theme interfaces
+import { Theme, HealthTheme, CareTheme, PlanTheme } from '@austa/interfaces/themes';
+
+// Component interfaces
+import { ButtonProps, CardProps } from '@austa/interfaces/components/core';
+import { HealthChartProps } from '@austa/interfaces/components/health';
+```
+
+## Examples
+
+### Health Journey Example
+
+```typescript
+import { HealthMetric, HealthMetricType } from '@austa/interfaces/health';
+import { HealthChartProps } from '@austa/interfaces/components/health';
+
+// Using the interfaces to create a typed component
+const BloodPressureChart: React.FC<HealthChartProps> = (props) => {
+  // Type-safe access to health metrics
+  const bloodPressureData: HealthMetric[] = props.data.filter(
+    metric => metric.type === HealthMetricType.BLOOD_PRESSURE
+  );
+  
+  // Component implementation...
+};
+```
+
+### Care Journey Example
+
+```typescript
+import { Appointment, AppointmentStatus } from '@austa/interfaces/care';
+import { AppointmentCardProps } from '@austa/interfaces/components/care';
+
+// Using the interfaces to create a typed component
+const UpcomingAppointments: React.FC<{ appointments: Appointment[] }> = ({ appointments }) => {
+  // Type-safe filtering of appointments
+  const upcoming = appointments.filter(
+    apt => apt.status === AppointmentStatus.SCHEDULED
+  );
+  
+  return (
+    <div>
+      {upcoming.map(appointment => (
+        <AppointmentCard 
+          key={appointment.id}
+          appointment={appointment}
+          onReschedule={(id) => console.log(`Reschedule appointment ${id}`)}
+        />
+      ))}
+    </div>
+  );
+};
+```
+
+### Plan Journey Example
+
+```typescript
+import { Claim, ClaimStatus } from '@austa/interfaces/plan';
+import { ClaimCardProps } from '@austa/interfaces/components/plan';
+
+// Using the interfaces to create a typed component
+const ClaimsList: React.FC<{ claims: Claim[] }> = ({ claims }) => {
+  // Type-safe grouping of claims by status
+  const pendingClaims = claims.filter(claim => claim.status === ClaimStatus.PENDING);
+  const approvedClaims = claims.filter(claim => claim.status === ClaimStatus.APPROVED);
+  
+  // Component implementation...
+};
+```
+
+### Authentication Example
+
+```typescript
+import { AuthSession, UserProfile } from '@austa/interfaces/auth';
+
+// Type-safe authentication hook
+function useAuth(): { 
+  session: AuthSession | null; 
+  user: UserProfile | null; 
+  login: (username: string, password: string) => Promise<void>;
+  logout: () => void;
+} {
+  // Hook implementation...
+}
+```
+
+### Gamification Example
+
+```typescript
+import { Achievement, Quest } from '@austa/interfaces/gamification';
+import { AchievementBadgeProps } from '@austa/interfaces/components/gamification';
+
+// Using the interfaces to create a typed component
+const UserAchievements: React.FC<{ achievements: Achievement[] }> = ({ achievements }) => {
+  // Type-safe rendering of achievements
+  return (
+    <div>
+      {achievements.map(achievement => (
+        <AchievementBadge
+          key={achievement.id}
+          achievement={achievement}
+          size="medium"
+          showProgress
+        />
+      ))}
+    </div>
+  );
+};
+```
+
+## Guidelines for Extending Interfaces
+
+### Adding New Properties
+
+When extending existing interfaces, follow these guidelines:
+
+1. **Backward Compatibility**: Ensure new properties are optional or have default values
+2. **Documentation**: Add JSDoc comments explaining the purpose and usage of new properties
+3. **Validation**: If using Zod schemas, update the corresponding validation schema
+4. **Cross-Platform**: Ensure properties work across both web and mobile platforms
+
+Example:
+
+```typescript
+/**
+ * Represents a health goal set by a user
+ */
+export interface HealthGoal {
+  id: string;
+  userId: string;
+  type: HealthGoalType;
+  target: number;
+  currentValue: number;
+  startDate: string;
+  endDate: string;
+  status: GoalStatus;
+  
+  // New property with documentation
+  /**
+   * Indicates whether this goal contributes to gamification achievements
+   * @default true
+   */
+  gamificationEnabled?: boolean;
+}
+```
+
+### Creating New Interfaces
+
+When creating new interfaces:
+
+1. **Placement**: Add to the appropriate domain directory
+2. **Naming**: Follow the established naming conventions
+3. **Exports**: Update the domain's barrel file to export the new interface
+4. **Documentation**: Include comprehensive JSDoc comments
+5. **Validation**: Create corresponding Zod schemas when applicable
+
+Example:
+
+```typescript
+// health/workout.ts
+import { z } from 'zod';
+import { HealthMetricType } from './types';
+
+/**
+ * Represents a user's workout session
+ */
+export interface Workout {
+  id: string;
+  userId: string;
+  type: WorkoutType;
+  duration: number; // in minutes
+  caloriesBurned: number;
+  startTime: string; // ISO date string
+  endTime: string; // ISO date string
+  metrics: HealthMetric[];
+}
+
+/**
+ * Types of workouts supported by the application
+ */
+export enum WorkoutType {
+  RUNNING = 'running',
+  WALKING = 'walking',
+  CYCLING = 'cycling',
+  SWIMMING = 'swimming',
+  STRENGTH = 'strength',
+  YOGA = 'yoga',
+  OTHER = 'other'
+}
+
+/**
+ * Zod schema for validating Workout objects
+ */
+export const WorkoutSchema = z.object({
+  id: z.string().uuid(),
+  userId: z.string().uuid(),
+  type: z.nativeEnum(WorkoutType),
+  duration: z.number().positive(),
+  caloriesBurned: z.number().nonnegative(),
+  startTime: z.string().datetime(),
+  endTime: z.string().datetime(),
+  metrics: z.array(z.lazy(() => import('./metric').HealthMetricSchema))
+});
+
+// Then update health/index.ts to export these new types
+```
+
+## Avoiding Circular Dependencies
+
+Circular dependencies can cause build errors and runtime issues. Follow these practices to avoid them:
+
+1. **Interface Segregation**: Split large interfaces into smaller, focused ones
+2. **Unidirectional Dependencies**: Establish a clear hierarchy of imports
+3. **Type-Only Imports**: Use TypeScript's `import type` for type references
+4. **Interface References**: Use string literals for self-referential types
+
+Example of avoiding circular dependencies:
+
+```typescript
+// Instead of direct imports that might create cycles
+// import { User } from '../auth/user.types';
+
+// Use type-only imports
+import type { User } from '../auth/user.types';
+
+// Or use interface references with string literals
+export interface Comment {
+  id: string;
+  text: string;
+  author: string; // Just store the ID
+  authorRef?: User; // Optional reference to the full object
+}
+```
+
+## Platform-Specific Considerations
+
+### Web (Next.js) Imports
+
+For web applications, you can use path aliases configured in tsconfig.json:
 
 ```typescript
 // Using path aliases
 import { HealthMetric } from '@austa/interfaces/health';
-
-// Component with typed props
-const MetricCard: React.FC<MetricCardProps> = (props) => {
-  // Implementation
-};
+import { Theme } from '@austa/interfaces/themes';
 ```
 
-#### Mobile (React Native)
+### Mobile (React Native) Imports
 
-In mobile applications, imports work the same way:
+For mobile applications, ensure Metro bundler is configured to resolve the interfaces package:
 
 ```typescript
-// Using direct imports
+// In metro.config.js, ensure proper resolution of the interfaces package
+module.exports = {
+  resolver: {
+    extraNodeModules: {
+      '@austa/interfaces': path.resolve(__dirname, '../interfaces'),
+    },
+  },
+  // ...
+};
+
+// Then import normally in your React Native components
 import { HealthMetric } from '@austa/interfaces/health';
-import { MetricCardProps } from '@austa/interfaces/components/health.types';
-
-// Component with typed props
-const MetricCard: React.FC<MetricCardProps> = (props) => {
-  // Implementation
-};
-```
-
-### Working with API Types
-
-The package includes comprehensive API interface definitions for type-safe API calls:
-
-```typescript
-import { api } from '@austa/interfaces';
-
-// Type-safe API request
-const fetchHealthMetrics = async (userId: string): Promise<api.health.GetHealthMetricsResponse> => {
-  const response = await fetch('/api/health/metrics', {
-    method: 'POST',
-    body: JSON.stringify({ userId } as api.health.GetHealthMetricsRequest),
-  });
-  
-  return response.json();
-};
-```
-
-### Using Validation Schemas
-
-Many interfaces include Zod validation schemas for runtime type checking:
-
-```typescript
-import { HealthMetric, healthMetricSchema } from '@austa/interfaces/health';
-
-// Validate data at runtime
-function processHealthData(data: unknown): HealthMetric {
-  // Will throw if validation fails
-  return healthMetricSchema.parse(data);
-}
-```
-
-## Journey-Specific Examples
-
-### Health Journey
-
-```typescript
-import { HealthMetric, HealthGoal, DeviceConnection } from '@austa/interfaces/health';
-import { DeviceCardProps } from '@austa/interfaces/components/health.types';
-
-// Working with health metrics
-const bloodPressure: HealthMetric = {
-  id: '123',
-  type: 'BLOOD_PRESSURE',
-  value: '120/80',
-  unit: 'mmHg',
-  timestamp: new Date().toISOString(),
-  userId: 'user-123',
-  source: 'MANUAL_ENTRY'
-};
-
-// Working with health goals
-const stepsGoal: HealthGoal = {
-  id: '456',
-  type: 'STEPS',
-  target: 10000,
-  current: 7500,
-  startDate: '2023-01-01',
-  endDate: '2023-01-31',
-  status: 'IN_PROGRESS',
-  userId: 'user-123'
-};
-
-// Using component props
-const DeviceCard: React.FC<DeviceCardProps> = ({ device, onSync }) => {
-  // Component implementation
-};
-```
-
-### Care Journey
-
-```typescript
-import { Appointment, Provider, TelemedicineSession } from '@austa/interfaces/care';
-import { AppointmentType, AppointmentStatus } from '@austa/interfaces/care/types';
-
-// Working with appointments
-const doctorAppointment: Appointment = {
-  id: '789',
-  type: AppointmentType.IN_PERSON,
-  status: AppointmentStatus.SCHEDULED,
-  date: '2023-02-15T14:30:00Z',
-  duration: 30,
-  providerId: 'provider-456',
-  userId: 'user-123',
-  notes: 'Annual checkup',
-  location: {
-    address: '123 Medical Center Dr',
-    city: 'São Paulo',
-    state: 'SP',
-    zipCode: '01000-000'
-  }
-};
-
-// Working with telemedicine sessions
-const virtualConsultation: TelemedicineSession = {
-  id: '101112',
-  appointmentId: '789',
-  status: 'SCHEDULED',
-  connectionDetails: {
-    url: 'https://meet.austa.health/session/101112',
-    passcode: '123456'
-  },
-  participants: [
-    { id: 'user-123', role: 'PATIENT' },
-    { id: 'provider-456', role: 'DOCTOR' }
-  ],
-  scheduledStartTime: '2023-02-15T14:30:00Z',
-  scheduledEndTime: '2023-02-15T15:00:00Z'
-};
-```
-
-### Plan Journey
-
-```typescript
-import { Plan, Claim, Coverage, Benefit } from '@austa/interfaces/plan';
-import { ClaimStatus, ClaimType } from '@austa/interfaces/plan/claims.types';
-
-// Working with insurance plans
-const healthPlan: Plan = {
-  id: 'plan-123',
-  name: 'Premium Health',
-  type: 'HEALTH',
-  policyNumber: 'POL-123456789',
-  startDate: '2023-01-01',
-  endDate: '2023-12-31',
-  status: 'ACTIVE',
-  coverages: [
-    {
-      id: 'coverage-1',
-      type: 'MEDICAL_CONSULTATION',
-      description: 'Doctor visits',
-      coveragePercentage: 80,
-      annualLimit: 5000,
-      usedAmount: 1200
-    }
-  ],
-  benefits: [
-    {
-      id: 'benefit-1',
-      name: 'Gym Membership',
-      description: '50% discount on partner gyms',
-      type: 'WELLNESS',
-      details: 'Valid at participating locations only'
-    }
-  ]
-};
-
-// Working with claims
-const medicalClaim: Claim = {
-  id: 'claim-456',
-  planId: 'plan-123',
-  type: ClaimType.MEDICAL,
-  status: ClaimStatus.SUBMITTED,
-  amount: 350.00,
-  serviceDate: '2023-02-10',
-  submissionDate: '2023-02-12',
-  description: 'Specialist consultation',
-  documents: [
-    {
-      id: 'doc-1',
-      name: 'Receipt.pdf',
-      path: '/uploads/claim-456/receipt.pdf',
-      type: 'RECEIPT',
-      uploadedAt: '2023-02-12T10:30:00Z'
-    }
-  ]
-};
-```
-
-### Authentication
-
-```typescript
-import { AuthSession, AuthState, User } from '@austa/interfaces/auth';
-
-// Working with authentication state
-const authState: AuthState = {
-  isAuthenticated: true,
-  isLoading: false,
-  session: {
-    accessToken: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...',
-    refreshToken: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...',
-    expiresAt: new Date(Date.now() + 3600 * 1000).toISOString(),
-    tokenType: 'Bearer'
-  },
-  user: {
-    id: 'user-123',
-    email: 'user@example.com',
-    name: 'John Doe',
-    roles: ['USER'],
-    preferences: {
-      language: 'pt-BR',
-      theme: 'light'
-    }
-  }
-};
-```
-
-### Gamification
-
-```typescript
-import { Achievement, Quest, Reward, GameProfile } from '@austa/interfaces/gamification';
-
-// Working with achievements
-const achievement: Achievement = {
-  id: 'achievement-123',
-  title: 'Health Enthusiast',
-  description: 'Record health metrics for 7 consecutive days',
-  category: 'HEALTH',
-  xpValue: 100,
-  iconUrl: '/icons/achievements/health-enthusiast.svg',
-  unlockedAt: '2023-02-15T10:30:00Z',
-  progress: {
-    current: 7,
-    target: 7,
-    isCompleted: true
-  }
-};
-
-// Working with game profiles
-const userProfile: GameProfile = {
-  userId: 'user-123',
-  level: 5,
-  totalXp: 1250,
-  currentLevelXp: 250,
-  nextLevelXp: 500,
-  achievements: ['achievement-123', 'achievement-456'],
-  completedQuests: ['quest-789'],
-  activeQuests: ['quest-101112'],
-  streaks: {
-    current: 7,
-    longest: 15,
-    lastActivity: '2023-02-15T10:30:00Z'
-  }
-};
-```
-
-## Guidelines for Extending and Maintaining Interfaces
-
-### Adding New Interfaces
-
-When adding new interfaces, follow these guidelines:
-
-1. **Place in the correct domain**: Add interfaces to the appropriate domain directory based on their purpose
-2. **Export from barrel files**: Ensure new interfaces are exported from the domain's `index.ts` file
-3. **Add JSDoc comments**: Document the purpose and usage of each interface
-4. **Include validation schemas**: For data models, include Zod validation schemas when applicable
-
-Example of adding a new interface:
-
-```typescript
-// src/web/interfaces/health/insight.ts
-
-/**
- * Represents a health insight generated from user health metrics
- */
-export interface HealthInsight {
-  id: string;
-  userId: string;
-  title: string;
-  description: string;
-  relatedMetrics: string[];
-  severity: 'LOW' | 'MEDIUM' | 'HIGH';
-  createdAt: string;
-  acknowledgedAt?: string;
-}
-
-// Add Zod validation schema
-import { z } from 'zod';
-
-export const healthInsightSchema = z.object({
-  id: z.string(),
-  userId: z.string(),
-  title: z.string(),
-  description: z.string(),
-  relatedMetrics: z.array(z.string()),
-  severity: z.enum(['LOW', 'MEDIUM', 'HIGH']),
-  createdAt: z.string().datetime(),
-  acknowledgedAt: z.string().datetime().optional()
-});
-
-// Then update the barrel file (health/index.ts)
-export * from './insight';
-```
-
-### Preventing Circular Dependencies
-
-Circular dependencies can cause build issues and runtime errors. Follow these practices to avoid them:
-
-1. **Use interface segregation**: Split large interfaces into smaller, focused ones
-2. **Create utility types**: Extract shared properties into utility types
-3. **Use type imports**: Use `import type` to avoid runtime dependencies
-4. **Organize related types together**: Keep related types in the same file when they reference each other
-
-Example of resolving circular dependencies:
-
-```typescript
-// Before (problematic circular dependency)
-// file1.ts
-import { TypeB } from './file2';
-export interface TypeA {
-  b: TypeB;
-}
-
-// file2.ts
-import { TypeA } from './file1';
-export interface TypeB {
-  a: TypeA;
-}
-
-// After (resolved)
-// types.ts
-export interface TypeA {
-  b: TypeB;
-}
-
-export interface TypeB {
-  a: TypeA;
-}
-
-// Or using type imports
-// file1.ts
-import type { TypeB } from './file2';
-export interface TypeA {
-  b: TypeB;
-}
-
-// file2.ts
-import type { TypeA } from './file1';
-export interface TypeB {
-  a: TypeA;
-}
-```
-
-### Versioning and Backward Compatibility
-
-When updating existing interfaces, maintain backward compatibility:
-
-1. **Add optional properties**: Make new fields optional to avoid breaking existing code
-2. **Use union types**: Extend enums with union types instead of changing existing values
-3. **Create new interfaces**: For major changes, create new interfaces with version suffixes
-4. **Deprecate carefully**: Mark deprecated fields with JSDoc `@deprecated` tags
-
-Example of maintaining backward compatibility:
-
-```typescript
-// Before
-export interface User {
-  id: string;
-  name: string;
-  email: string;
-}
-
-// After (backward compatible)
-export interface User {
-  id: string;
-  name: string;
-  email: string;
-  /** @deprecated Use `phoneNumbers` instead */
-  phone?: string;
-  phoneNumbers?: string[];
-  preferences?: UserPreferences;
-}
-
-export interface UserPreferences {
-  language: string;
-  theme: 'light' | 'dark';
-  notifications: boolean;
-}
 ```
 
 ## Contributing
 
-When contributing to the `@austa/interfaces` package, please follow these guidelines:
+When contributing to the `@austa/interfaces` package:
 
-1. **Follow naming conventions**: Use PascalCase for interfaces and type aliases
-2. **Be consistent**: Follow existing patterns for similar interfaces
-3. **Add tests**: Include Jest tests for validation schemas
-4. **Update documentation**: Add JSDoc comments and update this README if necessary
-5. **Review dependencies**: Minimize dependencies to prevent bloat
+1. **Consistency**: Follow existing patterns and naming conventions
+2. **Documentation**: Add comprehensive JSDoc comments to all interfaces
+3. **Testing**: Ensure your changes don't break existing type compatibility
+4. **Validation**: Update or create Zod schemas for runtime validation
+5. **Cross-Platform**: Test your changes on both web and mobile platforms
 
-## Build and Development
+## Related Packages
 
-To build the package locally:
+The `@austa/interfaces` package works closely with these related packages:
 
-```bash
-# Install dependencies
-pnpm install
-
-# Build the package
-pnpm build
-
-# Run tests
-pnpm test
-```
-
-## License
-
-This package is part of the AUSTA SuperApp and is subject to the same license terms as the main project.
+- **@austa/design-system**: Consumes these interfaces for component props
+- **@design-system/primitives**: Provides the foundation for UI component interfaces
+- **@austa/journey-context**: Uses these interfaces for state management types
