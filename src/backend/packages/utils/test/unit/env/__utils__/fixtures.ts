@@ -1,673 +1,440 @@
 /**
- * Environment Variable Test Fixtures
+ * Environment Variable Fixtures for Testing
  * 
- * This file provides standardized environment variable fixtures for testing across
- * different environments (development, staging, production) and journey contexts
- * (Health, Care, Plan). These fixtures enable consistent, DRY testing of
- * environment-dependent code paths.
+ * This file provides standardized environment variable fixtures for consistent testing across
+ * different environments (development, staging, production) and journey contexts (Health, Care, Plan).
+ * 
+ * Includes:
+ * - Common configurations for different environments
+ * - Journey-specific environment variables
+ * - External integration configurations (Kafka, Redis, Prisma, OpenTelemetry)
+ * - Error case fixtures for testing validation and error handling
+ * - Feature flag fixtures for testing feature toggling
  */
 
 /**
- * Base environment fixtures for different deployment environments
+ * Base environment variable interface
  */
-export const baseEnvironments = {
+export interface EnvVars {
+  [key: string]: string | undefined;
+}
+
+/**
+ * Base environment configurations for different environments
+ */
+export const baseEnvFixtures = {
+  /**
+   * Development environment variables
+   */
   development: {
     NODE_ENV: 'development',
     LOG_LEVEL: 'debug',
     PORT: '3000',
-    API_URL: 'http://localhost:3000',
-    CORS_ORIGINS: 'http://localhost:3000,http://localhost:3001',
-    DEBUG: 'true',
-    ENABLE_SWAGGER: 'true',
-    ENABLE_PLAYGROUND: 'true',
-  },
+    HOST: 'localhost',
+    API_PREFIX: '/api',
+    CORS_ORIGIN: 'http://localhost:3000,http://localhost:8000',
+    JWT_SECRET: 'dev-jwt-secret-key-for-testing-only',
+    JWT_EXPIRATION: '1h',
+    REFRESH_TOKEN_SECRET: 'dev-refresh-token-secret-for-testing-only',
+    REFRESH_TOKEN_EXPIRATION: '7d',
+  } as EnvVars,
+
+  /**
+   * Staging environment variables
+   */
   staging: {
     NODE_ENV: 'staging',
     LOG_LEVEL: 'info',
     PORT: '3000',
-    API_URL: 'https://api.staging.austa.health',
-    CORS_ORIGINS: 'https://staging.austa.health',
-    DEBUG: 'false',
-    ENABLE_SWAGGER: 'true',
-    ENABLE_PLAYGROUND: 'true',
-  },
+    HOST: '0.0.0.0',
+    API_PREFIX: '/api',
+    CORS_ORIGIN: 'https://staging.austa-superapp.com',
+    JWT_SECRET: 'staging-jwt-secret-key-for-testing-only',
+    JWT_EXPIRATION: '30m',
+    REFRESH_TOKEN_SECRET: 'staging-refresh-token-secret-for-testing-only',
+    REFRESH_TOKEN_EXPIRATION: '7d',
+  } as EnvVars,
+
+  /**
+   * Production environment variables
+   */
   production: {
     NODE_ENV: 'production',
     LOG_LEVEL: 'warn',
     PORT: '3000',
-    API_URL: 'https://api.austa.health',
-    CORS_ORIGINS: 'https://austa.health',
-    DEBUG: 'false',
-    ENABLE_SWAGGER: 'false',
-    ENABLE_PLAYGROUND: 'false',
-  },
+    HOST: '0.0.0.0',
+    API_PREFIX: '/api',
+    CORS_ORIGIN: 'https://app.austa-superapp.com',
+    JWT_SECRET: 'prod-jwt-secret-key-for-testing-only',
+    JWT_EXPIRATION: '15m',
+    REFRESH_TOKEN_SECRET: 'prod-refresh-token-secret-for-testing-only',
+    REFRESH_TOKEN_EXPIRATION: '7d',
+  } as EnvVars,
 };
 
 /**
- * Journey-specific environment fixtures for Health journey
+ * Journey-specific environment variables
  */
-export const healthJourneyEnvironments = {
-  development: {
-    HEALTH_SERVICE_URL: 'http://localhost:3001',
-    HEALTH_DATABASE_URL: 'postgresql://postgres:postgres@localhost:5432/health_dev',
+export const journeyEnvFixtures = {
+  /**
+   * Health journey environment variables
+   */
+  health: {
+    HEALTH_SERVICE_URL: 'http://health-service:3000',
+    HEALTH_SERVICE_TIMEOUT: '5000',
     HEALTH_METRICS_RETENTION_DAYS: '90',
     HEALTH_GOALS_ENABLED: 'true',
     HEALTH_INSIGHTS_ENABLED: 'true',
-    HEALTH_DEVICE_SYNC_INTERVAL: '15',
-    HEALTH_FHIR_API_URL: 'http://localhost:8080/fhir',
-    HEALTH_WEARABLE_SYNC_ENABLED: 'true',
-  },
-  staging: {
-    HEALTH_SERVICE_URL: 'https://health-service.staging.austa.health',
-    HEALTH_DATABASE_URL: 'postgresql://health_user:${HEALTH_DB_PASSWORD}@health-db.staging.austa.health:5432/health_staging',
-    HEALTH_METRICS_RETENTION_DAYS: '180',
-    HEALTH_GOALS_ENABLED: 'true',
-    HEALTH_INSIGHTS_ENABLED: 'true',
-    HEALTH_DEVICE_SYNC_INTERVAL: '30',
-    HEALTH_FHIR_API_URL: 'https://fhir.staging.austa.health/fhir',
-    HEALTH_WEARABLE_SYNC_ENABLED: 'true',
-  },
-  production: {
-    HEALTH_SERVICE_URL: 'https://health-service.austa.health',
-    HEALTH_DATABASE_URL: 'postgresql://health_user:${HEALTH_DB_PASSWORD}@health-db.austa.health:5432/health_prod',
-    HEALTH_METRICS_RETENTION_DAYS: '365',
-    HEALTH_GOALS_ENABLED: 'true',
-    HEALTH_INSIGHTS_ENABLED: 'true',
-    HEALTH_DEVICE_SYNC_INTERVAL: '60',
-    HEALTH_FHIR_API_URL: 'https://fhir.austa.health/fhir',
-    HEALTH_WEARABLE_SYNC_ENABLED: 'true',
-  },
-};
+    HEALTH_WEARABLES_SYNC_INTERVAL: '15',
+    HEALTH_FHIR_API_URL: 'https://fhir-api.example.com',
+    HEALTH_FHIR_API_VERSION: 'R4',
+  } as EnvVars,
 
-/**
- * Journey-specific environment fixtures for Care journey
- */
-export const careJourneyEnvironments = {
-  development: {
-    CARE_SERVICE_URL: 'http://localhost:3002',
-    CARE_DATABASE_URL: 'postgresql://postgres:postgres@localhost:5432/care_dev',
+  /**
+   * Care journey environment variables
+   */
+  care: {
+    CARE_SERVICE_URL: 'http://care-service:3000',
+    CARE_SERVICE_TIMEOUT: '5000',
     CARE_APPOINTMENTS_ENABLED: 'true',
     CARE_TELEMEDICINE_ENABLED: 'true',
     CARE_SYMPTOM_CHECKER_ENABLED: 'true',
-    CARE_MEDICATIONS_ENABLED: 'true',
-    CARE_PROVIDER_API_URL: 'http://localhost:8081/providers',
-    CARE_APPOINTMENT_REMINDER_HOURS: '24',
-  },
-  staging: {
-    CARE_SERVICE_URL: 'https://care-service.staging.austa.health',
-    CARE_DATABASE_URL: 'postgresql://care_user:${CARE_DB_PASSWORD}@care-db.staging.austa.health:5432/care_staging',
-    CARE_APPOINTMENTS_ENABLED: 'true',
-    CARE_TELEMEDICINE_ENABLED: 'true',
-    CARE_SYMPTOM_CHECKER_ENABLED: 'true',
-    CARE_MEDICATIONS_ENABLED: 'true',
-    CARE_PROVIDER_API_URL: 'https://providers.staging.austa.health/providers',
-    CARE_APPOINTMENT_REMINDER_HOURS: '24',
-  },
-  production: {
-    CARE_SERVICE_URL: 'https://care-service.austa.health',
-    CARE_DATABASE_URL: 'postgresql://care_user:${CARE_DB_PASSWORD}@care-db.austa.health:5432/care_prod',
-    CARE_APPOINTMENTS_ENABLED: 'true',
-    CARE_TELEMEDICINE_ENABLED: 'true',
-    CARE_SYMPTOM_CHECKER_ENABLED: 'true',
-    CARE_MEDICATIONS_ENABLED: 'true',
-    CARE_PROVIDER_API_URL: 'https://providers.austa.health/providers',
-    CARE_APPOINTMENT_REMINDER_HOURS: '24',
-  },
+    CARE_PROVIDERS_SYNC_INTERVAL: '60',
+    CARE_AGORA_APP_ID: 'test-agora-app-id',
+    CARE_AGORA_APP_CERTIFICATE: 'test-agora-app-certificate',
+  } as EnvVars,
+
+  /**
+   * Plan journey environment variables
+   */
+  plan: {
+    PLAN_SERVICE_URL: 'http://plan-service:3000',
+    PLAN_SERVICE_TIMEOUT: '5000',
+    PLAN_BENEFITS_ENABLED: 'true',
+    PLAN_CLAIMS_ENABLED: 'true',
+    PLAN_DOCUMENTS_ENABLED: 'true',
+    PLAN_COVERAGE_SYNC_INTERVAL: '60',
+    PLAN_CLAIMS_AUTO_PROCESSING: 'true',
+    PLAN_DOCUMENTS_STORAGE_BUCKET: 'austa-plan-documents-test',
+  } as EnvVars,
 };
 
 /**
- * Journey-specific environment fixtures for Plan journey
+ * External integration environment variables
  */
-export const planJourneyEnvironments = {
-  development: {
-    PLAN_SERVICE_URL: 'http://localhost:3003',
-    PLAN_DATABASE_URL: 'postgresql://postgres:postgres@localhost:5432/plan_dev',
-    PLAN_BENEFITS_ENABLED: 'true',
-    PLAN_CLAIMS_ENABLED: 'true',
-    PLAN_COVERAGE_ENABLED: 'true',
-    PLAN_DOCUMENTS_ENABLED: 'true',
-    PLAN_INSURANCE_API_URL: 'http://localhost:8082/insurance',
-    PLAN_CLAIM_PROCESSING_DAYS: '7',
-  },
-  staging: {
-    PLAN_SERVICE_URL: 'https://plan-service.staging.austa.health',
-    PLAN_DATABASE_URL: 'postgresql://plan_user:${PLAN_DB_PASSWORD}@plan-db.staging.austa.health:5432/plan_staging',
-    PLAN_BENEFITS_ENABLED: 'true',
-    PLAN_CLAIMS_ENABLED: 'true',
-    PLAN_COVERAGE_ENABLED: 'true',
-    PLAN_DOCUMENTS_ENABLED: 'true',
-    PLAN_INSURANCE_API_URL: 'https://insurance.staging.austa.health/insurance',
-    PLAN_CLAIM_PROCESSING_DAYS: '7',
-  },
-  production: {
-    PLAN_SERVICE_URL: 'https://plan-service.austa.health',
-    PLAN_DATABASE_URL: 'postgresql://plan_user:${PLAN_DB_PASSWORD}@plan-db.austa.health:5432/plan_prod',
-    PLAN_BENEFITS_ENABLED: 'true',
-    PLAN_CLAIMS_ENABLED: 'true',
-    PLAN_COVERAGE_ENABLED: 'true',
-    PLAN_DOCUMENTS_ENABLED: 'true',
-    PLAN_INSURANCE_API_URL: 'https://insurance.austa.health/insurance',
-    PLAN_CLAIM_PROCESSING_DAYS: '7',
-  },
+export const integrationEnvFixtures = {
+  /**
+   * Kafka integration environment variables
+   */
+  kafka: {
+    KAFKA_BROKERS: 'kafka:9092',
+    KAFKA_CLIENT_ID: 'austa-service',
+    KAFKA_GROUP_ID: 'austa-service-group',
+    KAFKA_SSL_ENABLED: 'false',
+    KAFKA_SASL_ENABLED: 'false',
+    KAFKA_SASL_USERNAME: '',
+    KAFKA_SASL_PASSWORD: '',
+    KAFKA_CONSUMER_SESSION_TIMEOUT: '30000',
+    KAFKA_CONSUMER_HEARTBEAT_INTERVAL: '3000',
+    KAFKA_PRODUCER_COMPRESSION: 'gzip',
+    KAFKA_PRODUCER_RETRY_MAX: '5',
+    KAFKA_PRODUCER_RETRY_BACKOFF: '500',
+  } as EnvVars,
+
+  /**
+   * Redis integration environment variables
+   */
+  redis: {
+    REDIS_HOST: 'redis',
+    REDIS_PORT: '6379',
+    REDIS_PASSWORD: '',
+    REDIS_DB: '0',
+    REDIS_PREFIX: 'austa:',
+    REDIS_TTL: '86400',
+    REDIS_CLUSTER_ENABLED: 'false',
+    REDIS_SENTINEL_ENABLED: 'false',
+    REDIS_SENTINEL_MASTER: '',
+    REDIS_SENTINEL_NODES: '',
+    REDIS_POOL_MIN: '5',
+    REDIS_POOL_MAX: '20',
+  } as EnvVars,
+
+  /**
+   * Prisma/Database integration environment variables
+   */
+  prisma: {
+    DATABASE_URL: 'postgresql://postgres:postgres@postgres:5432/austa?schema=public',
+    DATABASE_POOL_MIN: '5',
+    DATABASE_POOL_MAX: '10',
+    DATABASE_CONNECTION_TIMEOUT: '30000',
+    DATABASE_IDLE_TIMEOUT: '10000',
+    DATABASE_SSL_ENABLED: 'false',
+    DATABASE_DEBUG_ENABLED: 'true',
+    DATABASE_QUERY_TIMEOUT: '30000',
+    PRISMA_LOG_QUERIES: 'true',
+    PRISMA_STUDIO_PORT: '5555',
+  } as EnvVars,
+
+  /**
+   * OpenTelemetry integration environment variables
+   */
+  openTelemetry: {
+    OTEL_ENABLED: 'true',
+    OTEL_SERVICE_NAME: 'austa-service',
+    OTEL_EXPORTER_OTLP_ENDPOINT: 'http://otel-collector:4317',
+    OTEL_EXPORTER_OTLP_PROTOCOL: 'grpc',
+    OTEL_TRACES_SAMPLER: 'parentbased_traceidratio',
+    OTEL_TRACES_SAMPLER_ARG: '0.1',
+    OTEL_LOGS_EXPORTER: 'otlp',
+    OTEL_METRICS_EXPORTER: 'otlp',
+    OTEL_PROPAGATORS: 'tracecontext,baggage,b3',
+    OTEL_RESOURCE_ATTRIBUTES: 'service.namespace=austa,service.version=1.0.0',
+  } as EnvVars,
 };
 
 /**
- * Gamification environment fixtures
+ * Feature flag environment variables
  */
-export const gamificationEnvironments = {
-  development: {
-    GAMIFICATION_SERVICE_URL: 'http://localhost:3004',
-    GAMIFICATION_DATABASE_URL: 'postgresql://postgres:postgres@localhost:5432/gamification_dev',
-    GAMIFICATION_ACHIEVEMENTS_ENABLED: 'true',
-    GAMIFICATION_QUESTS_ENABLED: 'true',
-    GAMIFICATION_REWARDS_ENABLED: 'true',
-    GAMIFICATION_LEADERBOARD_ENABLED: 'true',
-    GAMIFICATION_RULES_REFRESH_INTERVAL: '60',
-    GAMIFICATION_XP_MULTIPLIER: '1.0',
-  },
-  staging: {
-    GAMIFICATION_SERVICE_URL: 'https://gamification-service.staging.austa.health',
-    GAMIFICATION_DATABASE_URL: 'postgresql://gamification_user:${GAMIFICATION_DB_PASSWORD}@gamification-db.staging.austa.health:5432/gamification_staging',
-    GAMIFICATION_ACHIEVEMENTS_ENABLED: 'true',
-    GAMIFICATION_QUESTS_ENABLED: 'true',
-    GAMIFICATION_REWARDS_ENABLED: 'true',
-    GAMIFICATION_LEADERBOARD_ENABLED: 'true',
-    GAMIFICATION_RULES_REFRESH_INTERVAL: '300',
-    GAMIFICATION_XP_MULTIPLIER: '1.0',
-  },
-  production: {
-    GAMIFICATION_SERVICE_URL: 'https://gamification-service.austa.health',
-    GAMIFICATION_DATABASE_URL: 'postgresql://gamification_user:${GAMIFICATION_DB_PASSWORD}@gamification-db.austa.health:5432/gamification_prod',
-    GAMIFICATION_ACHIEVEMENTS_ENABLED: 'true',
-    GAMIFICATION_QUESTS_ENABLED: 'true',
-    GAMIFICATION_REWARDS_ENABLED: 'true',
-    GAMIFICATION_LEADERBOARD_ENABLED: 'true',
-    GAMIFICATION_RULES_REFRESH_INTERVAL: '600',
-    GAMIFICATION_XP_MULTIPLIER: '1.0',
-  },
+export const featureFlagEnvFixtures = {
+  /**
+   * Common feature flags
+   */
+  common: {
+    FEATURE_DARK_MODE: 'true',
+    FEATURE_NOTIFICATIONS: 'true',
+    FEATURE_MULTI_LANGUAGE: 'true',
+    FEATURE_ANALYTICS: 'true',
+    FEATURE_FEEDBACK: 'true',
+  } as EnvVars,
+
+  /**
+   * Health journey feature flags
+   */
+  health: {
+    FEATURE_HEALTH_WEARABLES_SYNC: 'true',
+    FEATURE_HEALTH_GOALS: 'true',
+    FEATURE_HEALTH_INSIGHTS: 'true',
+    FEATURE_HEALTH_SHARING: 'false',
+    FEATURE_HEALTH_REPORTS: 'true',
+  } as EnvVars,
+
+  /**
+   * Care journey feature flags
+   */
+  care: {
+    FEATURE_CARE_TELEMEDICINE: 'true',
+    FEATURE_CARE_APPOINTMENTS: 'true',
+    FEATURE_CARE_SYMPTOM_CHECKER: 'true',
+    FEATURE_CARE_MEDICATION_REMINDERS: 'true',
+    FEATURE_CARE_PROVIDER_RATINGS: 'false',
+  } as EnvVars,
+
+  /**
+   * Plan journey feature flags
+   */
+  plan: {
+    FEATURE_PLAN_CLAIMS: 'true',
+    FEATURE_PLAN_BENEFITS: 'true',
+    FEATURE_PLAN_DOCUMENTS: 'true',
+    FEATURE_PLAN_COVERAGE_CALCULATOR: 'true',
+    FEATURE_PLAN_COMPARISON: 'false',
+  } as EnvVars,
+
+  /**
+   * Gamification feature flags
+   */
+  gamification: {
+    FEATURE_GAMIFICATION: 'true',
+    FEATURE_ACHIEVEMENTS: 'true',
+    FEATURE_QUESTS: 'true',
+    FEATURE_REWARDS: 'true',
+    FEATURE_LEADERBOARDS: 'true',
+    FEATURE_XP_MULTIPLIERS: 'false',
+  } as EnvVars,
 };
 
 /**
- * Authentication environment fixtures
+ * Error case environment variables for testing validation and error handling
  */
-export const authEnvironments = {
-  development: {
-    AUTH_SERVICE_URL: 'http://localhost:3005',
-    AUTH_DATABASE_URL: 'postgresql://postgres:postgres@localhost:5432/auth_dev',
+export const errorCaseEnvFixtures = {
+  /**
+   * Missing required variables
+   */
+  missingRequired: {
+    // Missing NODE_ENV, PORT, HOST
+    LOG_LEVEL: 'info',
+    API_PREFIX: '/api',
+  } as EnvVars,
+
+  /**
+   * Invalid format variables
+   */
+  invalidFormat: {
+    NODE_ENV: 'invalid-env', // Should be development, staging, or production
+    PORT: 'not-a-number', // Should be a number
+    LOG_LEVEL: 'invalid-level', // Should be debug, info, warn, or error
+    KAFKA_BROKERS: 'invalid-broker-format', // Should be host:port
+    DATABASE_POOL_MIN: 'not-a-number', // Should be a number
+    FEATURE_GAMIFICATION: 'not-a-boolean', // Should be true or false
+  } as EnvVars,
+
+  /**
+   * Conflicting configurations
+   */
+  conflictingConfig: {
+    NODE_ENV: 'production',
+    LOG_LEVEL: 'debug', // Conflict: debug log level in production
+    DATABASE_DEBUG_ENABLED: 'true', // Conflict: debug enabled in production
+    PRISMA_LOG_QUERIES: 'true', // Conflict: query logging in production
+    REDIS_PASSWORD: '', // Conflict: empty password in production
+    KAFKA_SSL_ENABLED: 'false', // Conflict: SSL disabled in production
+  } as EnvVars,
+
+  /**
+   * Invalid connection strings
+   */
+  invalidConnections: {
+    DATABASE_URL: 'invalid-database-url',
+    REDIS_HOST: 'non-existent-host',
+    KAFKA_BROKERS: 'non-existent-broker:9092',
+    OTEL_EXPORTER_OTLP_ENDPOINT: 'invalid-endpoint',
+  } as EnvVars,
+};
+
+/**
+ * Combined environment fixtures for different scenarios
+ */
+export const combinedEnvFixtures = {
+  /**
+   * Development environment with all journeys and integrations
+   */
+  fullDevelopment: {
+    ...baseEnvFixtures.development,
+    ...journeyEnvFixtures.health,
+    ...journeyEnvFixtures.care,
+    ...journeyEnvFixtures.plan,
+    ...integrationEnvFixtures.kafka,
+    ...integrationEnvFixtures.redis,
+    ...integrationEnvFixtures.prisma,
+    ...integrationEnvFixtures.openTelemetry,
+    ...featureFlagEnvFixtures.common,
+    ...featureFlagEnvFixtures.health,
+    ...featureFlagEnvFixtures.care,
+    ...featureFlagEnvFixtures.plan,
+    ...featureFlagEnvFixtures.gamification,
+  } as EnvVars,
+
+  /**
+   * Staging environment with all journeys and integrations
+   */
+  fullStaging: {
+    ...baseEnvFixtures.staging,
+    ...journeyEnvFixtures.health,
+    ...journeyEnvFixtures.care,
+    ...journeyEnvFixtures.plan,
+    ...integrationEnvFixtures.kafka,
+    ...integrationEnvFixtures.redis,
+    ...integrationEnvFixtures.prisma,
+    ...integrationEnvFixtures.openTelemetry,
+    ...featureFlagEnvFixtures.common,
+    ...featureFlagEnvFixtures.health,
+    ...featureFlagEnvFixtures.care,
+    ...featureFlagEnvFixtures.plan,
+    ...featureFlagEnvFixtures.gamification,
+  } as EnvVars,
+
+  /**
+   * Production environment with all journeys and integrations
+   */
+  fullProduction: {
+    ...baseEnvFixtures.production,
+    ...journeyEnvFixtures.health,
+    ...journeyEnvFixtures.care,
+    ...journeyEnvFixtures.plan,
+    ...integrationEnvFixtures.kafka,
+    ...integrationEnvFixtures.redis,
+    ...integrationEnvFixtures.prisma,
+    ...integrationEnvFixtures.openTelemetry,
+    ...featureFlagEnvFixtures.common,
+    ...featureFlagEnvFixtures.health,
+    ...featureFlagEnvFixtures.care,
+    ...featureFlagEnvFixtures.plan,
+    ...featureFlagEnvFixtures.gamification,
+    // Production-specific overrides
+    LOG_LEVEL: 'info',
+    DATABASE_DEBUG_ENABLED: 'false',
+    PRISMA_LOG_QUERIES: 'false',
+    KAFKA_SSL_ENABLED: 'true',
+    KAFKA_SASL_ENABLED: 'true',
+    REDIS_PASSWORD: 'strong-redis-password',
+    DATABASE_SSL_ENABLED: 'true',
+  } as EnvVars,
+
+  /**
+   * Minimal development environment with only essential variables
+   */
+  minimalDevelopment: {
+    NODE_ENV: 'development',
+    LOG_LEVEL: 'debug',
+    PORT: '3000',
+    HOST: 'localhost',
+    API_PREFIX: '/api',
+    DATABASE_URL: 'postgresql://postgres:postgres@localhost:5432/austa?schema=public',
+    REDIS_HOST: 'localhost',
+    REDIS_PORT: '6379',
+    KAFKA_BROKERS: 'localhost:9092',
     JWT_SECRET: 'dev-jwt-secret-key-for-testing-only',
     JWT_EXPIRATION: '1h',
-    REFRESH_TOKEN_SECRET: 'dev-refresh-token-secret-key-for-testing-only',
-    REFRESH_TOKEN_EXPIRATION: '7d',
-    AUTH_REDIS_URL: 'redis://localhost:6379/0',
-    AUTH_RATE_LIMIT_MAX: '100',
-    AUTH_RATE_LIMIT_WINDOW_MS: '900000',
-    AUTH_OAUTH_ENABLED: 'true',
-  },
-  staging: {
-    AUTH_SERVICE_URL: 'https://auth-service.staging.austa.health',
-    AUTH_DATABASE_URL: 'postgresql://auth_user:${AUTH_DB_PASSWORD}@auth-db.staging.austa.health:5432/auth_staging',
-    JWT_SECRET: '${JWT_SECRET}',
-    JWT_EXPIRATION: '15m',
-    REFRESH_TOKEN_SECRET: '${REFRESH_TOKEN_SECRET}',
-    REFRESH_TOKEN_EXPIRATION: '7d',
-    AUTH_REDIS_URL: 'redis://${REDIS_USERNAME}:${REDIS_PASSWORD}@auth-redis.staging.austa.health:6379/0',
-    AUTH_RATE_LIMIT_MAX: '100',
-    AUTH_RATE_LIMIT_WINDOW_MS: '900000',
-    AUTH_OAUTH_ENABLED: 'true',
-  },
-  production: {
-    AUTH_SERVICE_URL: 'https://auth-service.austa.health',
-    AUTH_DATABASE_URL: 'postgresql://auth_user:${AUTH_DB_PASSWORD}@auth-db.austa.health:5432/auth_prod',
-    JWT_SECRET: '${JWT_SECRET}',
-    JWT_EXPIRATION: '15m',
-    REFRESH_TOKEN_SECRET: '${REFRESH_TOKEN_SECRET}',
-    REFRESH_TOKEN_EXPIRATION: '7d',
-    AUTH_REDIS_URL: 'redis://${REDIS_USERNAME}:${REDIS_PASSWORD}@auth-redis.austa.health:6379/0',
-    AUTH_RATE_LIMIT_MAX: '50',
-    AUTH_RATE_LIMIT_WINDOW_MS: '900000',
-    AUTH_OAUTH_ENABLED: 'true',
-  },
+  } as EnvVars,
+
+  /**
+   * Health journey focused environment
+   */
+  healthJourney: {
+    ...baseEnvFixtures.development,
+    ...journeyEnvFixtures.health,
+    ...integrationEnvFixtures.kafka,
+    ...integrationEnvFixtures.redis,
+    ...integrationEnvFixtures.prisma,
+    ...featureFlagEnvFixtures.common,
+    ...featureFlagEnvFixtures.health,
+    ...featureFlagEnvFixtures.gamification,
+  } as EnvVars,
+
+  /**
+   * Care journey focused environment
+   */
+  careJourney: {
+    ...baseEnvFixtures.development,
+    ...journeyEnvFixtures.care,
+    ...integrationEnvFixtures.kafka,
+    ...integrationEnvFixtures.redis,
+    ...integrationEnvFixtures.prisma,
+    ...featureFlagEnvFixtures.common,
+    ...featureFlagEnvFixtures.care,
+    ...featureFlagEnvFixtures.gamification,
+  } as EnvVars,
+
+  /**
+   * Plan journey focused environment
+   */
+  planJourney: {
+    ...baseEnvFixtures.development,
+    ...journeyEnvFixtures.plan,
+    ...integrationEnvFixtures.kafka,
+    ...integrationEnvFixtures.redis,
+    ...integrationEnvFixtures.prisma,
+    ...featureFlagEnvFixtures.common,
+    ...featureFlagEnvFixtures.plan,
+    ...featureFlagEnvFixtures.gamification,
+  } as EnvVars,
 };
 
 /**
- * Notification service environment fixtures
+ * Helper function to create a custom environment fixture by combining multiple fixtures
+ * @param fixtures Array of environment fixtures to combine
+ * @returns Combined environment variables
  */
-export const notificationEnvironments = {
-  development: {
-    NOTIFICATION_SERVICE_URL: 'http://localhost:3006',
-    NOTIFICATION_DATABASE_URL: 'postgresql://postgres:postgres@localhost:5432/notification_dev',
-    NOTIFICATION_EMAIL_ENABLED: 'true',
-    NOTIFICATION_SMS_ENABLED: 'true',
-    NOTIFICATION_PUSH_ENABLED: 'true',
-    NOTIFICATION_IN_APP_ENABLED: 'true',
-    NOTIFICATION_EMAIL_FROM: 'dev@austa.health',
-    NOTIFICATION_RETRY_MAX_ATTEMPTS: '3',
-    NOTIFICATION_RETRY_DELAY_MS: '1000',
-    NOTIFICATION_WEBSOCKET_ENABLED: 'true',
-  },
-  staging: {
-    NOTIFICATION_SERVICE_URL: 'https://notification-service.staging.austa.health',
-    NOTIFICATION_DATABASE_URL: 'postgresql://notification_user:${NOTIFICATION_DB_PASSWORD}@notification-db.staging.austa.health:5432/notification_staging',
-    NOTIFICATION_EMAIL_ENABLED: 'true',
-    NOTIFICATION_SMS_ENABLED: 'true',
-    NOTIFICATION_PUSH_ENABLED: 'true',
-    NOTIFICATION_IN_APP_ENABLED: 'true',
-    NOTIFICATION_EMAIL_FROM: 'no-reply@staging.austa.health',
-    NOTIFICATION_RETRY_MAX_ATTEMPTS: '5',
-    NOTIFICATION_RETRY_DELAY_MS: '5000',
-    NOTIFICATION_WEBSOCKET_ENABLED: 'true',
-  },
-  production: {
-    NOTIFICATION_SERVICE_URL: 'https://notification-service.austa.health',
-    NOTIFICATION_DATABASE_URL: 'postgresql://notification_user:${NOTIFICATION_DB_PASSWORD}@notification-db.austa.health:5432/notification_prod',
-    NOTIFICATION_EMAIL_ENABLED: 'true',
-    NOTIFICATION_SMS_ENABLED: 'true',
-    NOTIFICATION_PUSH_ENABLED: 'true',
-    NOTIFICATION_IN_APP_ENABLED: 'true',
-    NOTIFICATION_EMAIL_FROM: 'no-reply@austa.health',
-    NOTIFICATION_RETRY_MAX_ATTEMPTS: '5',
-    NOTIFICATION_RETRY_DELAY_MS: '10000',
-    NOTIFICATION_WEBSOCKET_ENABLED: 'true',
-  },
-};
-
-/**
- * API Gateway environment fixtures
- */
-export const apiGatewayEnvironments = {
-  development: {
-    API_GATEWAY_PORT: '4000',
-    API_GATEWAY_TIMEOUT_MS: '30000',
-    API_GATEWAY_RATE_LIMIT_MAX: '100',
-    API_GATEWAY_RATE_LIMIT_WINDOW_MS: '900000',
-    API_GATEWAY_GRAPHQL_PATH: '/graphql',
-    API_GATEWAY_REST_PREFIX: '/api',
-    API_GATEWAY_HEALTH_PATH: '/health',
-    API_GATEWAY_AUTH_SERVICE_URL: 'http://localhost:3005',
-    API_GATEWAY_HEALTH_SERVICE_URL: 'http://localhost:3001',
-    API_GATEWAY_CARE_SERVICE_URL: 'http://localhost:3002',
-    API_GATEWAY_PLAN_SERVICE_URL: 'http://localhost:3003',
-    API_GATEWAY_GAMIFICATION_SERVICE_URL: 'http://localhost:3004',
-    API_GATEWAY_NOTIFICATION_SERVICE_URL: 'http://localhost:3006',
-  },
-  staging: {
-    API_GATEWAY_PORT: '4000',
-    API_GATEWAY_TIMEOUT_MS: '30000',
-    API_GATEWAY_RATE_LIMIT_MAX: '100',
-    API_GATEWAY_RATE_LIMIT_WINDOW_MS: '900000',
-    API_GATEWAY_GRAPHQL_PATH: '/graphql',
-    API_GATEWAY_REST_PREFIX: '/api',
-    API_GATEWAY_HEALTH_PATH: '/health',
-    API_GATEWAY_AUTH_SERVICE_URL: 'http://auth-service:3005',
-    API_GATEWAY_HEALTH_SERVICE_URL: 'http://health-service:3001',
-    API_GATEWAY_CARE_SERVICE_URL: 'http://care-service:3002',
-    API_GATEWAY_PLAN_SERVICE_URL: 'http://plan-service:3003',
-    API_GATEWAY_GAMIFICATION_SERVICE_URL: 'http://gamification-service:3004',
-    API_GATEWAY_NOTIFICATION_SERVICE_URL: 'http://notification-service:3006',
-  },
-  production: {
-    API_GATEWAY_PORT: '4000',
-    API_GATEWAY_TIMEOUT_MS: '30000',
-    API_GATEWAY_RATE_LIMIT_MAX: '50',
-    API_GATEWAY_RATE_LIMIT_WINDOW_MS: '900000',
-    API_GATEWAY_GRAPHQL_PATH: '/graphql',
-    API_GATEWAY_REST_PREFIX: '/api',
-    API_GATEWAY_HEALTH_PATH: '/health',
-    API_GATEWAY_AUTH_SERVICE_URL: 'http://auth-service:3005',
-    API_GATEWAY_HEALTH_SERVICE_URL: 'http://health-service:3001',
-    API_GATEWAY_CARE_SERVICE_URL: 'http://care-service:3002',
-    API_GATEWAY_PLAN_SERVICE_URL: 'http://plan-service:3003',
-    API_GATEWAY_GAMIFICATION_SERVICE_URL: 'http://gamification-service:3004',
-    API_GATEWAY_NOTIFICATION_SERVICE_URL: 'http://notification-service:3006',
-  },
-};
-
-/**
- * External integration environment fixtures
- */
-export const externalIntegrationEnvironments = {
-  // Kafka integration
-  kafka: {
-    development: {
-      KAFKA_BROKERS: 'localhost:9092',
-      KAFKA_CLIENT_ID: 'austa-dev',
-      KAFKA_GROUP_ID: 'austa-dev-group',
-      KAFKA_SSL_ENABLED: 'false',
-      KAFKA_SASL_ENABLED: 'false',
-      KAFKA_RETRY_MAX_ATTEMPTS: '3',
-      KAFKA_RETRY_DELAY_MS: '1000',
-    },
-    staging: {
-      KAFKA_BROKERS: 'kafka-broker.staging.austa.health:9092',
-      KAFKA_CLIENT_ID: 'austa-staging',
-      KAFKA_GROUP_ID: 'austa-staging-group',
-      KAFKA_SSL_ENABLED: 'true',
-      KAFKA_SASL_ENABLED: 'true',
-      KAFKA_SASL_USERNAME: '${KAFKA_SASL_USERNAME}',
-      KAFKA_SASL_PASSWORD: '${KAFKA_SASL_PASSWORD}',
-      KAFKA_RETRY_MAX_ATTEMPTS: '5',
-      KAFKA_RETRY_DELAY_MS: '5000',
-    },
-    production: {
-      KAFKA_BROKERS: 'kafka-broker.austa.health:9092',
-      KAFKA_CLIENT_ID: 'austa-production',
-      KAFKA_GROUP_ID: 'austa-production-group',
-      KAFKA_SSL_ENABLED: 'true',
-      KAFKA_SASL_ENABLED: 'true',
-      KAFKA_SASL_USERNAME: '${KAFKA_SASL_USERNAME}',
-      KAFKA_SASL_PASSWORD: '${KAFKA_SASL_PASSWORD}',
-      KAFKA_RETRY_MAX_ATTEMPTS: '5',
-      KAFKA_RETRY_DELAY_MS: '10000',
-    },
-  },
-  
-  // Redis integration
-  redis: {
-    development: {
-      REDIS_HOST: 'localhost',
-      REDIS_PORT: '6379',
-      REDIS_PASSWORD: '',
-      REDIS_USERNAME: '',
-      REDIS_DB: '0',
-      REDIS_TLS_ENABLED: 'false',
-      REDIS_SENTINEL_ENABLED: 'false',
-    },
-    staging: {
-      REDIS_HOST: 'redis.staging.austa.health',
-      REDIS_PORT: '6379',
-      REDIS_PASSWORD: '${REDIS_PASSWORD}',
-      REDIS_USERNAME: '${REDIS_USERNAME}',
-      REDIS_DB: '0',
-      REDIS_TLS_ENABLED: 'true',
-      REDIS_SENTINEL_ENABLED: 'false',
-    },
-    production: {
-      REDIS_HOST: 'redis.austa.health',
-      REDIS_PORT: '6379',
-      REDIS_PASSWORD: '${REDIS_PASSWORD}',
-      REDIS_USERNAME: '${REDIS_USERNAME}',
-      REDIS_DB: '0',
-      REDIS_TLS_ENABLED: 'true',
-      REDIS_SENTINEL_ENABLED: 'true',
-      REDIS_SENTINEL_MASTER: 'mymaster',
-      REDIS_SENTINEL_NODES: 'redis-sentinel-0.austa.health:26379,redis-sentinel-1.austa.health:26379,redis-sentinel-2.austa.health:26379',
-    },
-  },
-  
-  // Prisma integration
-  prisma: {
-    development: {
-      PRISMA_LOG_LEVEL: 'info',
-      PRISMA_LOG_QUERIES: 'true',
-      PRISMA_CONNECTION_LIMIT: '5',
-      PRISMA_POOL_TIMEOUT: '10',
-    },
-    staging: {
-      PRISMA_LOG_LEVEL: 'warn',
-      PRISMA_LOG_QUERIES: 'false',
-      PRISMA_CONNECTION_LIMIT: '10',
-      PRISMA_POOL_TIMEOUT: '20',
-    },
-    production: {
-      PRISMA_LOG_LEVEL: 'error',
-      PRISMA_LOG_QUERIES: 'false',
-      PRISMA_CONNECTION_LIMIT: '20',
-      PRISMA_POOL_TIMEOUT: '30',
-    },
-  },
-  
-  // OpenTelemetry integration
-  openTelemetry: {
-    development: {
-      OTEL_ENABLED: 'true',
-      OTEL_SERVICE_NAME: 'austa-dev',
-      OTEL_EXPORTER_OTLP_ENDPOINT: 'http://localhost:4318',
-      OTEL_EXPORTER_OTLP_PROTOCOL: 'http/protobuf',
-      OTEL_TRACES_SAMPLER: 'always_on',
-      OTEL_LOGS_EXPORTER: 'console',
-    },
-    staging: {
-      OTEL_ENABLED: 'true',
-      OTEL_SERVICE_NAME: 'austa-staging',
-      OTEL_EXPORTER_OTLP_ENDPOINT: 'http://otel-collector.staging.austa.health:4318',
-      OTEL_EXPORTER_OTLP_PROTOCOL: 'http/protobuf',
-      OTEL_TRACES_SAMPLER: 'parentbased_traceidratio',
-      OTEL_TRACES_SAMPLER_ARG: '0.5',
-      OTEL_LOGS_EXPORTER: 'otlp',
-    },
-    production: {
-      OTEL_ENABLED: 'true',
-      OTEL_SERVICE_NAME: 'austa-production',
-      OTEL_EXPORTER_OTLP_ENDPOINT: 'http://otel-collector.austa.health:4318',
-      OTEL_EXPORTER_OTLP_PROTOCOL: 'http/protobuf',
-      OTEL_TRACES_SAMPLER: 'parentbased_traceidratio',
-      OTEL_TRACES_SAMPLER_ARG: '0.1',
-      OTEL_LOGS_EXPORTER: 'otlp',
-    },
-  },
-};
-
-/**
- * Feature flag environment fixtures
- */
-export const featureFlagEnvironments = {
-  development: {
-    FEATURE_NEW_HEALTH_DASHBOARD: 'true',
-    FEATURE_ENHANCED_TELEMEDICINE: 'true',
-    FEATURE_ADVANCED_CLAIMS_PROCESSING: 'true',
-    FEATURE_SOCIAL_SHARING: 'true',
-    FEATURE_MULTI_LANGUAGE: 'true',
-    FEATURE_DARK_MODE: 'true',
-    FEATURE_BETA_FEATURES: 'true',
-  },
-  staging: {
-    FEATURE_NEW_HEALTH_DASHBOARD: 'true',
-    FEATURE_ENHANCED_TELEMEDICINE: 'true',
-    FEATURE_ADVANCED_CLAIMS_PROCESSING: 'false',
-    FEATURE_SOCIAL_SHARING: 'true',
-    FEATURE_MULTI_LANGUAGE: 'true',
-    FEATURE_DARK_MODE: 'true',
-    FEATURE_BETA_FEATURES: 'true',
-  },
-  production: {
-    FEATURE_NEW_HEALTH_DASHBOARD: 'false',
-    FEATURE_ENHANCED_TELEMEDICINE: 'false',
-    FEATURE_ADVANCED_CLAIMS_PROCESSING: 'false',
-    FEATURE_SOCIAL_SHARING: 'false',
-    FEATURE_MULTI_LANGUAGE: 'true',
-    FEATURE_DARK_MODE: 'true',
-    FEATURE_BETA_FEATURES: 'false',
-  },
-};
-
-/**
- * Error case fixtures for testing validation and error handling
- */
-export const errorCaseFixtures = {
-  // Missing required variables
-  missingRequired: {
-    // Missing NODE_ENV
-    LOG_LEVEL: 'info',
-    PORT: '3000',
-  },
-  
-  // Invalid variable types
-  invalidTypes: {
-    NODE_ENV: 'development',
-    LOG_LEVEL: 'info',
-    PORT: 'not-a-number', // Should be a number
-    DEBUG: 'not-a-boolean', // Should be a boolean
-    HEALTH_METRICS_RETENTION_DAYS: 'invalid-number', // Should be a number
-    KAFKA_RETRY_MAX_ATTEMPTS: 'three', // Should be a number
-  },
-  
-  // Invalid enum values
-  invalidEnums: {
-    NODE_ENV: 'invalid-environment', // Should be development, staging, or production
-    LOG_LEVEL: 'extreme', // Should be debug, info, warn, error, or fatal
-  },
-  
-  // Invalid URL formats
-  invalidUrls: {
-    API_URL: 'not-a-url',
-    HEALTH_SERVICE_URL: 'invalid-url-format',
-    KAFKA_BROKERS: 'not:a:valid:broker:format',
-  },
-  
-  // Invalid numeric ranges
-  invalidRanges: {
-    PORT: '70000', // Port should be between 1 and 65535
-    HEALTH_METRICS_RETENTION_DAYS: '-10', // Should be positive
-    KAFKA_RETRY_MAX_ATTEMPTS: '0', // Should be at least 1
-  },
-  
-  // Malformed JSON
-  malformedJson: {
-    CONFIG_JSON: '{"key": "value", malformed}', // Invalid JSON
-  },
-};
-
-/**
- * Helper function to merge environment fixtures
- */
-export function createTestEnvironment(env: 'development' | 'staging' | 'production', options: {
-  includeBase?: boolean;
-  includeHealth?: boolean;
-  includeCare?: boolean;
-  includePlan?: boolean;
-  includeGamification?: boolean;
-  includeAuth?: boolean;
-  includeNotification?: boolean;
-  includeApiGateway?: boolean;
-  includeKafka?: boolean;
-  includeRedis?: boolean;
-  includePrisma?: boolean;
-  includeOpenTelemetry?: boolean;
-  includeFeatureFlags?: boolean;
-} = {}) {
-  const {
-    includeBase = true,
-    includeHealth = false,
-    includeCare = false,
-    includePlan = false,
-    includeGamification = false,
-    includeAuth = false,
-    includeNotification = false,
-    includeApiGateway = false,
-    includeKafka = false,
-    includeRedis = false,
-    includePrisma = false,
-    includeOpenTelemetry = false,
-    includeFeatureFlags = false,
-  } = options;
-
-  let result: Record<string, string> = {};
-
-  if (includeBase) {
-    result = { ...result, ...baseEnvironments[env] };
-  }
-
-  if (includeHealth) {
-    result = { ...result, ...healthJourneyEnvironments[env] };
-  }
-
-  if (includeCare) {
-    result = { ...result, ...careJourneyEnvironments[env] };
-  }
-
-  if (includePlan) {
-    result = { ...result, ...planJourneyEnvironments[env] };
-  }
-
-  if (includeGamification) {
-    result = { ...result, ...gamificationEnvironments[env] };
-  }
-
-  if (includeAuth) {
-    result = { ...result, ...authEnvironments[env] };
-  }
-
-  if (includeNotification) {
-    result = { ...result, ...notificationEnvironments[env] };
-  }
-
-  if (includeApiGateway) {
-    result = { ...result, ...apiGatewayEnvironments[env] };
-  }
-
-  if (includeKafka) {
-    result = { ...result, ...externalIntegrationEnvironments.kafka[env] };
-  }
-
-  if (includeRedis) {
-    result = { ...result, ...externalIntegrationEnvironments.redis[env] };
-  }
-
-  if (includePrisma) {
-    result = { ...result, ...externalIntegrationEnvironments.prisma[env] };
-  }
-
-  if (includeOpenTelemetry) {
-    result = { ...result, ...externalIntegrationEnvironments.openTelemetry[env] };
-  }
-
-  if (includeFeatureFlags) {
-    result = { ...result, ...featureFlagEnvironments[env] };
-  }
-
-  return result;
-}
-
-/**
- * Common environment fixture combinations for testing
- */
-export const commonFixtures = {
-  // Complete development environment with all features
-  fullDevelopment: createTestEnvironment('development', {
-    includeBase: true,
-    includeHealth: true,
-    includeCare: true,
-    includePlan: true,
-    includeGamification: true,
-    includeAuth: true,
-    includeNotification: true,
-    includeApiGateway: true,
-    includeKafka: true,
-    includeRedis: true,
-    includePrisma: true,
-    includeOpenTelemetry: true,
-    includeFeatureFlags: true,
-  }),
-  
-  // Minimal production environment with only base settings
-  minimalProduction: createTestEnvironment('production', {
-    includeBase: true,
-  }),
-  
-  // Health journey focused environment
-  healthJourney: createTestEnvironment('development', {
-    includeBase: true,
-    includeHealth: true,
-    includeGamification: true,
-    includeKafka: true,
-    includeFeatureFlags: true,
-  }),
-  
-  // Care journey focused environment
-  careJourney: createTestEnvironment('development', {
-    includeBase: true,
-    includeCare: true,
-    includeGamification: true,
-    includeKafka: true,
-    includeFeatureFlags: true,
-  }),
-  
-  // Plan journey focused environment
-  planJourney: createTestEnvironment('development', {
-    includeBase: true,
-    includePlan: true,
-    includeGamification: true,
-    includeKafka: true,
-    includeFeatureFlags: true,
-  }),
+export const createCustomEnvFixture = (...fixtures: EnvVars[]): EnvVars => {
+  return fixtures.reduce((acc, fixture) => ({ ...acc, ...fixture }), {});
 };
