@@ -1,8 +1,8 @@
 import React from 'react';
 import { Box, Text } from '@design-system/primitives';
-import { LineChart, BarChart, RadialChart } from '../../charts';
+import { useJourneyContext } from '@austa/journey-context';
 import { HealthMetric } from '@austa/interfaces/health';
-import { useJourney } from '@austa/journey-context';
+import { LineChart, BarChart, RadialChart } from '../../charts';
 
 /**
  * Props interface for the HealthChart component.
@@ -45,7 +45,7 @@ export interface HealthChartProps {
   
   /**
    * The journey context for theming the chart.
-   * Defaults to 'health' if not provided.
+   * @default 'health'
    */
   journey?: 'health' | 'care' | 'plan';
 }
@@ -78,9 +78,9 @@ export const HealthChart: React.FC<HealthChartProps> = ({
   lineColor,
   journey = 'health',
 }) => {
-  // Use journey context for theming
-  const { getJourneyTheme } = useJourney();
-  const journeyTheme = getJourneyTheme(journey);
+  // Get journey theme from context
+  const { theme } = useJourneyContext(journey);
+  const journeyColor = theme.colors.primary;
   
   // Handle empty data case
   if (!data || data.length === 0) {
@@ -95,7 +95,7 @@ export const HealthChart: React.FC<HealthChartProps> = ({
         height="200px"
         data-testid="health-chart-empty"
         role="img"
-        aria-label="Empty chart, no data available"
+        aria-label="No health data available"
       >
         <Text color="gray600">No data available</Text>
       </Box>
@@ -112,7 +112,7 @@ export const HealthChart: React.FC<HealthChartProps> = ({
           yAxisKey={yAxisKey}
           xAxisLabel={xAxisLabel}
           yAxisLabel={yAxisLabel}
-          lineColor={lineColor || journeyTheme.colors.primary}
+          lineColor={lineColor || journeyColor}
           journey={journey}
           aria-label={`Line chart showing ${yAxisLabel || 'values'} over ${xAxisLabel || 'time'}`}
         />
@@ -127,7 +127,7 @@ export const HealthChart: React.FC<HealthChartProps> = ({
         <BarChart
           data={values}
           labels={labels}
-          colors={[lineColor || journeyTheme.colors.primary]}
+          colors={[lineColor || journeyColor]}
           journey={journey}
           title={`${yAxisLabel || 'Value'} by ${xAxisLabel || 'Category'}`}
           aria-label={`Bar chart showing ${yAxisLabel || 'values'} by ${xAxisLabel || 'category'}`}
