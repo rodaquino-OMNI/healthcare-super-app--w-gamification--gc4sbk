@@ -1,13 +1,33 @@
 /**
- * Barrel file that exports all JWT-related components
+ * JWT Provider Barrel File
+ * 
+ * This file exports all JWT-related components including interfaces, providers,
+ * and configurations to ensure standardized imports across the monorepo.
+ * It creates a clean public API for the JWT authentication functionality that
+ * can be consistently imported by other services.
  */
 
-// Interfaces
-export * from './jwt.interface';
+// Export interfaces
+export {
+  IJwtProvider,
+  IJwtBlacklistProvider,
+  IJwtBlacklistOptions,
+  ITokenValidationResult,
+  ITokenGenerationResult,
+  JwtProviderFactory,
+  JwtBlacklistProviderFactory,
+} from './jwt.interface';
 
-// Configuration
-export * from './jwt.config';
+// Export configuration
+export {
+  JwtConfigOptions,
+  jwtConfig,
+  getJwtSignOptions,
+  getJwtModuleOptions,
+  getJourneyJwtConfig,
+  getRefreshTokenConfig,
+} from './jwt.config';
 
-// Providers
-export * from './jwt.provider';
-export * from './jwt-redis.provider';
+// Export providers
+export { JwtProvider } from './jwt.provider';
+export { JwtRedisProvider, JwtRedisOptions } from './jwt-redis.provider';
