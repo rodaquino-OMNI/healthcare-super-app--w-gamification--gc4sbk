@@ -1,111 +1,97 @@
 /**
- * @file events.ts
- * @description Defines TypeScript interfaces for the gamification event system that processes
- * user activities across all journeys. These interfaces ensure type safety for the
- * event-driven architecture that powers gamification features across both web and mobile applications.
+ * @file Defines TypeScript interfaces for the gamification event system that processes user activities across all journeys.
+ * These interfaces ensure type safety for the event-driven architecture that powers the gamification features.
  */
 
 /**
- * Enum representing all possible gamification event types.
- * Used to categorize events for processing by the gamification engine.
+ * Enum representing all possible gamification event types across the platform.
+ * These events trigger rules, achievements, quests, and rewards in the gamification engine.
  */
 export enum GamificationEventType {
-  // Achievement related events
-  ACHIEVEMENT_UNLOCKED = 'ACHIEVEMENT_UNLOCKED',
-  ACHIEVEMENT_PROGRESS = 'ACHIEVEMENT_PROGRESS',
-  
-  // Quest related events
-  QUEST_COMPLETED = 'QUEST_COMPLETED',
-  QUEST_PROGRESS = 'QUEST_PROGRESS',
-  QUEST_STARTED = 'QUEST_STARTED',
-  
-  // Reward related events
-  REWARD_EARNED = 'REWARD_EARNED',
-  REWARD_REDEEMED = 'REWARD_REDEEMED',
-  
-  // XP and level related events
-  XP_EARNED = 'XP_EARNED',
-  LEVEL_UP = 'LEVEL_UP',
-  
-  // Health journey specific events
+  // Health Journey Events
   HEALTH_METRIC_RECORDED = 'HEALTH_METRIC_RECORDED',
-  HEALTH_GOAL_ACHIEVED = 'HEALTH_GOAL_ACHIEVED',
-  HEALTH_INSIGHT_GENERATED = 'HEALTH_INSIGHT_GENERATED',
-  DEVICE_SYNCED = 'DEVICE_SYNCED',
+  HEALTH_GOAL_CREATED = 'HEALTH_GOAL_CREATED',
+  HEALTH_GOAL_COMPLETED = 'HEALTH_GOAL_COMPLETED',
+  HEALTH_GOAL_PROGRESS = 'HEALTH_GOAL_PROGRESS',
+  DEVICE_CONNECTED = 'DEVICE_CONNECTED',
+  HEALTH_INSIGHT_VIEWED = 'HEALTH_INSIGHT_VIEWED',
+  HEALTH_REPORT_GENERATED = 'HEALTH_REPORT_GENERATED',
   
-  // Care journey specific events
+  // Care Journey Events
   APPOINTMENT_BOOKED = 'APPOINTMENT_BOOKED',
   APPOINTMENT_COMPLETED = 'APPOINTMENT_COMPLETED',
+  MEDICATION_ADDED = 'MEDICATION_ADDED',
   MEDICATION_TAKEN = 'MEDICATION_TAKEN',
+  TELEMEDICINE_SESSION_STARTED = 'TELEMEDICINE_SESSION_STARTED',
   TELEMEDICINE_SESSION_COMPLETED = 'TELEMEDICINE_SESSION_COMPLETED',
-  CARE_PLAN_PROGRESS = 'CARE_PLAN_PROGRESS',
+  SYMPTOM_CHECKED = 'SYMPTOM_CHECKED',
+  PROVIDER_RATED = 'PROVIDER_RATED',
   
-  // Plan journey specific events
+  // Plan Journey Events
+  PLAN_VIEWED = 'PLAN_VIEWED',
+  BENEFIT_EXPLORED = 'BENEFIT_EXPLORED',
   CLAIM_SUBMITTED = 'CLAIM_SUBMITTED',
   CLAIM_APPROVED = 'CLAIM_APPROVED',
-  BENEFIT_UTILIZED = 'BENEFIT_UTILIZED',
-  PLAN_SELECTED = 'PLAN_SELECTED',
+  DOCUMENT_UPLOADED = 'DOCUMENT_UPLOADED',
+  COVERAGE_CHECKED = 'COVERAGE_CHECKED',
   
-  // System events
-  USER_REGISTERED = 'USER_REGISTERED',
-  USER_LOGGED_IN = 'USER_LOGGED_IN',
-  DAILY_STREAK = 'DAILY_STREAK'
-}
-
-/**
- * Enum representing the journey context for an event.
- * Used to categorize events by which journey they belong to.
- */
-export enum JourneyType {
-  HEALTH = 'HEALTH',
-  CARE = 'CARE',
-  PLAN = 'PLAN',
-  SYSTEM = 'SYSTEM' // For cross-journey or system-level events
+  // Gamification System Events
+  ACHIEVEMENT_UNLOCKED = 'ACHIEVEMENT_UNLOCKED',
+  QUEST_STARTED = 'QUEST_STARTED',
+  QUEST_COMPLETED = 'QUEST_COMPLETED',
+  REWARD_EARNED = 'REWARD_EARNED',
+  REWARD_REDEEMED = 'REWARD_REDEEMED',
+  LEVEL_UP = 'LEVEL_UP',
+  XP_EARNED = 'XP_EARNED',
+  
+  // General App Events
+  APP_OPENED = 'APP_OPENED',
+  FEATURE_USED = 'FEATURE_USED',
+  JOURNEY_SWITCHED = 'JOURNEY_SWITCHED',
+  PROFILE_UPDATED = 'PROFILE_UPDATED',
+  FEEDBACK_PROVIDED = 'FEEDBACK_PROVIDED'
 }
 
 /**
  * Base interface for all gamification events.
- * Contains common properties that all events must include.
+ * Contains common properties that every event must include.
  */
 export interface BaseGamificationEvent {
-  /** Unique identifier for the event */
-  id: string;
-  
-  /** Type of the event from GamificationEventType enum */
+  /** The type of event that occurred */
   type: GamificationEventType;
   
-  /** Which journey this event belongs to */
-  journey: JourneyType;
-  
-  /** User ID of the user who triggered the event */
+  /** Unique identifier for the user who triggered the event */
   userId: string;
   
-  /** Timestamp when the event occurred */
+  /** Timestamp when the event occurred (ISO string format) */
   timestamp: string;
   
-  /** Optional metadata for additional context */
-  metadata?: Record<string, any>;
+  /** Which journey the event belongs to (health, care, plan, or system) */
+  journey: 'health' | 'care' | 'plan' | 'system';
   
-  /** Event payload containing event-specific data */
-  payload: any; // This will be overridden by specific event interfaces
+  /** Optional correlation ID for tracking related events */
+  correlationId?: string;
+  
+  /** Optional client information (device, platform, app version) */
+  client?: {
+    deviceId?: string;
+    platform?: 'ios' | 'android' | 'web';
+    version?: string;
+  };
 }
 
 /**
  * Interface for achievement-related events.
  */
 export interface AchievementEvent extends BaseGamificationEvent {
-  type: GamificationEventType.ACHIEVEMENT_UNLOCKED | GamificationEventType.ACHIEVEMENT_PROGRESS;
+  type: GamificationEventType.ACHIEVEMENT_UNLOCKED;
   payload: {
-    /** ID of the achievement */
+    /** ID of the achievement that was unlocked */
     achievementId: string;
     /** Title of the achievement */
     title: string;
-    /** Current progress value (for ACHIEVEMENT_PROGRESS) */
-    progress?: number;
-    /** Total progress needed (for ACHIEVEMENT_PROGRESS) */
-    total?: number;
-    /** Whether the achievement is unlocked (for ACHIEVEMENT_UNLOCKED) */
-    unlocked?: boolean;
+    /** XP earned from unlocking this achievement */
+    xpEarned: number;
   };
 }
 
@@ -113,18 +99,16 @@ export interface AchievementEvent extends BaseGamificationEvent {
  * Interface for quest-related events.
  */
 export interface QuestEvent extends BaseGamificationEvent {
-  type: GamificationEventType.QUEST_COMPLETED | GamificationEventType.QUEST_PROGRESS | GamificationEventType.QUEST_STARTED;
+  type: GamificationEventType.QUEST_STARTED | GamificationEventType.QUEST_COMPLETED;
   payload: {
     /** ID of the quest */
     questId: string;
     /** Title of the quest */
     title: string;
-    /** Current progress value (for QUEST_PROGRESS) */
+    /** Current progress value (for QUEST_STARTED events) */
     progress?: number;
-    /** Total progress needed (for QUEST_PROGRESS) */
-    total?: number;
-    /** Whether the quest is completed (for QUEST_COMPLETED) */
-    completed?: boolean;
+    /** XP earned (for QUEST_COMPLETED events) */
+    xpEarned?: number;
   };
 }
 
@@ -138,462 +122,346 @@ export interface RewardEvent extends BaseGamificationEvent {
     rewardId: string;
     /** Title of the reward */
     title: string;
-    /** XP value of the reward (for REWARD_EARNED) */
-    xp?: number;
-    /** Redemption details (for REWARD_REDEEMED) */
-    redemption?: {
-      /** When the reward was redeemed */
-      redeemedAt: string;
-      /** Any additional redemption details */
-      details?: Record<string, any>;
-    };
+    /** XP value of the reward */
+    xpValue: number;
   };
 }
 
 /**
- * Interface for XP and level-related events.
+ * Interface for level-up events.
  */
-export interface ProgressEvent extends BaseGamificationEvent {
-  type: GamificationEventType.XP_EARNED | GamificationEventType.LEVEL_UP;
+export interface LevelUpEvent extends BaseGamificationEvent {
+  type: GamificationEventType.LEVEL_UP;
   payload: {
-    /** Amount of XP earned (for XP_EARNED) */
-    xpAmount?: number;
-    /** Source of the XP (for XP_EARNED) */
-    source?: string;
-    /** New level achieved (for LEVEL_UP) */
-    newLevel?: number;
-    /** Previous level (for LEVEL_UP) */
-    previousLevel?: number;
-    /** Rewards unlocked with the new level (for LEVEL_UP) */
-    unlockedRewards?: Array<{
-      rewardId: string;
-      title: string;
-    }>;
+    /** New level achieved */
+    newLevel: number;
+    /** Previous level */
+    previousLevel: number;
+    /** Total XP at this level */
+    totalXp: number;
+    /** XP needed for next level */
+    nextLevelXp: number;
   };
 }
 
 /**
- * Interface for Health journey specific events.
+ * Interface for XP earned events.
  */
-export interface HealthEvent extends BaseGamificationEvent {
-  journey: JourneyType.HEALTH;
+export interface XpEarnedEvent extends BaseGamificationEvent {
+  type: GamificationEventType.XP_EARNED;
+  payload: {
+    /** Amount of XP earned */
+    amount: number;
+    /** Reason XP was earned */
+    reason: string;
+    /** Source of the XP (which action or feature) */
+    source: string;
+  };
+}
+
+/**
+ * Interface for health journey specific events.
+ */
+export interface HealthJourneyEvent extends BaseGamificationEvent {
+  journey: 'health';
   type: GamificationEventType.HEALTH_METRIC_RECORDED | 
-        GamificationEventType.HEALTH_GOAL_ACHIEVED | 
-        GamificationEventType.HEALTH_INSIGHT_GENERATED | 
-        GamificationEventType.DEVICE_SYNCED;
+        GamificationEventType.HEALTH_GOAL_CREATED | 
+        GamificationEventType.HEALTH_GOAL_COMPLETED | 
+        GamificationEventType.HEALTH_GOAL_PROGRESS | 
+        GamificationEventType.DEVICE_CONNECTED | 
+        GamificationEventType.HEALTH_INSIGHT_VIEWED | 
+        GamificationEventType.HEALTH_REPORT_GENERATED;
   payload: HealthEventPayload;
 }
 
 /**
- * Union type for all possible Health event payloads.
+ * Interface for care journey specific events.
  */
-export type HealthEventPayload = 
-  HealthMetricPayload | 
-  HealthGoalPayload | 
-  HealthInsightPayload | 
-  DeviceSyncPayload;
+export interface CareJourneyEvent extends BaseGamificationEvent {
+  journey: 'care';
+  type: GamificationEventType.APPOINTMENT_BOOKED | 
+        GamificationEventType.APPOINTMENT_COMPLETED | 
+        GamificationEventType.MEDICATION_ADDED | 
+        GamificationEventType.MEDICATION_TAKEN | 
+        GamificationEventType.TELEMEDICINE_SESSION_STARTED | 
+        GamificationEventType.TELEMEDICINE_SESSION_COMPLETED | 
+        GamificationEventType.SYMPTOM_CHECKED | 
+        GamificationEventType.PROVIDER_RATED;
+  payload: CareEventPayload;
+}
 
 /**
- * Payload for health metric recording events.
+ * Interface for plan journey specific events.
+ */
+export interface PlanJourneyEvent extends BaseGamificationEvent {
+  journey: 'plan';
+  type: GamificationEventType.PLAN_VIEWED | 
+        GamificationEventType.BENEFIT_EXPLORED | 
+        GamificationEventType.CLAIM_SUBMITTED | 
+        GamificationEventType.CLAIM_APPROVED | 
+        GamificationEventType.DOCUMENT_UPLOADED | 
+        GamificationEventType.COVERAGE_CHECKED;
+  payload: PlanEventPayload;
+}
+
+/**
+ * Union type for all possible gamification events.
+ */
+export type GamificationEvent = 
+  | AchievementEvent 
+  | QuestEvent 
+  | RewardEvent 
+  | LevelUpEvent 
+  | XpEarnedEvent 
+  | HealthJourneyEvent 
+  | CareJourneyEvent 
+  | PlanJourneyEvent;
+
+/**
+ * Payload interface for health journey events.
+ */
+export type HealthEventPayload = 
+  | HealthMetricPayload 
+  | HealthGoalPayload 
+  | DevicePayload 
+  | HealthInsightPayload;
+
+/**
+ * Payload for health metric recorded events.
  */
 export interface HealthMetricPayload {
   /** Type of health metric (steps, weight, heart_rate, etc.) */
   metricType: string;
   /** Value of the recorded metric */
   value: number;
-  /** Unit of measurement (steps, kg, bpm, etc.) */
+  /** Unit of measurement (kg, bpm, steps, etc.) */
   unit: string;
-  /** When the metric was recorded */
-  recordedAt: string;
-  /** Source of the metric (manual, device, etc.) */
+  /** Optional source of the metric (manual, device, integration) */
   source?: string;
 }
 
 /**
- * Payload for health goal achievement events.
+ * Payload for health goal events.
  */
 export interface HealthGoalPayload {
   /** ID of the health goal */
   goalId: string;
-  /** Type of goal (steps, weight, etc.) */
+  /** Type of goal (steps, weight, activity, etc.) */
   goalType: string;
-  /** Target value that was achieved */
-  targetValue: number;
-  /** Unit of measurement */
-  unit: string;
-  /** When the goal was achieved */
-  achievedAt: string;
+  /** Target value for the goal */
+  targetValue?: number;
+  /** Current progress value */
+  currentValue?: number;
+  /** Percentage of completion (0-100) */
+  progressPercentage?: number;
 }
 
 /**
- * Payload for health insight generation events.
+ * Payload for device connection events.
+ */
+export interface DevicePayload {
+  /** ID of the connected device */
+  deviceId: string;
+  /** Type of device (fitness_tracker, scale, blood_pressure, etc.) */
+  deviceType: string;
+  /** Manufacturer of the device */
+  manufacturer: string;
+  /** Model name/number of the device */
+  model: string;
+}
+
+/**
+ * Payload for health insight events.
  */
 export interface HealthInsightPayload {
-  /** ID of the generated insight */
+  /** ID of the insight */
   insightId: string;
-  /** Type of insight */
+  /** Type of insight (trend, recommendation, alert) */
   insightType: string;
-  /** Brief description of the insight */
-  description: string;
-  /** Metrics related to this insight */
-  relatedMetrics?: string[];
+  /** Category of the insight (activity, sleep, nutrition, etc.) */
+  category: string;
+  /** Importance level of the insight (low, medium, high) */
+  importance?: 'low' | 'medium' | 'high';
 }
 
 /**
- * Payload for device synchronization events.
- */
-export interface DeviceSyncPayload {
-  /** ID of the device */
-  deviceId: string;
-  /** Type of device */
-  deviceType: string;
-  /** When the sync occurred */
-  syncedAt: string;
-  /** Number of metrics synced */
-  metricsCount: number;
-  /** Whether the sync was successful */
-  successful: boolean;
-}
-
-/**
- * Interface for Care journey specific events.
- */
-export interface CareEvent extends BaseGamificationEvent {
-  journey: JourneyType.CARE;
-  type: GamificationEventType.APPOINTMENT_BOOKED | 
-        GamificationEventType.APPOINTMENT_COMPLETED | 
-        GamificationEventType.MEDICATION_TAKEN | 
-        GamificationEventType.TELEMEDICINE_SESSION_COMPLETED | 
-        GamificationEventType.CARE_PLAN_PROGRESS;
-  payload: CareEventPayload;
-}
-
-/**
- * Union type for all possible Care event payloads.
+ * Payload interface for care journey events.
  */
 export type CareEventPayload = 
-  AppointmentPayload | 
-  MedicationPayload | 
-  TelemedicinePayload | 
-  CarePlanPayload;
+  | AppointmentPayload 
+  | MedicationPayload 
+  | TelemedicinePayload 
+  | SymptomCheckerPayload;
 
 /**
- * Payload for appointment-related events.
+ * Payload for appointment events.
  */
 export interface AppointmentPayload {
   /** ID of the appointment */
   appointmentId: string;
-  /** Type of appointment */
+  /** Type of appointment (checkup, specialist, dental, etc.) */
   appointmentType: string;
-  /** ID of the provider */
-  providerId: string;
-  /** Name of the provider */
-  providerName: string;
-  /** When the appointment is scheduled */
-  scheduledAt: string;
+  /** ID of the healthcare provider */
+  providerId?: string;
+  /** Name of the healthcare provider */
+  providerName?: string;
+  /** Scheduled date and time of the appointment */
+  scheduledAt?: string;
   /** Duration of the appointment in minutes */
-  durationMinutes: number;
-  /** Whether the appointment was completed (for APPOINTMENT_COMPLETED) */
-  completed?: boolean;
-  /** When the appointment was completed (for APPOINTMENT_COMPLETED) */
-  completedAt?: string;
+  durationMinutes?: number;
 }
 
 /**
- * Payload for medication-related events.
+ * Payload for medication events.
  */
 export interface MedicationPayload {
   /** ID of the medication */
   medicationId: string;
   /** Name of the medication */
   medicationName: string;
-  /** Dosage taken */
-  dosage: string;
-  /** When the medication was taken */
-  takenAt: string;
-  /** Whether it was taken on schedule */
-  onSchedule: boolean;
+  /** Dosage information */
+  dosage?: string;
+  /** Frequency of medication (daily, twice_daily, etc.) */
+  frequency?: string;
+  /** Time the medication was taken (for MEDICATION_TAKEN events) */
+  takenAt?: string;
 }
 
 /**
- * Payload for telemedicine-related events.
+ * Payload for telemedicine events.
  */
 export interface TelemedicinePayload {
   /** ID of the telemedicine session */
   sessionId: string;
-  /** ID of the provider */
+  /** ID of the healthcare provider */
   providerId: string;
-  /** Name of the provider */
+  /** Name of the healthcare provider */
   providerName: string;
   /** Duration of the session in minutes */
-  durationMinutes: number;
-  /** When the session started */
-  startedAt: string;
-  /** When the session ended */
-  endedAt: string;
+  durationMinutes?: number;
   /** Quality rating of the session (1-5) */
   qualityRating?: number;
 }
 
 /**
- * Payload for care plan progress events.
+ * Payload for symptom checker events.
  */
-export interface CarePlanPayload {
-  /** ID of the care plan */
-  planId: string;
-  /** Type of care plan */
-  planType: string;
-  /** Current progress percentage */
-  progressPercentage: number;
-  /** Specific task that was completed */
-  completedTask?: string;
-  /** When the task was completed */
-  completedAt?: string;
+export interface SymptomCheckerPayload {
+  /** List of symptoms checked */
+  symptoms: string[];
+  /** Severity level reported (mild, moderate, severe) */
+  severityLevel?: 'mild' | 'moderate' | 'severe';
+  /** Duration of symptoms (hours, days, weeks) */
+  duration?: string;
+  /** Recommendation provided by the system */
+  recommendation?: string;
 }
 
 /**
- * Interface for Plan journey specific events.
- */
-export interface PlanEvent extends BaseGamificationEvent {
-  journey: JourneyType.PLAN;
-  type: GamificationEventType.CLAIM_SUBMITTED | 
-        GamificationEventType.CLAIM_APPROVED | 
-        GamificationEventType.BENEFIT_UTILIZED | 
-        GamificationEventType.PLAN_SELECTED;
-  payload: PlanEventPayload;
-}
-
-/**
- * Union type for all possible Plan event payloads.
+ * Payload interface for plan journey events.
  */
 export type PlanEventPayload = 
-  ClaimPayload | 
-  BenefitPayload | 
-  PlanSelectionPayload;
+  | PlanViewPayload 
+  | BenefitPayload 
+  | ClaimPayload 
+  | DocumentPayload;
 
 /**
- * Payload for claim-related events.
+ * Payload for plan view events.
  */
-export interface ClaimPayload {
-  /** ID of the claim */
-  claimId: string;
-  /** Type of claim */
-  claimType: string;
-  /** Amount of the claim */
-  amount: number;
-  /** Currency of the amount */
-  currency: string;
-  /** When the claim was submitted */
-  submittedAt?: string;
-  /** When the claim was approved (for CLAIM_APPROVED) */
-  approvedAt?: string;
-  /** Status of the claim */
-  status?: 'SUBMITTED' | 'APPROVED' | 'DENIED' | 'PENDING';
+export interface PlanViewPayload {
+  /** ID of the insurance plan */
+  planId: string;
+  /** Name of the insurance plan */
+  planName: string;
+  /** Type of plan (health, dental, vision, etc.) */
+  planType: string;
+  /** Coverage period of the plan */
+  coveragePeriod?: string;
 }
 
 /**
- * Payload for benefit utilization events.
+ * Payload for benefit exploration events.
  */
 export interface BenefitPayload {
   /** ID of the benefit */
   benefitId: string;
-  /** Type of benefit */
-  benefitType: string;
-  /** Description of the benefit */
-  description: string;
-  /** When the benefit was utilized */
-  utilizedAt: string;
-  /** Value of the benefit utilized */
-  value?: number;
-  /** Currency of the value */
-  currency?: string;
+  /** Name of the benefit */
+  benefitName: string;
+  /** Category of the benefit */
+  category: string;
+  /** Coverage details of the benefit */
+  coverageDetails?: string;
 }
 
 /**
- * Payload for plan selection events.
+ * Payload for claim events.
  */
-export interface PlanSelectionPayload {
-  /** ID of the selected plan */
-  planId: string;
-  /** Name of the plan */
-  planName: string;
-  /** Type of plan */
-  planType: string;
-  /** When the plan was selected */
-  selectedAt: string;
-  /** Previous plan ID if switching plans */
-  previousPlanId?: string;
-  /** Annual cost of the plan */
-  annualCost?: number;
-  /** Currency of the cost */
-  currency?: string;
+export interface ClaimPayload {
+  /** ID of the claim */
+  claimId: string;
+  /** Type of claim (medical, dental, vision, etc.) */
+  claimType: string;
+  /** Amount of the claim */
+  amount?: number;
+  /** Status of the claim (submitted, in_review, approved, denied) */
+  status?: 'submitted' | 'in_review' | 'approved' | 'denied';
+  /** Date of service */
+  serviceDate?: string;
 }
 
 /**
- * Interface for system-level events.
+ * Payload for document events.
  */
-export interface SystemEvent extends BaseGamificationEvent {
-  journey: JourneyType.SYSTEM;
-  type: GamificationEventType.USER_REGISTERED | 
-        GamificationEventType.USER_LOGGED_IN | 
-        GamificationEventType.DAILY_STREAK;
-  payload: SystemEventPayload;
+export interface DocumentPayload {
+  /** ID of the document */
+  documentId: string;
+  /** Type of document (claim, prescription, report, etc.) */
+  documentType: string;
+  /** Name of the document */
+  documentName: string;
+  /** Size of the document in bytes */
+  sizeBytes?: number;
 }
 
 /**
- * Union type for all possible System event payloads.
+ * Interface for event processing response.
  */
-export type SystemEventPayload = 
-  UserRegistrationPayload | 
-  UserLoginPayload | 
-  DailyStreakPayload;
-
-/**
- * Payload for user registration events.
- */
-export interface UserRegistrationPayload {
-  /** When the user registered */
-  registeredAt: string;
-  /** Registration method used */
-  method: 'EMAIL' | 'GOOGLE' | 'FACEBOOK' | 'APPLE';
-  /** Whether the profile is complete */
-  profileComplete: boolean;
-}
-
-/**
- * Payload for user login events.
- */
-export interface UserLoginPayload {
-  /** When the user logged in */
-  loggedInAt: string;
-  /** Login method used */
-  method: 'EMAIL' | 'GOOGLE' | 'FACEBOOK' | 'APPLE';
-  /** Device type used for login */
-  deviceType: 'MOBILE' | 'WEB' | 'TABLET';
-}
-
-/**
- * Payload for daily streak events.
- */
-export interface DailyStreakPayload {
-  /** Current streak count in days */
-  streakCount: number;
-  /** When the streak was updated */
-  updatedAt: string;
-  /** Bonus XP awarded for the streak */
-  bonusXp?: number;
-}
-
-/**
- * Interface for event processing responses.
- * Used to handle the result of event processing by the gamification engine.
- */
-export interface EventResponse {
-  /** Whether the event was processed successfully */
+export interface EventProcessingResponse {
+  /** Whether the event was successfully processed */
   success: boolean;
-  /** Error message if processing failed */
+  /** Optional error message if processing failed */
   error?: string;
-  /** Achievements unlocked as a result of this event */
-  unlockedAchievements?: Array<{
-    id: string;
-    title: string;
-    description: string;
-    xp: number;
-  }>;
-  /** XP earned from this event */
-  xpEarned?: number;
-  /** Whether the user leveled up from this event */
-  leveledUp?: boolean;
-  /** New level if the user leveled up */
-  newLevel?: number;
-  /** Quests that progressed from this event */
-  questProgress?: Array<{
-    id: string;
-    title: string;
-    progress: number;
-    total: number;
-    completed: boolean;
-  }>;
-  /** Rewards earned from this event */
-  earnedRewards?: Array<{
-    id: string;
-    title: string;
-    description: string;
-    xp: number;
-  }>;
-}
-
-/**
- * Union type for all possible gamification events.
- * Used for type checking and discriminated unions.
- */
-export type GamificationEvent = 
-  AchievementEvent | 
-  QuestEvent | 
-  RewardEvent | 
-  ProgressEvent | 
-  HealthEvent | 
-  CareEvent | 
-  PlanEvent | 
-  SystemEvent;
-
-/**
- * Type guard to check if an event is an AchievementEvent.
- */
-export function isAchievementEvent(event: GamificationEvent): event is AchievementEvent {
-  return event.type === GamificationEventType.ACHIEVEMENT_UNLOCKED || 
-         event.type === GamificationEventType.ACHIEVEMENT_PROGRESS;
-}
-
-/**
- * Type guard to check if an event is a QuestEvent.
- */
-export function isQuestEvent(event: GamificationEvent): event is QuestEvent {
-  return event.type === GamificationEventType.QUEST_COMPLETED || 
-         event.type === GamificationEventType.QUEST_PROGRESS || 
-         event.type === GamificationEventType.QUEST_STARTED;
-}
-
-/**
- * Type guard to check if an event is a RewardEvent.
- */
-export function isRewardEvent(event: GamificationEvent): event is RewardEvent {
-  return event.type === GamificationEventType.REWARD_EARNED || 
-         event.type === GamificationEventType.REWARD_REDEEMED;
-}
-
-/**
- * Type guard to check if an event is a ProgressEvent.
- */
-export function isProgressEvent(event: GamificationEvent): event is ProgressEvent {
-  return event.type === GamificationEventType.XP_EARNED || 
-         event.type === GamificationEventType.LEVEL_UP;
-}
-
-/**
- * Type guard to check if an event is a HealthEvent.
- */
-export function isHealthEvent(event: GamificationEvent): event is HealthEvent {
-  return event.journey === JourneyType.HEALTH;
-}
-
-/**
- * Type guard to check if an event is a CareEvent.
- */
-export function isCareEvent(event: GamificationEvent): event is CareEvent {
-  return event.journey === JourneyType.CARE;
-}
-
-/**
- * Type guard to check if an event is a PlanEvent.
- */
-export function isPlanEvent(event: GamificationEvent): event is PlanEvent {
-  return event.journey === JourneyType.PLAN;
-}
-
-/**
- * Type guard to check if an event is a SystemEvent.
- */
-export function isSystemEvent(event: GamificationEvent): event is SystemEvent {
-  return event.journey === JourneyType.SYSTEM;
+  /** Results of processing the event */
+  results?: {
+    /** XP earned from this event */
+    xpEarned?: number;
+    /** Achievements unlocked by this event */
+    achievementsUnlocked?: Array<{
+      id: string;
+      title: string;
+      description: string;
+      xpValue: number;
+    }>;
+    /** Quests progressed by this event */
+    questsProgressed?: Array<{
+      id: string;
+      title: string;
+      progress: number;
+      total: number;
+      completed: boolean;
+    }>;
+    /** Rewards earned from this event */
+    rewardsEarned?: Array<{
+      id: string;
+      title: string;
+      description: string;
+      xpValue: number;
+    }>;
+    /** Whether the user leveled up from this event */
+    leveledUp?: {
+      newLevel: number;
+      previousLevel: number;
+    };
+  };
 }
