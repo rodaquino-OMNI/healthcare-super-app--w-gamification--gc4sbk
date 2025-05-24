@@ -1,4 +1,7 @@
-import Text, { TextProps } from './Text';
+/**
+ * Public API for the Text primitive component
+ * Re-exports the Text component and its props interface
+ */
 
-export type { TextProps };
-export default Text;
+export { Text, TextProps } from './Text';
+export default { Text };
