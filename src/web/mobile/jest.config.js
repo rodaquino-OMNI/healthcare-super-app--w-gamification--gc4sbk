@@ -1,9 +1,10 @@
 /**
  * Jest configuration for the AUSTA SuperApp mobile application
  * This config enables comprehensive testing across all three user journeys
- * with support for the new design system architecture
+ * with support for the new design system packages and module resolution
  */
 
+/** @type {import('jest').Config} */
 module.exports = {
   // Use React Native preset for Jest
   preset: 'react-native',
@@ -11,7 +12,7 @@ module.exports = {
   // Setup files to run after the test environment is set up
   setupFilesAfterEnv: [
     '@testing-library/jest-native/extend-expect',
-    '<rootDir>/src/test/setup.js' // Added for design system initialization
+    '<rootDir>/src/test/setup.js'
   ],
 
   // Transform files using babel-jest with enhanced TypeScript support
@@ -24,17 +25,9 @@ module.exports = {
     'node_modules/(?!(react-native|@react-native|react-native-.*|@react-navigation|@austa/design-system|@design-system/primitives|@austa/interfaces|@austa/journey-context)/)'
   ],
 
-  // Module directories to search when resolving modules
-  moduleDirectories: [
-    'node_modules',
-    '<rootDir>/src',
-    '<rootDir>/../', // Access to other workspace packages
-    '<rootDir>/../../node_modules' // Access to root node_modules
-  ],
-
   // Module path aliases to match webpack and tsconfig path aliases
   moduleNameMapper: {
-    // Internal path aliases
+    // App-specific path aliases
     '^@/(.*)$': '<rootDir>/src/$1',
     '^@components/(.*)$': '<rootDir>/src/components/$1',
     '^@screens/(.*)$': '<rootDir>/src/screens/$1',
@@ -47,39 +40,52 @@ module.exports = {
     '^@constants/(.*)$': '<rootDir>/src/constants/$1',
     '^@i18n/(.*)$': '<rootDir>/src/i18n/$1',
     
-    // New design system package mappings
-    '^@austa/design-system(.*)$': '<rootDir>/../design-system/src$1',
-    '^@design-system/primitives(.*)$': '<rootDir>/../primitives/src$1',
-    '^@austa/interfaces(.*)$': '<rootDir>/../interfaces$1',
-    '^@austa/journey-context(.*)$': '<rootDir>/../journey-context/src$1',
-    
-    // Mock specific components that might cause issues in tests
-    // '^@austa/design-system/components/SomeComponent$': '<rootDir>/__mocks__/SomeComponentMock.js',
+    // Design system packages path aliases
+    '^@austa/design-system$': '<rootDir>/../design-system/src/index',
+    '^@austa/design-system/(.*)$': '<rootDir>/../design-system/src/$1',
+    '^@design-system/primitives$': '<rootDir>/../primitives/src/index',
+    '^@design-system/primitives/(.*)$': '<rootDir>/../primitives/src/$1',
+    '^@austa/interfaces$': '<rootDir>/../interfaces/index',
+    '^@austa/interfaces/(.*)$': '<rootDir>/../interfaces/$1',
+    '^@austa/journey-context$': '<rootDir>/../journey-context/src/index',
+    '^@austa/journey-context/(.*)$': '<rootDir>/../journey-context/src/$1',
     
     // Asset mocks
     '\\.(jpg|jpeg|png|gif|webp|svg)$': '<rootDir>/__mocks__/fileMock.js'
   },
 
-  // File extensions to consider when resolving modules
+  // Directories to search for modules
+  moduleDirectories: [
+    'node_modules',
+    '<rootDir>/src',
+    '<rootDir>/../design-system/src',
+    '<rootDir>/../primitives/src',
+    '<rootDir>/../interfaces',
+    '<rootDir>/../journey-context/src'
+  ],
+
+  // File extensions to consider when resolving modules - prioritize TypeScript
   moduleFileExtensions: ['ts', 'tsx', 'js', 'jsx', 'json', 'node'],
+
+  // Patterns to match for test files
+  testMatch: [
+    '**/__tests__/**/*.[jt]s?(x)',
+    '**/?(*.)+(spec|test).[jt]s?(x)'
+  ],
 
   // Patterns to ignore when searching for test files
   testPathIgnorePatterns: [
     '/node_modules/',
     '/android/',
     '/ios/',
-    '/e2e/',
-    '/.yarn/'
+    '/e2e/'
   ],
 
-  // Test match patterns for better organization
-  testMatch: [
-    '**/__tests__/**/*.spec.[jt]s?(x)',
-    '**/?(*.)+(spec|test).[jt]s?(x)'
-  ],
-
-  // Test environment
-  testEnvironment: 'node',
+  // Test environment - using jsdom for React Native component testing
+  testEnvironment: 'jsdom',
+  testEnvironmentOptions: {
+    customExportConditions: ['react-native']
+  },
 
   // Files to collect coverage from
   collectCoverageFrom: [
@@ -87,9 +93,7 @@ module.exports = {
     '!src/**/*.d.ts',
     '!src/assets/**',
     '!src/**/*.stories.{js,jsx,ts,tsx}',
-    // Include imported components from design system packages
-    '!**/node_modules/**',
-    '!**/vendor/**'
+    '!**/node_modules/**'
   ],
 
   // Coverage thresholds to enforce
@@ -131,18 +135,28 @@ module.exports = {
     }
   },
 
-  // Additional Jest configuration for design system testing
-  // Comment explaining the purpose of this configuration
-  haste: {
-    enableSymlinks: true // Enable symlinks for monorepo package resolution
-  },
+  // Mock all imported modules in ./node_modules that match this pattern
+  watchPathIgnorePatterns: [
+    'node_modules'
+  ],
 
-  // Resolver options for better module resolution
-  resolver: {
-    resolverMainFields: ['react-native', 'browser', 'main']
-  },
+  // Automatically clear mock calls and instances between every test
+  clearMocks: true,
 
-  // Cache configuration for faster tests
-  cache: true,
-  cacheDirectory: '<rootDir>/.jest-cache'
+  // Indicates whether the coverage information should be collected while executing the test
+  collectCoverage: true,
+
+  // The directory where Jest should output its coverage files
+  coverageDirectory: 'coverage',
+
+  // Indicates which provider should be used to instrument code for coverage
+  coverageProvider: 'v8',
+
+  // A list of reporter names that Jest uses when writing coverage reports
+  coverageReporters: [
+    'json',
+    'text',
+    'lcov',
+    'clover'
+  ]
 };
