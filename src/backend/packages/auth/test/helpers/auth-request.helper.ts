@@ -1,345 +1,306 @@
+/**
+ * Authentication Request Helper
+ * 
+ * Provides utilities for creating and manipulating HTTP request objects with authentication data for testing.
+ * This helper creates mock Request objects with configurable authentication headers, cookies, and body content
+ * that mimic authenticated requests from different clients and journeys.
+ */
+
 import { Request } from 'express';
-import { JwtService } from '@nestjs/jwt';
-import { ITokenPayload, IUser } from '../../src/interfaces';
-import { createSecureAxios } from 'src/backend/shared/src/utils/secure-axios';
+import { JourneyType } from '../../src/interfaces/role.interface';
+import { ITokenPayload } from '../../src/interfaces/token.interface';
 
 /**
- * Default test user for authentication tests
+ * Default test user data
  */
-export const DEFAULT_TEST_USER: IUser = {
+const DEFAULT_USER = {
   id: 'test-user-id',
-  email: 'test@austa.health',
-  firstName: 'Test',
-  lastName: 'User',
-  roles: ['user'],
-  permissions: ['read:profile', 'update:profile'],
-  createdAt: new Date(),
-  updatedAt: new Date(),
+  email: 'test@example.com',
+  name: 'Test User',
 };
 
 /**
- * Journey-specific test users
+ * Default token expiration (1 hour from now)
  */
-export const JOURNEY_TEST_USERS = {
-  health: {
-    ...DEFAULT_TEST_USER,
-    id: 'health-user-id',
-    email: 'health@austa.health',
-    roles: ['user', 'health:viewer'],
-    permissions: ['read:profile', 'update:profile', 'read:health', 'update:health'],
-    journeyContext: { currentJourney: 'health' },
-  },
-  care: {
-    ...DEFAULT_TEST_USER,
-    id: 'care-user-id',
-    email: 'care@austa.health',
-    roles: ['user', 'care:viewer'],
-    permissions: ['read:profile', 'update:profile', 'read:care', 'update:care'],
-    journeyContext: { currentJourney: 'care' },
-  },
-  plan: {
-    ...DEFAULT_TEST_USER,
-    id: 'plan-user-id',
-    email: 'plan@austa.health',
-    roles: ['user', 'plan:viewer'],
-    permissions: ['read:profile', 'update:profile', 'read:plan', 'update:plan'],
-    journeyContext: { currentJourney: 'plan' },
-  },
-  admin: {
-    ...DEFAULT_TEST_USER,
-    id: 'admin-user-id',
-    email: 'admin@austa.health',
-    roles: ['admin'],
-    permissions: ['*'],
-    journeyContext: { currentJourney: 'admin' },
-  },
-};
+const DEFAULT_EXPIRATION = Math.floor(Date.now() / 1000) + 3600;
 
 /**
- * Permission sets for different user types
+ * Options for creating an authenticated request
  */
-export const PERMISSION_SETS = {
-  readonly: ['read:profile', 'read:health', 'read:care', 'read:plan'],
-  standard: ['read:profile', 'update:profile', 'read:health', 'update:health', 'read:care', 'update:care', 'read:plan'],
-  premium: ['read:profile', 'update:profile', 'read:health', 'update:health', 'read:care', 'update:care', 'read:plan', 'update:plan'],
-  admin: ['*'],
-};
-
-/**
- * Options for creating authenticated request objects
- */
-export interface MockRequestOptions {
-  /** User data to include in the request */
-  user?: Partial<IUser>;
-  /** Whether to include the user in the request body */
-  includeUserInBody?: boolean;
-  /** Whether to use cookie-based authentication instead of headers */
-  useCookieAuth?: boolean;
-  /** Additional headers to include in the request */
-  headers?: Record<string, string>;
-  /** Request body content */
+export interface AuthRequestOptions {
+  /**
+   * User data to include in the token payload
+   */
+  user?: {
+    id: string;
+    email: string;
+    name: string;
+    [key: string]: any;
+  };
+  
+  /**
+   * Roles to assign to the user
+   */
+  roles?: string[];
+  
+  /**
+   * Permissions to assign to the user
+   */
+  permissions?: string[];
+  
+  /**
+   * Journey context for the request
+   */
+  journeyType?: JourneyType;
+  
+  /**
+   * Journey-specific context data
+   */
+  journeyContext?: Record<string, any>;
+  
+  /**
+   * Whether to use cookie-based authentication instead of header-based
+   */
+  useCookies?: boolean;
+  
+  /**
+   * Request body content
+   */
   body?: Record<string, any>;
-  /** Request query parameters */
+  
+  /**
+   * Request query parameters
+   */
   query?: Record<string, any>;
-  /** Request parameters (route params) */
+  
+  /**
+   * Request parameters (route params)
+   */
   params?: Record<string, any>;
-  /** Journey context to include */
-  journeyContext?: string;
-  /** Custom token payload overrides */
-  tokenPayload?: Partial<ITokenPayload>;
-  /** Whether to include an invalid token */
-  invalidToken?: boolean;
+  
+  /**
+   * Custom headers to include
+   */
+  headers?: Record<string, any>;
+  
+  /**
+   * Token expiration time (in seconds since epoch)
+   */
+  exp?: number;
 }
 
 /**
- * Creates a Bearer token authorization header
+ * Creates a Bearer authentication header with the given token
  * 
  * @param token - JWT token string
- * @returns Authorization header with Bearer prefix
+ * @returns Formatted Bearer authentication header
  */
-export function createBearerAuthHeader(token: string): { Authorization: string } {
-  return { Authorization: `Bearer ${token}` };
+export function createBearerAuthHeader(token: string): string {
+  return `Bearer ${token}`;
 }
 
 /**
- * Creates a mock JWT token for testing
+ * Creates a mock JWT token with the given payload
+ * This is a simplified version for testing that doesn't actually sign the token
  * 
- * @param user - User data to include in the token
- * @param customPayload - Additional payload data to include
- * @param invalidSignature - Whether to create a token with invalid signature
- * @returns JWT token string
+ * @param payload - Token payload
+ * @returns Mock JWT token string
  */
-export function createMockJwtToken(
-  user: Partial<IUser> = DEFAULT_TEST_USER,
-  customPayload: Partial<ITokenPayload> = {},
-  invalidSignature = false
-): string {
-  const jwtService = new JwtService({
-    secret: invalidSignature ? 'wrong-secret' : 'test-secret',
-  });
-
-  const payload: ITokenPayload = {
-    sub: user.id || DEFAULT_TEST_USER.id,
-    email: user.email || DEFAULT_TEST_USER.email,
-    roles: user.roles || DEFAULT_TEST_USER.roles,
-    permissions: user.permissions || DEFAULT_TEST_USER.permissions,
-    journeyContext: user.journeyContext || { currentJourney: 'health' },
-    iat: Math.floor(Date.now() / 1000),
-    exp: Math.floor(Date.now() / 1000) + 3600, // 1 hour from now
-    ...customPayload,
-  };
-
-  return jwtService.sign(payload);
+export function createMockJwtToken(payload: ITokenPayload): string {
+  // In a real implementation, this would sign the token
+  // For testing purposes, we just encode the payload as base64
+  const encodedPayload = Buffer.from(JSON.stringify(payload)).toString('base64');
+  return `header.${encodedPayload}.signature`;
 }
 
 /**
  * Creates a mock authenticated request object for testing
  * 
- * @param options - Configuration options for the mock request
- * @returns Express Request object with authentication data
+ * @param options - Configuration options for the request
+ * @returns Mock Express Request object with authentication
  */
-export function mockAuthenticatedRequest(options: MockRequestOptions = {}): Request {
+export function mockAuthenticatedRequest(options: AuthRequestOptions = {}): Request {
   const {
-    user = DEFAULT_TEST_USER,
-    includeUserInBody = false,
-    useCookieAuth = false,
-    headers = {},
+    user = DEFAULT_USER,
+    roles = ['user'],
+    permissions = [],
+    journeyType = JourneyType.GLOBAL,
+    journeyContext = {},
+    useCookies = false,
     body = {},
     query = {},
     params = {},
-    journeyContext,
-    tokenPayload = {},
-    invalidToken = false,
+    headers = {},
+    exp = DEFAULT_EXPIRATION,
   } = options;
 
-  // Create user with journey context if specified
-  const userWithContext = journeyContext
-    ? { ...user, journeyContext: { currentJourney: journeyContext } }
-    : user;
+  // Create token payload
+  const tokenPayload: ITokenPayload = {
+    sub: user.id,
+    email: user.email,
+    name: user.name,
+    roles,
+    permissions,
+    exp,
+    iat: Math.floor(Date.now() / 1000),
+    journeyContext: {
+      journeyType,
+      ...journeyContext,
+    },
+  };
 
-  // Create JWT token
-  const token = createMockJwtToken(userWithContext, tokenPayload, invalidToken);
+  // Create mock token
+  const token = createMockJwtToken(tokenPayload);
 
-  // Create request object
-  const request = {
-    user: userWithContext,
-    body: includeUserInBody ? { ...body, user: userWithContext } : { ...body },
-    query: { ...query },
-    params: { ...params },
-    headers: { ...headers },
-    cookies: {},
-    get: (name: string) => request.headers[name.toLowerCase()],
-  } as unknown as Request;
+  // Create request headers
+  const requestHeaders: Record<string, string> = {
+    ...headers,
+  };
 
-  // Add authentication data based on method
-  if (useCookieAuth) {
-    request.cookies['auth_token'] = token;
-  } else {
-    request.headers = {
-      ...request.headers,
-      ...createBearerAuthHeader(token),
+  // Add authentication via header or cookie
+  if (useCookies) {
+    // For cookie-based authentication
+    const cookies: Record<string, string> = {
+      'access_token': token,
     };
+    
+    // Create mock request with cookies
+    const request = {
+      headers: requestHeaders,
+      cookies,
+      body,
+      query,
+      params,
+      user: { ...user, roles, permissions },
+    } as unknown as Request;
+    
+    // Add cookie getter method
+    request.cookie = (name: string) => cookies[name];
+    
+    return request;
+  } else {
+    // For header-based authentication
+    requestHeaders.authorization = createBearerAuthHeader(token);
+    
+    // Create mock request with authorization header
+    return {
+      headers: requestHeaders,
+      cookies: {},
+      body,
+      query,
+      params,
+      user: { ...user, roles, permissions },
+    } as unknown as Request;
   }
-
-  return request;
 }
 
 /**
  * Creates a mock authenticated request for the Health journey
  * 
- * @param options - Additional request options
- * @returns Express Request object with Health journey authentication
+ * @param options - Configuration options for the request
+ * @returns Mock Express Request object with Health journey authentication
  */
-export function mockHealthJourneyRequest(options: Omit<MockRequestOptions, 'user' | 'journeyContext'> = {}): Request {
+export function mockHealthJourneyRequest(options: Omit<AuthRequestOptions, 'journeyType'> = {}): Request {
+  const healthRoles = options.roles || ['health:user'];
+  
   return mockAuthenticatedRequest({
     ...options,
-    user: JOURNEY_TEST_USERS.health,
-    journeyContext: 'health',
+    journeyType: JourneyType.HEALTH,
+    roles: healthRoles,
+    journeyContext: {
+      ...options.journeyContext,
+      activeJourney: 'health',
+    },
   });
 }
 
 /**
  * Creates a mock authenticated request for the Care journey
  * 
- * @param options - Additional request options
- * @returns Express Request object with Care journey authentication
+ * @param options - Configuration options for the request
+ * @returns Mock Express Request object with Care journey authentication
  */
-export function mockCareJourneyRequest(options: Omit<MockRequestOptions, 'user' | 'journeyContext'> = {}): Request {
+export function mockCareJourneyRequest(options: Omit<AuthRequestOptions, 'journeyType'> = {}): Request {
+  const careRoles = options.roles || ['care:user'];
+  
   return mockAuthenticatedRequest({
     ...options,
-    user: JOURNEY_TEST_USERS.care,
-    journeyContext: 'care',
+    journeyType: JourneyType.CARE,
+    roles: careRoles,
+    journeyContext: {
+      ...options.journeyContext,
+      activeJourney: 'care',
+    },
   });
 }
 
 /**
  * Creates a mock authenticated request for the Plan journey
  * 
- * @param options - Additional request options
- * @returns Express Request object with Plan journey authentication
+ * @param options - Configuration options for the request
+ * @returns Mock Express Request object with Plan journey authentication
  */
-export function mockPlanJourneyRequest(options: Omit<MockRequestOptions, 'user' | 'journeyContext'> = {}): Request {
+export function mockPlanJourneyRequest(options: Omit<AuthRequestOptions, 'journeyType'> = {}): Request {
+  const planRoles = options.roles || ['plan:user'];
+  
   return mockAuthenticatedRequest({
     ...options,
-    user: JOURNEY_TEST_USERS.plan,
-    journeyContext: 'plan',
+    journeyType: JourneyType.PLAN,
+    roles: planRoles,
+    journeyContext: {
+      ...options.journeyContext,
+      activeJourney: 'plan',
+    },
   });
 }
 
 /**
- * Creates a mock authenticated request for an admin user
+ * Creates a mock authenticated request with admin permissions
  * 
- * @param options - Additional request options
- * @returns Express Request object with admin authentication
+ * @param options - Configuration options for the request
+ * @returns Mock Express Request object with admin authentication
  */
-export function mockAdminRequest(options: Omit<MockRequestOptions, 'user'> = {}): Request {
+export function mockAdminRequest(options: Omit<AuthRequestOptions, 'roles'> = {}): Request {
   return mockAuthenticatedRequest({
     ...options,
-    user: JOURNEY_TEST_USERS.admin,
+    roles: ['admin'],
+    permissions: ['*:*'], // Admin has all permissions
   });
 }
 
 /**
  * Creates a mock authenticated request with specific permissions
  * 
- * @param permissions - Array of permission strings to include
- * @param options - Additional request options
- * @returns Express Request object with specified permissions
+ * @param permissions - Array of permission strings (e.g., ['health:read', 'care:write'])
+ * @param options - Additional configuration options for the request
+ * @returns Mock Express Request object with specified permissions
  */
 export function mockRequestWithPermissions(
   permissions: string[],
-  options: Omit<MockRequestOptions, 'user'> = {}
+  options: Omit<AuthRequestOptions, 'permissions'> = {}
 ): Request {
   return mockAuthenticatedRequest({
     ...options,
-    user: {
-      ...DEFAULT_TEST_USER,
-      permissions,
-    },
+    permissions,
   });
 }
 
 /**
- * Creates a mock authenticated request with a predefined permission set
+ * Creates a mock unauthenticated request object for testing
  * 
- * @param permissionSetKey - Key of the permission set to use
- * @param options - Additional request options
- * @returns Express Request object with the specified permission set
- */
-export function mockRequestWithPermissionSet(
-  permissionSetKey: keyof typeof PERMISSION_SETS,
-  options: Omit<MockRequestOptions, 'user'> = {}
-): Request {
-  return mockRequestWithPermissions(PERMISSION_SETS[permissionSetKey], options);
-}
-
-/**
- * Creates a mock authenticated request with an expired token
- * 
- * @param options - Additional request options
- * @returns Express Request object with expired authentication
- */
-export function mockExpiredTokenRequest(options: Omit<MockRequestOptions, 'tokenPayload'> = {}): Request {
-  return mockAuthenticatedRequest({
-    ...options,
-    tokenPayload: {
-      exp: Math.floor(Date.now() / 1000) - 3600, // 1 hour ago
-    },
-  });
-}
-
-/**
- * Creates a mock authenticated request with an invalid token signature
- * 
- * @param options - Additional request options
- * @returns Express Request object with invalid token authentication
- */
-export function mockInvalidTokenRequest(options: Omit<MockRequestOptions, 'invalidToken'> = {}): Request {
-  return mockAuthenticatedRequest({
-    ...options,
-    invalidToken: true,
-  });
-}
-
-/**
- * Creates a mock unauthenticated request (no auth token)
- * 
- * @param options - Request options excluding authentication
- * @returns Express Request object without authentication
+ * @param options - Configuration options for the request
+ * @returns Mock Express Request object without authentication
  */
 export function mockUnauthenticatedRequest(
-  options: Pick<MockRequestOptions, 'headers' | 'body' | 'query' | 'params'> = {}
+  options: Pick<AuthRequestOptions, 'body' | 'query' | 'params' | 'headers'> = {}
 ): Request {
-  const { headers = {}, body = {}, query = {}, params = {} } = options;
+  const { body = {}, query = {}, params = {}, headers = {} } = options;
   
   return {
+    headers,
+    cookies: {},
     body,
     query,
     params,
-    headers,
-    cookies: {},
-    get: (name: string) => headers[name.toLowerCase()],
   } as unknown as Request;
-}
-
-/**
- * Creates a mock HTTP client with authentication headers
- * 
- * @param user - User to authenticate as
- * @param options - Additional options for token generation
- * @returns Axios instance with authentication headers
- */
-export function createAuthenticatedHttpClient(
-  user: Partial<IUser> = DEFAULT_TEST_USER,
-  options: { tokenPayload?: Partial<ITokenPayload>; invalidToken?: boolean } = {}
-) {
-  const token = createMockJwtToken(user, options.tokenPayload, options.invalidToken);
-  const axiosInstance = createSecureAxios();
-  
-  axiosInstance.defaults.headers.common = {
-    ...axiosInstance.defaults.headers.common,
-    ...createBearerAuthHeader(token),
-  };
-  
-  return axiosInstance;
 }
