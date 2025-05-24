@@ -1,6 +1,6 @@
 // Type declarations for modules without their own type definitions
 
-// Type declarations for @apollo/client
+// Type declarations for @apollo/client (v3.8.10)
 declare module '@apollo/client' {
   export interface ApolloClientOptions<TCacheShape> {
     link: any;
@@ -52,7 +52,7 @@ declare module 'apollo-upload-client' {
   }): any;
 }
 
-// Type declarations for axios
+// Type declarations for axios (v1.6.8)
 declare module 'axios' {
   export interface AxiosRequestConfig {
     url?: string;
@@ -120,7 +120,7 @@ declare module 'axios' {
   export default axios;
 }
 
-// Type declarations for react-native
+// Type declarations for react-native (v0.73.4)
 declare module 'react-native' {
   export function del(url: string, config?: any): Promise<any>;
   export const Platform: {
