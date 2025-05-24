@@ -1,417 +1,836 @@
-import { Controller, Get, INestApplication } from '@nestjs/common';
-import { Test, TestingModule } from '@nestjs/testing';
+import { Controller, ExecutionContext, Get, INestApplication } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { Reflector } from '@nestjs/core';
+import { Test, TestingModule } from '@nestjs/testing';
+import { Request } from 'express';
+import * as request from 'supertest';
+
+// Import from the new package structure using path aliases
 import { InsufficientPermissionsError } from '@austa/errors';
-import { IUserWithRoles, JourneyType } from '@austa/interfaces/auth';
-import { Roles, ROLES_KEY } from '@austa/auth/decorators/roles.decorator';
-import { RolesGuard } from '@austa/auth/guards/roles.guard';
+import { Roles, ROLES_KEY } from '@austa/auth';
+import { RolesGuard } from '@austa/auth';
+
+// Import test helpers
 import {
-  createMockExecutionContext,
   createTestUser,
   createTestAdminUser,
-  createJourneyAdminUser
+  createTestHealthUser,
+  createTestCareUser,
+  createTestPlanUser,
+  TEST_ROLES,
+  createAuthenticatedRequest,
 } from './test-helpers';
 
-// Mock controllers for testing different role configurations
+// Test controller with various role-protected endpoints
 @Controller('test')
 class TestController {
   @Get('public')
-  public(): string {
-    return 'public';
-  }
-
-  @Roles('user')
-  @Get('user')
-  user(): string {
-    return 'user';
+  public getPublic() {
+    return { message: 'This is public' };
   }
 
   @Roles('admin')
-  @Get('admin')
-  admin(): string {
-    return 'admin';
+  @Get('admin-only')
+  public getAdminOnly() {
+    return { message: 'Admin only' };
   }
 
-  @Roles('user', 'admin')
-  @Get('user-or-admin')
-  userOrAdmin(): string {
-    return 'user-or-admin';
+  @Roles('user')
+  @Get('user-only')
+  public getUserOnly() {
+    return { message: 'User only' };
   }
-}
 
-@Controller('journey')
-class JourneyController {
+  @Roles('admin', 'user')
+  @Get('admin-or-user')
+  public getAdminOrUser() {
+    return { message: 'Admin or user' };
+  }
+
+  // Journey-specific role endpoints
   @Roles('health:admin')
   @Get('health-admin')
-  healthAdmin(): string {
-    return 'health-admin';
+  public getHealthAdmin() {
+    return { message: 'Health admin only' };
+  }
+
+  @Roles('health:user')
+  @Get('health-user')
+  public getHealthUser() {
+    return { message: 'Health user only' };
   }
 
   @Roles('care:provider')
   @Get('care-provider')
-  careProvider(): string {
-    return 'care-provider';
+  public getCareProvider() {
+    return { message: 'Care provider only' };
   }
 
   @Roles('plan:manager')
   @Get('plan-manager')
-  planManager(): string {
-    return 'plan-manager';
+  public getPlanManager() {
+    return { message: 'Plan manager only' };
   }
 
-  @Roles('health:admin', 'care:provider', 'plan:manager')
-  @Get('any-journey-role')
-  anyJourneyRole(): string {
-    return 'any-journey-role';
-  }
-}
-
-@Controller('complex')
-@Roles('admin')
-class ControllerWithRoles {
-  @Get('admin-only')
-  adminOnly(): string {
-    return 'admin-only';
+  // Complex role combinations
+  @Roles('health:admin', 'care:admin')
+  @Get('health-or-care-admin')
+  public getHealthOrCareAdmin() {
+    return { message: 'Health admin or care admin' };
   }
 
-  @Roles('user')
-  @Get('user-override')
-  userOverride(): string {
-    return 'user-override';
+  @Roles('health:user', 'care:user', 'plan:user')
+  @Get('any-journey-user')
+  public getAnyJourneyUser() {
+    return { message: 'Any journey user' };
   }
 }
 
 describe('RolesGuard and Roles Decorator Integration', () => {
   let app: INestApplication;
-  let moduleRef: TestingModule;
-  let rolesGuard: RolesGuard;
   let reflector: Reflector;
+  let configService: ConfigService;
+  let rolesGuard: RolesGuard;
 
   beforeAll(async () => {
-    // Create a test module with the controllers and RolesGuard
-    moduleRef = await Test.createTestingModule({
-      controllers: [TestController, JourneyController, ControllerWithRoles],
-      providers: [RolesGuard, Reflector],
+    // Create a test module with our test controller and the RolesGuard
+    const moduleRef: TestingModule = await Test.createTestingModule({
+      controllers: [TestController],
+      providers: [
+        {
+          provide: ConfigService,
+          useValue: {
+            get: jest.fn((key: string, defaultValue?: any) => {
+              if (key === 'NODE_ENV') return 'test';
+              if (key === 'AUTH_BYPASS_ROLES_IN_DEV') return false;
+              return defaultValue;
+            }),
+          },
+        },
+        Reflector,
+        RolesGuard,
+      ],
     }).compile();
 
     app = moduleRef.createNestApplication();
-    await app.init();
-
-    // Get the RolesGuard and Reflector instances
-    rolesGuard = moduleRef.get<RolesGuard>(RolesGuard);
     reflector = moduleRef.get<Reflector>(Reflector);
+    configService = moduleRef.get<ConfigService>(ConfigService);
+    rolesGuard = moduleRef.get<RolesGuard>(RolesGuard);
+
+    await app.init();
   });
 
   afterAll(async () => {
     await app.close();
   });
 
-  describe('Roles Decorator Metadata', () => {
-    it('should set metadata with the correct roles', () => {
-      // Get the controller instance
-      const testController = moduleRef.get(TestController);
-      
-      // Get the handler for the user method
-      const userHandler = testController.user;
-      
-      // Use reflector to get the metadata
-      const roles = reflector.get(ROLES_KEY, userHandler);
-      
-      // Verify the metadata contains the correct roles
-      expect(roles).toEqual(['user']);
+  describe('Metadata Extraction', () => {
+    it('should extract roles metadata from handler', () => {
+      // Create a mock execution context
+      const mockContext = {
+        getHandler: () => TestController.prototype.getAdminOnly,
+        getClass: () => TestController,
+        switchToHttp: () => ({
+          getRequest: () => ({}),
+        }),
+      } as unknown as ExecutionContext;
+
+      // Get the roles metadata
+      const roles = reflector.getAllAndOverride<string[]>(ROLES_KEY, [
+        mockContext.getHandler(),
+        mockContext.getClass(),
+      ]);
+
+      // Verify the roles metadata
+      expect(roles).toBeDefined();
+      expect(roles).toEqual(['admin']);
     });
 
-    it('should set metadata with multiple roles', () => {
-      // Get the controller instance
-      const testController = moduleRef.get(TestController);
-      
-      // Get the handler for the userOrAdmin method
-      const userOrAdminHandler = testController.userOrAdmin;
-      
-      // Use reflector to get the metadata
-      const roles = reflector.get(ROLES_KEY, userOrAdminHandler);
-      
-      // Verify the metadata contains the correct roles
-      expect(roles).toEqual(['user', 'admin']);
-    });
+    it('should extract journey-specific roles metadata from handler', () => {
+      // Create a mock execution context
+      const mockContext = {
+        getHandler: () => TestController.prototype.getHealthAdmin,
+        getClass: () => TestController,
+        switchToHttp: () => ({
+          getRequest: () => ({}),
+        }),
+      } as unknown as ExecutionContext;
 
-    it('should set metadata for journey-specific roles', () => {
-      // Get the controller instance
-      const journeyController = moduleRef.get(JourneyController);
-      
-      // Get the handler for the healthAdmin method
-      const healthAdminHandler = journeyController.healthAdmin;
-      
-      // Use reflector to get the metadata
-      const roles = reflector.get(ROLES_KEY, healthAdminHandler);
-      
-      // Verify the metadata contains the correct roles
+      // Get the roles metadata
+      const roles = reflector.getAllAndOverride<string[]>(ROLES_KEY, [
+        mockContext.getHandler(),
+        mockContext.getClass(),
+      ]);
+
+      // Verify the roles metadata
+      expect(roles).toBeDefined();
       expect(roles).toEqual(['health:admin']);
     });
 
-    it('should set metadata at the controller level', () => {
-      // Get the controller class
-      const controllerClass = ControllerWithRoles;
-      
-      // Use reflector to get the metadata
-      const roles = reflector.get(ROLES_KEY, controllerClass);
-      
-      // Verify the metadata contains the correct roles
-      expect(roles).toEqual(['admin']);
+    it('should extract multiple roles metadata from handler', () => {
+      // Create a mock execution context
+      const mockContext = {
+        getHandler: () => TestController.prototype.getHealthOrCareAdmin,
+        getClass: () => TestController,
+        switchToHttp: () => ({
+          getRequest: () => ({}),
+        }),
+      } as unknown as ExecutionContext;
+
+      // Get the roles metadata
+      const roles = reflector.getAllAndOverride<string[]>(ROLES_KEY, [
+        mockContext.getHandler(),
+        mockContext.getClass(),
+      ]);
+
+      // Verify the roles metadata
+      expect(roles).toBeDefined();
+      expect(roles).toEqual(['health:admin', 'care:admin']);
     });
   });
 
-  describe('RolesGuard Basic Role Checking', () => {
-    it('should allow access when no roles are required', async () => {
-      // Create a context with no roles metadata
-      const user = createTestUser();
-      const context = createMockExecutionContext(user);
-      
+  describe('Basic Role Checking', () => {
+    it('should allow access to public endpoints without roles', async () => {
+      // Create a mock execution context for a public endpoint
+      const mockContext = {
+        getHandler: () => TestController.prototype.getPublic,
+        getClass: () => TestController,
+        switchToHttp: () => ({
+          getRequest: () => ({}),
+        }),
+      } as unknown as ExecutionContext;
+
+      // Check if the guard allows access
+      const result = await rolesGuard.canActivate(mockContext);
+
       // Verify the guard allows access
-      const result = await rolesGuard.canActivate(context);
       expect(result).toBe(true);
     });
 
-    it('should allow access when user has the required role', async () => {
-      // Create a user with the 'user' role
-      const user = createTestUser();
-      
-      // Create a context with 'user' role metadata
-      const context = createMockExecutionContext(user, ['user']);
-      
-      // Verify the guard allows access
-      const result = await rolesGuard.canActivate(context);
-      expect(result).toBe(true);
-    });
-
-    it('should deny access when user does not have the required role', async () => {
-      // Create a user with only the 'user' role
-      const user = createTestUser();
-      
-      // Create a context with 'admin' role metadata
-      const context = createMockExecutionContext(user, ['admin']);
-      
-      // Verify the guard throws an InsufficientPermissionsError
-      await expect(rolesGuard.canActivate(context)).rejects.toThrow(InsufficientPermissionsError);
-    });
-
-    it('should allow access when user has any of the required roles', async () => {
-      // Create a user with the 'user' role
-      const user = createTestUser();
-      
-      // Create a context with 'user' or 'admin' role metadata
-      const context = createMockExecutionContext(user, ['user', 'admin']);
-      
-      // Verify the guard allows access
-      const result = await rolesGuard.canActivate(context);
-      expect(result).toBe(true);
-    });
-
-    it('should throw error when no user is present in the request', async () => {
-      // Create a context with no user
-      const context = createMockExecutionContext(null as any, ['user']);
-      
-      // Verify the guard throws an InsufficientPermissionsError
-      await expect(rolesGuard.canActivate(context)).rejects.toThrow(InsufficientPermissionsError);
-    });
-  });
-
-  describe('RolesGuard Journey-Specific Role Checking', () => {
-    it('should allow access when user has the required journey-specific role', async () => {
-      // Create a user with the 'health:admin' role
-      const user = createJourneyAdminUser('health');
-      user.roles = ['user', 'health:admin'];
-      
-      // Create a context with 'health:admin' role metadata
-      const context = createMockExecutionContext(user, ['health:admin']);
-      
-      // Verify the guard allows access
-      const result = await rolesGuard.canActivate(context);
-      expect(result).toBe(true);
-    });
-
-    it('should allow access when user has global admin role for journey-specific endpoint', async () => {
+    it('should allow admin access to admin-only endpoints', async () => {
       // Create an admin user
-      const user = createTestAdminUser();
-      
-      // Create a context with 'health:admin' role metadata
-      const context = createMockExecutionContext(user, ['health:admin']);
-      
-      // Verify the guard allows access (admin should have access to all journey-specific roles)
-      const result = await rolesGuard.canActivate(context);
-      expect(result).toBe(true);
-    });
+      const adminUser = createTestAdminUser();
 
-    it('should deny access when user does not have the required journey-specific role', async () => {
-      // Create a user with the 'health:admin' role
-      const user = createJourneyAdminUser('health');
-      user.roles = ['user', 'health:admin'];
-      
-      // Create a context with 'care:provider' role metadata
-      const context = createMockExecutionContext(user, ['care:provider']);
-      
-      // Verify the guard throws an InsufficientPermissionsError
-      await expect(rolesGuard.canActivate(context)).rejects.toThrow(InsufficientPermissionsError);
-    });
+      // Create a mock request with the admin user
+      const mockRequest = createAuthenticatedRequest(adminUser);
 
-    it('should allow access when user has any of the required journey-specific roles', async () => {
-      // Create a user with the 'health:admin' role
-      const user = createJourneyAdminUser('health');
-      user.roles = ['user', 'health:admin'];
-      
-      // Create a context with multiple journey role metadata
-      const context = createMockExecutionContext(user, ['health:admin', 'care:provider', 'plan:manager']);
-      
+      // Create a mock execution context
+      const mockContext = {
+        getHandler: () => TestController.prototype.getAdminOnly,
+        getClass: () => TestController,
+        switchToHttp: () => ({
+          getRequest: () => mockRequest,
+        }),
+      } as unknown as ExecutionContext;
+
+      // Check if the guard allows access
+      const result = await rolesGuard.canActivate(mockContext);
+
       // Verify the guard allows access
-      const result = await rolesGuard.canActivate(context);
       expect(result).toBe(true);
     });
 
-    it('should allow access when user has journey-specific admin role', async () => {
-      // Create a user with the 'health:admin' role
-      const user = createJourneyAdminUser('health');
-      user.roles = ['user', 'health:admin'];
-      
-      // Create a context with 'health:viewer' role metadata (should be covered by health:admin)
-      const context = createMockExecutionContext(user, ['health:viewer']);
-      
-      // Verify the guard allows access (health:admin should have access to all health roles)
-      const result = await rolesGuard.canActivate(context);
-      expect(result).toBe(true);
-    });
-  });
+    it('should deny regular user access to admin-only endpoints', async () => {
+      // Create a regular user
+      const regularUser = createTestUser();
 
-  describe('RolesGuard Role Inheritance and Complex Scenarios', () => {
-    it('should respect controller-level roles', async () => {
-      // Create a user with only the 'user' role
-      const user = createTestUser();
-      
-      // Mock the getAllAndOverride method to return controller-level roles
-      jest.spyOn(reflector, 'getAllAndOverride').mockReturnValueOnce(['admin']);
-      
-      // Create a context
-      const context = createMockExecutionContext(user);
-      
-      // Verify the guard throws an InsufficientPermissionsError
-      await expect(rolesGuard.canActivate(context)).rejects.toThrow(InsufficientPermissionsError);
-    });
+      // Create a mock request with the regular user
+      const mockRequest = createAuthenticatedRequest(regularUser);
 
-    it('should allow method-level roles to override controller-level roles', async () => {
-      // Create a user with only the 'user' role
-      const user = createTestUser();
-      
-      // Mock the getAllAndOverride method to return method-level roles
-      jest.spyOn(reflector, 'getAllAndOverride').mockReturnValueOnce(['user']);
-      
-      // Create a context
-      const context = createMockExecutionContext(user);
-      
-      // Verify the guard allows access
-      const result = await rolesGuard.canActivate(context);
-      expect(result).toBe(true);
-    });
+      // Create a mock execution context
+      const mockContext = {
+        getHandler: () => TestController.prototype.getAdminOnly,
+        getClass: () => TestController,
+        switchToHttp: () => ({
+          getRequest: () => mockRequest,
+        }),
+      } as unknown as ExecutionContext;
 
-    it('should handle complex role combinations across journeys', async () => {
-      // Create a user with multiple journey roles
-      const user = createTestUser();
-      user.roles = ['user', 'health:viewer', 'care:provider', 'plan:reader'];
-      
-      // Create a context with complex role requirements
-      const context = createMockExecutionContext(user, ['health:admin', 'care:provider', 'plan:manager']);
-      
-      // Verify the guard allows access (user has care:provider)
-      const result = await rolesGuard.canActivate(context);
-      expect(result).toBe(true);
-    });
-
-    it('should handle empty user roles array', async () => {
-      // Create a user with no roles
-      const user = createTestUser();
-      user.roles = [];
-      
-      // Create a context with role requirements
-      const context = createMockExecutionContext(user, ['user']);
-      
-      // Verify the guard throws an InsufficientPermissionsError
-      await expect(rolesGuard.canActivate(context)).rejects.toThrow(InsufficientPermissionsError);
-    });
-  });
-
-  describe('RolesGuard Error Responses', () => {
-    it('should include required roles in error details', async () => {
-      // Create a user with only the 'user' role
-      const user = createTestUser();
-      
-      // Create a context with 'admin' role metadata
-      const context = createMockExecutionContext(user, ['admin']);
-      
-      // Verify the guard throws an InsufficientPermissionsError with the correct details
+      // Check if the guard denies access
       try {
-        await rolesGuard.canActivate(context);
-        fail('Expected InsufficientPermissionsError to be thrown');
+        await rolesGuard.canActivate(mockContext);
+        fail('Should have thrown an InsufficientPermissionsError');
       } catch (error) {
+        // Verify the error
         expect(error).toBeInstanceOf(InsufficientPermissionsError);
         expect(error.message).toBe('You do not have permission to access this resource');
-        expect(error.details).toHaveProperty('requiredRoles', ['admin']);
-        expect(error.details).toHaveProperty('userRoles');
-        expect(error.details).toHaveProperty('userId', user.id);
+        expect(error.metadata).toEqual({
+          requiredRoles: ['admin'],
+          userRoles: regularUser.roles.map(r => r.name),
+          resource: 'Test.getAdminOnly',
+        });
       }
     });
 
-    it('should include user roles in error details for debugging', async () => {
-      // Create a user with specific roles
-      const user = createTestUser();
-      user.roles = ['user', 'health:viewer'];
-      
-      // Create a context with 'admin' role metadata
-      const context = createMockExecutionContext(user, ['admin']);
-      
-      // Verify the guard throws an InsufficientPermissionsError with the correct details
+    it('should allow user access to user-only endpoints', async () => {
+      // Create a regular user
+      const regularUser = createTestUser();
+
+      // Create a mock request with the regular user
+      const mockRequest = createAuthenticatedRequest(regularUser);
+
+      // Create a mock execution context
+      const mockContext = {
+        getHandler: () => TestController.prototype.getUserOnly,
+        getClass: () => TestController,
+        switchToHttp: () => ({
+          getRequest: () => mockRequest,
+        }),
+      } as unknown as ExecutionContext;
+
+      // Check if the guard allows access
+      const result = await rolesGuard.canActivate(mockContext);
+
+      // Verify the guard allows access
+      expect(result).toBe(true);
+    });
+
+    it('should allow admin access to user-only endpoints (admin has all permissions)', async () => {
+      // Create an admin user
+      const adminUser = createTestAdminUser();
+
+      // Create a mock request with the admin user
+      const mockRequest = createAuthenticatedRequest(adminUser);
+
+      // Create a mock execution context
+      const mockContext = {
+        getHandler: () => TestController.prototype.getUserOnly,
+        getClass: () => TestController,
+        switchToHttp: () => ({
+          getRequest: () => mockRequest,
+        }),
+      } as unknown as ExecutionContext;
+
+      // Check if the guard allows access
+      const result = await rolesGuard.canActivate(mockContext);
+
+      // Verify the guard allows access
+      expect(result).toBe(true);
+    });
+
+    it('should allow access to endpoints requiring any of multiple roles', async () => {
+      // Create a regular user
+      const regularUser = createTestUser();
+
+      // Create a mock request with the regular user
+      const mockRequest = createAuthenticatedRequest(regularUser);
+
+      // Create a mock execution context
+      const mockContext = {
+        getHandler: () => TestController.prototype.getAdminOrUser,
+        getClass: () => TestController,
+        switchToHttp: () => ({
+          getRequest: () => mockRequest,
+        }),
+      } as unknown as ExecutionContext;
+
+      // Check if the guard allows access
+      const result = await rolesGuard.canActivate(mockContext);
+
+      // Verify the guard allows access
+      expect(result).toBe(true);
+    });
+  });
+
+  describe('Journey-Specific Role Checking', () => {
+    it('should allow health admin access to health-admin endpoints', async () => {
+      // Create a health admin user
+      const healthAdminUser = createTestHealthUser({}, true);
+
+      // Create a mock request with the health admin user
+      const mockRequest = createAuthenticatedRequest(healthAdminUser);
+
+      // Create a mock execution context
+      const mockContext = {
+        getHandler: () => TestController.prototype.getHealthAdmin,
+        getClass: () => TestController,
+        switchToHttp: () => ({
+          getRequest: () => mockRequest,
+        }),
+      } as unknown as ExecutionContext;
+
+      // Check if the guard allows access
+      const result = await rolesGuard.canActivate(mockContext);
+
+      // Verify the guard allows access
+      expect(result).toBe(true);
+    });
+
+    it('should deny health user access to health-admin endpoints', async () => {
+      // Create a health user (not admin)
+      const healthUser = createTestHealthUser();
+
+      // Create a mock request with the health user
+      const mockRequest = createAuthenticatedRequest(healthUser);
+
+      // Create a mock execution context
+      const mockContext = {
+        getHandler: () => TestController.prototype.getHealthAdmin,
+        getClass: () => TestController,
+        switchToHttp: () => ({
+          getRequest: () => mockRequest,
+        }),
+      } as unknown as ExecutionContext;
+
+      // Check if the guard denies access
       try {
-        await rolesGuard.canActivate(context);
-        fail('Expected InsufficientPermissionsError to be thrown');
+        await rolesGuard.canActivate(mockContext);
+        fail('Should have thrown an InsufficientPermissionsError');
       } catch (error) {
+        // Verify the error
         expect(error).toBeInstanceOf(InsufficientPermissionsError);
-        expect(error.details).toHaveProperty('userRoles');
-        expect(error.details.userRoles).toEqual(['user', 'health:viewer']);
+        expect(error.message).toBe('You do not have permission to access this resource');
+        expect(error.metadata).toEqual({
+          requiredRoles: ['health:admin'],
+          userRoles: healthUser.roles.map(r => r.name),
+          resource: 'Test.getHealthAdmin',
+        });
       }
     });
 
-    it('should include endpoint information in error details', async () => {
-      // Create a user with only the 'user' role
-      const user = createTestUser();
-      
-      // Create a context with 'admin' role metadata and request path/method
-      const context = createMockExecutionContext(user, ['admin']);
-      
-      // Add request path and method to the context
-      const req = context.switchToHttp().getRequest();
-      req.path = '/admin/resource';
-      req.method = 'GET';
-      
-      // Verify the guard throws an InsufficientPermissionsError with the correct details
+    it('should allow care provider access to care-provider endpoints', async () => {
+      // Create a care provider user
+      const careProviderUser = createTestCareUser({}, 'provider');
+
+      // Create a mock request with the care provider user
+      const mockRequest = createAuthenticatedRequest(careProviderUser);
+
+      // Create a mock execution context
+      const mockContext = {
+        getHandler: () => TestController.prototype.getCareProvider,
+        getClass: () => TestController,
+        switchToHttp: () => ({
+          getRequest: () => mockRequest,
+        }),
+      } as unknown as ExecutionContext;
+
+      // Check if the guard allows access
+      const result = await rolesGuard.canActivate(mockContext);
+
+      // Verify the guard allows access
+      expect(result).toBe(true);
+    });
+
+    it('should allow care admin access to care-provider endpoints (admin has all journey permissions)', async () => {
+      // Create a care admin user
+      const careAdminUser = createTestCareUser({}, 'admin');
+
+      // Create a mock request with the care admin user
+      const mockRequest = createAuthenticatedRequest(careAdminUser);
+
+      // Create a mock execution context
+      const mockContext = {
+        getHandler: () => TestController.prototype.getCareProvider,
+        getClass: () => TestController,
+        switchToHttp: () => ({
+          getRequest: () => mockRequest,
+        }),
+      } as unknown as ExecutionContext;
+
+      // Check if the guard allows access
+      const result = await rolesGuard.canActivate(mockContext);
+
+      // Verify the guard allows access
+      expect(result).toBe(true);
+    });
+
+    it('should deny care user access to care-provider endpoints', async () => {
+      // Create a care user (not provider or admin)
+      const careUser = createTestCareUser();
+
+      // Create a mock request with the care user
+      const mockRequest = createAuthenticatedRequest(careUser);
+
+      // Create a mock execution context
+      const mockContext = {
+        getHandler: () => TestController.prototype.getCareProvider,
+        getClass: () => TestController,
+        switchToHttp: () => ({
+          getRequest: () => mockRequest,
+        }),
+      } as unknown as ExecutionContext;
+
+      // Check if the guard denies access
       try {
-        await rolesGuard.canActivate(context);
-        fail('Expected InsufficientPermissionsError to be thrown');
+        await rolesGuard.canActivate(mockContext);
+        fail('Should have thrown an InsufficientPermissionsError');
       } catch (error) {
+        // Verify the error
         expect(error).toBeInstanceOf(InsufficientPermissionsError);
-        expect(error.details).toHaveProperty('endpoint', '/admin/resource');
-        expect(error.details).toHaveProperty('method', 'GET');
+        expect(error.message).toBe('You do not have permission to access this resource');
+        expect(error.metadata).toEqual({
+          requiredRoles: ['care:provider'],
+          userRoles: careUser.roles.map(r => r.name),
+          resource: 'Test.getCareProvider',
+        });
       }
     });
 
-    it('should provide a different error message when no user is present', async () => {
-      // Create a context with no user
-      const context = createMockExecutionContext(null as any, ['user']);
-      
-      // Verify the guard throws an InsufficientPermissionsError with the correct message
+    it('should allow plan manager access to plan-manager endpoints', async () => {
+      // Create a plan manager user
+      const planManagerUser = createTestPlanUser({}, 'manager');
+
+      // Create a mock request with the plan manager user
+      const mockRequest = createAuthenticatedRequest(planManagerUser);
+
+      // Create a mock execution context
+      const mockContext = {
+        getHandler: () => TestController.prototype.getPlanManager,
+        getClass: () => TestController,
+        switchToHttp: () => ({
+          getRequest: () => mockRequest,
+        }),
+      } as unknown as ExecutionContext;
+
+      // Check if the guard allows access
+      const result = await rolesGuard.canActivate(mockContext);
+
+      // Verify the guard allows access
+      expect(result).toBe(true);
+    });
+
+    it('should deny plan user access to plan-manager endpoints', async () => {
+      // Create a plan user (not manager or admin)
+      const planUser = createTestPlanUser();
+
+      // Create a mock request with the plan user
+      const mockRequest = createAuthenticatedRequest(planUser);
+
+      // Create a mock execution context
+      const mockContext = {
+        getHandler: () => TestController.prototype.getPlanManager,
+        getClass: () => TestController,
+        switchToHttp: () => ({
+          getRequest: () => mockRequest,
+        }),
+      } as unknown as ExecutionContext;
+
+      // Check if the guard denies access
       try {
-        await rolesGuard.canActivate(context);
-        fail('Expected InsufficientPermissionsError to be thrown');
+        await rolesGuard.canActivate(mockContext);
+        fail('Should have thrown an InsufficientPermissionsError');
       } catch (error) {
+        // Verify the error
+        expect(error).toBeInstanceOf(InsufficientPermissionsError);
+        expect(error.message).toBe('You do not have permission to access this resource');
+        expect(error.metadata).toEqual({
+          requiredRoles: ['plan:manager'],
+          userRoles: planUser.roles.map(r => r.name),
+          resource: 'Test.getPlanManager',
+        });
+      }
+    });
+  });
+
+  describe('Role Inheritance and Complex Permissions', () => {
+    it('should allow super_admin access to all endpoints', async () => {
+      // Create a super admin user
+      const superAdminUser = createTestUser({}, [
+        { id: '99', name: 'super_admin', description: 'Super Administrator' },
+      ]);
+
+      // Create a mock request with the super admin user
+      const mockRequest = createAuthenticatedRequest(superAdminUser);
+
+      // Test endpoints with different role requirements
+      const endpoints = [
+        TestController.prototype.getAdminOnly,
+        TestController.prototype.getUserOnly,
+        TestController.prototype.getHealthAdmin,
+        TestController.prototype.getCareProvider,
+        TestController.prototype.getPlanManager,
+      ];
+
+      // Check if the guard allows access to all endpoints
+      for (const endpoint of endpoints) {
+        const mockContext = {
+          getHandler: () => endpoint,
+          getClass: () => TestController,
+          switchToHttp: () => ({
+            getRequest: () => mockRequest,
+          }),
+        } as unknown as ExecutionContext;
+
+        const result = await rolesGuard.canActivate(mockContext);
+        expect(result).toBe(true);
+      }
+    });
+
+    it('should allow access to endpoints requiring any of multiple journey roles', async () => {
+      // Create users with different journey admin roles
+      const healthAdminUser = createTestHealthUser({}, true);
+      const careAdminUser = createTestCareUser({}, 'admin');
+
+      // Create mock requests with the users
+      const healthAdminRequest = createAuthenticatedRequest(healthAdminUser);
+      const careAdminRequest = createAuthenticatedRequest(careAdminUser);
+
+      // Create a mock execution context for the health-or-care-admin endpoint
+      const healthAdminContext = {
+        getHandler: () => TestController.prototype.getHealthOrCareAdmin,
+        getClass: () => TestController,
+        switchToHttp: () => ({
+          getRequest: () => healthAdminRequest,
+        }),
+      } as unknown as ExecutionContext;
+
+      const careAdminContext = {
+        getHandler: () => TestController.prototype.getHealthOrCareAdmin,
+        getClass: () => TestController,
+        switchToHttp: () => ({
+          getRequest: () => careAdminRequest,
+        }),
+      } as unknown as ExecutionContext;
+
+      // Check if the guard allows access for both users
+      const healthAdminResult = await rolesGuard.canActivate(healthAdminContext);
+      const careAdminResult = await rolesGuard.canActivate(careAdminContext);
+
+      // Verify the guard allows access for both users
+      expect(healthAdminResult).toBe(true);
+      expect(careAdminResult).toBe(true);
+    });
+
+    it('should deny access to endpoints requiring journey roles from different journey', async () => {
+      // Create a health admin user
+      const healthAdminUser = createTestHealthUser({}, true);
+
+      // Create a mock request with the health admin user
+      const mockRequest = createAuthenticatedRequest(healthAdminUser);
+
+      // Create a mock execution context for the care-provider endpoint
+      const mockContext = {
+        getHandler: () => TestController.prototype.getCareProvider,
+        getClass: () => TestController,
+        switchToHttp: () => ({
+          getRequest: () => mockRequest,
+        }),
+      } as unknown as ExecutionContext;
+
+      // Check if the guard denies access
+      try {
+        await rolesGuard.canActivate(mockContext);
+        fail('Should have thrown an InsufficientPermissionsError');
+      } catch (error) {
+        // Verify the error
+        expect(error).toBeInstanceOf(InsufficientPermissionsError);
+        expect(error.message).toBe('You do not have permission to access this resource');
+        expect(error.metadata).toEqual({
+          requiredRoles: ['care:provider'],
+          userRoles: healthAdminUser.roles.map(r => r.name),
+          resource: 'Test.getCareProvider',
+        });
+      }
+    });
+
+    it('should allow any journey user access to endpoints requiring any journey user role', async () => {
+      // Create users with different journey user roles
+      const healthUser = createTestHealthUser();
+      const careUser = createTestCareUser();
+      const planUser = createTestPlanUser();
+
+      // Create mock requests with the users
+      const healthUserRequest = createAuthenticatedRequest(healthUser);
+      const careUserRequest = createAuthenticatedRequest(careUser);
+      const planUserRequest = createAuthenticatedRequest(planUser);
+
+      // Create mock execution contexts for the any-journey-user endpoint
+      const healthUserContext = {
+        getHandler: () => TestController.prototype.getAnyJourneyUser,
+        getClass: () => TestController,
+        switchToHttp: () => ({
+          getRequest: () => healthUserRequest,
+        }),
+      } as unknown as ExecutionContext;
+
+      const careUserContext = {
+        getHandler: () => TestController.prototype.getAnyJourneyUser,
+        getClass: () => TestController,
+        switchToHttp: () => ({
+          getRequest: () => careUserRequest,
+        }),
+      } as unknown as ExecutionContext;
+
+      const planUserContext = {
+        getHandler: () => TestController.prototype.getAnyJourneyUser,
+        getClass: () => TestController,
+        switchToHttp: () => ({
+          getRequest: () => planUserRequest,
+        }),
+      } as unknown as ExecutionContext;
+
+      // Check if the guard allows access for all users
+      const healthUserResult = await rolesGuard.canActivate(healthUserContext);
+      const careUserResult = await rolesGuard.canActivate(careUserContext);
+      const planUserResult = await rolesGuard.canActivate(planUserContext);
+
+      // Verify the guard allows access for all users
+      expect(healthUserResult).toBe(true);
+      expect(careUserResult).toBe(true);
+      expect(planUserResult).toBe(true);
+    });
+  });
+
+  describe('Error Handling', () => {
+    it('should throw InsufficientPermissionsError when no user is present', async () => {
+      // Create a mock execution context with no user
+      const mockContext = {
+        getHandler: () => TestController.prototype.getAdminOnly,
+        getClass: () => TestController,
+        switchToHttp: () => ({
+          getRequest: () => ({}),
+        }),
+      } as unknown as ExecutionContext;
+
+      // Check if the guard throws the correct error
+      try {
+        await rolesGuard.canActivate(mockContext);
+        fail('Should have thrown an InsufficientPermissionsError');
+      } catch (error) {
+        // Verify the error
         expect(error).toBeInstanceOf(InsufficientPermissionsError);
         expect(error.message).toBe('Authentication required to access this resource');
+        expect(error.metadata).toEqual({
+          requiredRoles: ['admin'],
+          resource: 'Test.getAdminOnly',
+        });
       }
+    });
+
+    it('should throw InsufficientPermissionsError with detailed metadata when user lacks required roles', async () => {
+      // Create a regular user
+      const regularUser = createTestUser();
+
+      // Create a mock request with the regular user
+      const mockRequest = createAuthenticatedRequest(regularUser);
+
+      // Create a mock execution context
+      const mockContext = {
+        getHandler: () => TestController.prototype.getAdminOnly,
+        getClass: () => TestController,
+        switchToHttp: () => ({
+          getRequest: () => mockRequest,
+        }),
+      } as unknown as ExecutionContext;
+
+      // Check if the guard throws the correct error
+      try {
+        await rolesGuard.canActivate(mockContext);
+        fail('Should have thrown an InsufficientPermissionsError');
+      } catch (error) {
+        // Verify the error
+        expect(error).toBeInstanceOf(InsufficientPermissionsError);
+        expect(error.message).toBe('You do not have permission to access this resource');
+        expect(error.metadata).toEqual({
+          requiredRoles: ['admin'],
+          userRoles: regularUser.roles.map(r => r.name),
+          resource: 'Test.getAdminOnly',
+        });
+      }
+    });
+
+    it('should include journey-specific role information in error metadata', async () => {
+      // Create a health user
+      const healthUser = createTestHealthUser();
+
+      // Create a mock request with the health user
+      const mockRequest = createAuthenticatedRequest(healthUser);
+
+      // Create a mock execution context for a care-specific endpoint
+      const mockContext = {
+        getHandler: () => TestController.prototype.getCareProvider,
+        getClass: () => TestController,
+        switchToHttp: () => ({
+          getRequest: () => mockRequest,
+        }),
+      } as unknown as ExecutionContext;
+
+      // Check if the guard throws the correct error
+      try {
+        await rolesGuard.canActivate(mockContext);
+        fail('Should have thrown an InsufficientPermissionsError');
+      } catch (error) {
+        // Verify the error
+        expect(error).toBeInstanceOf(InsufficientPermissionsError);
+        expect(error.message).toBe('You do not have permission to access this resource');
+        expect(error.metadata).toEqual({
+          requiredRoles: ['care:provider'],
+          userRoles: healthUser.roles.map(r => r.name),
+          resource: 'Test.getCareProvider',
+        });
+      }
+    });
+  });
+
+  describe('Development Mode Bypass', () => {
+    it('should bypass role checking in development mode when configured', async () => {
+      // Mock the ConfigService to return development mode with bypass enabled
+      jest.spyOn(configService, 'get').mockImplementation((key: string) => {
+        if (key === 'NODE_ENV') return 'development';
+        if (key === 'AUTH_BYPASS_ROLES_IN_DEV') return true;
+        return null;
+      });
+
+      // Create a regular user (without admin role)
+      const regularUser = createTestUser();
+
+      // Create a mock request with the regular user
+      const mockRequest = createAuthenticatedRequest(regularUser);
+
+      // Create a mock execution context for an admin-only endpoint
+      const mockContext = {
+        getHandler: () => TestController.prototype.getAdminOnly,
+        getClass: () => TestController,
+        switchToHttp: () => ({
+          getRequest: () => mockRequest,
+        }),
+      } as unknown as ExecutionContext;
+
+      // Check if the guard allows access despite the user not having the required role
+      const result = await rolesGuard.canActivate(mockContext);
+
+      // Verify the guard allows access due to development mode bypass
+      expect(result).toBe(true);
+
+      // Reset the mock
+      jest.spyOn(configService, 'get').mockRestore();
+    });
+
+    it('should not bypass role checking in development mode when not configured', async () => {
+      // Mock the ConfigService to return development mode with bypass disabled
+      jest.spyOn(configService, 'get').mockImplementation((key: string) => {
+        if (key === 'NODE_ENV') return 'development';
+        if (key === 'AUTH_BYPASS_ROLES_IN_DEV') return false;
+        return null;
+      });
+
+      // Create a regular user (without admin role)
+      const regularUser = createTestUser();
+
+      // Create a mock request with the regular user
+      const mockRequest = createAuthenticatedRequest(regularUser);
+
+      // Create a mock execution context for an admin-only endpoint
+      const mockContext = {
+        getHandler: () => TestController.prototype.getAdminOnly,
+        getClass: () => TestController,
+        switchToHttp: () => ({
+          getRequest: () => mockRequest,
+        }),
+      } as unknown as ExecutionContext;
+
+      // Check if the guard denies access
+      try {
+        await rolesGuard.canActivate(mockContext);
+        fail('Should have thrown an InsufficientPermissionsError');
+      } catch (error) {
+        // Verify the error
+        expect(error).toBeInstanceOf(InsufficientPermissionsError);
+        expect(error.message).toBe('You do not have permission to access this resource');
+      }
+
+      // Reset the mock
+      jest.spyOn(configService, 'get').mockRestore();
     });
   });
 });
