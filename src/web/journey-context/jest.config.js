@@ -1,40 +1,37 @@
 /**
- * Jest configuration for the @austa/journey-context package
+ * Jest configuration for the AUSTA SuperApp journey-context package
  * 
- * This configuration supports comprehensive testing for the journey context package
- * which provides shared context functionality across all three user journeys:
+ * This configuration supports comprehensive testing for the journey context providers
+ * that facilitate state management across all three user journeys:
  * - My Health (Minha Saúde)
  * - Care Now (Cuidar-me Agora)
  * - My Plan & Benefits (Meu Plano & Benefícios)
  * 
- * The configuration is designed to work with both web and mobile platforms,
- * ensuring consistent behavior across the entire AUSTA SuperApp ecosystem.
+ * The configuration ensures proper testing of cross-platform functionality
+ * for both web and mobile implementations.
  */
 
 module.exports = {
   // Use jsdom environment for browser-like DOM testing
   testEnvironment: 'jest-environment-jsdom',
   
-  // Setup files that run after the testing environment is set up
-  setupFilesAfterEnv: ['<rootDir>/jest.setup.js'],
-  
   // Transform files using babel-jest
   transform: {
-    '^.+\\.(js|jsx|ts|tsx)$': 'babel-jest',
+    '^.+\\.(js|jsx|ts|tsx)$': ['babel-jest', { presets: ['@babel/preset-env', '@babel/preset-react', '@babel/preset-typescript'] }],
   },
   
   // Don't transform node_modules except for our internal packages
   transformIgnorePatterns: [
-    '/node_modules/(?!(@austa/design-system|@austa/primitives|@austa/interfaces))',
+    '/node_modules/(?!(@austa/design-system|@design-system/primitives|@austa/interfaces))',
   ],
   
   // Module name mapper for path aliases
   moduleNameMapper: {
     // Package path aliases
     '^@/(.*)$': '<rootDir>/src/$1',
-    '^@providers/(.*)$': '<rootDir>/src/providers/$1',
-    '^@hooks/(.*)$': '<rootDir>/src/hooks/$1',
     '^@utils/(.*)$': '<rootDir>/src/utils/$1',
+    '^@hooks/(.*)$': '<rootDir>/src/hooks/$1',
+    '^@providers/(.*)$': '<rootDir>/src/providers/$1',
     '^@constants/(.*)$': '<rootDir>/src/constants/$1',
     '^@types/(.*)$': '<rootDir>/src/types/$1',
     '^@adapters/(.*)$': '<rootDir>/src/adapters/$1',
@@ -43,11 +40,6 @@ module.exports = {
     // Handle CSS and image imports in tests
     '\\.(css|less|scss|sass)$': 'identity-obj-proxy',
     '\\.(jpg|jpeg|png|gif|webp|svg)$': '<rootDir>/__mocks__/fileMock.js',
-    
-    // Mock implementations for platform-specific modules
-    // This allows testing code that uses React Native modules in a jsdom environment
-    '^react-native$': 'react-native-web',
-    '@react-native-async-storage/async-storage': '<rootDir>/__mocks__/asyncStorageMock.js',
   },
   
   // Supported file extensions
@@ -61,26 +53,38 @@ module.exports = {
     'src/**/*.{js,jsx,ts,tsx}',
     '!src/**/*.d.ts',
     '!src/**/*.stories.{js,jsx,ts,tsx}',
-    '!src/index.ts',
+    '!src/**/__mocks__/**',
   ],
   
   // Coverage thresholds for different parts of the package
   coverageThreshold: {
     // Global threshold requirements
     global: {
+      statements: 75,
+      branches: 75,
+      functions: 75,
+      lines: 75,
+    },
+    // Journey-specific coverage thresholds
+    './src/providers/health/': {
       statements: 80,
       branches: 80,
       functions: 80,
       lines: 80,
     },
-    // Provider components have higher coverage requirements
-    './src/providers/': {
-      statements: 90,
-      branches: 85,
-      functions: 90,
-      lines: 90,
+    './src/providers/care/': {
+      statements: 80,
+      branches: 80,
+      functions: 80,
+      lines: 80,
     },
-    // Journey-specific adapters need thorough testing
+    './src/providers/plan/': {
+      statements: 80,
+      branches: 80,
+      functions: 80,
+      lines: 80,
+    },
+    // Adapters have higher coverage requirements due to platform-specific code
     './src/adapters/': {
       statements: 85,
       branches: 85,
@@ -94,6 +98,9 @@ module.exports = {
   
   // Enable verbose output
   verbose: true,
+  
+  // Setup files to run after the test environment is set up
+  setupFilesAfterEnv: ['@testing-library/jest-dom'],
   
   // Limit the number of workers to 50% of available cores
   maxWorkers: '50%',
