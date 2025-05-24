@@ -1,124 +1,89 @@
 /**
- * @file Health Types
- * @description Defines the core enum types for the Health journey in the AUSTA SuperApp.
- * This file serves as the foundation for type-safe health metric tracking across the application.
+ * Health Metric Type Definitions for the AUSTA SuperApp
+ * 
+ * This file contains the core enum types for health metrics in the Health journey,
+ * ensuring type safety and consistency across the application. These types are used
+ * for categorizing different health measurements and are referenced by both frontend
+ * and backend implementations.
+ *
+ * @package @austa/interfaces
  */
 
 /**
- * Types of health metrics that can be tracked in the application
+ * Types of health metrics that can be tracked in the application.
+ * Used throughout the Health journey for consistent categorization of health data.
  * 
- * @remarks
- * These types align with the My Health journey requirements and are used
- * to categorize different health measurements throughout the application.
- * 
- * @example
- * ```typescript
- * // Using the enum to specify a metric type
- * const metricType: HealthMetricType = HealthMetricType.HEART_RATE;
- * ```
+ * @enum {string}
  */
 export enum HealthMetricType {
   /**
-   * Heart rate measurements in beats per minute (BPM)
-   * Typically collected from wearable devices or manual input
+   * Heart rate measurement in beats per minute (BPM).
+   * Normal resting heart rate for adults ranges from 60-100 BPM.
    */
   HEART_RATE = 'HEART_RATE',
-  
+
   /**
-   * Blood pressure measurements in mmHg (systolic/diastolic)
-   * Usually stored as two separate values in the metric value field
+   * Blood pressure measurement, typically recorded as systolic/diastolic in mmHg.
+   * Normal blood pressure is generally considered to be below 120/80 mmHg.
    */
   BLOOD_PRESSURE = 'BLOOD_PRESSURE',
-  
+
   /**
-   * Blood glucose measurements in mg/dL or mmol/L
-   * Important for diabetes management and monitoring
+   * Blood glucose (blood sugar) level, measured in mg/dL or mmol/L.
+   * Normal fasting blood glucose is typically between 70-99 mg/dL (3.9-5.5 mmol/L).
    */
   BLOOD_GLUCOSE = 'BLOOD_GLUCOSE',
-  
+
   /**
-   * Step count measurements
-   * Typically collected from wearable devices or smartphone sensors
+   * Daily step count, used for tracking physical activity.
+   * A common goal is 10,000 steps per day, though individual targets may vary.
    */
   STEPS = 'STEPS',
-  
+
   /**
-   * Sleep duration and quality measurements
-   * Usually includes duration in minutes and may include sleep stages
+   * Sleep duration and quality metrics, typically measured in hours.
+   * Recommended sleep for adults is 7-9 hours per night.
    */
   SLEEP = 'SLEEP',
-  
+
   /**
-   * Weight measurements in kg or lb
-   * Can be collected from smart scales or manual input
+   * Body weight measurement, recorded in kilograms (kg) or pounds (lbs).
+   * Used for tracking weight management goals and BMI calculations.
    */
   WEIGHT = 'WEIGHT',
 }
 
-/**
- * Type guard to check if a string is a valid HealthMetricType
- * 
- * @param value - The string value to check
- * @returns True if the value is a valid HealthMetricType, false otherwise
- * 
- * @example
- * ```typescript
- * if (isHealthMetricType(metricTypeString)) {
- *   // Safe to use as HealthMetricType
- *   const typedValue: HealthMetricType = metricTypeString;
- * }
- * ```
- */
-export function isHealthMetricType(value: string): value is HealthMetricType {
+// Type guard to check if a string is a valid HealthMetricType
+export const isHealthMetricType = (value: string): value is HealthMetricType => {
   return Object.values(HealthMetricType).includes(value as HealthMetricType);
-}
+};
 
 /**
- * Gets the display name for a health metric type in Portuguese
- * 
- * @param type - The HealthMetricType to get the display name for
- * @returns The localized display name for the metric type
- * 
- * @example
- * ```typescript
- * const displayName = getHealthMetricTypeDisplayName(HealthMetricType.HEART_RATE);
- * // Returns "Frequência Cardíaca"
- * ```
+ * Type-safe mapping of health metric types to their display units
  */
-export function getHealthMetricTypeDisplayName(type: HealthMetricType): string {
-  const displayNames: Record<HealthMetricType, string> = {
-    [HealthMetricType.HEART_RATE]: 'Frequência Cardíaca',
-    [HealthMetricType.BLOOD_PRESSURE]: 'Pressão Arterial',
-    [HealthMetricType.BLOOD_GLUCOSE]: 'Glicemia',
-    [HealthMetricType.STEPS]: 'Passos',
-    [HealthMetricType.SLEEP]: 'Sono',
-    [HealthMetricType.WEIGHT]: 'Peso',
-  };
-  
-  return displayNames[type];
-}
+export const HEALTH_METRIC_UNITS: Record<HealthMetricType, string> = {
+  [HealthMetricType.HEART_RATE]: 'bpm',
+  [HealthMetricType.BLOOD_PRESSURE]: 'mmHg',
+  [HealthMetricType.BLOOD_GLUCOSE]: 'mg/dL',
+  [HealthMetricType.STEPS]: 'steps',
+  [HealthMetricType.SLEEP]: 'hours',
+  [HealthMetricType.WEIGHT]: 'kg',
+} as const;
 
 /**
- * Gets the default unit for a health metric type
- * 
- * @param type - The HealthMetricType to get the default unit for
- * @returns The default unit for the metric type
- * 
- * @example
- * ```typescript
- * const unit = getDefaultUnitForMetricType(HealthMetricType.HEART_RATE);
- * // Returns "bpm"
- * ```
+ * Type-safe mapping of health metric types to their normal range descriptions
  */
-export function getDefaultUnitForMetricType(type: HealthMetricType): string {
-  const defaultUnits: Record<HealthMetricType, string> = {
-    [HealthMetricType.HEART_RATE]: 'bpm',
-    [HealthMetricType.BLOOD_PRESSURE]: 'mmHg',
-    [HealthMetricType.BLOOD_GLUCOSE]: 'mg/dL',
-    [HealthMetricType.STEPS]: 'passos',
-    [HealthMetricType.SLEEP]: 'min',
-    [HealthMetricType.WEIGHT]: 'kg',
-  };
-  
-  return defaultUnits[type];
-}
+export const HEALTH_METRIC_NORMAL_RANGES: Record<HealthMetricType, string> = {
+  [HealthMetricType.HEART_RATE]: '60-100 bpm',
+  [HealthMetricType.BLOOD_PRESSURE]: '< 120/80 mmHg',
+  [HealthMetricType.BLOOD_GLUCOSE]: '70-99 mg/dL (fasting)',
+  [HealthMetricType.STEPS]: '7,000-10,000 steps/day',
+  [HealthMetricType.SLEEP]: '7-9 hours/night',
+  [HealthMetricType.WEIGHT]: 'BMI 18.5-24.9',
+} as const;
+
+/**
+ * Type representing all possible health metric type values
+ * Useful for type-safe function parameters and returns
+ */
+export type HealthMetricTypeValue = `${HealthMetricType}`;
