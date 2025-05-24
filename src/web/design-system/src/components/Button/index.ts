@@ -1,21 +1,30 @@
 /**
- * @file Button component index
- * @description Exports the Button component and its props interface for use throughout the AUSTA SuperApp.
- * This file provides a clean, consistent import path for consumers of the design system.
+ * Button Component
+ * 
+ * @description A versatile button component that supports various styles, sizes, and states.
+ * The Button component is a core interactive element used throughout the AUSTA SuperApp
+ * across all three journeys (Health, Care, and Plan).
  * 
  * @example
- * // Import with named exports
- * import { Button, ButtonProps } from '@austa/design-system/components/Button';
+ * // Basic usage
+ * <Button label="Click me" onClick={handleClick} />
  * 
- * // Or import with default export
- * import Button from '@austa/design-system/components/Button';
+ * // With journey-specific theming
+ * <Button label="Health Action" journeyTheme="health" variant="primary" />
+ * 
+ * // With icons
+ * <Button label="Add Item" leftIcon={<PlusIcon />} />
+ * 
+ * @see ButtonProps for all available props and customization options
  */
 
 import { Button } from './Button';
-import type { ButtonProps } from '@austa/interfaces/components/core.types';
+import type { ButtonProps } from '@austa/interfaces/components';
 
-// Named exports for explicit imports
+// Re-export the Button component
 export { Button };
+
+// Re-export the ButtonProps interface from the interfaces package
 export type { ButtonProps };
 
 // Default export for more flexible importing options
