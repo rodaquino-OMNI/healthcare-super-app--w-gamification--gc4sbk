@@ -1,76 +1,75 @@
 /**
- * @file token.interface.ts
- * @description Defines interfaces related to JWT tokens including payload structure, token details,
- * response formats, and refresh mechanisms. These interfaces ensure consistent token representation
- * and validation across the application.
+ * Token interfaces for the AUSTA SuperApp
+ * Defines standardized interfaces for JWT token generation, validation, and refresh.
  */
 
-import { JourneyType } from './role.interface';
-
 /**
- * Interface representing the standard JWT payload with user data.
- * This is the decoded content of a JWT token used for authentication.
+ * Standard JWT payload structure with user-specific claims
+ * Follows RFC 7519 for registered claims
  */
 export interface ITokenPayload {
   /**
-   * Subject of the token (typically the user ID)
-   */
-  sub: string;
-
-  /**
-   * User's email address
-   */
-  email: string;
-
-  /**
-   * User's full name
-   */
-  name: string;
-
-  /**
-   * Array of role IDs assigned to the user
-   */
-  roles: number[];
-
-  /**
-   * Array of permission codes the user has (including those from roles)
-   */
-  permissions: string[];
-
-  /**
-   * Current active journey context for the user
-   */
-  journeyContext?: JourneyType;
-
-  /**
-   * Issued at timestamp (seconds since epoch)
-   */
-  iat: number;
-
-  /**
-   * Expiration timestamp (seconds since epoch)
-   */
-  exp: number;
-
-  /**
-   * Token issuer
+   * Issuer - identifies the principal that issued the JWT
    */
   iss?: string;
 
   /**
-   * Audience for the token
+   * Subject - identifies the principal that is the subject of the JWT (usually user ID)
+   */
+  sub: string;
+
+  /**
+   * Audience - identifies the recipients that the JWT is intended for
    */
   aud?: string | string[];
 
   /**
-   * JWT ID (unique identifier for the token)
+   * Expiration Time - identifies the expiration time on or after which the JWT must not be accepted
+   * Expressed as NumericDate (seconds since Unix epoch)
+   */
+  exp: number;
+
+  /**
+   * Not Before - identifies the time before which the JWT must not be accepted
+   * Expressed as NumericDate (seconds since Unix epoch)
+   */
+  nbf?: number;
+
+  /**
+   * Issued At - identifies the time at which the JWT was issued
+   * Expressed as NumericDate (seconds since Unix epoch)
+   */
+  iat: number;
+
+  /**
+   * JWT ID - provides a unique identifier for the JWT
    */
   jti?: string;
 
   /**
-   * Not before timestamp (seconds since epoch)
+   * User roles for authorization
    */
-  nbf?: number;
+  roles?: string[];
+
+  /**
+   * User permissions for fine-grained authorization
+   */
+  permissions?: string[];
+
+  /**
+   * User's email address
+   */
+  email?: string;
+
+  /**
+   * User's full name
+   */
+  name?: string;
+
+  /**
+   * Journey-specific context data
+   */
+  journeyContext?: Record<string, any>;
 
   /**
    * Additional custom claims
@@ -79,7 +78,7 @@ export interface ITokenPayload {
 }
 
 /**
- * Interface representing token details including the token string and metadata.
+ * Token details including the token string, type, and expiration
  */
 export interface IToken {
   /**
@@ -88,24 +87,24 @@ export interface IToken {
   token: string;
 
   /**
-   * Type of token (e.g., 'access', 'refresh')
+   * Token type (usually "Bearer")
    */
-  type: 'access' | 'refresh';
+  type: string;
 
   /**
-   * Expiration timestamp (milliseconds since epoch)
+   * Time in seconds until token expiration
+   */
+  expiresIn: number;
+
+  /**
+   * Timestamp (in milliseconds since epoch) when the token expires
    */
   expiresAt: number;
-
-  /**
-   * Decoded payload of the token
-   */
-  payload?: ITokenPayload;
 }
 
 /**
- * Interface representing the token response returned to clients after authentication.
- * This is the data structure sent to the frontend after successful login or token refresh.
+ * Token response returned to clients
+ * Compatible with frontend AuthSession interface
  */
 export interface ITokenResponse {
   /**
@@ -124,62 +123,64 @@ export interface ITokenResponse {
   expiresAt: number;
 
   /**
-   * Type of token (typically 'Bearer')
+   * Token type (usually "Bearer")
    */
   tokenType: string;
 }
 
 /**
- * Interface representing the payload for a token refresh request.
- * This is the data structure sent by the client to refresh an expired access token.
+ * Refresh token request payload
  */
 export interface IRefreshTokenRequest {
   /**
-   * The refresh token string
+   * The refresh token used to obtain a new access token
    */
   refreshToken: string;
 }
 
 /**
- * Interface for token validation options.
- * Used to configure how tokens are validated.
+ * Token verification options
  */
-export interface ITokenValidationOptions {
+export interface ITokenVerificationOptions {
   /**
-   * Whether to ignore token expiration during validation
+   * Whether to ignore token expiration during verification
    */
   ignoreExpiration?: boolean;
 
   /**
-   * List of required claims that must be present in the token
+   * Expected issuer for verification
    */
-  requiredClaims?: string[];
+  issuer?: string | string[];
 
   /**
-   * Audience that should be included in the token
+   * Expected audience for verification
    */
   audience?: string | string[];
 
   /**
-   * Issuer that should have issued the token
+   * Required algorithms for verification
+   */
+  algorithms?: string[];
+
+  /**
+   * Clock tolerance in seconds for time-based claims
+   */
+  clockTolerance?: number;
+}
+
+/**
+ * Token generation options
+ */
+export interface ITokenGenerationOptions {
+  /**
+   * Token issuer
    */
   issuer?: string;
 
   /**
-   * Maximum age of the token in seconds
+   * Token audience
    */
-  maxAge?: number;
-}
-
-/**
- * Interface for token generation options.
- * Used to configure how tokens are generated.
- */
-export interface ITokenGenerationOptions {
-  /**
-   * Secret key used to sign the token
-   */
-  secret: string;
+  audience?: string | string[];
 
   /**
    * Token expiration time in seconds
@@ -187,27 +188,17 @@ export interface ITokenGenerationOptions {
   expiresIn: number;
 
   /**
-   * Issuer to include in the token
-   */
-  issuer?: string;
-
-  /**
-   * Audience to include in the token
-   */
-  audience?: string | string[];
-
-  /**
-   * Subject of the token (typically the user ID)
-   */
-  subject?: string;
-
-  /**
-   * Algorithm to use for signing the token
+   * Token signing algorithm
    */
   algorithm?: string;
 
   /**
-   * Additional custom claims to include in the token
+   * Include standard claims (iat, nbf, jti)
    */
-  additionalClaims?: Record<string, any>;
+  includeStandardClaims?: boolean;
+
+  /**
+   * Journey-specific context to include in the token
+   */
+  journeyContext?: Record<string, any>;
 }
