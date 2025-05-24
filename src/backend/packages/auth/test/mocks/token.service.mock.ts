@@ -1,397 +1,433 @@
 /**
- * @file token.service.mock.ts
- * @description Mock implementation of the TokenService for testing purposes.
- * Provides test utilities for generating, validating, and refreshing authentication tokens
- * without dependencies on JWT libraries and Redis.
+ * @file Token Service Mock
+ * 
+ * Mock implementation of the TokenService that provides test utilities for generating,
+ * validating, and refreshing authentication tokens. This mock eliminates dependencies
+ * on JWT libraries and Redis while maintaining the same interface as the real service.
+ * It enables testing of components that rely on token operations without the complexity
+ * of actual token management.
  */
 
 import { Injectable } from '@nestjs/common';
-import { ITokenPayload, ITokenValidationOptions, ITokenResponse } from '../../src/interfaces/token.interface';
-import { IJwtProvider, IJwtRefreshOptions } from '../../src/providers/jwt/jwt.interface';
-import { JourneyType } from '../../src/interfaces/role.interface';
+
+import { ERROR_CODES, TOKEN_TYPES } from '../../src/constants';
+import {
+  TokenPayload,
+  TokenResponse,
+  TokenType,
+  TokenUserInfo,
+  RefreshTokenRequest,
+  TokenOperation,
+} from '../../src/types';
 
 /**
- * Configuration options for the MockTokenService.
+ * Configuration for the mock token service
  */
-export interface MockTokenServiceOptions {
+export interface MockTokenServiceConfig {
   /**
-   * Default validation behavior (true = valid, false = invalid)
+   * Whether token validation should succeed
+   * @default true
    */
-  defaultValidationResult?: boolean;
+  validationSucceeds?: boolean;
 
   /**
-   * Map of tokens to their validation results for specific test cases
+   * Whether token refresh should succeed
+   * @default true
    */
-  validationOverrides?: Map<string, boolean>;
+  refreshSucceeds?: boolean;
 
   /**
-   * Map of tokens to their decoded payloads for specific test cases
+   * Whether tokens should be considered blacklisted
+   * @default false
    */
-  tokenPayloads?: Map<string, ITokenPayload>;
+  tokensBlacklisted?: boolean;
 
   /**
-   * Map of refresh tokens to their corresponding access tokens
+   * Custom error to throw during validation
    */
-  refreshTokenMap?: Map<string, string>;
+  validationError?: string;
 
   /**
-   * Set of blacklisted tokens
+   * Access token expiration in seconds
+   * @default 3600 (1 hour)
    */
-  blacklistedTokens?: Set<string>;
+  accessTokenExpiration?: number;
 
   /**
-   * Default token expiration time in seconds
+   * Refresh token expiration in seconds
+   * @default 604800 (7 days)
    */
-  defaultExpiresIn?: number;
+  refreshTokenExpiration?: number;
 
   /**
-   * Default token issuer
+   * Token issuer
+   * @default 'austa-superapp-test'
    */
-  defaultIssuer?: string;
+  issuer?: string;
 
   /**
-   * Default token audience
+   * Token audience
+   * @default 'austa-users-test'
    */
-  defaultAudience?: string | string[];
+  audience?: string;
 }
 
 /**
- * Mock implementation of the TokenService for testing purposes.
- * Eliminates dependencies on JWT libraries and Redis while maintaining
- * the same interface as the real service.
- * 
- * @template TUser The user entity type
+ * Mock implementation of the TokenService for testing
  */
 @Injectable()
-export class MockTokenService<TUser extends Record<string, any>> implements IJwtProvider<TUser> {
-  private defaultValidationResult: boolean;
-  private validationOverrides: Map<string, boolean>;
-  private tokenPayloads: Map<string, ITokenPayload>;
-  private refreshTokenMap: Map<string, string>;
-  private blacklistedTokens: Set<string>;
-  private defaultExpiresIn: number;
-  private defaultIssuer: string;
-  private defaultAudience: string | string[];
+export class MockTokenService {
+  private config: Required<MockTokenServiceConfig>;
+  private blacklistedTokens: Set<string> = new Set();
 
   /**
-   * Creates a new instance of the MockTokenService.
+   * Create a new instance of the mock token service
    * 
-   * @param options Configuration options for the mock service
+   * @param config Configuration options
    */
-  constructor(options: MockTokenServiceOptions = {}) {
-    this.defaultValidationResult = options.defaultValidationResult ?? true;
-    this.validationOverrides = options.validationOverrides ?? new Map<string, boolean>();
-    this.tokenPayloads = options.tokenPayloads ?? new Map<string, ITokenPayload>();
-    this.refreshTokenMap = options.refreshTokenMap ?? new Map<string, string>();
-    this.blacklistedTokens = options.blacklistedTokens ?? new Set<string>();
-    this.defaultExpiresIn = options.defaultExpiresIn ?? 3600; // 1 hour
-    this.defaultIssuer = options.defaultIssuer ?? 'test-issuer';
-    this.defaultAudience = options.defaultAudience ?? 'test-audience';
-  }
-
-  /**
-   * Validates a JWT token and returns the associated payload.
-   * Returns a predefined result based on configuration or defaults to valid.
-   * 
-   * @param token JWT token to validate
-   * @param options Additional validation options
-   * @returns Promise resolving to the validated token payload or null if validation fails
-   */
-  async validateToken(token: string, options?: ITokenValidationOptions): Promise<ITokenPayload | null> {
-    // Check if token is blacklisted
-    if (this.blacklistedTokens.has(token)) {
-      return null;
-    }
-
-    // Check if there's a specific validation result for this token
-    if (this.validationOverrides.has(token)) {
-      const isValid = this.validationOverrides.get(token);
-      if (!isValid) {
-        return null;
-      }
-    } else if (!this.defaultValidationResult) {
-      // Use default validation result if no override exists
-      return null;
-    }
-
-    // Return the predefined payload or generate a default one
-    if (this.tokenPayloads.has(token)) {
-      return this.tokenPayloads.get(token) || null;
-    }
-
-    // Generate a default payload if none exists
-    return {
-      sub: 'test-user-id',
-      email: 'test@example.com',
-      name: 'Test User',
-      roles: [1], // Basic user role
-      permissions: ['read:profile'],
-      iat: Math.floor(Date.now() / 1000) - 60, // Issued 1 minute ago
-      exp: Math.floor(Date.now() / 1000) + this.defaultExpiresIn,
-      iss: this.defaultIssuer,
-      aud: this.defaultAudience,
+  constructor(config: MockTokenServiceConfig = {}) {
+    this.config = {
+      validationSucceeds: config.validationSucceeds ?? true,
+      refreshSucceeds: config.refreshSucceeds ?? true,
+      tokensBlacklisted: config.tokensBlacklisted ?? false,
+      validationError: config.validationError ?? ERROR_CODES.INVALID_TOKEN,
+      accessTokenExpiration: config.accessTokenExpiration ?? 3600,
+      refreshTokenExpiration: config.refreshTokenExpiration ?? 604800,
+      issuer: config.issuer ?? 'austa-superapp-test',
+      audience: config.audience ?? 'austa-users-test',
     };
   }
 
   /**
-   * Generates a JWT token for the authenticated user.
-   * Creates a predictable token string based on user properties.
+   * Update the mock configuration
    * 
-   * @param user Authenticated user
-   * @param expiresIn Token expiration time in seconds or string (e.g., '1h', '7d')
-   * @param journeyType Optional journey context to include in the token
-   * @returns Promise resolving to the generated token
+   * @param config New configuration options
    */
-  async generateToken(user: TUser, expiresIn?: number | string, journeyType?: JourneyType): Promise<string> {
-    const expiration = typeof expiresIn === 'number' ? expiresIn : this.defaultExpiresIn;
+  updateConfig(config: Partial<MockTokenServiceConfig>): void {
+    this.config = {
+      ...this.config,
+      ...config,
+    };
+  }
+
+  /**
+   * Reset the mock to its initial state
+   */
+  reset(): void {
+    this.blacklistedTokens.clear();
+    this.config.validationSucceeds = true;
+    this.config.refreshSucceeds = true;
+    this.config.tokensBlacklisted = false;
+  }
+
+  /**
+   * Generate a mock access token
+   * 
+   * @param userInfo User information to include in the token
+   * @returns Mock JWT access token
+   */
+  async generateAccessToken(userInfo: TokenUserInfo): Promise<string> {
     const now = Math.floor(Date.now() / 1000);
-    
-    // Create a payload based on user properties
-    const payload: ITokenPayload = {
-      sub: String(user.id || user._id || 'test-user-id'),
-      email: user.email || 'test@example.com',
-      name: user.name || user.fullName || user.displayName || 'Test User',
-      roles: user.roles || [1],
-      permissions: user.permissions || ['read:profile'],
-      journeyContext: journeyType,
+    const payload: TokenPayload = {
+      sub: userInfo.id,
+      email: userInfo.email,
+      roles: userInfo.roles || [],
+      permissions: userInfo.permissions || [],
+      type: TokenType.ACCESS,
       iat: now,
-      exp: now + expiration,
-      iss: this.defaultIssuer,
-      aud: this.defaultAudience,
+      exp: now + this.config.accessTokenExpiration,
+      iss: this.config.issuer,
+      aud: this.config.audience,
+    };
+
+    // Create a predictable token format for testing
+    return this.createMockToken(payload);
+  }
+
+  /**
+   * Generate a mock refresh token
+   * 
+   * @param userInfo User information to include in the token
+   * @returns Mock JWT refresh token
+   */
+  async generateRefreshToken(userInfo: TokenUserInfo): Promise<string> {
+    const now = Math.floor(Date.now() / 1000);
+    const payload: TokenPayload = {
+      sub: userInfo.id,
+      email: userInfo.email,
+      roles: userInfo.roles || [],
+      type: TokenType.REFRESH,
+      iat: now,
+      exp: now + this.config.refreshTokenExpiration,
+      iss: this.config.issuer,
+      aud: this.config.audience,
       jti: this.generateTokenId(),
     };
 
-    // Generate a predictable token string
-    const token = `mock_token.${Buffer.from(JSON.stringify(payload)).toString('base64')}.signature`;
-    
-    // Store the payload for later validation
-    this.tokenPayloads.set(token, payload);
-    
-    return token;
+    // Create a predictable token format for testing
+    return this.createMockToken(payload);
   }
 
   /**
-   * Decodes a JWT token and returns its payload without validation.
+   * Generate both access and refresh tokens
    * 
-   * @param token JWT token to decode
-   * @returns Promise resolving to the decoded token payload or null if decoding fails
+   * @param userInfo User information to include in the tokens
+   * @returns Token response with access and refresh tokens
    */
-  async decodeToken(token: string): Promise<ITokenPayload | null> {
-    if (!token) {
-      return null;
-    }
-
-    // Return the predefined payload if it exists
-    if (this.tokenPayloads.has(token)) {
-      return this.tokenPayloads.get(token) || null;
-    }
-
-    // Try to decode the token if it follows the expected format
-    try {
-      const parts = token.split('.');
-      if (parts.length === 3) {
-        const payloadBase64 = parts[1];
-        const payloadJson = Buffer.from(payloadBase64, 'base64').toString('utf8');
-        return JSON.parse(payloadJson) as ITokenPayload;
-      }
-    } catch (error) {
-      // Ignore parsing errors
-    }
-
-    return null;
-  }
-
-  /**
-   * Extracts the JWT token from the request.
-   * 
-   * @param request HTTP request object
-   * @returns Extracted token or null if not found
-   */
-  extractTokenFromRequest(request: any): string | null {
-    if (!request) {
-      return null;
-    }
-
-    // Extract from Authorization header
-    if (request.headers?.authorization) {
-      const authHeader = request.headers.authorization;
-      if (authHeader.startsWith('Bearer ')) {
-        return authHeader.substring(7);
-      }
-    }
-
-    // Extract from query parameter
-    if (request.query?.access_token) {
-      return request.query.access_token;
-    }
-
-    // Extract from cookies
-    if (request.cookies?.access_token) {
-      return request.cookies.access_token;
-    }
-
-    return null;
-  }
-
-  /**
-   * Revokes a JWT token, making it invalid for future authentication.
-   * Adds the token to the blacklist.
-   * 
-   * @param token JWT token to revoke
-   * @returns Promise resolving to true if revocation was successful, false otherwise
-   */
-  async revokeToken(token: string): Promise<boolean> {
-    if (!token) {
-      return false;
-    }
-
-    this.blacklistedTokens.add(token);
-    return true;
-  }
-
-  /**
-   * Refreshes an existing token and returns a new one.
-   * Uses the refreshTokenMap to determine the new access token.
-   * 
-   * @param refreshToken Refresh token
-   * @returns Promise resolving to the new access token or null if refresh fails
-   */
-  async refreshToken(refreshToken: string): Promise<string | null> {
-    if (!refreshToken || this.blacklistedTokens.has(refreshToken)) {
-      return null;
-    }
-
-    // Check if there's a mapping for this refresh token
-    if (this.refreshTokenMap.has(refreshToken)) {
-      return this.refreshTokenMap.get(refreshToken) || null;
-    }
-
-    // Generate a new access token with default payload
-    const now = Math.floor(Date.now() / 1000);
-    const payload: ITokenPayload = {
-      sub: 'test-user-id',
-      email: 'test@example.com',
-      name: 'Test User',
-      roles: [1],
-      permissions: ['read:profile'],
-      iat: now,
-      exp: now + this.defaultExpiresIn,
-      iss: this.defaultIssuer,
-      aud: this.defaultAudience,
-      jti: this.generateTokenId(),
-    };
-
-    const newToken = `mock_token.${Buffer.from(JSON.stringify(payload)).toString('base64')}.refreshed`;
-    this.tokenPayloads.set(newToken, payload);
-    this.refreshTokenMap.set(refreshToken, newToken);
-
-    return newToken;
-  }
-
-  /**
-   * Generates a complete token response including access token, refresh token, and expiration.
-   * Useful for testing authentication flows.
-   * 
-   * @param user User to generate tokens for
-   * @param journeyType Optional journey context
-   * @returns Promise resolving to the token response
-   */
-  async generateTokenResponse(user: TUser, journeyType?: JourneyType): Promise<ITokenResponse> {
-    const accessToken = await this.generateToken(user, this.defaultExpiresIn, journeyType);
-    const refreshToken = `refresh_token.${this.generateTokenId()}`;
-    const expiresAt = Date.now() + this.defaultExpiresIn * 1000;
-
-    // Store the refresh token mapping
-    this.refreshTokenMap.set(refreshToken, accessToken);
+  async generateTokens(userInfo: TokenUserInfo): Promise<TokenResponse> {
+    const accessToken = await this.generateAccessToken(userInfo);
+    const refreshToken = await this.generateRefreshToken(userInfo);
 
     return {
       accessToken,
       refreshToken,
-      expiresAt,
+      expiresIn: this.config.accessTokenExpiration,
       tokenType: 'Bearer',
     };
   }
 
   /**
-   * Sets a specific validation result for a token.
-   * Useful for testing different validation scenarios.
+   * Validate a mock JWT token
    * 
-   * @param token Token to set validation result for
-   * @param isValid Whether the token should be considered valid
+   * @param token JWT token to validate
+   * @param tokenType Expected token type
+   * @returns Decoded token payload if valid
+   * @throws Error if token is invalid or expired based on mock configuration
    */
-  setTokenValidation(token: string, isValid: boolean): void {
-    this.validationOverrides.set(token, isValid);
+  async validateToken(token: string, tokenType: TokenType): Promise<TokenPayload> {
+    // If validation is configured to fail, throw the configured error
+    if (!this.config.validationSucceeds) {
+      throw new Error(this.config.validationError);
+    }
+
+    // Decode the token
+    const payload = this.decodeToken(token);
+
+    // Check token type
+    if (payload.type !== tokenType) {
+      throw new Error(ERROR_CODES.INVALID_TOKEN);
+    }
+
+    // Check if token is blacklisted
+    if (this.config.tokensBlacklisted || this.blacklistedTokens.has(token)) {
+      throw new Error(ERROR_CODES.TOKEN_REVOKED);
+    }
+
+    // Check token expiration
+    const now = Math.floor(Date.now() / 1000);
+    if (payload.exp < now) {
+      throw new Error(ERROR_CODES.TOKEN_EXPIRED);
+    }
+
+    return payload;
   }
 
   /**
-   * Sets a specific payload for a token.
-   * Useful for testing with specific token claims.
+   * Decode a mock JWT token without validation
    * 
-   * @param token Token to set payload for
-   * @param payload Payload to associate with the token
+   * @param token JWT token to decode
+   * @returns Decoded token payload
    */
-  setTokenPayload(token: string, payload: ITokenPayload): void {
-    this.tokenPayloads.set(token, payload);
+  decodeToken(token: string): TokenPayload {
+    try {
+      // Extract the payload from the mock token
+      const parts = token.split('.');
+      if (parts.length !== 3) {
+        throw new Error('Invalid token format');
+      }
+
+      // The payload is the second part (index 1)
+      const payloadBase64 = parts[1];
+      const payloadJson = Buffer.from(payloadBase64, 'base64').toString('utf-8');
+      return JSON.parse(payloadJson);
+    } catch (error) {
+      throw new Error(`Failed to decode token: ${error.message}`);
+    }
   }
 
   /**
-   * Sets a specific refresh token mapping.
-   * Useful for testing token refresh flows.
+   * Refresh an access token using a refresh token
    * 
-   * @param refreshToken Refresh token
-   * @param accessToken Access token to return when the refresh token is used
+   * @param refreshTokenRequest Refresh token request
+   * @returns New token response with fresh access and refresh tokens
+   * @throws Error if refresh token is invalid or expired based on mock configuration
    */
-  setRefreshTokenMapping(refreshToken: string, accessToken: string): void {
-    this.refreshTokenMap.set(refreshToken, accessToken);
+  async refreshToken(refreshTokenRequest: RefreshTokenRequest): Promise<TokenResponse> {
+    const { refreshToken } = refreshTokenRequest;
+
+    // If refresh is configured to fail, throw an error
+    if (!this.config.refreshSucceeds) {
+      throw new Error(ERROR_CODES.INVALID_REFRESH_TOKEN);
+    }
+
+    try {
+      // Validate the refresh token
+      const payload = await this.validateToken(refreshToken, TokenType.REFRESH);
+
+      // Blacklist the old refresh token
+      this.blacklistedTokens.add(refreshToken);
+
+      // Extract user info from payload
+      const userInfo: TokenUserInfo = {
+        id: payload.sub,
+        email: payload.email,
+        roles: payload.roles,
+        permissions: payload.permissions,
+      };
+
+      // Generate new tokens
+      return this.generateTokens(userInfo);
+    } catch (error) {
+      if (error.message === ERROR_CODES.TOKEN_EXPIRED) {
+        throw new Error(ERROR_CODES.INVALID_REFRESH_TOKEN);
+      } else if (error.message === ERROR_CODES.INVALID_TOKEN) {
+        throw new Error(ERROR_CODES.INVALID_REFRESH_TOKEN);
+      } else if (error.message === ERROR_CODES.TOKEN_REVOKED) {
+        throw new Error(ERROR_CODES.INVALID_REFRESH_TOKEN);
+      }
+
+      throw error;
+    }
   }
 
   /**
-   * Adds a token to the blacklist.
-   * Useful for testing token revocation.
+   * Revoke a token by adding it to the blacklist
    * 
-   * @param token Token to blacklist
+   * @param token JWT token to revoke
+   * @returns True if token was successfully revoked
    */
-  blacklistToken(token: string): void {
-    this.blacklistedTokens.add(token);
+  async revokeToken(token: string): Promise<boolean> {
+    try {
+      // Decode token to check validity
+      const payload = this.decodeToken(token);
+      
+      // Add token to blacklist
+      this.blacklistedTokens.add(token);
+      
+      return true;
+    } catch (error) {
+      return false;
+    }
   }
 
   /**
-   * Removes a token from the blacklist.
-   * Useful for testing token restoration.
+   * Generate a special-purpose token (e.g., password reset, email verification)
    * 
-   * @param token Token to remove from blacklist
-   * @returns Whether the token was in the blacklist
+   * @param userId User ID
+   * @param tokenType Token type
+   * @param expiresIn Token expiration time in seconds
+   * @param additionalData Additional data to include in the token
+   * @returns Special-purpose JWT token
    */
-  removeFromBlacklist(token: string): boolean {
-    return this.blacklistedTokens.delete(token);
+  async generateSpecialToken(
+    userId: string,
+    tokenType: TokenType,
+    expiresIn: number,
+    additionalData?: Record<string, any>,
+  ): Promise<string> {
+    const now = Math.floor(Date.now() / 1000);
+    const payload: Partial<TokenPayload> = {
+      sub: userId,
+      type: tokenType,
+      iat: now,
+      exp: now + expiresIn,
+      iss: this.config.issuer,
+      jti: this.generateTokenId(),
+      ...additionalData,
+    };
+
+    return this.createMockToken(payload as TokenPayload);
   }
 
   /**
-   * Clears all blacklisted tokens.
-   * Useful for resetting the mock between tests.
+   * Perform a token operation (create, verify, refresh, revoke)
+   * 
+   * @param operation Token operation details
+   * @returns Operation result
    */
-  clearBlacklist(): void {
-    this.blacklistedTokens.clear();
+  async performTokenOperation(operation: TokenOperation): Promise<any> {
+    switch (operation.operation) {
+      case 'create':
+        if (!operation.payload) {
+          throw new Error('Payload is required for token creation');
+        }
+        
+        const userInfo: TokenUserInfo = {
+          id: operation.payload.sub,
+          email: operation.payload.email,
+          roles: operation.payload.roles || [],
+          permissions: operation.payload.permissions,
+        };
+        
+        return operation.tokenType === TokenType.ACCESS
+          ? this.generateAccessToken(userInfo)
+          : this.generateRefreshToken(userInfo);
+        
+      case 'verify':
+        if (!operation.token) {
+          throw new Error('Token is required for verification');
+        }
+        return this.validateToken(operation.token, operation.tokenType);
+        
+      case 'refresh':
+        if (!operation.token) {
+          throw new Error('Refresh token is required');
+        }
+        return this.refreshToken({ refreshToken: operation.token });
+        
+      case 'revoke':
+        if (!operation.token) {
+          throw new Error('Token is required for revocation');
+        }
+        return this.revokeToken(operation.token);
+        
+      default:
+        throw new Error(`Unsupported token operation: ${operation.operation}`);
+    }
   }
 
   /**
-   * Resets all mock data to initial state.
-   * Useful for cleaning up between tests.
+   * Get all blacklisted tokens
+   * 
+   * @returns Array of blacklisted tokens
    */
-  reset(): void {
-    this.validationOverrides.clear();
-    this.tokenPayloads.clear();
-    this.refreshTokenMap.clear();
-    this.blacklistedTokens.clear();
+  getBlacklistedTokens(): string[] {
+    return Array.from(this.blacklistedTokens);
   }
 
   /**
-   * Generates a unique token ID.
-   * Used for the jti claim and refresh tokens.
+   * Check if a token is blacklisted
+   * 
+   * @param token JWT token
+   * @returns True if token is blacklisted
+   */
+  isTokenBlacklisted(token: string): boolean {
+    return this.config.tokensBlacklisted || this.blacklistedTokens.has(token);
+  }
+
+  /**
+   * Create a mock token with the given payload
+   * 
+   * @param payload Token payload
+   * @returns Mock JWT token
+   */
+  private createMockToken(payload: TokenPayload): string {
+    // Create a simplified mock token structure
+    // Header.Payload.Signature
+    // Where header and signature are fixed for testing
+    const header = Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).toString('base64');
+    const payloadBase64 = Buffer.from(JSON.stringify(payload)).toString('base64');
+    const signature = 'MOCK_SIGNATURE_FOR_TESTING';
+
+    return `${header}.${payloadBase64}.${signature}`;
+  }
+
+  /**
+   * Generate a unique token ID
    * 
    * @returns Unique token ID
    */
   private generateTokenId(): string {
-    return `${Date.now()}-${Math.random().toString(36).substring(2, 15)}`;
+    return `test-${Date.now()}-${Math.random().toString(36).substring(2, 15)}`;
   }
 }
