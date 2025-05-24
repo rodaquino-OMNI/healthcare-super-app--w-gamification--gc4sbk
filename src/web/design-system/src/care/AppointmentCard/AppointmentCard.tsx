@@ -9,12 +9,51 @@ import {
   AppointmentDetails,
   AppointmentActions
 } from './AppointmentCard.styles';
-import { Button } from '@austa/design-system/src/components/Button';
-import { Card } from '@austa/design-system/src/components/Card';
-import { Icon } from '@design-system/primitives/src/components/Icon';
-import { Text } from '@design-system/primitives/src/components/Text';
+import { Button } from '@austa/design-system/components/Button';
+import { Card } from '@austa/design-system/components/Card';
+import { Icon } from '@design-system/primitives/components/Icon';
+import { Text } from '@design-system/primitives/components/Text';
 import { Appointment, Provider } from '@austa/interfaces/care';
-import type { AppointmentCardProps } from '@austa/interfaces/care';
+import { AppointmentType, AppointmentStatus } from '@austa/interfaces/care/types';
+
+/**
+ * Props for the AppointmentCard component
+ */
+export interface AppointmentCardProps {
+  /**
+   * The appointment data to display.
+   */
+  appointment: Appointment;
+  /**
+   * The provider data associated with the appointment.
+   */
+  provider: Provider;
+  /**
+   * Callback function when the user wants to view appointment details.
+   */
+  onViewDetails?: () => void;
+  /**
+   * Callback function when the user wants to reschedule the appointment.
+   */
+  onReschedule?: () => void;
+  /**
+   * Callback function when the user wants to cancel the appointment.
+   */
+  onCancel?: () => void;
+  /**
+   * Callback function when the user wants to join a telemedicine session.
+   */
+  onJoinTelemedicine?: () => void;
+  /**
+   * Whether to show action buttons.
+   * @default true
+   */
+  showActions?: boolean;
+  /**
+   * Test ID for testing purposes.
+   */
+  testID?: string;
+}
 
 /**
  * Formats the appointment date and time in a user-friendly format.
@@ -31,13 +70,13 @@ const formatAppointmentDate = (dateTime: string): string => {
  * @param status The appointment status
  * @returns Color code for the status
  */
-const getStatusColor = (status: string): string => {
+const getStatusColor = (status: AppointmentStatus): string => {
   switch (status) {
-    case 'upcoming':
+    case AppointmentStatus.SCHEDULED:
       return 'journeys.care.primary';
-    case 'completed':
+    case AppointmentStatus.COMPLETED:
       return 'semantic.success';
-    case 'cancelled':
+    case AppointmentStatus.CANCELLED:
       return 'semantic.error';
     default:
       return 'journeys.care.primary';
@@ -49,11 +88,11 @@ const getStatusColor = (status: string): string => {
  * @param type The appointment type
  * @returns Icon name for the appointment type
  */
-const getAppointmentTypeIcon = (type: string): string => {
+const getAppointmentTypeIcon = (type: AppointmentType): string => {
   switch (type) {
-    case 'telemedicine':
+    case AppointmentType.TELEMEDICINE:
       return 'video';
-    case 'in_person':
+    case AppointmentType.IN_PERSON:
       return 'clinic';
     default:
       return 'calendar';
@@ -62,6 +101,7 @@ const getAppointmentTypeIcon = (type: string): string => {
 
 /**
  * A component that displays appointment information in a card format.
+ * Used in the Care journey for appointment listings, details views, and telemedicine flows.
  */
 export const AppointmentCard: React.FC<AppointmentCardProps> = ({
   appointment,
@@ -73,21 +113,21 @@ export const AppointmentCard: React.FC<AppointmentCardProps> = ({
   showActions = true,
   testID,
 }) => {
-  const formattedDate = formatAppointmentDate(appointment.dateTime);
+  const formattedDate = formatAppointmentDate(appointment.scheduledAt);
   const typeIcon = getAppointmentTypeIcon(appointment.type);
   const statusColor = getStatusColor(appointment.status);
   
   // Create an accessible description of the appointment
-  const appointmentDescription = `Consulta ${appointment.type === 'telemedicine' ? 'por telemedicina' : 'presencial'} com ${provider.name}, ${provider.specialty}, ${formattedDate}, status: ${appointment.status === 'upcoming' ? 'agendada' : appointment.status === 'completed' ? 'concluída' : 'cancelada'}`;
+  const appointmentDescription = `Consulta ${appointment.type === AppointmentType.TELEMEDICINE ? 'por telemedicina' : 'presencial'} com ${provider.name}, ${provider.primarySpecialty}, ${formattedDate}, status: ${appointment.status === AppointmentStatus.SCHEDULED ? 'agendada' : appointment.status === AppointmentStatus.COMPLETED ? 'concluída' : 'cancelada'}`;
   
   // Get status text
   const getStatusText = () => {
     switch (appointment.status) {
-      case 'upcoming':
+      case AppointmentStatus.SCHEDULED:
         return 'Agendada';
-      case 'completed':
+      case AppointmentStatus.COMPLETED:
         return 'Concluída';
-      case 'cancelled':
+      case AppointmentStatus.CANCELLED:
         return 'Cancelada';
       default:
         return '';
@@ -98,15 +138,15 @@ export const AppointmentCard: React.FC<AppointmentCardProps> = ({
     <AppointmentCardContainer data-testid={testID} aria-label={appointmentDescription}>
       <AppointmentCardHeader>
         <ProviderInfo>
-          {provider.imageUrl && (
-            <img src={provider.imageUrl} alt="" aria-hidden="true" />
+          {provider.profileImageUrl && (
+            <img src={provider.profileImageUrl} alt="" aria-hidden="true" />
           )}
           <div>
             <Text fontWeight="medium" color="neutral.gray800">
               {provider.name}
             </Text>
             <Text fontSize="sm" color="neutral.gray600">
-              {provider.specialty}
+              {provider.primarySpecialty}
             </Text>
           </div>
         </ProviderInfo>
@@ -127,12 +167,12 @@ export const AppointmentCard: React.FC<AppointmentCardProps> = ({
           
           <div>
             <Icon 
-              name={appointment.type === 'telemedicine' ? 'video' : 'clinic'} 
+              name={appointment.type === AppointmentType.TELEMEDICINE ? 'video' : 'clinic'} 
               size="16px" 
               aria-hidden="true" 
             />
             <Text fontSize="sm">
-              {appointment.type === 'telemedicine' ? 'Telemedicina' : 'Consulta presencial'}
+              {appointment.type === AppointmentType.TELEMEDICINE ? 'Telemedicina' : 'Consulta presencial'}
             </Text>
           </div>
           
@@ -160,9 +200,9 @@ export const AppointmentCard: React.FC<AppointmentCardProps> = ({
               </Button>
             )}
             
-            {appointment.status === 'upcoming' && (
+            {appointment.status === AppointmentStatus.SCHEDULED && (
               <>
-                {appointment.type === 'telemedicine' && onJoinTelemedicine && (
+                {appointment.type === AppointmentType.TELEMEDICINE && onJoinTelemedicine && (
                   <Button 
                     variant="primary" 
                     size="sm" 
