@@ -1,500 +1,368 @@
 /**
  * @file useGamification.ts
- * @description A unified hook for accessing gamification features across web and mobile platforms.
- * Provides a consistent interface for retrieving user game profiles, tracking achievements and quests,
- * triggering gamification events, and calculating progress.
+ * @description Unified hook for accessing gamification features across web and mobile platforms.
+ * Provides a consistent interface for retrieving user game profiles, tracking achievements
+ * and quests, triggering gamification events, and calculating progress.
+ * 
+ * This hook abstracts the complexity of gamification data fetching and manipulation,
+ * offering a consistent interface regardless of platform (web or mobile).
  */
 
 import { useCallback, useEffect, useState } from 'react';
-import { useQuery } from '@apollo/client';
-import { gql } from '@apollo/client';
-import { Platform } from 'react-native';
+import { isPlatformWeb } from '../utils/platform';
+import { ALL_JOURNEYS } from '../constants/journeys';
+import { useAuth } from './useAuth';
 
-// Import types from the interfaces package
+// Import platform-specific adapters
+import { GamificationAdapter as WebGamificationAdapter } from '../adapters/web/GamificationAdapter';
+import { GamificationAdapter as MobileGamificationAdapter } from '../adapters/mobile/GamificationAdapter';
+
+// Import gamification interfaces
 import {
-  Achievement,
   GameProfile,
+  Achievement,
   Quest,
   Reward,
-  GamificationEventType,
-  JourneyType,
-  BaseGamificationEvent,
-  EventResponse
+  GamificationEvent,
+  GamificationEventType
 } from '@austa/interfaces/gamification';
-
-// Import platform-specific auth hooks
-import { useAuth as useWebAuth } from '../../adapters/web/useAuth';
-import { useAuth as useMobileAuth } from '../../adapters/mobile/useAuth';
-
-// GraphQL queries
-const GET_GAME_PROFILE = gql`
-  query GetGameProfile($userId: ID!) {
-    gameProfile(userId: $userId) {
-      level
-      xp
-      xpToNextLevel
-      achievements {
-        id
-        title
-        description
-        journey
-        category
-        icon
-        progress {
-          current
-          target
-          percentage
-        }
-        unlocked
-        unlockedAt
-        xpReward
-      }
-      quests {
-        id
-        title
-        description
-        journey
-        category
-        icon
-        progress
-        total
-        status
-        deadline
-        xpReward
-      }
-      badges {
-        id
-        name
-        description
-        journey
-        icon
-        earnedAt
-        isDisplayed
-        rarity
-      }
-      streaks {
-        type
-        current
-        best
-        lastUpdated
-        expiresAt
-      }
-      statistics {
-        achievementsUnlocked
-        questsCompleted
-        totalXpEarned
-        loginStreak
-      }
-      lastUpdated
-    }
-  }
-`;
-
-const GET_ACHIEVEMENTS = gql`
-  query GetAchievements($userId: ID!) {
-    achievements(userId: $userId) {
-      id
-      title
-      description
-      journey
-      category
-      icon
-      progress {
-        current
-        target
-        percentage
-      }
-      unlocked
-      unlockedAt
-      xpReward
-    }
-  }
-`;
-
-const GET_QUESTS = gql`
-  query GetQuests($userId: ID!) {
-    quests(userId: $userId) {
-      id
-      title
-      description
-      journey
-      category
-      icon
-      progress
-      total
-      status
-      deadline
-      xpReward
-    }
-  }
-`;
-
-const GET_REWARDS = gql`
-  query GetRewards($userId: ID!) {
-    rewards(userId: $userId) {
-      id
-      title
-      description
-      journey
-      icon
-      xp
-      category
-      status
-      availableFrom
-      availableUntil
-    }
-  }
-`;
-
-/**
- * Configuration options for the useGamification hook
- */
-export interface UseGamificationOptions {
-  /** Whether to skip the initial query */
-  skip?: boolean;
-  /** Fetch policy for the query */
-  fetchPolicy?: 'cache-first' | 'network-only' | 'cache-and-network' | 'no-cache' | 'standby';
-  /** Callback for when the query errors */
-  onError?: (error: Error) => void;
-}
 
 /**
  * Return type for the useGamification hook
  */
-export interface UseGamificationResult {
+/**
+ * Return type for the useGamification hook
+ */
+export interface UseGamificationReturn {
   /** The user's game profile containing level, XP, achievements, and quests */
   gameProfile: GameProfile | undefined;
-  /** Whether the game profile is currently loading */
+  
+  /** Indicates whether gamification data is currently loading */
   isLoading: boolean;
-  /** Any error that occurred while loading the game profile */
+  
+  /** Contains any error that occurred during gamification operations */
   error: Error | null;
-  /** Achievements earned by the user */
-  achievements: Achievement[] | undefined;
-  /** Quests available to the user */
-  quests: Quest[] | undefined;
-  /** Rewards available to the user */
-  rewards: Reward[] | undefined;
-  /** Checks if a specific achievement is unlocked */
-  hasAchievement: (achievementId: string) => boolean;
-  /** Checks if a specific quest is completed */
-  isQuestCompleted: (questId: string) => boolean;
-  /** Returns the progress percentage for an achievement */
-  getAchievementProgress: (achievementId: string) => number;
-  /** Returns the progress percentage for a quest */
-  getQuestProgress: (questId: string) => number;
-  /** Triggers a gamification event */
-  triggerGamificationEvent: (
-    eventType: GamificationEventType,
-    journey: JourneyType,
-    eventData?: Record<string, any>
-  ) => Promise<EventResponse>;
-  /** Refetches the game profile data */
-  refetch: () => Promise<void>;
-}
-
-/**
- * A unified hook for accessing gamification features across web and mobile platforms.
- * Provides a consistent interface for retrieving user game profiles, tracking achievements and quests,
- * triggering gamification events, and calculating progress.
- * 
- * @param options Configuration options for the hook
- * @returns Object containing gamification data and utility functions
- * 
- * @example
- * // Basic usage
- * const { gameProfile, isLoading, error } = useGamification();
- * 
- * // Display user level and XP
- * return (
- *   <View>
- *     {isLoading ? (
- *       <LoadingIndicator />
- *     ) : error ? (
- *       <ErrorMessage error={error} />
- *     ) : (
- *       <Text>Level {gameProfile?.level}: {gameProfile?.xp} XP</Text>
- *     )}
- *   </View>
- * );
- * 
- * @example
- * // Checking achievement status
- * const { hasAchievement, getAchievementProgress } = useGamification();
- * 
- * const isHealthyEaterUnlocked = hasAchievement('healthy-eater-2023');
- * const healthyEaterProgress = getAchievementProgress('healthy-eater-2023');
- * 
- * @example
- * // Triggering a gamification event
- * const { triggerGamificationEvent } = useGamification();
- * 
- * const completeHealthCheck = async () => {
- *   try {
- *     const result = await triggerGamificationEvent(
- *       GamificationEventType.HEALTH_METRIC_RECORDED,
- *       JourneyType.HEALTH,
- *       { metricType: 'blood_pressure', value: 120, unit: 'mmHg' }
- *     );
- *     
- *     if (result.unlockedAchievements?.length) {
- *       // Show achievement notification
- *     }
- *   } catch (error) {
- *     console.error('Failed to record health metric:', error);
- *   }
- * };
- */
-export function useGamification(options: UseGamificationOptions = {}): UseGamificationResult {
-  // Determine which auth hook to use based on platform
-  const useAuth = Platform.OS === 'web' ? useWebAuth : useMobileAuth;
-  const { userId } = useAuth();
   
-  // State for tracking errors
-  const [error, setError] = useState<Error | null>(null);
-  
-  // Default options
-  const {
-    skip = !userId,
-    fetchPolicy = 'cache-and-network',
-    onError = (err: Error) => console.error('Error in useGamification:', err)
-  } = options;
-  
-  // Query for game profile
-  const {
-    data: profileData,
-    loading: profileLoading,
-    error: profileError,
-    refetch: refetchProfile
-  } = useQuery(GET_GAME_PROFILE, {
-    variables: { userId },
-    skip,
-    fetchPolicy,
-    onError: (err) => {
-      const error = new Error(`Failed to fetch game profile: ${err.message}`);
-      setError(error);
-      onError(error);
-    }
-  });
-  
-  // Query for achievements (separate query for more granular updates)
-  const {
-    data: achievementsData,
-    loading: achievementsLoading,
-    refetch: refetchAchievements
-  } = useQuery(GET_ACHIEVEMENTS, {
-    variables: { userId },
-    skip,
-    fetchPolicy,
-    onError: (err) => {
-      const error = new Error(`Failed to fetch achievements: ${err.message}`);
-      setError(error);
-      onError(error);
-    }
-  });
-  
-  // Query for quests (separate query for more granular updates)
-  const {
-    data: questsData,
-    loading: questsLoading,
-    refetch: refetchQuests
-  } = useQuery(GET_QUESTS, {
-    variables: { userId },
-    skip,
-    fetchPolicy,
-    onError: (err) => {
-      const error = new Error(`Failed to fetch quests: ${err.message}`);
-      setError(error);
-      onError(error);
-    }
-  });
-  
-  // Query for rewards (separate query for more granular updates)
-  const {
-    data: rewardsData,
-    loading: rewardsLoading,
-    refetch: refetchRewards
-  } = useQuery(GET_REWARDS, {
-    variables: { userId },
-    skip,
-    fetchPolicy,
-    onError: (err) => {
-      const error = new Error(`Failed to fetch rewards: ${err.message}`);
-      setError(error);
-      onError(error);
-    }
-  });
-  
-  // Extract data from queries
-  const gameProfile = profileData?.gameProfile;
-  const achievements = achievementsData?.achievements || gameProfile?.achievements;
-  const quests = questsData?.quests || gameProfile?.quests;
-  const rewards = rewardsData?.rewards;
-  
-  // Determine loading state
-  const isLoading = profileLoading || achievementsLoading || questsLoading || rewardsLoading;
-  
-  // Reset error when userId changes
-  useEffect(() => {
-    setError(null);
-  }, [userId]);
+  /** 
+   * Triggers a gamification event (e.g., completing a task, reaching a milestone)
+   * @param eventType - The type of event being triggered
+   * @param eventData - Additional data related to the event
+   * @returns Promise that resolves when the event is processed
+   */
+  triggerGamificationEvent: (eventType: GamificationEventType, eventData?: Record<string, any>) => Promise<void>;
   
   /**
    * Checks if a specific achievement is unlocked
-   * @param achievementId ID of the achievement to check
+   * @param achievementId - ID of the achievement to check
    * @returns boolean indicating if the achievement is unlocked
    */
-  const hasAchievement = useCallback((achievementId: string): boolean => {
-    if (!achievements) return false;
-    
-    const achievement = achievements.find(a => a.id === achievementId);
-    return achievement ? achievement.unlocked : false;
-  }, [achievements]);
+  hasAchievement: (achievementId: string) => boolean;
   
   /**
    * Checks if a specific quest is completed
-   * @param questId ID of the quest to check
+   * @param questId - ID of the quest to check
    * @returns boolean indicating if the quest is completed
    */
-  const isQuestCompleted = useCallback((questId: string): boolean => {
-    if (!quests) return false;
-    
-    const quest = quests.find(q => q.id === questId);
-    return quest ? quest.status === 'COMPLETED' : false;
-  }, [quests]);
+  isQuestCompleted: (questId: string) => boolean;
   
   /**
-   * Calculates the progress percentage for an achievement
-   * @param achievementId ID of the achievement
+   * Returns the progress percentage for an achievement
+   * @param achievementId - ID of the achievement
    * @returns number between 0-100 representing completion percentage
    */
-  const getAchievementProgress = useCallback((achievementId: string): number => {
-    if (!achievements) return 0;
-    
-    const achievement = achievements.find(a => a.id === achievementId);
-    if (!achievement) return 0;
-    
-    if (achievement.unlocked) return 100;
-    return achievement.progress?.percentage || 0;
-  }, [achievements]);
+  getAchievementProgress: (achievementId: string) => number;
   
   /**
-   * Calculates the progress percentage for a quest
-   * @param questId ID of the quest
+   * Returns the progress percentage for a quest
+   * @param questId - ID of the quest
    * @returns number between 0-100 representing completion percentage
    */
-  const getQuestProgress = useCallback((questId: string): number => {
-    if (!quests) return 0;
-    
-    const quest = quests.find(q => q.id === questId);
-    if (!quest) return 0;
-    
-    if (quest.status === 'COMPLETED') return 100;
-    return Math.round((quest.progress / quest.total) * 100);
-  }, [quests]);
+  getQuestProgress: (questId: string) => number;
+  
+  /**
+   * Retrieves all achievements for the current user
+   * @returns Array of achievements or undefined if not loaded
+   */
+  getAchievements: () => Achievement[] | undefined;
+  
+  /**
+   * Retrieves all quests for the current user
+   * @returns Array of quests or undefined if not loaded
+   */
+  getQuests: () => Quest[] | undefined;
+  
+  /**
+   * Retrieves all rewards for the current user
+   * @returns Array of rewards or undefined if not loaded
+   */
+  getRewards: () => Reward[] | undefined;
+  
+  /**
+   * Refreshes gamification data from the server
+   * @returns Promise that resolves when the refresh is complete
+   */
+  refreshGamificationData: () => Promise<void>;
+}
+
+/**
+ * Hook for accessing and interacting with gamification features.
+ * Provides a unified interface across web and mobile platforms.
+ * 
+ * @example
+ * const { 
+ *   gameProfile, 
+ *   triggerGamificationEvent, 
+ *   hasAchievement,
+ *   getAchievementProgress 
+ * } = useGamification();
+ * 
+ * // Display user level and XP
+ * <Text>Level {gameProfile?.level}: {gameProfile?.xp} XP</Text>
+ * 
+ * // Trigger a gamification event when user completes a health check
+ * const completeHealthCheck = async () => {
+ *   await triggerGamificationEvent(GamificationEventType.HEALTH_METRIC_RECORDED, { 
+ *     metricType: 'bloodPressure',
+ *     value: 120,
+ *     unit: 'mmHg'
+ *   });
+ * };
+ * 
+ * // Check if user has unlocked an achievement
+ * if (hasAchievement('daily-streak-7')) {
+ *   // Show achievement badge
+ * }
+ * 
+ * // Display achievement progress
+ * const progress = getAchievementProgress('steps-master');
+ * <ProgressBar value={progress} />
+ */
+export function useGamification(): UseGamificationReturn {
+  // Get the appropriate adapter based on platform
+  const GamificationAdapter = isPlatformWeb() 
+    ? WebGamificationAdapter 
+    : MobileGamificationAdapter;
+  
+  // Get the user ID from the auth context
+  const { userId } = useAuth();
+  
+  // State for game profile data
+  const [gameProfile, setGameProfile] = useState<GameProfile | undefined>(undefined);
+  const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [error, setError] = useState<Error | null>(null);
+  
+  /**
+   * Fetches the game profile from the server
+   */
+  const fetchGameProfile = useCallback(async () => {
+    // Don't try to fetch if there's no user ID
+    if (!userId) {
+      setGameProfile(undefined);
+      setIsLoading(false);
+      return;
+    }
+
+    setIsLoading(true);
+    try {
+      // Get the game profile using the platform-specific adapter
+      const profile = await GamificationAdapter.getGameProfile(userId);
+      setGameProfile(profile);
+      setError(null);
+    } catch (err) {
+      console.error('Error fetching game profile:', err);
+      setError(err instanceof Error ? err : new Error('Failed to fetch game profile'));
+    } finally {
+      setIsLoading(false);
+    }
+  }, [userId, GamificationAdapter]);
+  
+  /**
+   * Refreshes gamification data from the server
+   */
+  const refreshGamificationData = useCallback(async () => {
+    await fetchGameProfile();
+  }, [fetchGameProfile]);
   
   /**
    * Triggers a gamification event on the server
-   * @param eventType The type of event being triggered
-   * @param journey The journey context for the event
-   * @param eventData Additional data related to the event
-   * @returns Promise that resolves with the event response when the event is processed
+   * @param eventType - The type of event being triggered
+   * @param eventData - Additional data related to the event as a key-value record
+   * @returns Promise that resolves when the event is processed
    */
   const triggerGamificationEvent = useCallback(async (
-    eventType: GamificationEventType,
-    journey: JourneyType,
+    eventType: GamificationEventType, 
     eventData?: Record<string, any>
-  ): Promise<EventResponse> => {
+  ): Promise<void> => {
     // Ensure the user is authenticated
     if (!userId) {
       const authError = new Error('User must be authenticated to trigger gamification events');
       setError(authError);
-      onError(authError);
       return Promise.reject(authError);
     }
     
     try {
       // Create the event object
-      const event: Partial<BaseGamificationEvent> = {
+      const event: GamificationEvent = {
         type: eventType,
-        journey,
         userId,
         timestamp: new Date().toISOString(),
+        journey: determineJourneyFromEventType(eventType),
         payload: eventData || {}
-      };
+      } as GamificationEvent; // Type assertion needed due to complex union type
       
-      // Make an API call to trigger the event
-      const response = await fetch('/api/gamification/events', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(event),
-      });
+      // Trigger the event using the platform-specific adapter
+      await GamificationAdapter.triggerEvent(event);
       
-      // Handle API errors
-      if (!response.ok) {
-        throw new Error(`Failed to trigger gamification event: ${response.statusText}`);
-      }
-      
-      // Parse the response
-      const result: EventResponse = await response.json();
-      
-      // Refetch data if achievements or quests were affected
-      if (
-        result.unlockedAchievements?.length ||
-        result.questProgress?.some(q => q.completed) ||
-        result.leveledUp
-      ) {
-        await refetch();
-      }
+      // Refresh the game profile to get updated data
+      await fetchGameProfile();
       
       // Clear any previous errors
       setError(null);
       
-      return result;
     } catch (err) {
       // Log and set the error
+      console.error('Error triggering gamification event:', err);
       const eventError = err instanceof Error ? err : new Error('Failed to trigger gamification event');
       setError(eventError);
-      onError(eventError);
       return Promise.reject(eventError);
     }
-  }, [userId, onError]);
+  }, [userId, fetchGameProfile, GamificationAdapter]);
   
   /**
-   * Refetches all gamification data
+   * Checks if the user has unlocked a specific achievement
+   * @param achievementId - ID of the achievement to check
+   * @returns boolean indicating if the achievement is unlocked
    */
-  const refetch = useCallback(async (): Promise<void> => {
-    try {
-      await Promise.all([
-        refetchProfile(),
-        refetchAchievements(),
-        refetchQuests(),
-        refetchRewards()
-      ]);
-      setError(null);
-    } catch (err) {
-      const refetchError = err instanceof Error ? err : new Error('Failed to refetch gamification data');
-      setError(refetchError);
-      onError(refetchError);
-    }
-  }, [refetchProfile, refetchAchievements, refetchQuests, refetchRewards, onError]);
+  const hasAchievement = useCallback((achievementId: string): boolean => {
+    if (!gameProfile?.achievements) return false;
+    
+    const achievement = gameProfile.achievements.find(a => a.id === achievementId);
+    return achievement ? achievement.unlocked : false;
+  }, [gameProfile]);
   
-  // Return the hook result
+  /**
+   * Checks if the user has completed a specific quest
+   * @param questId - ID of the quest to check
+   * @returns boolean indicating if the quest is completed
+   */
+  const isQuestCompleted = useCallback((questId: string): boolean => {
+    if (!gameProfile?.quests) return false;
+    
+    const quest = gameProfile.quests.find(q => q.id === questId);
+    return quest ? quest.status === 'completed' : false;
+  }, [gameProfile]);
+  
+  /**
+   * Calculates the progress percentage for an achievement
+   * @param achievementId - ID of the achievement
+   * @returns number between 0-100 representing completion percentage
+   */
+  const getAchievementProgress = useCallback((achievementId: string): number => {
+    if (!gameProfile?.achievements) return 0;
+    
+    const achievement = gameProfile.achievements.find(a => a.id === achievementId);
+    if (!achievement) return 0;
+    
+    if (achievement.unlocked) return 100;
+    
+    const { current, required } = achievement.progress;
+    return Math.round((current / required) * 100);
+  }, [gameProfile]);
+  
+  /**
+   * Calculates the progress percentage for a quest
+   * @param questId - ID of the quest
+   * @returns number between 0-100 representing completion percentage
+   */
+  const getQuestProgress = useCallback((questId: string): number => {
+    if (!gameProfile?.quests) return 0;
+    
+    const quest = gameProfile.quests.find(q => q.id === questId);
+    if (!quest) return 0;
+    
+    if (quest.status === 'completed') return 100;
+    
+    return Math.round((quest.progress / quest.total) * 100);
+  }, [gameProfile]);
+  
+  /**
+   * Retrieves all achievements for the current user
+   * @returns Array of achievements or undefined if not loaded
+   */
+  const getAchievements = useCallback((): Achievement[] | undefined => {
+    return gameProfile?.achievements;
+  }, [gameProfile]);
+  
+  /**
+   * Retrieves all quests for the current user
+   * @returns Array of quests or undefined if not loaded
+   */
+  const getQuests = useCallback((): Quest[] | undefined => {
+    return gameProfile?.quests;
+  }, [gameProfile]);
+  
+  /**
+   * Retrieves all rewards for the current user
+   * @returns Array of rewards or undefined if not loaded
+   */
+  const getRewards = useCallback((): Reward[] | undefined => {
+    return gameProfile?.rewards;
+  }, [gameProfile]);
+  
+  // Fetch the game profile when the user ID changes
+  useEffect(() => {
+    fetchGameProfile();
+  }, [userId, fetchGameProfile]);
+  
+  // Return the hook interface
   return {
     gameProfile,
     isLoading,
-    error: error || (profileError ? new Error(profileError.message) : null),
-    achievements,
-    quests,
-    rewards,
+    error,
+    triggerGamificationEvent,
     hasAchievement,
     isQuestCompleted,
     getAchievementProgress,
     getQuestProgress,
-    triggerGamificationEvent,
-    refetch
+    getAchievements,
+    getQuests,
+    getRewards,
+    refreshGamificationData
   };
 }
 
-export default useGamification;
+/**
+ * Helper function to determine the journey from an event type
+ * @param eventType - The type of gamification event
+ * @returns The journey associated with the event type
+ */
+/**
+ * Helper function to determine the journey from an event type
+ * @param eventType - The type of gamification event
+ * @returns The journey associated with the event type
+ */
+function determineJourneyFromEventType(eventType: GamificationEventType): 'health' | 'care' | 'plan' | 'system' {
+  if (eventType.startsWith('HEALTH_')) {
+    return 'health';
+  } else if (eventType.startsWith('CARE_') || 
+             eventType === GamificationEventType.APPOINTMENT_BOOKED || 
+             eventType === GamificationEventType.APPOINTMENT_COMPLETED || 
+             eventType === GamificationEventType.MEDICATION_ADDED || 
+             eventType === GamificationEventType.MEDICATION_TAKEN || 
+             eventType === GamificationEventType.TELEMEDICINE_SESSION_STARTED || 
+             eventType === GamificationEventType.TELEMEDICINE_SESSION_COMPLETED || 
+             eventType === GamificationEventType.SYMPTOM_CHECKED || 
+             eventType === GamificationEventType.PROVIDER_RATED) {
+    return 'care';
+  } else if (eventType.startsWith('PLAN_') || 
+             eventType === GamificationEventType.PLAN_VIEWED || 
+             eventType === GamificationEventType.BENEFIT_EXPLORED || 
+             eventType === GamificationEventType.CLAIM_SUBMITTED || 
+             eventType === GamificationEventType.CLAIM_APPROVED || 
+             eventType === GamificationEventType.DOCUMENT_UPLOADED || 
+             eventType === GamificationEventType.COVERAGE_CHECKED) {
+    return 'plan';
+  } else {
+    return 'system';
+  }
+}
