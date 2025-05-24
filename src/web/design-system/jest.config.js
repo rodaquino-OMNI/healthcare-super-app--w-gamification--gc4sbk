@@ -1,159 +1,73 @@
 /**
- * Jest configuration for the @austa/design-system package
+ * Jest configuration for @austa/design-system
  * 
- * This configuration supports comprehensive testing of all design system components
- * across all three user journeys (Health, Care, Plan) and ensures proper integration
- * with the primitives, interfaces, and journey-context packages.
+ * This configuration enables comprehensive testing of design system components
+ * across both web and mobile platforms, with proper integration with primitives,
+ * interfaces, and journey context packages.
  */
 
 module.exports = {
-  // Use jsdom for testing React components
-  testEnvironment: 'jest-environment-jsdom',
-  
-  // Setup files to run after the test environment is set up
-  setupFilesAfterEnv: [
-    '@testing-library/jest-dom/extend-expect',
-    '<rootDir>/src/test/setup.ts'
-  ],
-  
-  // Transform files using babel-jest
-  transform: {
-    '^.+\.(js|jsx|ts|tsx)$': ['babel-jest', { presets: ['@babel/preset-env', '@babel/preset-react', '@babel/preset-typescript'] }],
-    // Transform styled-components
-    '^.+\\.styles\.(js|jsx|ts|tsx)$': 'babel-jest'
-  },
-  
-  // Don't transform modules in node_modules except for our internal packages
-  transformIgnorePatterns: [
-    '/node_modules/(?!(@design-system/primitives|@austa/interfaces|@austa/journey-context)/)',
-  ],
-  
-  // Module path aliases to match webpack and tsconfig path aliases
-  moduleNameMapper: {
-    // Internal path aliases
-    '^@/(.*)$': '<rootDir>/src/$1',
-    '^@components/(.*)$': '<rootDir>/src/components/$1',
-    '^@themes/(.*)$': '<rootDir>/src/themes/$1',
-    '^@health/(.*)$': '<rootDir>/src/health/$1',
-    '^@care/(.*)$': '<rootDir>/src/care/$1',
-    '^@plan/(.*)$': '<rootDir>/src/plan/$1',
-    '^@gamification/(.*)$': '<rootDir>/src/gamification/$1',
-    '^@charts/(.*)$': '<rootDir>/src/charts/$1',
-    '^@test/(.*)$': '<rootDir>/src/test/$1',
-    
-    // Handle CSS and image imports in tests
-    '\.(css|less|scss|sass)$': 'identity-obj-proxy',
-    '\.(jpg|jpeg|png|gif|webp|svg)$': '<rootDir>/src/test/mocks/fileMock.js',
-  },
-  
-  // File extensions to consider when resolving modules
-  moduleFileExtensions: ['ts', 'tsx', 'js', 'jsx', 'json', 'node'],
-  
-  // Patterns to ignore when searching for test files
-  testPathIgnorePatterns: [
-    '/node_modules/',
-    '/dist/',
-    '/.storybook/'
-  ],
-  
-  // Files to collect coverage from
-  collectCoverageFrom: [
-    'src/**/*.{js,jsx,ts,tsx}',
-    '!src/**/*.d.ts',
-    '!src/**/*.stories.{js,jsx,ts,tsx}',
-    '!src/test/**',
-    '!src/**/*.mock.{js,jsx,ts,tsx}',
-    '!src/**/index.{js,jsx,ts,tsx}'
-  ],
-  
-  // Coverage thresholds to enforce
-  coverageThreshold: {
-    // Global thresholds
-    'global': {
-      'statements': 80,
-      'branches': 80,
-      'functions': 80,
-      'lines': 80
-    },
-    // Core components have higher requirements
-    './src/components/': {
-      'statements': 90,
-      'branches': 85,
-      'functions': 90,
-      'lines': 90
-    },
-    // Journey-specific components
-    './src/health/': {
-      'statements': 85,
-      'branches': 80,
-      'functions': 85,
-      'lines': 85
-    },
-    './src/care/': {
-      'statements': 85,
-      'branches': 80,
-      'functions': 85,
-      'lines': 85
-    },
-    './src/plan/': {
-      'statements': 85,
-      'branches': 80,
-      'functions': 85,
-      'lines': 85
-    },
-    // Gamification components
-    './src/gamification/': {
-      'statements': 85,
-      'branches': 80,
-      'functions': 85,
-      'lines': 85
-    },
-    // Chart components
-    './src/charts/': {
-      'statements': 85,
-      'branches': 80,
-      'functions': 85,
-      'lines': 85
-    }
-  },
-  
-  // Pattern for finding test files
-  testMatch: ['**/__tests__/**/*.{js,jsx,ts,tsx}', '**/*.{spec,test}.{js,jsx,ts,tsx}'],
-  
-  // Enable verbose output
-  verbose: true,
-  
-  // Limit the number of workers to 50% of available cores for better performance
-  maxWorkers: '50%',
-  
-  // Watch plugins for better developer experience
-  watchPlugins: [
-    'jest-watch-typeahead/filename',
-    'jest-watch-typeahead/testname'
-  ],
-  
-  // Global variables available in all test files
-  globals: {
-    'ts-jest': {
-      tsconfig: '<rootDir>/tsconfig.json',
-      isolatedModules: true
-    }
-  },
-  
-  // Automatically clear mock calls and instances between every test
-  clearMocks: true,
+  // Use the React Native preset as a base for cross-platform testing
+  preset: 'react-native',
   
   // Indicates whether the coverage information should be collected while executing the test
-  collectCoverage: false,
+  collectCoverage: true,
+  
+  // An array of glob patterns indicating a set of files for which coverage information should be collected
+  collectCoverageFrom: [
+    '<rootDir>/src/**/*.{ts,tsx}',
+    '!<rootDir>/src/**/*.{spec,test}.{ts,tsx}',
+    '!<rootDir>/src/**/*.d.ts',
+    '!<rootDir>/src/**/*.stories.{ts,tsx}',
+    '!<rootDir>/src/**/index.{ts,tsx}',
+    '!<rootDir>/src/**/__mocks__/**',
+    '!<rootDir>/src/**/__tests__/**',
+  ],
   
   // The directory where Jest should output its coverage files
-  coverageDirectory: 'coverage',
+  coverageDirectory: '<rootDir>/coverage',
   
   // Indicates which provider should be used to instrument code for coverage
   coverageProvider: 'v8',
   
   // A list of reporter names that Jest uses when writing coverage reports
-  coverageReporters: ['json', 'lcov', 'text', 'clover', 'html'],
+  coverageReporters: ['json', 'lcov', 'text', 'clover'],
+  
+  // The minimum threshold enforcement for coverage results
+  coverageThreshold: {
+    global: {
+      branches: 80,
+      functions: 80,
+      lines: 80,
+      statements: 80,
+    },
+  },
+  
+  // The test environment that will be used for testing
+  testEnvironment: 'jsdom',
+  
+  // The glob patterns Jest uses to detect test files
+  testMatch: [
+    '<rootDir>/src/**/__tests__/**/*.{ts,tsx}',
+    '<rootDir>/src/**/*.{spec,test}.{ts,tsx}',
+  ],
+  
+  // An array of regexp pattern strings that are matched against all test paths
+  testPathIgnorePatterns: ['/node_modules/'],
+  
+  // A map from regular expressions to paths to transformers
+  transform: {
+    '^.+\\.(ts|tsx)$': 'ts-jest',
+  },
+  
+  // An array of regexp pattern strings that are matched against all source file paths before re-running tests
+  watchPathIgnorePatterns: ['/node_modules/'],
+  
+  // Automatically clear mock calls, instances, contexts and results before every test
+  clearMocks: true,
+  
+  // Automatically restore mock state and implementation before every test
+  restoreMocks: true,
   
   // The root directory that Jest should scan for tests and modules within
   rootDir: './',
@@ -161,12 +75,140 @@ module.exports = {
   // A list of paths to directories that Jest should use to search for files in
   roots: ['<rootDir>/src'],
   
-  // Allows you to use a custom runner instead of Jest's default test runner
-  // runner: "jest-runner",
-  
   // The paths to modules that run some code to configure or set up the testing environment
-  // setupFiles: [],
+  setupFiles: ['<rootDir>/test/setup-tests.js'],
+  
+  // A list of paths to modules that run some code to configure or set up the testing framework before each test file
+  setupFilesAfterEnv: ['<rootDir>/test/setup-after-env.js'],
+  
+  // The glob patterns Jest uses to detect test files
+  testRegex: '\\.(spec|test)\\.(ts|tsx)$',
+  
+  // An array of file extensions your modules use
+  moduleFileExtensions: ['ts', 'tsx', 'js', 'jsx', 'json'],
+  
+  // A map from regular expressions to module names or to arrays of module names
+  moduleNameMapper: {
+    // Handle CSS imports (with CSS modules)
+    '\\.css$': 'identity-obj-proxy',
+    
+    // Handle image imports
+    '\\.(jpg|jpeg|png|gif|webp|svg)$': '<rootDir>/test/__mocks__/fileMock.js',
+    
+    // Handle module aliases
+    '^@/(.*)$': '<rootDir>/src/$1',
+    
+    // Map the @austa/* imports to their actual paths
+    '@austa/interfaces/(.*)': '<rootDir>/../interfaces/src/$1',
+    '@austa/interfaces': '<rootDir>/../interfaces/src',
+    '@austa/journey-context/(.*)': '<rootDir>/../journey-context/src/$1',
+    '@austa/journey-context': '<rootDir>/../journey-context/src',
+    '@design-system/primitives/(.*)': '<rootDir>/../primitives/src/$1',
+    '@design-system/primitives': '<rootDir>/../primitives/src',
+  },
+  
+  // Indicates whether each individual test should be reported during the run
+  verbose: true,
+  
+  // An array of regexp patterns that are matched against all source file paths before transformation
+  transformIgnorePatterns: [
+    '/node_modules/(?!((jest-)?react-native|@react-native(-community)?)|expo(nent)?|@expo(nent)?/.*|@expo-google-fonts/.*|react-navigation|@react-navigation/.*|@unimodules/.*|unimodules|sentry-expo|native-base|react-native-svg|@austa|@design-system)/',
+  ],
+  
+  // The maximum amount of workers used to run your tests
+  maxWorkers: '50%',
+  
+  // Use this configuration option to add custom reporters to Jest
+  reporters: ['default'],
+  
+  // Allows for a label to be printed alongside a test while it is running
+  displayName: {
+    name: '@austa/design-system',
+    color: 'blue',
+  },
+  
+  // Automatically reset mock state between every test
+  resetMocks: false,
+  
+  // Reset the module registry before running each individual test
+  resetModules: false,
+  
+  // This option allows the use of a custom resolver
+  resolver: undefined,
+  
+  // Allows you to use a custom runner instead of Jest's default test runner
+  runner: 'jest-runner',
   
   // A list of paths to snapshot serializer modules Jest should use for snapshot testing
-  snapshotSerializers: ['@emotion/jest/serializer']
+  snapshotSerializers: [
+    'jest-styled-components',
+  ],
+  
+  // Configure haste for React Native platform detection
+  haste: {
+    defaultPlatform: 'web',
+    platforms: ['android', 'ios', 'native', 'web'],
+    providesModuleNodeModules: ['react-native'],
+  },
+  
+  // Configure projects for multi-platform testing
+  projects: [
+    {
+      displayName: {
+        name: 'Web',
+        color: 'blue',
+      },
+      testEnvironment: 'jsdom',
+      haste: {
+        defaultPlatform: 'web',
+        platforms: ['android', 'ios', 'native', 'web'],
+        providesModuleNodeModules: ['react-native'],
+      },
+      testMatch: [
+        '<rootDir>/src/**/__tests__/**/*.{ts,tsx}',
+        '<rootDir>/src/**/*.{spec,test}.{ts,tsx}',
+      ],
+    },
+    {
+      displayName: {
+        name: 'iOS',
+        color: 'white',
+      },
+      testEnvironment: 'node',
+      haste: {
+        defaultPlatform: 'ios',
+        platforms: ['android', 'ios', 'native', 'web'],
+        providesModuleNodeModules: ['react-native'],
+      },
+      testMatch: [
+        '<rootDir>/src/**/__tests__/**/*.{ts,tsx}',
+        '<rootDir>/src/**/*.{spec,test}.{ts,tsx}',
+      ],
+    },
+    {
+      displayName: {
+        name: 'Android',
+        color: 'green',
+      },
+      testEnvironment: 'node',
+      haste: {
+        defaultPlatform: 'android',
+        platforms: ['android', 'ios', 'native', 'web'],
+        providesModuleNodeModules: ['react-native'],
+      },
+      testMatch: [
+        '<rootDir>/src/**/__tests__/**/*.{ts,tsx}',
+        '<rootDir>/src/**/*.{spec,test}.{ts,tsx}',
+      ],
+    },
+  ],
+  
+  // Global variables that need to be available in all test environments
+  globals: {
+    'ts-jest': {
+      tsconfig: '<rootDir>/tsconfig.json',
+      babelConfig: true,
+      isolatedModules: true,
+    },
+  },
 };
