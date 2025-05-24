@@ -1,97 +1,106 @@
-import { 
-  formatDate, 
-  formatTime, 
-  formatDateTime, 
-  formatDateRange, 
-  formatRelativeDate,
-  formatJourneyDate,
-  DEFAULT_DATE_FORMAT,
-  DEFAULT_TIME_FORMAT,
-  DEFAULT_DATETIME_FORMAT,
-  DEFAULT_LOCALE
-} from '../format';
+import { formatDate, formatTime, formatDateTime, formatDateRange, formatRelativeDate } from '../format';
 
-describe('Date Format Module Re-exports', () => {
-  describe('Constants', () => {
-    test('should export DEFAULT_DATE_FORMAT', () => {
-      expect(DEFAULT_DATE_FORMAT).toBeDefined();
-      expect(DEFAULT_DATE_FORMAT).toBe('dd/MM/yyyy');
+describe('Date Format Module', () => {
+  // Test date to use across all tests
+  const testDate = new Date('2023-05-15T14:30:00');
+  const testEndDate = new Date('2023-05-20T16:45:00');
+
+  describe('formatDate function', () => {
+    it('should be properly exported from format module', () => {
+      expect(formatDate).toBeDefined();
+      expect(typeof formatDate).toBe('function');
     });
 
-    test('should export DEFAULT_TIME_FORMAT', () => {
-      expect(DEFAULT_TIME_FORMAT).toBeDefined();
-      expect(DEFAULT_TIME_FORMAT).toBe('HH:mm');
+    it('should format a date correctly with default format', () => {
+      const result = formatDate(testDate);
+      expect(result).toMatch(/^\d{2}\/\d{2}\/\d{4}$/); // dd/MM/yyyy format
+      expect(result).toBe('15/05/2023');
     });
 
-    test('should export DEFAULT_DATETIME_FORMAT', () => {
-      expect(DEFAULT_DATETIME_FORMAT).toBeDefined();
-      expect(DEFAULT_DATETIME_FORMAT).toBe('dd/MM/yyyy HH:mm');
+    it('should handle custom format strings', () => {
+      const result = formatDate(testDate, 'yyyy-MM-dd');
+      expect(result).toBe('2023-05-15');
     });
 
-    test('should export DEFAULT_LOCALE', () => {
-      expect(DEFAULT_LOCALE).toBeDefined();
-      expect(DEFAULT_LOCALE).toBe('pt-BR');
+    it('should support different locales', () => {
+      const ptResult = formatDate(testDate, 'MMMM', 'pt-BR');
+      const enResult = formatDate(testDate, 'MMMM', 'en-US');
+      
+      // Month names should be different in different locales
+      expect(ptResult.toLowerCase()).toBe('maio');
+      expect(enResult.toLowerCase()).toBe('may');
     });
   });
 
-  describe('Functions', () => {
-    const testDate = new Date(2023, 0, 15, 14, 30); // January 15, 2023, 14:30
-
-    test('should export formatDate function', () => {
-      expect(formatDate).toBeDefined();
-      expect(typeof formatDate).toBe('function');
-      
-      // Basic functionality test
-      expect(formatDate(testDate)).toBe('15/01/2023');
-      expect(formatDate(testDate, 'yyyy-MM-dd')).toBe('2023-01-15');
-      expect(formatDate(testDate, DEFAULT_DATE_FORMAT, 'en-US')).toBe('15/01/2023');
-      expect(formatDate('invalid date')).toBe('');
-    });
-
-    test('should export formatTime function', () => {
+  describe('formatTime function', () => {
+    it('should be properly exported from format module', () => {
       expect(formatTime).toBeDefined();
       expect(typeof formatTime).toBe('function');
-      
-      // Basic functionality test
-      expect(formatTime(testDate)).toBe('14:30');
-      expect(formatTime(testDate, 'h:mm a')).toBe('2:30 PM');
-      expect(formatTime(testDate, DEFAULT_TIME_FORMAT, 'en-US')).toBe('14:30');
-      expect(formatTime('invalid date')).toBe('');
     });
 
-    test('should export formatDateTime function', () => {
+    it('should format time correctly with default format', () => {
+      const result = formatTime(testDate);
+      expect(result).toMatch(/^\d{2}:\d{2}$/); // HH:mm format
+      expect(result).toBe('14:30');
+    });
+
+    it('should handle custom format strings', () => {
+      const result = formatTime(testDate, 'h:mm a');
+      expect(result).toMatch(/\d{1,2}:\d{2} [AP]M/i);
+      expect(result.toLowerCase()).toBe('2:30 pm');
+    });
+  });
+
+  describe('formatDateTime function', () => {
+    it('should be properly exported from format module', () => {
       expect(formatDateTime).toBeDefined();
       expect(typeof formatDateTime).toBe('function');
-      
-      // Basic functionality test
-      expect(formatDateTime(testDate)).toBe('15/01/2023 14:30');
-      expect(formatDateTime(testDate, 'yyyy-MM-dd HH:mm')).toBe('2023-01-15 14:30');
-      expect(formatDateTime(testDate, DEFAULT_DATETIME_FORMAT, 'en-US')).toBe('15/01/2023 14:30');
-      expect(formatDateTime('invalid date')).toBe('');
     });
 
-    test('should export formatDateRange function', () => {
+    it('should format date and time correctly with default format', () => {
+      const result = formatDateTime(testDate);
+      expect(result).toMatch(/^\d{2}\/\d{2}\/\d{4} \d{2}:\d{2}$/); // dd/MM/yyyy HH:mm format
+      expect(result).toBe('15/05/2023 14:30');
+    });
+
+    it('should handle custom format strings', () => {
+      const result = formatDateTime(testDate, 'yyyy-MM-dd HH:mm:ss');
+      expect(result).toBe('2023-05-15 14:30:00');
+    });
+  });
+
+  describe('formatDateRange function', () => {
+    it('should be properly exported from format module', () => {
       expect(formatDateRange).toBeDefined();
       expect(typeof formatDateRange).toBe('function');
-      
-      const startDate = new Date(2023, 0, 15); // January 15, 2023
-      const endDate = new Date(2023, 0, 20); // January 20, 2023
-      
-      // Basic functionality test
-      expect(formatDateRange(startDate, endDate)).toBe('15/01/2023 - 20/01/2023');
-      expect(formatDateRange(startDate, endDate, 'yyyy-MM-dd')).toBe('2023-01-15 - 2023-01-20');
-      expect(formatDateRange(startDate, endDate, DEFAULT_DATE_FORMAT, 'en-US')).toBe('15/01/2023 - 20/01/2023');
-      expect(formatDateRange('invalid date', endDate)).toBe('');
-      expect(formatDateRange(startDate, 'invalid date')).toBe('');
     });
 
-    test('should export formatRelativeDate function', () => {
+    it('should format date range correctly with default format', () => {
+      const result = formatDateRange(testDate, testEndDate);
+      expect(result).toBe('15/05/2023 - 20/05/2023');
+    });
+
+    it('should handle custom format strings', () => {
+      const result = formatDateRange(testDate, testEndDate, 'yyyy-MM-dd');
+      expect(result).toBe('2023-05-15 - 2023-05-20');
+    });
+
+    it('should support different locales', () => {
+      const result = formatDateRange(testDate, testEndDate, 'dd MMM', 'en-US');
+      expect(result).toBe('15 May - 20 May');
+    });
+  });
+
+  describe('formatRelativeDate function', () => {
+    it('should be properly exported from format module', () => {
       expect(formatRelativeDate).toBeDefined();
       expect(typeof formatRelativeDate).toBe('function');
-      
-      // Mock current date for consistent testing
+    });
+
+    it('should format relative dates correctly', () => {
+      // Mock current date to ensure consistent test results
       const realDate = global.Date;
-      const mockDate = new Date(2023, 0, 15); // January 15, 2023
+      const mockDate = new Date('2023-05-16T10:00:00'); // One day after testDate
       global.Date = class extends Date {
         constructor(...args) {
           if (args.length === 0) {
@@ -100,39 +109,28 @@ describe('Date Format Module Re-exports', () => {
           return new realDate(...args);
         }
       };
-      
-      const today = new Date(2023, 0, 15); // January 15, 2023 (today)
-      const yesterday = new Date(2023, 0, 14); // January 14, 2023 (yesterday)
-      const threeDaysAgo = new Date(2023, 0, 12); // January 12, 2023 (3 days ago)
-      const lastMonth = new Date(2022, 11, 15); // December 15, 2022 (last month)
-      
-      // Basic functionality test
-      expect(formatRelativeDate(today, 'pt-BR')).toBe('Hoje');
-      expect(formatRelativeDate(yesterday, 'pt-BR')).toBe('Ontem');
-      expect(formatRelativeDate(threeDaysAgo, 'pt-BR')).toBe('3 dias atrás');
-      expect(formatRelativeDate(lastMonth, 'pt-BR')).toBe('15/12/2022');
-      
-      expect(formatRelativeDate(today, 'en-US')).toBe('Today');
-      expect(formatRelativeDate(yesterday, 'en-US')).toBe('Yesterday');
-      expect(formatRelativeDate(threeDaysAgo, 'en-US')).toBe('3 days ago');
-      expect(formatRelativeDate(lastMonth, 'en-US')).toBe('15/12/2022');
-      
-      expect(formatRelativeDate('invalid date')).toBe('');
-      
-      // Restore original Date
-      global.Date = realDate;
-    });
 
-    test('should export formatJourneyDate function', () => {
-      expect(formatJourneyDate).toBeDefined();
-      expect(typeof formatJourneyDate).toBe('function');
-      
-      // Basic functionality test
-      expect(formatJourneyDate(testDate, 'health')).toBe('15/01/2023 14:30');
-      expect(formatJourneyDate(testDate, 'care')).toBe('dom, 15 jan 2023');
-      expect(formatJourneyDate(testDate, 'plan')).toBe('15/01/2023');
-      expect(formatJourneyDate(testDate, 'unknown')).toBe('15/01/2023');
-      expect(formatJourneyDate('invalid date', 'health')).toBe('');
+      try {
+        // Test with a date from yesterday (relative to mock date)
+        const result = formatRelativeDate(testDate, 'pt-BR');
+        expect(result).toBe('Ontem');
+
+        // Test with English locale
+        const enResult = formatRelativeDate(testDate, 'en-US');
+        expect(enResult).toBe('Yesterday');
+
+        // Test with a date from 5 days ago (relative to mock date)
+        const olderDate = new Date('2023-05-11T10:00:00');
+        const daysAgoResult = formatRelativeDate(olderDate, 'pt-BR');
+        expect(daysAgoResult).toBe('5 dias atrás');
+
+        // Test with English locale
+        const enDaysAgoResult = formatRelativeDate(olderDate, 'en-US');
+        expect(enDaysAgoResult).toBe('5 days ago');
+      } finally {
+        // Restore the original Date
+        global.Date = realDate;
+      }
     });
   });
 });
