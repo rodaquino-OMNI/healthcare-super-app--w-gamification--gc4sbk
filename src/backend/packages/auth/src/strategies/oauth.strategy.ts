@@ -1,18 +1,20 @@
 import { PassportStrategy } from '@nestjs/passport';
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { OAuthProfileInterface, OAuthTokensInterface } from '@austa/interfaces/auth';
-import { ExternalAuthenticationError } from '@austa/errors/categories/external.errors';
+
+// Import from @austa/interfaces for shared schemas
+import { IOAuthProfile, IOAuthTokens } from '@austa/interfaces/auth';
+import { AuthenticationError } from '@austa/errors';
 
 /**
- * Base class for OAuth 2.0 authentication strategies in the AUSTA SuperApp.
- * This abstract class standardizes how external OAuth providers (Google, Facebook, Apple)
- * are integrated, handling profile normalization, token validation, and user creation/retrieval.
+ * Base class for OAuth 2.0 authentication strategies.
+ * This serves as a foundation for implementing specific OAuth provider strategies
+ * such as Google, Facebook, and Apple for the AUSTA SuperApp.
  * 
  * Extending classes should implement provider-specific configurations and
  * validation logic while leveraging this common base.
  * 
- * Example usage with specific providers:
+ * @example
  * ```typescript
  * // Google OAuth strategy implementation
  * @Injectable()
@@ -23,6 +25,7 @@ import { ExternalAuthenticationError } from '@austa/errors/categories/external.e
  *   ) {
  *     const GoogleStrategy = require('passport-google-oauth20').Strategy;
  *     super(
+ *       'google',
  *       new GoogleStrategy(
  *         {
  *           clientID: configService.get<string>('GOOGLE_CLIENT_ID'),
@@ -32,28 +35,27 @@ import { ExternalAuthenticationError } from '@austa/errors/categories/external.e
  *         },
  *         async (accessToken, refreshToken, profile, done) => {
  *           try {
- *             // Normalize the profile using the base class method
+ *             // Normalize the profile data
  *             const normalizedProfile = this.normalizeProfile({
  *               provider: 'google',
  *               providerId: profile.id,
  *               email: profile.emails[0].value,
  *               name: profile.displayName,
- *               firstName: profile.name.givenName,
- *               lastName: profile.name.familyName,
- *               picture: profile.photos[0].value
+ *               firstName: profile.name?.givenName,
+ *               lastName: profile.name?.familyName,
+ *               picture: profile.photos?.[0]?.value
  *             });
  *             
- *             // Create tokens object using the base class method
- *             const tokens = this.createTokens({
- *               accessToken,
- *               refreshToken,
- *               expiresIn: 3600 // Default expiration time
- *             });
- *             
- *             const user = await authService.validateOAuthUser(normalizedProfile, tokens);
+ *             // Validate the user with the normalized profile
+ *             const user = await authService.validateOAuthUser(normalizedProfile);
  *             done(null, user);
  *           } catch (error) {
- *             done(this.handleError(error), false);
+ *             // Handle errors with standardized error structure
+ *             const authError = new AuthenticationError(
+ *               'OAuth authentication failed',
+ *               { provider: 'google', originalError: error }
+ *             );
+ *             done(authError, false);
  *           }
  *         }
  *       )
@@ -64,100 +66,78 @@ import { ExternalAuthenticationError } from '@austa/errors/categories/external.e
  */
 @Injectable()
 export abstract class OAuthStrategy extends PassportStrategy {
-  protected configService: ConfigService;
+  private readonly logger = new Logger(OAuthStrategy.name);
 
   /**
-   * Initializes the OAuth strategy with the provided strategy and verification function.
+   * Initializes the OAuth strategy.
    * 
+   * @param name - The name of the OAuth strategy (e.g., 'google', 'facebook', 'apple')
    * @param strategy - The OAuth strategy instance to be used with Passport
-   * @param verify - The verification callback function that processes the authenticated user
    */
-  constructor(strategy: any, verify: Function) {
-    super(strategy, verify);
+  constructor(name: string, strategy: any) {
+    super(strategy, name);
+    this.logger.log(`Initialized ${name} OAuth strategy`);
   }
 
   /**
-   * Normalizes OAuth profile data from different providers into a consistent format.
-   * This ensures that regardless of the OAuth provider, the profile data structure
-   * remains consistent throughout the application.
+   * Normalizes OAuth profile data to a consistent format across providers.
+   * This ensures that regardless of the OAuth provider, the profile data
+   * follows a standardized structure for the application.
    * 
-   * @param profile - Raw profile data from the OAuth provider
-   * @returns Normalized profile object conforming to OAuthProfileInterface
+   * @param profile - The raw profile data from the OAuth provider
+   * @returns A normalized profile object with consistent property names
    */
-  protected normalizeProfile(profile: Partial<OAuthProfileInterface>): OAuthProfileInterface {
+  protected normalizeProfile(profile: Partial<IOAuthProfile>): IOAuthProfile {
     // Ensure all required fields are present
-    if (!profile.provider || !profile.providerId || !profile.email) {
-      throw new ExternalAuthenticationError(
-        'Invalid OAuth profile data',
-        {
-          provider: profile.provider,
-          missingFields: [
-            ...(!profile.provider ? ['provider'] : []),
-            ...(!profile.providerId ? ['providerId'] : []),
-            ...(!profile.email ? ['email'] : [])
-          ]
-        }
-      );
+    if (!profile.provider) {
+      throw new AuthenticationError('Missing provider in OAuth profile');
+    }
+    
+    if (!profile.providerId) {
+      throw new AuthenticationError('Missing providerId in OAuth profile');
+    }
+    
+    if (!profile.email) {
+      throw new AuthenticationError('Missing email in OAuth profile');
     }
 
-    // Return a normalized profile with default values for optional fields
-    return {
+    // Create a normalized profile with default values for optional fields
+    const normalizedProfile: IOAuthProfile = {
       provider: profile.provider,
       providerId: profile.providerId,
       email: profile.email,
-      name: profile.name || `${profile.firstName || ''} ${profile.lastName || ''}`.trim() || profile.email,
+      name: profile.name || `${profile.firstName || ''} ${profile.lastName || ''}`.trim(),
       firstName: profile.firstName || '',
       lastName: profile.lastName || '',
       picture: profile.picture || '',
-      locale: profile.locale || 'pt-BR', // Default to Portuguese (Brazil)
-      metadata: profile.metadata || {}
+      locale: profile.locale || 'en',
+      isVerified: profile.isVerified || false
     };
+
+    this.logger.debug(
+      `Normalized OAuth profile for ${normalizedProfile.provider}:${normalizedProfile.providerId}`,
+      { provider: normalizedProfile.provider }
+    );
+
+    return normalizedProfile;
   }
 
   /**
-   * Creates a standardized tokens object from OAuth provider tokens.
+   * Normalizes OAuth tokens to a consistent format across providers.
    * 
-   * @param tokens - Raw token data from the OAuth provider
-   * @returns Normalized tokens object conforming to OAuthTokensInterface
+   * @param tokens - The raw token data from the OAuth provider
+   * @returns A normalized tokens object with consistent property names
    */
-  protected createTokens(tokens: Partial<OAuthTokensInterface>): OAuthTokensInterface {
-    if (!tokens.accessToken) {
-      throw new ExternalAuthenticationError(
-        'Missing access token from OAuth provider',
-        { provider: 'oauth' }
-      );
-    }
-
-    return {
-      accessToken: tokens.accessToken,
-      refreshToken: tokens.refreshToken || null,
-      idToken: tokens.idToken || null,
-      expiresIn: tokens.expiresIn || 3600, // Default to 1 hour if not specified
+  protected normalizeTokens(tokens: Partial<IOAuthTokens>): IOAuthTokens {
+    // Create a normalized tokens object with default values for optional fields
+    const normalizedTokens: IOAuthTokens = {
+      accessToken: tokens.accessToken || '',
+      refreshToken: tokens.refreshToken || '',
+      idToken: tokens.idToken || '',
+      expiresIn: tokens.expiresIn || 3600,
       tokenType: tokens.tokenType || 'Bearer'
     };
-  }
 
-  /**
-   * Standardizes error handling for OAuth authentication failures.
-   * Converts various error types into consistent ExternalAuthenticationError format.
-   * 
-   * @param error - The original error that occurred during OAuth authentication
-   * @returns Standardized ExternalAuthenticationError
-   */
-  protected handleError(error: any): ExternalAuthenticationError {
-    // If it's already our error type, return it directly
-    if (error instanceof ExternalAuthenticationError) {
-      return error;
-    }
-
-    // Convert other error types to our standardized format
-    return new ExternalAuthenticationError(
-      error.message || 'OAuth authentication failed',
-      {
-        originalError: error,
-        provider: 'oauth',
-        statusCode: error.statusCode || error.status || 401
-      }
-    );
+    return normalizedTokens;
   }
 }
