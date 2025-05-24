@@ -24,7 +24,7 @@ module.exports = {
   
   // Don't transform node_modules except for our internal packages
   transformIgnorePatterns: [
-    '/node_modules/(?!(@austa/design-system|@austa/shared|@design-system/primitives|@austa/interfaces|@austa/journey-context))',
+    '/node_modules/(?!(@austa/design-system|@design-system/primitives|@austa/interfaces|@austa/journey-context|@austa/shared))',
   ],
   
   // Module name mapper for path aliases
