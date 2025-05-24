@@ -1,335 +1,221 @@
 /**
- * @file test-database.helper.ts
- * @description Provides utilities for setting up and manipulating test database state for authentication tests.
- * This helper creates, seeds, and cleans up authentication-related database records (users, roles, permissions)
- * for testing user management, role-based access control, and permission verification.
+ * Test Database Helper
+ * 
+ * Provides utilities for setting up and manipulating test database state for authentication tests.
+ * This helper creates, seeds, and cleans up authentication-related database records (users, roles,
+ * permissions) for testing user management, role-based access control, and permission verification.
  */
 
-import { PrismaClient, Prisma } from '@prisma/client';
-import { randomUUID } from 'crypto';
+import { PrismaClient, User, Role, Permission, Prisma } from '@prisma/client';
+import { ConnectionManager } from '@austa/database/connection';
+import { TransactionService } from '@austa/database/transactions';
+import { v4 as uuidv4 } from 'uuid';
 import * as bcrypt from 'bcrypt';
 
-// Import interfaces from the auth package
-import {
-  IUser,
-  IRole,
-  IPermission,
-  ICreateUser,
-  IUserWithRoles,
-  IUserWithPermissions,
-} from '../../src/interfaces/user.interface';
-import { JourneyType } from '../../src/interfaces/role.interface';
-
-/**
- * Configuration options for the TestDatabaseHelper
- */
-export interface TestDatabaseConfig {
-  /**
-   * Whether to use transactions for test isolation (default: true)
-   */
-  useTransactions?: boolean;
-
-  /**
-   * Whether to automatically clean up created entities after tests (default: true)
-   */
-  autoCleanup?: boolean;
-
-  /**
-   * Custom Prisma client instance (if not provided, a new one will be created)
-   */
-  prismaClient?: PrismaClient;
-
-  /**
-   * Default password for test users (default: 'Password123!')
-   */
-  defaultPassword?: string;
-
-  /**
-   * Number of salt rounds for password hashing (default: 10)
-   */
-  saltRounds?: number;
-}
-
-/**
- * Options for creating test users
- */
-export interface CreateTestUserOptions {
-  /**
-   * User's email (default: generated unique email)
-   */
+// Types for factory function options
+export interface CreateUserOptions {
   email?: string;
-
-  /**
-   * User's name (default: 'Test User')
-   */
-  name?: string;
-
-  /**
-   * User's plain text password (default: from TestDatabaseConfig)
-   */
+  username?: string;
   password?: string;
-
-  /**
-   * User's phone number
-   */
-  phone?: string;
-
-  /**
-   * User's CPF (Brazilian tax ID)
-   */
-  cpf?: string;
-
-  /**
-   * Roles to assign to the user
-   */
-  roles?: number[];
-
-  /**
-   * Permissions to assign directly to the user
-   */
-  permissions?: number[];
-
-  /**
-   * Journey context for role assignments
-   */
-  journeyContext?: JourneyType;
+  firstName?: string;
+  lastName?: string;
+  isActive?: boolean;
+  isVerified?: boolean;
+  roles?: string[] | Role[];
+  permissions?: string[] | Permission[];
 }
 
-/**
- * Options for creating test roles
- */
-export interface CreateTestRoleOptions {
-  /**
-   * Role name (default: generated unique role name)
-   */
+export interface CreateRoleOptions {
   name?: string;
-
-  /**
-   * Role description (default: 'Test role description')
-   */
   description?: string;
-
-  /**
-   * Journey type this role belongs to
-   */
-  journey?: JourneyType;
-
-  /**
-   * Whether this is a default role (default: false)
-   */
-  isDefault?: boolean;
-
-  /**
-   * Permissions to assign to this role
-   */
-  permissions?: number[];
+  permissions?: string[] | Permission[];
 }
 
-/**
- * Options for creating test permissions
- */
-export interface CreateTestPermissionOptions {
-  /**
-   * Permission name (default: generated unique permission name)
-   */
+export interface CreatePermissionOptions {
   name?: string;
-
-  /**
-   * Permission description (default: 'Test permission description')
-   */
   description?: string;
+  resource?: string;
+  action?: string;
+}
 
-  /**
-   * Journey this permission belongs to
-   */
-  journey?: JourneyType;
+// Journey-specific user types
+export interface HealthJourneyUserOptions extends CreateUserOptions {
+  healthMetrics?: boolean;
+  deviceConnections?: boolean;
+  healthGoals?: boolean;
+}
+
+export interface CareJourneyUserOptions extends CreateUserOptions {
+  appointments?: boolean;
+  medications?: boolean;
+  providers?: boolean;
+}
+
+export interface PlanJourneyUserOptions extends CreateUserOptions {
+  plans?: boolean;
+  claims?: boolean;
+  benefits?: boolean;
 }
 
 /**
- * Helper class for setting up and manipulating test database state for authentication tests
+ * AuthTestDatabaseHelper class provides utilities for setting up and manipulating
+ * test database state for authentication tests.
  */
-export class TestDatabaseHelper {
+export class AuthTestDatabaseHelper {
   private prisma: PrismaClient;
-  private config: Required<TestDatabaseConfig>;
-  private createdUsers: string[] = [];
-  private createdRoles: number[] = [];
-  private createdPermissions: number[] = [];
-  private transaction: Prisma.TransactionClient | null = null;
+  private transactionService: TransactionService;
+  private connectionManager: ConnectionManager;
+  private testEntities: {
+    users: User[];
+    roles: Role[];
+    permissions: Permission[];
+  };
 
   /**
-   * Creates a new TestDatabaseHelper instance
-   * @param config Configuration options
+   * Creates a new instance of AuthTestDatabaseHelper
    */
-  constructor(config: TestDatabaseConfig = {}) {
-    this.config = {
-      useTransactions: config.useTransactions ?? true,
-      autoCleanup: config.autoCleanup ?? true,
-      prismaClient: config.prismaClient ?? new PrismaClient(),
-      defaultPassword: config.defaultPassword ?? 'Password123!',
-      saltRounds: config.saltRounds ?? 10,
+  constructor() {
+    this.connectionManager = new ConnectionManager({
+      // Use test-specific connection configuration
+      connectionString: process.env.TEST_DATABASE_URL,
+      poolSize: 1,
+      connectionTimeout: 5000,
+    });
+    
+    this.prisma = this.connectionManager.getClient() as PrismaClient;
+    this.transactionService = new TransactionService(this.prisma);
+    
+    // Initialize collections to track created test entities
+    this.testEntities = {
+      users: [],
+      roles: [],
+      permissions: [],
     };
-
-    this.prisma = this.config.prismaClient;
   }
 
   /**
-   * Gets the current Prisma client or transaction client
-   * @returns The appropriate Prisma client to use
+   * Initializes the test database with predefined test data
    */
-  private getClient(): PrismaClient | Prisma.TransactionClient {
-    return this.transaction || this.prisma;
-  }
+  async initialize(): Promise<void> {
+    // Create default test data in a transaction
+    await this.transactionService.withTransaction(async (tx) => {
+      // Create default permissions
+      const readPermission = await this.createPermission({
+        name: 'read',
+        description: 'Read access',
+        resource: 'all',
+        action: 'read',
+      }, tx);
 
-  /**
-   * Starts a new transaction for test isolation
-   * @returns Promise that resolves when the transaction is started
-   */
-  async startTransaction(): Promise<void> {
-    if (this.config.useTransactions && !this.transaction) {
-      this.transaction = await this.prisma.$transaction({
-        isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted,
-        maxWait: 5000,
-        timeout: 10000,
-      } as any);
-    }
-  }
+      const writePermission = await this.createPermission({
+        name: 'write',
+        description: 'Write access',
+        resource: 'all',
+        action: 'write',
+      }, tx);
 
-  /**
-   * Commits the current transaction
-   * @returns Promise that resolves when the transaction is committed
-   */
-  async commitTransaction(): Promise<void> {
-    if (this.config.useTransactions && this.transaction) {
-      await (this.transaction as any).$commit?.();
-      this.transaction = null;
-    }
-  }
+      const deletePermission = await this.createPermission({
+        name: 'delete',
+        description: 'Delete access',
+        resource: 'all',
+        action: 'delete',
+      }, tx);
 
-  /**
-   * Rolls back the current transaction
-   * @returns Promise that resolves when the transaction is rolled back
-   */
-  async rollbackTransaction(): Promise<void> {
-    if (this.config.useTransactions && this.transaction) {
-      await (this.transaction as any).$rollback?.();
-      this.transaction = null;
-    }
-  }
+      // Create default roles
+      const adminRole = await this.createRole({
+        name: 'admin',
+        description: 'Administrator role',
+        permissions: [readPermission, writePermission, deletePermission],
+      }, tx);
 
-  /**
-   * Cleans up all entities created during tests
-   * @returns Promise that resolves when cleanup is complete
-   */
-  async cleanup(): Promise<void> {
-    const client = this.getClient();
+      const userRole = await this.createRole({
+        name: 'user',
+        description: 'Standard user role',
+        permissions: [readPermission],
+      }, tx);
 
-    // Delete user roles and permissions first (foreign key constraints)
-    if (this.createdUsers.length > 0) {
-      await client.userRole.deleteMany({
-        where: {
-          userId: { in: this.createdUsers },
-        },
-      });
+      // Create default admin user
+      await this.createUser({
+        email: 'admin@example.com',
+        username: 'admin',
+        password: 'Admin123!',
+        firstName: 'Admin',
+        lastName: 'User',
+        isActive: true,
+        isVerified: true,
+        roles: [adminRole],
+      }, tx);
 
-      await client.userPermission.deleteMany({
-        where: {
-          userId: { in: this.createdUsers },
-        },
-      });
-    }
-
-    // Delete role permissions
-    if (this.createdRoles.length > 0) {
-      await client.rolePermission.deleteMany({
-        where: {
-          roleId: { in: this.createdRoles },
-        },
-      });
-    }
-
-    // Delete users
-    if (this.createdUsers.length > 0) {
-      await client.user.deleteMany({
-        where: {
-          id: { in: this.createdUsers },
-        },
-      });
-      this.createdUsers = [];
-    }
-
-    // Delete roles
-    if (this.createdRoles.length > 0) {
-      await client.role.deleteMany({
-        where: {
-          id: { in: this.createdRoles },
-        },
-      });
-      this.createdRoles = [];
-    }
-
-    // Delete permissions
-    if (this.createdPermissions.length > 0) {
-      await client.permission.deleteMany({
-        where: {
-          id: { in: this.createdPermissions },
-        },
-      });
-      this.createdPermissions = [];
-    }
+      // Create default standard user
+      await this.createUser({
+        email: 'user@example.com',
+        username: 'user',
+        password: 'User123!',
+        firstName: 'Standard',
+        lastName: 'User',
+        isActive: true,
+        isVerified: true,
+        roles: [userRole],
+      }, tx);
+    });
   }
 
   /**
    * Creates a test user with the specified options
-   * @param options Options for creating the test user
+   * @param options User creation options
+   * @param tx Optional transaction client
    * @returns The created user
    */
-  async createTestUser(options: CreateTestUserOptions = {}): Promise<IUser> {
-    const client = this.getClient();
-    const hashedPassword = await bcrypt.hash(
-      options.password || this.config.defaultPassword,
-      this.config.saltRounds
-    );
+  async createUser(options: CreateUserOptions, tx?: Prisma.TransactionClient): Promise<User> {
+    const client = tx || this.prisma;
+    const salt = await bcrypt.genSalt(10);
+    const hashedPassword = await bcrypt.hash(options.password || 'Password123!', salt);
 
+    // Create the user
     const user = await client.user.create({
       data: {
-        id: randomUUID(),
-        email: options.email || `test-user-${randomUUID()}@example.com`,
-        name: options.name || 'Test User',
+        id: uuidv4(),
+        email: options.email || `test-${uuidv4()}@example.com`,
+        username: options.username || `test-user-${uuidv4()}`,
         password: hashedPassword,
-        phone: options.phone,
-        cpf: options.cpf,
+        firstName: options.firstName || 'Test',
+        lastName: options.lastName || 'User',
+        isActive: options.isActive !== undefined ? options.isActive : true,
+        isVerified: options.isVerified !== undefined ? options.isVerified : true,
+        createdAt: new Date(),
+        updatedAt: new Date(),
       },
     });
 
-    this.createdUsers.push(user.id);
-
-    // Assign roles if specified
+    // Add roles if specified
     if (options.roles && options.roles.length > 0) {
-      await Promise.all(
-        options.roles.map((roleId) =>
-          client.userRole.create({
-            data: {
-              userId: user.id,
-              roleId,
-              journeyContext: options.journeyContext,
-            },
-          })
-        )
-      );
+      for (const role of options.roles) {
+        const roleId = typeof role === 'string' ? role : role.id;
+        await client.userRole.create({
+          data: {
+            userId: user.id,
+            roleId: roleId,
+          },
+        });
+      }
     }
 
-    // Assign permissions if specified
+    // Add direct permissions if specified
     if (options.permissions && options.permissions.length > 0) {
-      await Promise.all(
-        options.permissions.map((permissionId) =>
-          client.userPermission.create({
-            data: {
-              userId: user.id,
-              permissionId,
-            },
-          })
-        )
-      );
+      for (const permission of options.permissions) {
+        const permissionId = typeof permission === 'string' ? permission : permission.id;
+        await client.userPermission.create({
+          data: {
+            userId: user.id,
+            permissionId: permissionId,
+          },
+        });
+      }
+    }
+
+    // Track the created user for cleanup
+    if (!tx) {
+      this.testEntities.users.push(user);
     }
 
     return user;
@@ -337,35 +223,40 @@ export class TestDatabaseHelper {
 
   /**
    * Creates a test role with the specified options
-   * @param options Options for creating the test role
+   * @param options Role creation options
+   * @param tx Optional transaction client
    * @returns The created role
    */
-  async createTestRole(options: CreateTestRoleOptions = {}): Promise<IRole> {
-    const client = this.getClient();
+  async createRole(options: CreateRoleOptions, tx?: Prisma.TransactionClient): Promise<Role> {
+    const client = tx || this.prisma;
 
+    // Create the role
     const role = await client.role.create({
       data: {
-        name: options.name || `test-role-${randomUUID()}`,
-        description: options.description || 'Test role description',
-        journey: options.journey,
-        isDefault: options.isDefault ?? false,
+        id: uuidv4(),
+        name: options.name || `test-role-${uuidv4()}`,
+        description: options.description || 'Test role',
+        createdAt: new Date(),
+        updatedAt: new Date(),
       },
     });
 
-    this.createdRoles.push(role.id);
-
-    // Assign permissions if specified
+    // Add permissions if specified
     if (options.permissions && options.permissions.length > 0) {
-      await Promise.all(
-        options.permissions.map((permissionId) =>
-          client.rolePermission.create({
-            data: {
-              roleId: role.id,
-              permissionId,
-            },
-          })
-        )
-      );
+      for (const permission of options.permissions) {
+        const permissionId = typeof permission === 'string' ? permission : permission.id;
+        await client.rolePermission.create({
+          data: {
+            roleId: role.id,
+            permissionId: permissionId,
+          },
+        });
+      }
+    }
+
+    // Track the created role for cleanup
+    if (!tx) {
+      this.testEntities.roles.push(role);
     }
 
     return role;
@@ -373,465 +264,384 @@ export class TestDatabaseHelper {
 
   /**
    * Creates a test permission with the specified options
-   * @param options Options for creating the test permission
+   * @param options Permission creation options
+   * @param tx Optional transaction client
    * @returns The created permission
    */
-  async createTestPermission(options: CreateTestPermissionOptions = {}): Promise<IPermission> {
-    const client = this.getClient();
+  async createPermission(options: CreatePermissionOptions, tx?: Prisma.TransactionClient): Promise<Permission> {
+    const client = tx || this.prisma;
 
+    // Create the permission
     const permission = await client.permission.create({
       data: {
-        name: options.name || `test-permission-${randomUUID()}`,
-        description: options.description || 'Test permission description',
-        journey: options.journey,
+        id: uuidv4(),
+        name: options.name || `test-permission-${uuidv4()}`,
+        description: options.description || 'Test permission',
+        resource: options.resource || 'test-resource',
+        action: options.action || 'read',
+        createdAt: new Date(),
+        updatedAt: new Date(),
       },
     });
 
-    this.createdPermissions.push(permission.id);
+    // Track the created permission for cleanup
+    if (!tx) {
+      this.testEntities.permissions.push(permission);
+    }
 
     return permission;
   }
 
   /**
-   * Creates a test admin user with all permissions
-   * @param options Additional options for the admin user
-   * @returns The created admin user with roles and permissions
+   * Creates a test user with Health journey specific permissions and data
+   * @param options Health journey user options
+   * @returns The created user with health journey permissions
    */
-  async createTestAdminUser(options: Partial<CreateTestUserOptions> = {}): Promise<IUserWithRolesAndPermissions> {
-    // Create admin role if it doesn't exist
-    const adminRole = await this.createTestRole({
-      name: 'Admin',
-      description: 'Administrator with all permissions',
-      journey: JourneyType.GLOBAL,
-    });
+  async createHealthJourneyUser(options: HealthJourneyUserOptions): Promise<User> {
+    return await this.transactionService.withTransaction(async (tx) => {
+      // Create health-specific permissions
+      const healthReadPermission = await this.createPermission({
+        name: 'health:read',
+        description: 'Read access to health data',
+        resource: 'health',
+        action: 'read',
+      }, tx);
 
-    // Create global permissions
-    const adminPermissions = await Promise.all([
-      this.createTestPermission({
-        name: 'admin:all:manage',
-        description: 'Manage all admin resources',
-        journey: JourneyType.GLOBAL,
-      }),
-      this.createTestPermission({
-        name: 'users:all:manage',
-        description: 'Manage all users',
-        journey: JourneyType.GLOBAL,
-      }),
-    ]);
+      const healthWritePermission = await this.createPermission({
+        name: 'health:write',
+        description: 'Write access to health data',
+        resource: 'health',
+        action: 'write',
+      }, tx);
 
-    // Assign permissions to admin role
-    await Promise.all(
-      adminPermissions.map((permission) =>
-        this.getClient().rolePermission.create({
-          data: {
-            roleId: adminRole.id,
-            permissionId: permission.id,
-          },
-        })
-      )
-    );
+      // Create health role
+      const healthRole = await this.createRole({
+        name: 'health-user',
+        description: 'Health journey user role',
+        permissions: [healthReadPermission, healthWritePermission],
+      }, tx);
 
-    // Create admin user
-    const user = await this.createTestUser({
-      name: options.name || 'Admin User',
-      email: options.email || `admin-${randomUUID()}@example.com`,
-      password: options.password,
-      roles: [adminRole.id],
-    });
+      // Combine with any additional permissions
+      const permissions = [
+        healthReadPermission,
+        healthWritePermission,
+        ...(options.permissions || []),
+      ];
 
-    // Return user with roles and permissions
-    return this.getUserWithRolesAndPermissions(user.id);
-  }
+      // Combine with any additional roles
+      const roles = [
+        healthRole,
+        ...(options.roles || []),
+      ];
 
-  /**
-   * Creates a test user for a specific journey
-   * @param journey The journey type
-   * @param options Additional options for the journey user
-   * @returns The created journey user with roles and permissions
-   */
-  async createTestJourneyUser(
-    journey: JourneyType,
-    options: Partial<CreateTestUserOptions> = {}
-  ): Promise<IUserWithRolesAndPermissions> {
-    // Create journey-specific role
-    const journeyRole = await this.createTestRole({
-      name: `${journey} User`,
-      description: `Standard user for ${journey} journey`,
-      journey,
-    });
+      // Create the user with health journey permissions
+      const user = await this.createUser({
+        ...options,
+        roles,
+        permissions,
+      }, tx);
 
-    // Create journey-specific permissions
-    const journeyPermissions = await Promise.all([
-      this.createTestPermission({
-        name: `${journey}:read`,
-        description: `Read access to ${journey} journey`,
-        journey,
-      }),
-      this.createTestPermission({
-        name: `${journey}:write`,
-        description: `Write access to ${journey} journey`,
-        journey,
-      }),
-    ]);
+      // If specified, create related health journey data
+      if (options.healthMetrics) {
+        // Create sample health metrics for this user
+        // This would connect to the health service database
+        // Implementation depends on the health service schema
+      }
 
-    // Assign permissions to journey role
-    await Promise.all(
-      journeyPermissions.map((permission) =>
-        this.getClient().rolePermission.create({
-          data: {
-            roleId: journeyRole.id,
-            permissionId: permission.id,
-          },
-        })
-      )
-    );
+      if (options.deviceConnections) {
+        // Create sample device connections for this user
+        // This would connect to the health service database
+        // Implementation depends on the health service schema
+      }
 
-    // Create journey user
-    const user = await this.createTestUser({
-      name: options.name || `${journey} User`,
-      email: options.email || `${journey.toLowerCase()}-user-${randomUUID()}@example.com`,
-      password: options.password,
-      roles: [journeyRole.id],
-      journeyContext: journey,
-    });
+      if (options.healthGoals) {
+        // Create sample health goals for this user
+        // This would connect to the health service database
+        // Implementation depends on the health service schema
+      }
 
-    // Return user with roles and permissions
-    return this.getUserWithRolesAndPermissions(user.id);
-  }
-
-  /**
-   * Creates a test health journey user
-   * @param options Additional options for the health journey user
-   * @returns The created health journey user with roles and permissions
-   */
-  async createTestHealthJourneyUser(
-    options: Partial<CreateTestUserOptions> = {}
-  ): Promise<IUserWithRolesAndPermissions> {
-    return this.createTestJourneyUser(JourneyType.HEALTH, {
-      name: 'Health Journey User',
-      ...options,
+      return user;
     });
   }
 
   /**
-   * Creates a test care journey user
-   * @param options Additional options for the care journey user
-   * @returns The created care journey user with roles and permissions
+   * Creates a test user with Care journey specific permissions and data
+   * @param options Care journey user options
+   * @returns The created user with care journey permissions
    */
-  async createTestCareJourneyUser(
-    options: Partial<CreateTestUserOptions> = {}
-  ): Promise<IUserWithRolesAndPermissions> {
-    return this.createTestJourneyUser(JourneyType.CARE, {
-      name: 'Care Journey User',
-      ...options,
+  async createCareJourneyUser(options: CareJourneyUserOptions): Promise<User> {
+    return await this.transactionService.withTransaction(async (tx) => {
+      // Create care-specific permissions
+      const careReadPermission = await this.createPermission({
+        name: 'care:read',
+        description: 'Read access to care data',
+        resource: 'care',
+        action: 'read',
+      }, tx);
+
+      const careWritePermission = await this.createPermission({
+        name: 'care:write',
+        description: 'Write access to care data',
+        resource: 'care',
+        action: 'write',
+      }, tx);
+
+      // Create care role
+      const careRole = await this.createRole({
+        name: 'care-user',
+        description: 'Care journey user role',
+        permissions: [careReadPermission, careWritePermission],
+      }, tx);
+
+      // Combine with any additional permissions
+      const permissions = [
+        careReadPermission,
+        careWritePermission,
+        ...(options.permissions || []),
+      ];
+
+      // Combine with any additional roles
+      const roles = [
+        careRole,
+        ...(options.roles || []),
+      ];
+
+      // Create the user with care journey permissions
+      const user = await this.createUser({
+        ...options,
+        roles,
+        permissions,
+      }, tx);
+
+      // If specified, create related care journey data
+      if (options.appointments) {
+        // Create sample appointments for this user
+        // This would connect to the care service database
+        // Implementation depends on the care service schema
+      }
+
+      if (options.medications) {
+        // Create sample medications for this user
+        // This would connect to the care service database
+        // Implementation depends on the care service schema
+      }
+
+      if (options.providers) {
+        // Create sample providers for this user
+        // This would connect to the care service database
+        // Implementation depends on the care service schema
+      }
+
+      return user;
     });
   }
 
   /**
-   * Creates a test plan journey user
-   * @param options Additional options for the plan journey user
-   * @returns The created plan journey user with roles and permissions
+   * Creates a test user with Plan journey specific permissions and data
+   * @param options Plan journey user options
+   * @returns The created user with plan journey permissions
    */
-  async createTestPlanJourneyUser(
-    options: Partial<CreateTestUserOptions> = {}
-  ): Promise<IUserWithRolesAndPermissions> {
-    return this.createTestJourneyUser(JourneyType.PLAN, {
-      name: 'Plan Journey User',
-      ...options,
+  async createPlanJourneyUser(options: PlanJourneyUserOptions): Promise<User> {
+    return await this.transactionService.withTransaction(async (tx) => {
+      // Create plan-specific permissions
+      const planReadPermission = await this.createPermission({
+        name: 'plan:read',
+        description: 'Read access to plan data',
+        resource: 'plan',
+        action: 'read',
+      }, tx);
+
+      const planWritePermission = await this.createPermission({
+        name: 'plan:write',
+        description: 'Write access to plan data',
+        resource: 'plan',
+        action: 'write',
+      }, tx);
+
+      // Create plan role
+      const planRole = await this.createRole({
+        name: 'plan-user',
+        description: 'Plan journey user role',
+        permissions: [planReadPermission, planWritePermission],
+      }, tx);
+
+      // Combine with any additional permissions
+      const permissions = [
+        planReadPermission,
+        planWritePermission,
+        ...(options.permissions || []),
+      ];
+
+      // Combine with any additional roles
+      const roles = [
+        planRole,
+        ...(options.roles || []),
+      ];
+
+      // Create the user with plan journey permissions
+      const user = await this.createUser({
+        ...options,
+        roles,
+        permissions,
+      }, tx);
+
+      // If specified, create related plan journey data
+      if (options.plans) {
+        // Create sample plans for this user
+        // This would connect to the plan service database
+        // Implementation depends on the plan service schema
+      }
+
+      if (options.claims) {
+        // Create sample claims for this user
+        // This would connect to the plan service database
+        // Implementation depends on the plan service schema
+      }
+
+      if (options.benefits) {
+        // Create sample benefits for this user
+        // This would connect to the plan service database
+        // Implementation depends on the plan service schema
+      }
+
+      return user;
     });
   }
 
   /**
-   * Creates a test user with multiple journey roles
-   * @param journeys The journey types to assign to the user
-   * @param options Additional options for the multi-journey user
-   * @returns The created multi-journey user with roles and permissions
+   * Executes a function within a transaction for test isolation
+   * @param fn Function to execute within a transaction
+   * @returns Result of the function execution
    */
-  async createTestMultiJourneyUser(
-    journeys: JourneyType[],
-    options: Partial<CreateTestUserOptions> = {}
-  ): Promise<IUserWithRolesAndPermissions> {
-    // Create roles for each journey
-    const roles = await Promise.all(
-      journeys.map((journey) =>
-        this.createTestRole({
-          name: `${journey} Role`,
-          description: `Role for ${journey} journey`,
-          journey,
-        })
-      )
-    );
-
-    // Create permissions for each journey
-    const permissions = await Promise.all(
-      journeys.flatMap((journey) => [
-        this.createTestPermission({
-          name: `${journey}:read`,
-          description: `Read access to ${journey} journey`,
-          journey,
-        }),
-        this.createTestPermission({
-          name: `${journey}:write`,
-          description: `Write access to ${journey} journey`,
-          journey,
-        }),
-      ])
-    );
-
-    // Assign permissions to roles
-    for (let i = 0; i < journeys.length; i++) {
-      const journey = journeys[i];
-      const role = roles[i];
-      const journeyPermissions = permissions.filter((p) => p.journey === journey);
-
-      await Promise.all(
-        journeyPermissions.map((permission) =>
-          this.getClient().rolePermission.create({
-            data: {
-              roleId: role.id,
-              permissionId: permission.id,
-            },
-          })
-        )
-      );
-    }
-
-    // Create multi-journey user
-    const user = await this.createTestUser({
-      name: options.name || 'Multi-Journey User',
-      email: options.email || `multi-journey-${randomUUID()}@example.com`,
-      password: options.password,
-      roles: roles.map((role) => role.id),
-    });
-
-    // Return user with roles and permissions
-    return this.getUserWithRolesAndPermissions(user.id);
+  async withTransaction<T>(fn: (tx: Prisma.TransactionClient) => Promise<T>): Promise<T> {
+    return this.transactionService.withTransaction(fn);
   }
 
   /**
-   * Gets a user with their roles and permissions
-   * @param userId The ID of the user to retrieve
-   * @returns The user with roles and permissions
+   * Retrieves a user by ID with optional relations
+   * @param id User ID
+   * @param includeRoles Whether to include roles
+   * @param includePermissions Whether to include permissions
+   * @returns The user with requested relations
    */
-  async getUserWithRolesAndPermissions(userId: string): Promise<IUserWithRolesAndPermissions> {
-    const client = this.getClient();
-
-    const user = await client.user.findUnique({
-      where: { id: userId },
+  async getUserById(id: string, includeRoles = false, includePermissions = false): Promise<User | null> {
+    return this.prisma.user.findUnique({
+      where: { id },
       include: {
-        userRoles: {
+        roles: includeRoles ? {
           include: {
-            role: {
-              include: {
-                rolePermissions: {
-                  include: {
-                    permission: true,
-                  },
-                },
-              },
-            },
+            role: true,
           },
-        },
-        userPermissions: {
+        } : undefined,
+        permissions: includePermissions ? {
           include: {
             permission: true,
           },
-        },
+        } : undefined,
       },
     });
+  }
 
-    if (!user) {
-      throw new Error(`User with ID ${userId} not found`);
-    }
+  /**
+   * Retrieves a role by ID with optional relations
+   * @param id Role ID
+   * @param includePermissions Whether to include permissions
+   * @returns The role with requested relations
+   */
+  async getRoleById(id: string, includePermissions = false): Promise<Role | null> {
+    return this.prisma.role.findUnique({
+      where: { id },
+      include: {
+        permissions: includePermissions ? {
+          include: {
+            permission: true,
+          },
+        } : undefined,
+      },
+    });
+  }
 
-    // Extract roles
-    const roles = user.userRoles.map((ur) => ({
-      id: ur.role.id,
-      name: ur.role.name,
-      description: ur.role.description,
-      journey: ur.role.journey as JourneyType | undefined,
-      isDefault: ur.role.isDefault,
-      createdAt: ur.role.createdAt,
-      updatedAt: ur.role.updatedAt,
-    }));
+  /**
+   * Retrieves a permission by ID
+   * @param id Permission ID
+   * @returns The permission
+   */
+  async getPermissionById(id: string): Promise<Permission | null> {
+    return this.prisma.permission.findUnique({
+      where: { id },
+    });
+  }
 
-    // Extract permissions from roles
-    const rolePermissions = user.userRoles.flatMap((ur) =>
-      ur.role.rolePermissions.map((rp) => ({
-        id: rp.permission.id,
-        name: rp.permission.name,
-        description: rp.permission.description,
-        journey: rp.permission.journey as JourneyType | undefined,
-        createdAt: rp.permission.createdAt,
-        updatedAt: rp.permission.updatedAt,
-      }))
-    );
+  /**
+   * Cleans up all test data created by this helper
+   */
+  async cleanup(): Promise<void> {
+    await this.transactionService.withTransaction(async (tx) => {
+      // Delete user permissions and roles first (junction tables)
+      for (const user of this.testEntities.users) {
+        await tx.userPermission.deleteMany({
+          where: { userId: user.id },
+        });
+        
+        await tx.userRole.deleteMany({
+          where: { userId: user.id },
+        });
+      }
 
-    // Extract direct permissions
-    const directPermissions = user.userPermissions.map((up) => ({
-      id: up.permission.id,
-      name: up.permission.name,
-      description: up.permission.description,
-      journey: up.permission.journey as JourneyType | undefined,
-      createdAt: up.permission.createdAt,
-      updatedAt: up.permission.updatedAt,
-    }));
+      // Delete role permissions (junction table)
+      for (const role of this.testEntities.roles) {
+        await tx.rolePermission.deleteMany({
+          where: { roleId: role.id },
+        });
+      }
 
-    // Combine and deduplicate permissions
-    const allPermissions = [...rolePermissions, ...directPermissions];
-    const uniquePermissions = allPermissions.filter(
-      (permission, index, self) =>
-        index === self.findIndex((p) => p.id === permission.id)
-    );
+      // Delete users
+      if (this.testEntities.users.length > 0) {
+        await tx.user.deleteMany({
+          where: {
+            id: { in: this.testEntities.users.map(u => u.id) },
+          },
+        });
+      }
 
-    return {
-      id: user.id,
-      name: user.name,
-      email: user.email,
-      phone: user.phone || undefined,
-      cpf: user.cpf || undefined,
-      createdAt: user.createdAt,
-      updatedAt: user.updatedAt,
-      roles,
-      permissions: uniquePermissions,
+      // Delete roles
+      if (this.testEntities.roles.length > 0) {
+        await tx.role.deleteMany({
+          where: {
+            id: { in: this.testEntities.roles.map(r => r.id) },
+          },
+        });
+      }
+
+      // Delete permissions
+      if (this.testEntities.permissions.length > 0) {
+        await tx.permission.deleteMany({
+          where: {
+            id: { in: this.testEntities.permissions.map(p => p.id) },
+          },
+        });
+      }
+    });
+
+    // Reset tracked entities
+    this.testEntities = {
+      users: [],
+      roles: [],
+      permissions: [],
     };
   }
 
   /**
-   * Performs cleanup when the helper is no longer needed
+   * Closes the database connection
    */
-  async dispose(): Promise<void> {
-    if (this.config.autoCleanup) {
-      await this.cleanup();
-    }
-
-    if (this.transaction) {
-      await this.rollbackTransaction();
-    }
+  async close(): Promise<void> {
+    await this.prisma.$disconnect();
   }
 }
 
 /**
- * Interface for a user with roles and permissions
- * Extends IUserWithRoles and IUserWithPermissions
+ * Creates a singleton instance of the AuthTestDatabaseHelper
  */
-export interface IUserWithRolesAndPermissions extends IUserWithRoles, IUserWithPermissions {}
-
-/**
- * Creates a test database helper with the specified configuration
- * @param config Configuration options for the helper
- * @returns A new TestDatabaseHelper instance
- */
-export function createTestDatabaseHelper(config: TestDatabaseConfig = {}): TestDatabaseHelper {
-  return new TestDatabaseHelper(config);
-}
-
-/**
- * Creates a test user with the specified options
- * @param options Options for creating the test user
- * @param config Configuration options for the helper
- * @returns The created user
- */
-export async function createTestUser(
-  options: CreateTestUserOptions = {},
-  config: TestDatabaseConfig = {}
-): Promise<IUser> {
-  const helper = createTestDatabaseHelper(config);
-  try {
-    return await helper.createTestUser(options);
-  } finally {
-    await helper.dispose();
-  }
-}
-
-/**
- * Creates a test admin user with all permissions
- * @param options Additional options for the admin user
- * @param config Configuration options for the helper
- * @returns The created admin user with roles and permissions
- */
-export async function createTestAdminUser(
-  options: Partial<CreateTestUserOptions> = {},
-  config: TestDatabaseConfig = {}
-): Promise<IUserWithRolesAndPermissions> {
-  const helper = createTestDatabaseHelper(config);
-  try {
-    return await helper.createTestAdminUser(options);
-  } finally {
-    await helper.dispose();
-  }
-}
-
-/**
- * Creates a test health journey user
- * @param options Additional options for the health journey user
- * @param config Configuration options for the helper
- * @returns The created health journey user with roles and permissions
- */
-export async function createTestHealthJourneyUser(
-  options: Partial<CreateTestUserOptions> = {},
-  config: TestDatabaseConfig = {}
-): Promise<IUserWithRolesAndPermissions> {
-  const helper = createTestDatabaseHelper(config);
-  try {
-    return await helper.createTestHealthJourneyUser(options);
-  } finally {
-    await helper.dispose();
-  }
-}
-
-/**
- * Creates a test care journey user
- * @param options Additional options for the care journey user
- * @param config Configuration options for the helper
- * @returns The created care journey user with roles and permissions
- */
-export async function createTestCareJourneyUser(
-  options: Partial<CreateTestUserOptions> = {},
-  config: TestDatabaseConfig = {}
-): Promise<IUserWithRolesAndPermissions> {
-  const helper = createTestDatabaseHelper(config);
-  try {
-    return await helper.createTestCareJourneyUser(options);
-  } finally {
-    await helper.dispose();
-  }
-}
-
-/**
- * Creates a test plan journey user
- * @param options Additional options for the plan journey user
- * @param config Configuration options for the helper
- * @returns The created plan journey user with roles and permissions
- */
-export async function createTestPlanJourneyUser(
-  options: Partial<CreateTestUserOptions> = {},
-  config: TestDatabaseConfig = {}
-): Promise<IUserWithRolesAndPermissions> {
-  const helper = createTestDatabaseHelper(config);
-  try {
-    return await helper.createTestPlanJourneyUser(options);
-  } finally {
-    await helper.dispose();
-  }
-}
-
-/**
- * Creates a test user with multiple journey roles
- * @param journeys The journey types to assign to the user
- * @param options Additional options for the multi-journey user
- * @param config Configuration options for the helper
- * @returns The created multi-journey user with roles and permissions
- */
-export async function createTestMultiJourneyUser(
-  journeys: JourneyType[],
-  options: Partial<CreateTestUserOptions> = {},
-  config: TestDatabaseConfig = {}
-): Promise<IUserWithRolesAndPermissions> {
-  const helper = createTestDatabaseHelper(config);
-  try {
-    return await helper.createTestMultiJourneyUser(journeys, options);
-  } finally {
-    await helper.dispose();
-  }
-}
+export const createAuthTestDatabaseHelper = (): AuthTestDatabaseHelper => {
+  return new AuthTestDatabaseHelper();
+};
