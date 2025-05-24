@@ -1,20 +1,19 @@
 /**
- * @file prisma.mock.ts
- * @description Mock implementation of PrismaService for auth package testing
+ * Mock implementation of the PrismaService tailored for auth package testing.
  * Simulates database operations for User, Role, Permission, and UserRole models
  * with predefined test data, eliminating the need for a live database during tests.
  */
-
+import { jest } from '@jest/globals';
 import { JourneyType } from '../../src/interfaces/role.interface';
 
 /**
- * Mock data types that match the Prisma models for auth testing
+ * Type definitions for the mock Prisma models
  */
 interface MockUser {
   id: string;
   name: string;
   email: string;
-  password: string;
+  password?: string;
   phone?: string;
   cpf?: string;
   createdAt: Date;
@@ -24,9 +23,8 @@ interface MockUser {
 interface MockRole {
   id: number;
   name: string;
-  description: string;
-  journey?: JourneyType | null;
-  isDefault?: boolean;
+  description?: string;
+  journeyType: JourneyType;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -35,7 +33,7 @@ interface MockPermission {
   id: number;
   name: string;
   description: string;
-  journey?: string;
+  journeyType: JourneyType;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -44,282 +42,368 @@ interface MockUserRole {
   id: number;
   userId: string;
   roleId: number;
-  journeyContext?: JourneyType | null;
+  journeyType: JourneyType;
   createdAt: Date;
   updatedAt: Date;
 }
 
 /**
- * Mock data store for auth testing
+ * Predefined test data for auth models
  */
-interface MockDataStore {
-  users: MockUser[];
-  roles: MockRole[];
-  permissions: MockPermission[];
-  userRoles: MockUserRole[];
-}
+const mockUsers: MockUser[] = [
+  {
+    id: '1',
+    name: 'Test User',
+    email: 'test@example.com',
+    password: '$2b$10$EpRnTzVlqHNP0.fUbXUwSOyuiXe/QLSUG6xNekdHgTGmrpHEfIoxm', // 'password123'
+    phone: '+5511999999999',
+    cpf: '12345678900',
+    createdAt: new Date('2023-01-01T00:00:00Z'),
+    updatedAt: new Date('2023-01-01T00:00:00Z')
+  },
+  {
+    id: '2',
+    name: 'Admin User',
+    email: 'admin@example.com',
+    password: '$2b$10$EpRnTzVlqHNP0.fUbXUwSOyuiXe/QLSUG6xNekdHgTGmrpHEfIoxm', // 'password123'
+    phone: '+5511888888888',
+    cpf: '98765432100',
+    createdAt: new Date('2023-01-01T00:00:00Z'),
+    updatedAt: new Date('2023-01-01T00:00:00Z')
+  },
+  {
+    id: '3',
+    name: 'Health Journey User',
+    email: 'health@example.com',
+    password: '$2b$10$EpRnTzVlqHNP0.fUbXUwSOyuiXe/QLSUG6xNekdHgTGmrpHEfIoxm', // 'password123'
+    createdAt: new Date('2023-01-01T00:00:00Z'),
+    updatedAt: new Date('2023-01-01T00:00:00Z')
+  },
+  {
+    id: '4',
+    name: 'Care Journey User',
+    email: 'care@example.com',
+    password: '$2b$10$EpRnTzVlqHNP0.fUbXUwSOyuiXe/QLSUG6xNekdHgTGmrpHEfIoxm', // 'password123'
+    createdAt: new Date('2023-01-01T00:00:00Z'),
+    updatedAt: new Date('2023-01-01T00:00:00Z')
+  },
+  {
+    id: '5',
+    name: 'Plan Journey User',
+    email: 'plan@example.com',
+    password: '$2b$10$EpRnTzVlqHNP0.fUbXUwSOyuiXe/QLSUG6xNekdHgTGmrpHEfIoxm', // 'password123'
+    createdAt: new Date('2023-01-01T00:00:00Z'),
+    updatedAt: new Date('2023-01-01T00:00:00Z')
+  }
+];
+
+const mockRoles: MockRole[] = [
+  {
+    id: 1,
+    name: 'Admin',
+    description: 'Global administrator with full access',
+    journeyType: JourneyType.GLOBAL,
+    createdAt: new Date('2023-01-01T00:00:00Z'),
+    updatedAt: new Date('2023-01-01T00:00:00Z')
+  },
+  {
+    id: 2,
+    name: 'User',
+    description: 'Regular user with basic access',
+    journeyType: JourneyType.GLOBAL,
+    createdAt: new Date('2023-01-01T00:00:00Z'),
+    updatedAt: new Date('2023-01-01T00:00:00Z')
+  },
+  {
+    id: 3,
+    name: 'HealthUser',
+    description: 'User with access to health journey features',
+    journeyType: JourneyType.HEALTH,
+    createdAt: new Date('2023-01-01T00:00:00Z'),
+    updatedAt: new Date('2023-01-01T00:00:00Z')
+  },
+  {
+    id: 4,
+    name: 'CareUser',
+    description: 'User with access to care journey features',
+    journeyType: JourneyType.CARE,
+    createdAt: new Date('2023-01-01T00:00:00Z'),
+    updatedAt: new Date('2023-01-01T00:00:00Z')
+  },
+  {
+    id: 5,
+    name: 'PlanUser',
+    description: 'User with access to plan journey features',
+    journeyType: JourneyType.PLAN,
+    createdAt: new Date('2023-01-01T00:00:00Z'),
+    updatedAt: new Date('2023-01-01T00:00:00Z')
+  }
+];
+
+const mockPermissions: MockPermission[] = [
+  {
+    id: 1,
+    name: 'user:read',
+    description: 'Read user information',
+    journeyType: JourneyType.GLOBAL,
+    createdAt: new Date('2023-01-01T00:00:00Z'),
+    updatedAt: new Date('2023-01-01T00:00:00Z')
+  },
+  {
+    id: 2,
+    name: 'user:write',
+    description: 'Create and update user information',
+    journeyType: JourneyType.GLOBAL,
+    createdAt: new Date('2023-01-01T00:00:00Z'),
+    updatedAt: new Date('2023-01-01T00:00:00Z')
+  },
+  {
+    id: 3,
+    name: 'user:delete',
+    description: 'Delete user accounts',
+    journeyType: JourneyType.GLOBAL,
+    createdAt: new Date('2023-01-01T00:00:00Z'),
+    updatedAt: new Date('2023-01-01T00:00:00Z')
+  },
+  {
+    id: 4,
+    name: 'health:read',
+    description: 'Read health journey data',
+    journeyType: JourneyType.HEALTH,
+    createdAt: new Date('2023-01-01T00:00:00Z'),
+    updatedAt: new Date('2023-01-01T00:00:00Z')
+  },
+  {
+    id: 5,
+    name: 'health:write',
+    description: 'Create and update health journey data',
+    journeyType: JourneyType.HEALTH,
+    createdAt: new Date('2023-01-01T00:00:00Z'),
+    updatedAt: new Date('2023-01-01T00:00:00Z')
+  },
+  {
+    id: 6,
+    name: 'care:read',
+    description: 'Read care journey data',
+    journeyType: JourneyType.CARE,
+    createdAt: new Date('2023-01-01T00:00:00Z'),
+    updatedAt: new Date('2023-01-01T00:00:00Z')
+  },
+  {
+    id: 7,
+    name: 'care:write',
+    description: 'Create and update care journey data',
+    journeyType: JourneyType.CARE,
+    createdAt: new Date('2023-01-01T00:00:00Z'),
+    updatedAt: new Date('2023-01-01T00:00:00Z')
+  },
+  {
+    id: 8,
+    name: 'plan:read',
+    description: 'Read plan journey data',
+    journeyType: JourneyType.PLAN,
+    createdAt: new Date('2023-01-01T00:00:00Z'),
+    updatedAt: new Date('2023-01-01T00:00:00Z')
+  },
+  {
+    id: 9,
+    name: 'plan:write',
+    description: 'Create and update plan journey data',
+    journeyType: JourneyType.PLAN,
+    createdAt: new Date('2023-01-01T00:00:00Z'),
+    updatedAt: new Date('2023-01-01T00:00:00Z')
+  }
+];
+
+const mockUserRoles: MockUserRole[] = [
+  {
+    id: 1,
+    userId: '1',
+    roleId: 2, // Regular user
+    journeyType: JourneyType.GLOBAL,
+    createdAt: new Date('2023-01-01T00:00:00Z'),
+    updatedAt: new Date('2023-01-01T00:00:00Z')
+  },
+  {
+    id: 2,
+    userId: '2',
+    roleId: 1, // Admin
+    journeyType: JourneyType.GLOBAL,
+    createdAt: new Date('2023-01-01T00:00:00Z'),
+    updatedAt: new Date('2023-01-01T00:00:00Z')
+  },
+  {
+    id: 3,
+    userId: '3',
+    roleId: 3, // HealthUser
+    journeyType: JourneyType.HEALTH,
+    createdAt: new Date('2023-01-01T00:00:00Z'),
+    updatedAt: new Date('2023-01-01T00:00:00Z')
+  },
+  {
+    id: 4,
+    userId: '4',
+    roleId: 4, // CareUser
+    journeyType: JourneyType.CARE,
+    createdAt: new Date('2023-01-01T00:00:00Z'),
+    updatedAt: new Date('2023-01-01T00:00:00Z')
+  },
+  {
+    id: 5,
+    userId: '5',
+    roleId: 5, // PlanUser
+    journeyType: JourneyType.PLAN,
+    createdAt: new Date('2023-01-01T00:00:00Z'),
+    updatedAt: new Date('2023-01-01T00:00:00Z')
+  }
+];
 
 /**
- * Predefined test data for auth testing
+ * Helper function to deep clone objects to prevent test data mutation
  */
-const mockData: MockDataStore = {
-  users: [
-    {
-      id: '1',
-      name: 'Admin User',
-      email: 'admin@austa.health',
-      password: '$2b$10$EpRnTzVlqHNP0.fUbXUwSOyuiXe/QLSUG6xNekdHgTGmrpHEfIoxm', // 'password123'
-      phone: '+5511999999999',
-      cpf: '12345678900',
-      createdAt: new Date('2023-01-01T00:00:00Z'),
-      updatedAt: new Date('2023-01-01T00:00:00Z')
-    },
-    {
-      id: '2',
-      name: 'Health Journey User',
-      email: 'health@austa.health',
-      password: '$2b$10$EpRnTzVlqHNP0.fUbXUwSOyuiXe/QLSUG6xNekdHgTGmrpHEfIoxm', // 'password123'
-      phone: '+5511888888888',
-      cpf: '98765432100',
-      createdAt: new Date('2023-01-02T00:00:00Z'),
-      updatedAt: new Date('2023-01-02T00:00:00Z')
-    },
-    {
-      id: '3',
-      name: 'Care Journey User',
-      email: 'care@austa.health',
-      password: '$2b$10$EpRnTzVlqHNP0.fUbXUwSOyuiXe/QLSUG6xNekdHgTGmrpHEfIoxm', // 'password123'
-      createdAt: new Date('2023-01-03T00:00:00Z'),
-      updatedAt: new Date('2023-01-03T00:00:00Z')
-    },
-    {
-      id: '4',
-      name: 'Plan Journey User',
-      email: 'plan@austa.health',
-      password: '$2b$10$EpRnTzVlqHNP0.fUbXUwSOyuiXe/QLSUG6xNekdHgTGmrpHEfIoxm', // 'password123'
-      createdAt: new Date('2023-01-04T00:00:00Z'),
-      updatedAt: new Date('2023-01-04T00:00:00Z')
-    },
-    {
-      id: '5',
-      name: 'Regular User',
-      email: 'user@austa.health',
-      password: '$2b$10$EpRnTzVlqHNP0.fUbXUwSOyuiXe/QLSUG6xNekdHgTGmrpHEfIoxm', // 'password123'
-      createdAt: new Date('2023-01-05T00:00:00Z'),
-      updatedAt: new Date('2023-01-05T00:00:00Z')
-    }
-  ],
-  roles: [
-    {
-      id: 1,
-      name: 'Admin',
-      description: 'Administrator with full access',
-      journey: JourneyType.GLOBAL,
-      isDefault: false,
-      createdAt: new Date('2023-01-01T00:00:00Z'),
-      updatedAt: new Date('2023-01-01T00:00:00Z')
-    },
-    {
-      id: 2,
-      name: 'User',
-      description: 'Regular user with basic access',
-      journey: JourneyType.GLOBAL,
-      isDefault: true,
-      createdAt: new Date('2023-01-01T00:00:00Z'),
-      updatedAt: new Date('2023-01-01T00:00:00Z')
-    },
-    {
-      id: 3,
-      name: 'Health Manager',
-      description: 'User with health journey management capabilities',
-      journey: JourneyType.HEALTH,
-      isDefault: false,
-      createdAt: new Date('2023-01-01T00:00:00Z'),
-      updatedAt: new Date('2023-01-01T00:00:00Z')
-    },
-    {
-      id: 4,
-      name: 'Care Provider',
-      description: 'Healthcare provider with care journey access',
-      journey: JourneyType.CARE,
-      isDefault: false,
-      createdAt: new Date('2023-01-01T00:00:00Z'),
-      updatedAt: new Date('2023-01-01T00:00:00Z')
-    },
-    {
-      id: 5,
-      name: 'Plan Administrator',
-      description: 'Insurance plan administrator',
-      journey: JourneyType.PLAN,
-      isDefault: false,
-      createdAt: new Date('2023-01-01T00:00:00Z'),
-      updatedAt: new Date('2023-01-01T00:00:00Z')
-    }
-  ],
-  permissions: [
-    {
-      id: 1,
-      name: 'health:metrics:read',
-      description: 'Read health metrics',
-      journey: 'health',
-      createdAt: new Date('2023-01-01T00:00:00Z'),
-      updatedAt: new Date('2023-01-01T00:00:00Z')
-    },
-    {
-      id: 2,
-      name: 'health:metrics:write',
-      description: 'Create and update health metrics',
-      journey: 'health',
-      createdAt: new Date('2023-01-01T00:00:00Z'),
-      updatedAt: new Date('2023-01-01T00:00:00Z')
-    },
-    {
-      id: 3,
-      name: 'care:appointments:read',
-      description: 'Read care appointments',
-      journey: 'care',
-      createdAt: new Date('2023-01-01T00:00:00Z'),
-      updatedAt: new Date('2023-01-01T00:00:00Z')
-    },
-    {
-      id: 4,
-      name: 'care:appointments:write',
-      description: 'Create and update care appointments',
-      journey: 'care',
-      createdAt: new Date('2023-01-01T00:00:00Z'),
-      updatedAt: new Date('2023-01-01T00:00:00Z')
-    },
-    {
-      id: 5,
-      name: 'plan:claims:read',
-      description: 'Read insurance claims',
-      journey: 'plan',
-      createdAt: new Date('2023-01-01T00:00:00Z'),
-      updatedAt: new Date('2023-01-01T00:00:00Z')
-    },
-    {
-      id: 6,
-      name: 'plan:claims:write',
-      description: 'Create and update insurance claims',
-      journey: 'plan',
-      createdAt: new Date('2023-01-01T00:00:00Z'),
-      updatedAt: new Date('2023-01-01T00:00:00Z')
-    },
-    {
-      id: 7,
-      name: 'admin:users:read',
-      description: 'Read user information',
-      journey: 'global',
-      createdAt: new Date('2023-01-01T00:00:00Z'),
-      updatedAt: new Date('2023-01-01T00:00:00Z')
-    },
-    {
-      id: 8,
-      name: 'admin:users:write',
-      description: 'Create and update users',
-      journey: 'global',
-      createdAt: new Date('2023-01-01T00:00:00Z'),
-      updatedAt: new Date('2023-01-01T00:00:00Z')
-    }
-  ],
-  userRoles: [
-    {
-      id: 1,
-      userId: '1',
-      roleId: 1, // Admin
-      journeyContext: null,
-      createdAt: new Date('2023-01-01T00:00:00Z'),
-      updatedAt: new Date('2023-01-01T00:00:00Z')
-    },
-    {
-      id: 2,
-      userId: '2',
-      roleId: 2, // User
-      journeyContext: null,
-      createdAt: new Date('2023-01-01T00:00:00Z'),
-      updatedAt: new Date('2023-01-01T00:00:00Z')
-    },
-    {
-      id: 3,
-      userId: '2',
-      roleId: 3, // Health Manager
-      journeyContext: JourneyType.HEALTH,
-      createdAt: new Date('2023-01-01T00:00:00Z'),
-      updatedAt: new Date('2023-01-01T00:00:00Z')
-    },
-    {
-      id: 4,
-      userId: '3',
-      roleId: 2, // User
-      journeyContext: null,
-      createdAt: new Date('2023-01-01T00:00:00Z'),
-      updatedAt: new Date('2023-01-01T00:00:00Z')
-    },
-    {
-      id: 5,
-      userId: '3',
-      roleId: 4, // Care Provider
-      journeyContext: JourneyType.CARE,
-      createdAt: new Date('2023-01-01T00:00:00Z'),
-      updatedAt: new Date('2023-01-01T00:00:00Z')
-    },
-    {
-      id: 6,
-      userId: '4',
-      roleId: 2, // User
-      journeyContext: null,
-      createdAt: new Date('2023-01-01T00:00:00Z'),
-      updatedAt: new Date('2023-01-01T00:00:00Z')
-    },
-    {
-      id: 7,
-      userId: '4',
-      roleId: 5, // Plan Administrator
-      journeyContext: JourneyType.PLAN,
-      createdAt: new Date('2023-01-01T00:00:00Z'),
-      updatedAt: new Date('2023-01-01T00:00:00Z')
-    },
-    {
-      id: 8,
-      userId: '5',
-      roleId: 2, // User
-      journeyContext: null,
-      createdAt: new Date('2023-01-01T00:00:00Z'),
-      updatedAt: new Date('2023-01-01T00:00:00Z')
-    }
-  ]
+const cloneData = <T>(data: T): T => JSON.parse(JSON.stringify(data));
+
+/**
+ * Helper function to filter data based on where conditions
+ */
+const filterData = <T extends Record<string, any>>(data: T[], where: any): T[] => {
+  if (!where) return cloneData(data);
+
+  return data.filter(item => {
+    return Object.entries(where).every(([key, value]) => {
+      // Handle nested conditions
+      if (key === 'OR' && Array.isArray(value)) {
+        return value.some(condition => filterData([item], condition).length > 0);
+      }
+      
+      if (key === 'AND' && Array.isArray(value)) {
+        return value.every(condition => filterData([item], condition).length > 0);
+      }
+      
+      // Handle special operators
+      if (typeof value === 'object' && value !== null) {
+        return Object.entries(value).every(([op, opValue]) => {
+          switch (op) {
+            case 'equals':
+              return item[key] === opValue;
+            case 'not':
+              return item[key] !== opValue;
+            case 'in':
+              return Array.isArray(opValue) && opValue.includes(item[key]);
+            case 'notIn':
+              return Array.isArray(opValue) && !opValue.includes(item[key]);
+            case 'contains':
+              return typeof item[key] === 'string' && item[key].includes(String(opValue));
+            case 'startsWith':
+              return typeof item[key] === 'string' && item[key].startsWith(String(opValue));
+            case 'endsWith':
+              return typeof item[key] === 'string' && item[key].endsWith(String(opValue));
+            default:
+              return false;
+          }
+        });
+      }
+      
+      // Direct equality comparison
+      return item[key] === value;
+    });
+  });
 };
 
 /**
- * Helper type for Prisma query filters
+ * Helper function to include related data
  */
-type FilterCondition<T> = Partial<T> | ((item: T) => boolean);
+const includeRelated = <T extends Record<string, any>>(data: T[], include: any): T[] => {
+  if (!include) return cloneData(data);
 
-/**
- * Helper function to apply filters to collections
- */
-function applyFilter<T>(items: T[], filter?: FilterCondition<T>): T[] {
-  if (!filter) return [...items];
-  
-  if (typeof filter === 'function') {
-    return items.filter(filter);
-  }
-  
-  return items.filter(item => {
-    for (const [key, value] of Object.entries(filter)) {
-      if (item[key] !== value) {
-        return false;
+  return data.map(item => {
+    const result = { ...item };
+    
+    Object.entries(include).forEach(([key, value]) => {
+      if (key === 'roles' && value === true) {
+        // Include roles for a user
+        if ('id' in item) {
+          const userRoles = filterData(mockUserRoles, { userId: item.id });
+          result.roles = userRoles.map(ur => {
+            const role = filterData(mockRoles, { id: ur.roleId })[0];
+            return role ? { ...role } : null;
+          }).filter(Boolean);
+        }
       }
-    }
-    return true;
+      
+      if (key === 'permissions' && value === true) {
+        // This is a simplified implementation
+        // In a real scenario, you would need to handle the role-permission relationship
+        if ('id' in item && 'journeyType' in item) {
+          result.permissions = filterData(mockPermissions, { journeyType: item.journeyType });
+        }
+      }
+      
+      if (key === 'user' && value === true) {
+        // Include user for a user role
+        if ('userId' in item) {
+          const user = filterData(mockUsers, { id: item.userId })[0];
+          result.user = user ? { ...user } : null;
+        }
+      }
+      
+      if (key === 'role' && value === true) {
+        // Include role for a user role
+        if ('roleId' in item) {
+          const role = filterData(mockRoles, { id: item.roleId })[0];
+          result.role = role ? { ...role } : null;
+        }
+      }
+    });
+    
+    return result;
   });
-}
+};
 
 /**
- * Helper function to apply pagination
+ * Helper function to select specific fields
  */
-function applyPagination<T>(items: T[], skip?: number, take?: number): T[] {
-  let result = [...items];
+const selectFields = <T extends Record<string, any>>(data: T[], select: any): Partial<T>[] => {
+  if (!select) return cloneData(data);
+
+  return data.map(item => {
+    const result: Partial<T> = {};
+    
+    Object.entries(select).forEach(([key, value]) => {
+      if (value === true && key in item) {
+        result[key as keyof T] = item[key];
+      }
+    });
+    
+    return result;
+  });
+};
+
+/**
+ * Helper function to order data
+ */
+const orderData = <T extends Record<string, any>>(data: T[], orderBy: any): T[] => {
+  if (!orderBy) return cloneData(data);
+
+  const result = cloneData(data);
+  
+  return result.sort((a, b) => {
+    for (const [field, direction] of Object.entries(orderBy)) {
+      if (!(field in a) || !(field in b)) continue;
+      
+      if (a[field] < b[field]) return direction === 'asc' ? -1 : 1;
+      if (a[field] > b[field]) return direction === 'asc' ? 1 : -1;
+    }
+    
+    return 0;
+  });
+};
+
+/**
+ * Helper function to paginate data
+ */
+const paginateData = <T>(data: T[], skip?: number, take?: number): T[] => {
+  let result = cloneData(data);
   
   if (skip !== undefined) {
     result = result.slice(skip);
@@ -330,490 +414,458 @@ function applyPagination<T>(items: T[], skip?: number, take?: number): T[] {
   }
   
   return result;
-}
+};
 
 /**
- * Helper function to generate a new ID
+ * Create a mock implementation of the Prisma client for auth testing
  */
-function generateId(collection: any[]): number | string {
-  if (collection.length === 0) return 1;
-  
-  const lastId = collection[collection.length - 1].id;
-  return typeof lastId === 'number' ? lastId + 1 : String(Number(lastId) + 1);
-}
+export const createPrismaMock = () => {
+  // Local copies of data that can be modified during tests
+  let users = cloneData(mockUsers);
+  let roles = cloneData(mockRoles);
+  let permissions = cloneData(mockPermissions);
+  let userRoles = cloneData(mockUserRoles);
+
+  // Reset data to initial state
+  const resetData = () => {
+    users = cloneData(mockUsers);
+    roles = cloneData(mockRoles);
+    permissions = cloneData(mockPermissions);
+    userRoles = cloneData(mockUserRoles);
+  };
+
+  // Mock implementation of the user model
+  const userMock = {
+    findUnique: jest.fn().mockImplementation(({ where, include, select }) => {
+      const filtered = filterData(users, where);
+      if (filtered.length === 0) return null;
+      
+      let result = includeRelated(filtered, include);
+      if (select) result = selectFields(result, select);
+      
+      return Promise.resolve(result[0]);
+    }),
+    findFirst: jest.fn().mockImplementation(({ where, include, select, orderBy }) => {
+      const filtered = filterData(users, where);
+      if (filtered.length === 0) return null;
+      
+      let result = includeRelated(filtered, include);
+      if (orderBy) result = orderData(result, orderBy);
+      if (select) result = selectFields(result, select);
+      
+      return Promise.resolve(result[0]);
+    }),
+    findMany: jest.fn().mockImplementation(({ where, include, select, orderBy, skip, take }) => {
+      let result = filterData(users, where);
+      
+      result = includeRelated(result, include);
+      if (orderBy) result = orderData(result, orderBy);
+      result = paginateData(result, skip, take);
+      if (select) result = selectFields(result, select);
+      
+      return Promise.resolve(result);
+    }),
+    create: jest.fn().mockImplementation(({ data, include, select }) => {
+      const newUser: MockUser = {
+        id: String(users.length + 1),
+        name: data.name,
+        email: data.email,
+        password: data.password,
+        phone: data.phone,
+        cpf: data.cpf,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+      
+      users.push(newUser);
+      
+      let result = [newUser];
+      result = includeRelated(result, include);
+      if (select) result = selectFields(result, select);
+      
+      return Promise.resolve(result[0]);
+    }),
+    update: jest.fn().mockImplementation(({ where, data, include, select }) => {
+      const index = users.findIndex(user => {
+        return Object.entries(where).every(([key, value]) => user[key as keyof MockUser] === value);
+      });
+      
+      if (index === -1) throw new Error('User not found');
+      
+      users[index] = {
+        ...users[index],
+        ...data,
+        updatedAt: new Date(),
+      };
+      
+      let result = [users[index]];
+      result = includeRelated(result, include);
+      if (select) result = selectFields(result, select);
+      
+      return Promise.resolve(result[0]);
+    }),
+    delete: jest.fn().mockImplementation(({ where, include, select }) => {
+      const index = users.findIndex(user => {
+        return Object.entries(where).every(([key, value]) => user[key as keyof MockUser] === value);
+      });
+      
+      if (index === -1) throw new Error('User not found');
+      
+      const deletedUser = users[index];
+      users.splice(index, 1);
+      
+      let result = [deletedUser];
+      result = includeRelated(result, include);
+      if (select) result = selectFields(result, select);
+      
+      return Promise.resolve(result[0]);
+    }),
+    count: jest.fn().mockImplementation(({ where }) => {
+      const filtered = filterData(users, where);
+      return Promise.resolve(filtered.length);
+    }),
+  };
+
+  // Mock implementation of the role model
+  const roleMock = {
+    findUnique: jest.fn().mockImplementation(({ where, include, select }) => {
+      const filtered = filterData(roles, where);
+      if (filtered.length === 0) return null;
+      
+      let result = includeRelated(filtered, include);
+      if (select) result = selectFields(result, select);
+      
+      return Promise.resolve(result[0]);
+    }),
+    findFirst: jest.fn().mockImplementation(({ where, include, select, orderBy }) => {
+      const filtered = filterData(roles, where);
+      if (filtered.length === 0) return null;
+      
+      let result = includeRelated(filtered, include);
+      if (orderBy) result = orderData(result, orderBy);
+      if (select) result = selectFields(result, select);
+      
+      return Promise.resolve(result[0]);
+    }),
+    findMany: jest.fn().mockImplementation(({ where, include, select, orderBy, skip, take }) => {
+      let result = filterData(roles, where);
+      
+      result = includeRelated(result, include);
+      if (orderBy) result = orderData(result, orderBy);
+      result = paginateData(result, skip, take);
+      if (select) result = selectFields(result, select);
+      
+      return Promise.resolve(result);
+    }),
+    create: jest.fn().mockImplementation(({ data, include, select }) => {
+      const newRole: MockRole = {
+        id: roles.length + 1,
+        name: data.name,
+        description: data.description,
+        journeyType: data.journeyType,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+      
+      roles.push(newRole);
+      
+      let result = [newRole];
+      result = includeRelated(result, include);
+      if (select) result = selectFields(result, select);
+      
+      return Promise.resolve(result[0]);
+    }),
+    update: jest.fn().mockImplementation(({ where, data, include, select }) => {
+      const index = roles.findIndex(role => {
+        return Object.entries(where).every(([key, value]) => role[key as keyof MockRole] === value);
+      });
+      
+      if (index === -1) throw new Error('Role not found');
+      
+      roles[index] = {
+        ...roles[index],
+        ...data,
+        updatedAt: new Date(),
+      };
+      
+      let result = [roles[index]];
+      result = includeRelated(result, include);
+      if (select) result = selectFields(result, select);
+      
+      return Promise.resolve(result[0]);
+    }),
+    delete: jest.fn().mockImplementation(({ where, include, select }) => {
+      const index = roles.findIndex(role => {
+        return Object.entries(where).every(([key, value]) => role[key as keyof MockRole] === value);
+      });
+      
+      if (index === -1) throw new Error('Role not found');
+      
+      const deletedRole = roles[index];
+      roles.splice(index, 1);
+      
+      let result = [deletedRole];
+      result = includeRelated(result, include);
+      if (select) result = selectFields(result, select);
+      
+      return Promise.resolve(result[0]);
+    }),
+    count: jest.fn().mockImplementation(({ where }) => {
+      const filtered = filterData(roles, where);
+      return Promise.resolve(filtered.length);
+    }),
+  };
+
+  // Mock implementation of the permission model
+  const permissionMock = {
+    findUnique: jest.fn().mockImplementation(({ where, include, select }) => {
+      const filtered = filterData(permissions, where);
+      if (filtered.length === 0) return null;
+      
+      let result = includeRelated(filtered, include);
+      if (select) result = selectFields(result, select);
+      
+      return Promise.resolve(result[0]);
+    }),
+    findFirst: jest.fn().mockImplementation(({ where, include, select, orderBy }) => {
+      const filtered = filterData(permissions, where);
+      if (filtered.length === 0) return null;
+      
+      let result = includeRelated(filtered, include);
+      if (orderBy) result = orderData(result, orderBy);
+      if (select) result = selectFields(result, select);
+      
+      return Promise.resolve(result[0]);
+    }),
+    findMany: jest.fn().mockImplementation(({ where, include, select, orderBy, skip, take }) => {
+      let result = filterData(permissions, where);
+      
+      result = includeRelated(result, include);
+      if (orderBy) result = orderData(result, orderBy);
+      result = paginateData(result, skip, take);
+      if (select) result = selectFields(result, select);
+      
+      return Promise.resolve(result);
+    }),
+    create: jest.fn().mockImplementation(({ data, include, select }) => {
+      const newPermission: MockPermission = {
+        id: permissions.length + 1,
+        name: data.name,
+        description: data.description,
+        journeyType: data.journeyType,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+      
+      permissions.push(newPermission);
+      
+      let result = [newPermission];
+      result = includeRelated(result, include);
+      if (select) result = selectFields(result, select);
+      
+      return Promise.resolve(result[0]);
+    }),
+    update: jest.fn().mockImplementation(({ where, data, include, select }) => {
+      const index = permissions.findIndex(permission => {
+        return Object.entries(where).every(([key, value]) => permission[key as keyof MockPermission] === value);
+      });
+      
+      if (index === -1) throw new Error('Permission not found');
+      
+      permissions[index] = {
+        ...permissions[index],
+        ...data,
+        updatedAt: new Date(),
+      };
+      
+      let result = [permissions[index]];
+      result = includeRelated(result, include);
+      if (select) result = selectFields(result, select);
+      
+      return Promise.resolve(result[0]);
+    }),
+    delete: jest.fn().mockImplementation(({ where, include, select }) => {
+      const index = permissions.findIndex(permission => {
+        return Object.entries(where).every(([key, value]) => permission[key as keyof MockPermission] === value);
+      });
+      
+      if (index === -1) throw new Error('Permission not found');
+      
+      const deletedPermission = permissions[index];
+      permissions.splice(index, 1);
+      
+      let result = [deletedPermission];
+      result = includeRelated(result, include);
+      if (select) result = selectFields(result, select);
+      
+      return Promise.resolve(result[0]);
+    }),
+    count: jest.fn().mockImplementation(({ where }) => {
+      const filtered = filterData(permissions, where);
+      return Promise.resolve(filtered.length);
+    }),
+  };
+
+  // Mock implementation of the userRole model
+  const userRoleMock = {
+    findUnique: jest.fn().mockImplementation(({ where, include, select }) => {
+      const filtered = filterData(userRoles, where);
+      if (filtered.length === 0) return null;
+      
+      let result = includeRelated(filtered, include);
+      if (select) result = selectFields(result, select);
+      
+      return Promise.resolve(result[0]);
+    }),
+    findFirst: jest.fn().mockImplementation(({ where, include, select, orderBy }) => {
+      const filtered = filterData(userRoles, where);
+      if (filtered.length === 0) return null;
+      
+      let result = includeRelated(filtered, include);
+      if (orderBy) result = orderData(result, orderBy);
+      if (select) result = selectFields(result, select);
+      
+      return Promise.resolve(result[0]);
+    }),
+    findMany: jest.fn().mockImplementation(({ where, include, select, orderBy, skip, take }) => {
+      let result = filterData(userRoles, where);
+      
+      result = includeRelated(result, include);
+      if (orderBy) result = orderData(result, orderBy);
+      result = paginateData(result, skip, take);
+      if (select) result = selectFields(result, select);
+      
+      return Promise.resolve(result);
+    }),
+    create: jest.fn().mockImplementation(({ data, include, select }) => {
+      const newUserRole: MockUserRole = {
+        id: userRoles.length + 1,
+        userId: data.userId,
+        roleId: data.roleId,
+        journeyType: data.journeyType,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+      
+      userRoles.push(newUserRole);
+      
+      let result = [newUserRole];
+      result = includeRelated(result, include);
+      if (select) result = selectFields(result, select);
+      
+      return Promise.resolve(result[0]);
+    }),
+    update: jest.fn().mockImplementation(({ where, data, include, select }) => {
+      const index = userRoles.findIndex(userRole => {
+        return Object.entries(where).every(([key, value]) => userRole[key as keyof MockUserRole] === value);
+      });
+      
+      if (index === -1) throw new Error('UserRole not found');
+      
+      userRoles[index] = {
+        ...userRoles[index],
+        ...data,
+        updatedAt: new Date(),
+      };
+      
+      let result = [userRoles[index]];
+      result = includeRelated(result, include);
+      if (select) result = selectFields(result, select);
+      
+      return Promise.resolve(result[0]);
+    }),
+    delete: jest.fn().mockImplementation(({ where, include, select }) => {
+      const index = userRoles.findIndex(userRole => {
+        return Object.entries(where).every(([key, value]) => userRole[key as keyof MockUserRole] === value);
+      });
+      
+      if (index === -1) throw new Error('UserRole not found');
+      
+      const deletedUserRole = userRoles[index];
+      userRoles.splice(index, 1);
+      
+      let result = [deletedUserRole];
+      result = includeRelated(result, include);
+      if (select) result = selectFields(result, select);
+      
+      return Promise.resolve(result[0]);
+    }),
+    count: jest.fn().mockImplementation(({ where }) => {
+      const filtered = filterData(userRoles, where);
+      return Promise.resolve(filtered.length);
+    }),
+  };
+
+  // Mock implementation of transaction methods
+  const $transaction = jest.fn().mockImplementation(async (callback) => {
+    if (typeof callback === 'function') {
+      return callback(prismaMock);
+    }
+    return Promise.all(callback);
+  });
+
+  // Create the complete Prisma mock
+  const prismaMock = {
+    user: userMock,
+    role: roleMock,
+    permission: permissionMock,
+    userRole: userRoleMock,
+    $transaction,
+    $connect: jest.fn().mockResolvedValue(undefined),
+    $disconnect: jest.fn().mockResolvedValue(undefined),
+    $on: jest.fn(),
+    $use: jest.fn(),
+    $executeRaw: jest.fn().mockResolvedValue(undefined),
+    $queryRaw: jest.fn().mockResolvedValue([]),
+    _resetData: resetData,
+  };
+
+  return prismaMock;
+};
 
 /**
- * Mock implementation of PrismaService for auth package testing
+ * Mock implementation of the PrismaService for auth package testing
  */
 export class PrismaMock {
-  private data: MockDataStore = JSON.parse(JSON.stringify(mockData)); // Deep clone to avoid modifying the original
+  private prisma = createPrismaMock();
+
+  /**
+   * Get the mock Prisma client instance
+   */
+  get client() {
+    return this.prisma;
+  }
 
   /**
    * Reset the mock data to its initial state
    */
-  reset(): void {
-    this.data = JSON.parse(JSON.stringify(mockData));
+  resetData() {
+    this.prisma._resetData();
   }
 
   /**
-   * User model operations
+   * Mock implementation of onModuleInit lifecycle method
    */
-  user = {
-    findUnique: jest.fn(async ({ where }: { where: { id?: string; email?: string } }) => {
-      if (where.id) {
-        return this.data.users.find(user => user.id === where.id) || null;
-      }
-      if (where.email) {
-        return this.data.users.find(user => user.email === where.email) || null;
-      }
-      return null;
-    }),
-
-    findFirst: jest.fn(async ({ where }: { where?: FilterCondition<MockUser> }) => {
-      const filtered = applyFilter(this.data.users, where);
-      return filtered.length > 0 ? filtered[0] : null;
-    }),
-
-    findMany: jest.fn(async ({ 
-      where, 
-      skip, 
-      take,
-      include
-    }: { 
-      where?: FilterCondition<MockUser>; 
-      skip?: number; 
-      take?: number;
-      include?: { roles?: boolean; permissions?: boolean }
-    } = {}) => {
-      let users = applyFilter(this.data.users, where);
-      users = applyPagination(users, skip, take);
-
-      // Handle includes for relationships
-      if (include) {
-        return users.map(user => {
-          const result: any = { ...user };
-
-          if (include.roles) {
-            const userRoles = this.data.userRoles.filter(ur => ur.userId === user.id);
-            result.roles = userRoles.map(ur => 
-              this.data.roles.find(role => role.id === ur.roleId)
-            ).filter(Boolean);
-          }
-
-          if (include.permissions) {
-            // Get all roles for this user
-            const userRoles = this.data.userRoles.filter(ur => ur.userId === user.id);
-            const roleIds = userRoles.map(ur => ur.roleId);
-            
-            // For simplicity, we're assuming a direct relationship between roles and permissions
-            // In a real implementation, this would use a role_permissions join table
-            const rolePermissions = this.data.permissions.filter(p => {
-              // Match permissions to roles based on journey
-              const matchingRoles = this.data.roles.filter(r => 
-                roleIds.includes(r.id) && 
-                r.journey === p.journey
-              );
-              return matchingRoles.length > 0;
-            });
-            
-            result.permissions = rolePermissions;
-          }
-
-          return result;
-        });
-      }
-
-      return users;
-    }),
-
-    create: jest.fn(async ({ data }: { data: Omit<MockUser, 'id' | 'createdAt' | 'updatedAt'> }) => {
-      const newUser: MockUser = {
-        id: String(generateId(this.data.users)),
-        ...data,
-        createdAt: new Date(),
-        updatedAt: new Date()
-      };
-      this.data.users.push(newUser);
-      return newUser;
-    }),
-
-    update: jest.fn(async ({ 
-      where, 
-      data 
-    }: { 
-      where: { id: string }; 
-      data: Partial<Omit<MockUser, 'id' | 'createdAt'>> 
-    }) => {
-      const index = this.data.users.findIndex(user => user.id === where.id);
-      if (index === -1) throw new Error(`User with ID ${where.id} not found`);
-
-      const updatedUser = {
-        ...this.data.users[index],
-        ...data,
-        updatedAt: new Date()
-      };
-
-      this.data.users[index] = updatedUser;
-      return updatedUser;
-    }),
-
-    delete: jest.fn(async ({ where }: { where: { id: string } }) => {
-      const index = this.data.users.findIndex(user => user.id === where.id);
-      if (index === -1) throw new Error(`User with ID ${where.id} not found`);
-
-      const deletedUser = this.data.users[index];
-      this.data.users.splice(index, 1);
-
-      // Also delete related user roles
-      this.data.userRoles = this.data.userRoles.filter(ur => ur.userId !== where.id);
-
-      return deletedUser;
-    }),
-
-    count: jest.fn(async ({ where }: { where?: FilterCondition<MockUser> } = {}) => {
-      return applyFilter(this.data.users, where).length;
-    })
-  };
+  async onModuleInit() {
+    await this.prisma.$connect();
+  }
 
   /**
-   * Role model operations
+   * Mock implementation of onModuleDestroy lifecycle method
    */
-  role = {
-    findUnique: jest.fn(async ({ where }: { where: { id?: number; name?: string } }) => {
-      if (where.id !== undefined) {
-        return this.data.roles.find(role => role.id === where.id) || null;
-      }
-      if (where.name) {
-        return this.data.roles.find(role => role.name === where.name) || null;
-      }
-      return null;
-    }),
-
-    findFirst: jest.fn(async ({ where }: { where?: FilterCondition<MockRole> }) => {
-      const filtered = applyFilter(this.data.roles, where);
-      return filtered.length > 0 ? filtered[0] : null;
-    }),
-
-    findMany: jest.fn(async ({ 
-      where, 
-      skip, 
-      take,
-      include
-    }: { 
-      where?: FilterCondition<MockRole>; 
-      skip?: number; 
-      take?: number;
-      include?: { permissions?: boolean; users?: boolean }
-    } = {}) => {
-      let roles = applyFilter(this.data.roles, where);
-      roles = applyPagination(roles, skip, take);
-
-      // Handle includes for relationships
-      if (include) {
-        return roles.map(role => {
-          const result: any = { ...role };
-
-          if (include.permissions) {
-            // For simplicity, we're assuming a direct relationship between roles and permissions
-            // based on journey type
-            result.permissions = this.data.permissions.filter(p => 
-              p.journey === role.journey || role.journey === JourneyType.GLOBAL
-            );
-          }
-
-          if (include.users) {
-            const userRoles = this.data.userRoles.filter(ur => ur.roleId === role.id);
-            const userIds = userRoles.map(ur => ur.userId);
-            result.users = this.data.users.filter(user => userIds.includes(user.id));
-          }
-
-          return result;
-        });
-      }
-
-      return roles;
-    }),
-
-    create: jest.fn(async ({ data }: { data: Omit<MockRole, 'id' | 'createdAt' | 'updatedAt'> }) => {
-      const newRole: MockRole = {
-        id: Number(generateId(this.data.roles)),
-        ...data,
-        createdAt: new Date(),
-        updatedAt: new Date()
-      };
-      this.data.roles.push(newRole);
-      return newRole;
-    }),
-
-    update: jest.fn(async ({ 
-      where, 
-      data 
-    }: { 
-      where: { id: number }; 
-      data: Partial<Omit<MockRole, 'id' | 'createdAt'>> 
-    }) => {
-      const index = this.data.roles.findIndex(role => role.id === where.id);
-      if (index === -1) throw new Error(`Role with ID ${where.id} not found`);
-
-      const updatedRole = {
-        ...this.data.roles[index],
-        ...data,
-        updatedAt: new Date()
-      };
-
-      this.data.roles[index] = updatedRole;
-      return updatedRole;
-    }),
-
-    delete: jest.fn(async ({ where }: { where: { id: number } }) => {
-      const index = this.data.roles.findIndex(role => role.id === where.id);
-      if (index === -1) throw new Error(`Role with ID ${where.id} not found`);
-
-      const deletedRole = this.data.roles[index];
-      this.data.roles.splice(index, 1);
-
-      // Also delete related user roles
-      this.data.userRoles = this.data.userRoles.filter(ur => ur.roleId !== where.id);
-
-      return deletedRole;
-    }),
-
-    count: jest.fn(async ({ where }: { where?: FilterCondition<MockRole> } = {}) => {
-      return applyFilter(this.data.roles, where).length;
-    })
-  };
+  async onModuleDestroy() {
+    await this.prisma.$disconnect();
+  }
 
   /**
-   * Permission model operations
+   * Mock implementation of enableShutdownHooks method
    */
-  permission = {
-    findUnique: jest.fn(async ({ where }: { where: { id?: number; name?: string } }) => {
-      if (where.id !== undefined) {
-        return this.data.permissions.find(permission => permission.id === where.id) || null;
-      }
-      if (where.name) {
-        return this.data.permissions.find(permission => permission.name === where.name) || null;
-      }
-      return null;
-    }),
-
-    findFirst: jest.fn(async ({ where }: { where?: FilterCondition<MockPermission> }) => {
-      const filtered = applyFilter(this.data.permissions, where);
-      return filtered.length > 0 ? filtered[0] : null;
-    }),
-
-    findMany: jest.fn(async ({ 
-      where, 
-      skip, 
-      take 
-    }: { 
-      where?: FilterCondition<MockPermission>; 
-      skip?: number; 
-      take?: number 
-    } = {}) => {
-      let permissions = applyFilter(this.data.permissions, where);
-      permissions = applyPagination(permissions, skip, take);
-      return permissions;
-    }),
-
-    create: jest.fn(async ({ data }: { data: Omit<MockPermission, 'id' | 'createdAt' | 'updatedAt'> }) => {
-      const newPermission: MockPermission = {
-        id: Number(generateId(this.data.permissions)),
-        ...data,
-        createdAt: new Date(),
-        updatedAt: new Date()
-      };
-      this.data.permissions.push(newPermission);
-      return newPermission;
-    }),
-
-    update: jest.fn(async ({ 
-      where, 
-      data 
-    }: { 
-      where: { id: number }; 
-      data: Partial<Omit<MockPermission, 'id' | 'createdAt'>> 
-    }) => {
-      const index = this.data.permissions.findIndex(permission => permission.id === where.id);
-      if (index === -1) throw new Error(`Permission with ID ${where.id} not found`);
-
-      const updatedPermission = {
-        ...this.data.permissions[index],
-        ...data,
-        updatedAt: new Date()
-      };
-
-      this.data.permissions[index] = updatedPermission;
-      return updatedPermission;
-    }),
-
-    delete: jest.fn(async ({ where }: { where: { id: number } }) => {
-      const index = this.data.permissions.findIndex(permission => permission.id === where.id);
-      if (index === -1) throw new Error(`Permission with ID ${where.id} not found`);
-
-      const deletedPermission = this.data.permissions[index];
-      this.data.permissions.splice(index, 1);
-      return deletedPermission;
-    }),
-
-    count: jest.fn(async ({ where }: { where?: FilterCondition<MockPermission> } = {}) => {
-      return applyFilter(this.data.permissions, where).length;
-    })
-  };
-
-  /**
-   * UserRole model operations
-   */
-  userRole = {
-    findUnique: jest.fn(async ({ where }: { where: { id?: number; userId_roleId?: { userId: string; roleId: number } } }) => {
-      if (where.id !== undefined) {
-        return this.data.userRoles.find(userRole => userRole.id === where.id) || null;
-      }
-      if (where.userId_roleId) {
-        return this.data.userRoles.find(
-          userRole => userRole.userId === where.userId_roleId?.userId && 
-                     userRole.roleId === where.userId_roleId?.roleId
-        ) || null;
-      }
-      return null;
-    }),
-
-    findFirst: jest.fn(async ({ where }: { where?: FilterCondition<MockUserRole> }) => {
-      const filtered = applyFilter(this.data.userRoles, where);
-      return filtered.length > 0 ? filtered[0] : null;
-    }),
-
-    findMany: jest.fn(async ({ 
-      where, 
-      skip, 
-      take,
-      include
-    }: { 
-      where?: FilterCondition<MockUserRole>; 
-      skip?: number; 
-      take?: number;
-      include?: { user?: boolean; role?: boolean }
-    } = {}) => {
-      let userRoles = applyFilter(this.data.userRoles, where);
-      userRoles = applyPagination(userRoles, skip, take);
-
-      // Handle includes for relationships
-      if (include) {
-        return userRoles.map(userRole => {
-          const result: any = { ...userRole };
-
-          if (include.user) {
-            result.user = this.data.users.find(user => user.id === userRole.userId) || null;
-          }
-
-          if (include.role) {
-            result.role = this.data.roles.find(role => role.id === userRole.roleId) || null;
-          }
-
-          return result;
-        });
-      }
-
-      return userRoles;
-    }),
-
-    create: jest.fn(async ({ data }: { data: Omit<MockUserRole, 'id' | 'createdAt' | 'updatedAt'> }) => {
-      // Check if user and role exist
-      const userExists = this.data.users.some(user => user.id === data.userId);
-      if (!userExists) throw new Error(`User with ID ${data.userId} not found`);
-
-      const roleExists = this.data.roles.some(role => role.id === data.roleId);
-      if (!roleExists) throw new Error(`Role with ID ${data.roleId} not found`);
-
-      const newUserRole: MockUserRole = {
-        id: Number(generateId(this.data.userRoles)),
-        ...data,
-        createdAt: new Date(),
-        updatedAt: new Date()
-      };
-      this.data.userRoles.push(newUserRole);
-      return newUserRole;
-    }),
-
-    update: jest.fn(async ({ 
-      where, 
-      data 
-    }: { 
-      where: { id: number }; 
-      data: Partial<Omit<MockUserRole, 'id' | 'createdAt'>> 
-    }) => {
-      const index = this.data.userRoles.findIndex(userRole => userRole.id === where.id);
-      if (index === -1) throw new Error(`UserRole with ID ${where.id} not found`);
-
-      // Check if user and role exist if they're being updated
-      if (data.userId) {
-        const userExists = this.data.users.some(user => user.id === data.userId);
-        if (!userExists) throw new Error(`User with ID ${data.userId} not found`);
-      }
-
-      if (data.roleId) {
-        const roleExists = this.data.roles.some(role => role.id === data.roleId);
-        if (!roleExists) throw new Error(`Role with ID ${data.roleId} not found`);
-      }
-
-      const updatedUserRole = {
-        ...this.data.userRoles[index],
-        ...data,
-        updatedAt: new Date()
-      };
-
-      this.data.userRoles[index] = updatedUserRole;
-      return updatedUserRole;
-    }),
-
-    delete: jest.fn(async ({ where }: { where: { id: number } }) => {
-      const index = this.data.userRoles.findIndex(userRole => userRole.id === where.id);
-      if (index === -1) throw new Error(`UserRole with ID ${where.id} not found`);
-
-      const deletedUserRole = this.data.userRoles[index];
-      this.data.userRoles.splice(index, 1);
-      return deletedUserRole;
-    }),
-
-    count: jest.fn(async ({ where }: { where?: FilterCondition<MockUserRole> } = {}) => {
-      return applyFilter(this.data.userRoles, where).length;
-    })
-  };
-
-  /**
-   * Transaction support
-   */
-  $transaction = jest.fn(async <T>(operations: Promise<T>[]) => {
-    try {
-      const results = [];
-      for (const operation of operations) {
-        results.push(await operation);
-      }
-      return results;
-    } catch (error) {
-      // Simulate transaction rollback
-      this.reset();
-      throw error;
-    }
-  });
-
-  /**
-   * Connect method (NestJS lifecycle hook simulation)
-   */
-  $connect = jest.fn(async () => Promise.resolve());
-
-  /**
-   * Disconnect method (NestJS lifecycle hook simulation)
-   */
-  $disconnect = jest.fn(async () => Promise.resolve());
+  enableShutdownHooks(app: any) {
+    // This is a mock implementation, so we don't need to do anything
+  }
 }
 
 /**
- * Create and export a singleton instance of the PrismaMock
+ * Default export of the PrismaMock class
  */
-export const prismaMock = new PrismaMock();
-
-/**
- * Export default for easier importing
- */
-export default prismaMock;
+export default PrismaMock;
