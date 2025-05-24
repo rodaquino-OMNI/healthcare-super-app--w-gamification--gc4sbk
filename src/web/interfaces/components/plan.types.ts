@@ -1,175 +1,266 @@
 /**
  * @file Plan Component Types
  * @description Defines TypeScript interfaces for Plan journey-specific UI components in the AUSTA SuperApp.
- * These interfaces provide strongly-typed props that integrate with Plan journey data models
- * while ensuring consistent component usage across the application.
+ * These interfaces provide strongly-typed props that integrate with Plan journey data models.
  */
 
-import { Benefit, Claim, ClaimStatus, ClaimType, Coverage, CoverageType, Plan } from '../plan';
+// Import types from the shared interfaces package
+import { Benefit, Claim, ClaimStatus, Coverage, Plan } from '@austa/interfaces/plan';
 
 /**
- * Base props interface for all Plan journey components
+ * Common props shared across all Plan journey components
  */
 export interface PlanComponentBaseProps {
-  /** Optional custom class name for styling */
+  /**
+   * Optional className for custom styling
+   */
   className?: string;
-  /** Optional custom style object */
-  style?: React.CSSProperties;
-  /** Optional theme variant (default is 'plan') */
-  themeVariant?: 'plan' | 'default';
+  
+  /**
+   * Optional test ID for testing
+   */
+  testID?: string;
+  
+  /**
+   * Optional theme override for the component
+   */
+  themeOverride?: Record<string, any>;
 }
 
 /**
- * Props for the BenefitCard component
+ * Props for the BenefitCard component that displays a single benefit.
  */
 export interface BenefitCardProps extends PlanComponentBaseProps {
-  /** The benefit to display */
+  /**
+   * The benefit data to display
+   */
   benefit: Benefit;
-  /** Optional flag to show detailed information */
-  showDetails?: boolean;
-  /** Optional flag to show usage information if available */
+  
+  /**
+   * Optional custom title to override the default
+   */
+  title?: string;
+  
+  /**
+   * Whether to show the usage information
+   * @default true
+   */
   showUsage?: boolean;
-  /** Optional callback when the card is clicked */
-  onPress?: () => void;
-  /** Optional callback when the details button is clicked */
-  onDetailsPress?: () => void;
+  
+  /**
+   * Whether to show the limitations information
+   * @default true
+   */
+  showLimitations?: boolean;
+  
+  /**
+   * Optional handler for when the card is clicked
+   */
+  onClick?: () => void;
+  
+  /**
+   * Optional handler for when the benefit is activated
+   */
+  onActivate?: () => void;
+  
+  /**
+   * Whether the benefit is currently active
+   * @default false
+   */
+  isActive?: boolean;
+  
+  /**
+   * Optional theme variant for the card
+   * @default 'default'
+   */
+  variant?: 'default' | 'compact' | 'detailed';
+  
+
 }
 
 /**
- * Props for the ClaimCard component
+ * Props for the ClaimCard component that displays a single claim.
  */
 export interface ClaimCardProps extends PlanComponentBaseProps {
-  /** The claim to display */
+  /**
+   * The claim data to display
+   */
   claim: Claim;
-  /** Optional flag to show document list */
+  
+  /**
+   * Optional custom title to override the default
+   */
+  title?: string;
+  
+  /**
+   * Whether to show the documents attached to the claim
+   * @default false
+   */
   showDocuments?: boolean;
-  /** Optional callback when the card is clicked */
-  onPress?: () => void;
-  /** Optional callback when the details button is clicked */
-  onDetailsPress?: () => void;
-  /** Optional callback when the status is clicked */
-  onStatusPress?: (status: ClaimStatus) => void;
+  
+  /**
+   * Custom status labels for different claim statuses
+   */
+  statusLabels?: Partial<Record<ClaimStatus, string>>;
+  
+  /**
+   * Custom status colors for different claim statuses
+   */
+  statusColors?: Partial<Record<ClaimStatus, string>>;
+  
+  /**
+   * Optional handler for when the card is clicked
+   */
+  onClick?: () => void;
+  
+  /**
+   * Optional handler for when the view details button is clicked
+   */
+  onViewDetails?: () => void;
+  
+  /**
+   * Optional handler for when the add document button is clicked
+   */
+  onAddDocument?: () => void;
+  
+  /**
+   * Optional handler for when a document is clicked
+   */
+  onDocumentClick?: (documentId: string) => void;
+  
+  /**
+   * Whether to show the claim amount
+   * @default true
+   */
+  showAmount?: boolean;
+  
+  /**
+   * Optional theme variant for the card
+   * @default 'default'
+   */
+  variant?: 'default' | 'compact' | 'detailed' | 'list';
+  
+
 }
 
 /**
- * Props for the CoverageInfoCard component
+ * Props for the CoverageInfoCard component that displays coverage details.
  */
 export interface CoverageInfoCardProps extends PlanComponentBaseProps {
-  /** The coverage to display */
+  /**
+   * The coverage data to display
+   */
   coverage: Coverage;
-  /** Optional flag to show limitations */
-  showLimitations?: boolean;
-  /** Optional flag to show co-payment information if available */
+  
+  /**
+   * Optional custom title to override the default
+   */
+  title?: string;
+  
+  /**
+   * Whether to show the co-payment information
+   * @default true
+   */
   showCoPayment?: boolean;
-  /** Optional callback when the card is clicked */
-  onPress?: () => void;
-  /** Optional callback when the details button is clicked */
-  onDetailsPress?: () => void;
-  /** Optional callback when the coverage type is clicked */
-  onCoverageTypePress?: (type: CoverageType) => void;
+  
+  /**
+   * Whether to show the limitations information
+   * @default true
+   */
+  showLimitations?: boolean;
+  
+  /**
+   * Optional handler for when the card is clicked
+   */
+  onClick?: () => void;
+  
+  /**
+   * Optional handler for when the info button is clicked
+   */
+  onInfoClick?: () => void;
+  
+  /**
+   * Optional handler for when the simulate cost button is clicked
+   */
+  onSimulateCost?: () => void;
+  
+  /**
+   * Whether to show the simulate cost button
+   * @default false
+   */
+  showSimulateCost?: boolean;
+  
+  /**
+   * Optional theme variant for the card
+   * @default 'default'
+   */
+  variant?: 'default' | 'compact' | 'detailed' | 'comparison';
+  
+
 }
 
 /**
- * Props for the InsuranceCard component
+ * Props for the InsuranceCard component that displays insurance plan information.
  */
 export interface InsuranceCardProps extends PlanComponentBaseProps {
-  /** The plan to display */
+  /**
+   * The plan data to display
+   */
   plan: Plan;
-  /** Optional flag to show digital card format */
-  isDigitalCard?: boolean;
-  /** Optional flag to show validity dates */
+  
+  /**
+   * Whether to show the digital card view with QR code
+   * @default false
+   */
+  showDigitalCard?: boolean;
+  
+  /**
+   * Whether to show the plan validity dates
+   * @default true
+   */
   showValidity?: boolean;
-  /** Optional callback when the card is clicked */
-  onPress?: () => void;
-  /** Optional callback to share the card */
+  
+  /**
+   * Whether to show the plan type (HMO, PPO, etc.)
+   * @default true
+   */
+  showPlanType?: boolean;
+  
+  /**
+   * Optional handler for when the card is clicked
+   */
+  onClick?: () => void;
+  
+  /**
+   * Optional handler for when the share button is clicked
+   */
   onShare?: () => void;
-  /** Optional callback to download the card */
+  
+  /**
+   * Optional handler for when the download button is clicked
+   */
   onDownload?: () => void;
-}
+  
+  /**
+   * Optional handler for when the view benefits button is clicked
+   */
+  onViewBenefits?: () => void;
+  
+  /**
+   * Optional handler for when the view coverage button is clicked
+   */
+  onViewCoverage?: () => void;
+  
+  /**
+   * Optional theme variant for the card
+   * @default 'default'
+   */
+  variant?: 'default' | 'digital' | 'compact' | 'detailed';
+  
+  /**
+   * Optional QR code data for digital card view
+   */
+  qrCodeData?: string;
+  
 
-/**
- * Props for the ClaimSubmissionForm component
- */
-export interface ClaimSubmissionFormProps extends PlanComponentBaseProps {
-  /** The plan ID to associate with the claim */
-  planId: string;
-  /** Optional initial values for the form */
-  initialValues?: {
-    type?: ClaimType;
-    amount?: number;
-    description?: string;
-  };
-  /** Optional callback when the form is submitted */
-  onSubmit?: (values: {
-    type: ClaimType;
-    amount: number;
-    description: string;
-    documents: File[];
-  }) => void;
-  /** Optional callback when the form is cancelled */
-  onCancel?: () => void;
-  /** Optional flag to show loading state */
-  isLoading?: boolean;
-  /** Optional error message to display */
-  error?: string;
-}
-
-/**
- * Props for the CostSimulatorWidget component
- */
-export interface CostSimulatorWidgetProps extends PlanComponentBaseProps {
-  /** The plan to use for cost simulation */
-  plan: Plan;
-  /** Optional callback when a simulation is calculated */
-  onCalculate?: (values: {
-    procedureType: string;
-    providerId?: string;
-    estimatedCost: number;
-    outOfPocketCost: number;
-    coverageAmount: number;
-  }) => void;
-  /** Optional list of procedure types to select from */
-  procedureTypes?: string[];
-  /** Optional list of provider IDs to select from */
-  providerIds?: string[];
-  /** Optional flag to show loading state */
-  isLoading?: boolean;
-}
-
-/**
- * Props for the BenefitsList component
- */
-export interface BenefitsListProps extends PlanComponentBaseProps {
-  /** The benefits to display */
-  benefits: Benefit[];
-  /** Optional callback when a benefit is selected */
-  onBenefitSelect?: (benefit: Benefit) => void;
-  /** Optional flag to show loading state */
-  isLoading?: boolean;
-  /** Optional error message to display */
-  error?: string;
-  /** Optional empty state message */
-  emptyStateMessage?: string;
-}
-
-/**
- * Props for the ClaimsList component
- */
-export interface ClaimsListProps extends PlanComponentBaseProps {
-  /** The claims to display */
-  claims: Claim[];
-  /** Optional callback when a claim is selected */
-  onClaimSelect?: (claim: Claim) => void;
-  /** Optional filters for claim status */
-  statusFilter?: ClaimStatus[];
-  /** Optional filters for claim type */
-  typeFilter?: ClaimType[];
-  /** Optional callback when filters are changed */
-  onFilterChange?: (filters: { status?: ClaimStatus[]; type?: ClaimType[] }) => void;
-  /** Optional flag to show loading state */
-  isLoading?: boolean;
-  /** Optional error message to display */
-  error?: string;
-  /** Optional empty state message */
-  emptyStateMessage?: string;
 }
