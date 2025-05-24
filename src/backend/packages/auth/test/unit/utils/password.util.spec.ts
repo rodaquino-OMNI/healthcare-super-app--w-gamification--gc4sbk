@@ -1,458 +1,453 @@
 /**
  * Unit tests for password utility functions
  * 
- * These tests verify the functionality of password management utilities including
- * hashing, verification, strength validation, and salt generation. The tests ensure
- * that passwords are securely hashed using bcrypt, properly verified with timing-attack
- * protection, and validated against strength requirements.
+ * Tests password management utilities including hashing, verification,
+ * strength validation, and salt generation.
  */
 
 import * as bcrypt from 'bcrypt';
+import { ValidationError } from '@austa/errors/categories';
 import {
-  generateSalt,
-  hashPassword,
-  verifyPassword,
+  PASSWORD_CONFIG,
   validatePasswordStrength,
-  passwordNeedsRehash,
-  generateSecurePassword,
-  isPasswordPreviouslyUsed,
-  loadPasswordPolicyFromEnv
+  generateSalt,
+  generateSaltSync,
+  hashPassword,
+  hashPasswordSync,
+  verifyPassword,
+  verifyPasswordSync,
+  PasswordValidationOptions
 } from '../../../src/utils/password.util';
-import { PasswordPolicyConfig } from '../../../src/types';
-import { AUTH_ERROR_CODES } from '../../../src/constants';
 
-// Mock bcrypt to avoid actual hashing in tests
+// Mock bcrypt to avoid actual cryptographic operations in tests
 jest.mock('bcrypt', () => ({
   genSalt: jest.fn(),
+  genSaltSync: jest.fn(),
   hash: jest.fn(),
+  hashSync: jest.fn(),
   compare: jest.fn(),
-  getRounds: jest.fn()
+  compareSync: jest.fn(),
 }));
-
-// Mock crypto for secure password generation
-jest.mock('crypto', () => ({
-  randomBytes: jest.fn(() => Buffer.from('0123456789abcdef0123456789abcdef'))
-}));
-
-// Mock process.env for loadPasswordPolicyFromEnv tests
-const originalEnv = process.env;
 
 describe('Password Utilities', () => {
-  // Reset mocks before each test
+  // Reset all mocks before each test
   beforeEach(() => {
-    jest.clearAllMocks();
-    // Restore process.env to its original state
-    process.env = { ...originalEnv };
+    jest.resetAllMocks();
   });
 
-  afterAll(() => {
-    // Restore process.env after all tests
-    process.env = originalEnv;
-  });
-
-  describe('generateSalt', () => {
-    it('should generate a salt with default rounds', async () => {
-      // Mock bcrypt.genSalt to return a fixed salt
-      const mockSalt = '$2b$12$mockSaltValue';
-      (bcrypt.genSalt as jest.Mock).mockResolvedValue(mockSalt);
-
-      const salt = await generateSalt();
-
-      expect(bcrypt.genSalt).toHaveBeenCalledWith(12); // Default is 12 rounds
-      expect(salt).toBe(mockSalt);
-    });
-
-    it('should generate a salt with custom rounds', async () => {
-      // Mock bcrypt.genSalt to return a fixed salt
-      const mockSalt = '$2b$16$mockSaltValue';
-      (bcrypt.genSalt as jest.Mock).mockResolvedValue(mockSalt);
-
-      const salt = await generateSalt(16);
-
-      expect(bcrypt.genSalt).toHaveBeenCalledWith(16);
-      expect(salt).toBe(mockSalt);
-    });
-
-    it('should throw an error if salt generation fails', async () => {
-      // Mock bcrypt.genSalt to throw an error
-      (bcrypt.genSalt as jest.Mock).mockRejectedValue(new Error('Salt generation failed'));
-
-      await expect(generateSalt()).rejects.toThrow('Failed to generate salt: Salt generation failed');
-    });
-  });
-
-  describe('hashPassword', () => {
-    it('should hash a password with default salt rounds', async () => {
-      // Mock bcrypt.hash to return a fixed hash
-      const mockHash = '$2b$12$mockSaltValue.hashedPasswordValue';
-      (bcrypt.hash as jest.Mock).mockResolvedValue(mockHash);
-
-      const password = 'securePassword123!';
-      const hash = await hashPassword(password);
-
-      expect(bcrypt.hash).toHaveBeenCalledWith(password, 12); // Default is 12 rounds
-      expect(hash).toBe(mockHash);
-    });
-
-    it('should hash a password with custom salt rounds', async () => {
-      // Mock bcrypt.hash to return a fixed hash
-      const mockHash = '$2b$16$mockSaltValue.hashedPasswordValue';
-      (bcrypt.hash as jest.Mock).mockResolvedValue(mockHash);
-
-      const password = 'securePassword123!';
-      const hash = await hashPassword(password, 16);
-
-      expect(bcrypt.hash).toHaveBeenCalledWith(password, 16);
-      expect(hash).toBe(mockHash);
-    });
-
-    it('should throw an error if password hashing fails', async () => {
-      // Mock bcrypt.hash to throw an error
-      (bcrypt.hash as jest.Mock).mockRejectedValue(new Error('Hashing failed'));
-
-      const password = 'securePassword123!';
-      await expect(hashPassword(password)).rejects.toThrow('Password hashing failed: Hashing failed');
-    });
-  });
-
-  describe('verifyPassword', () => {
-    it('should return true for matching password and hash', async () => {
-      // Mock bcrypt.compare to return true
-      (bcrypt.compare as jest.Mock).mockResolvedValue(true);
-
-      const plainPassword = 'securePassword123!';
-      const hashedPassword = '$2b$12$mockSaltValue.hashedPasswordValue';
-
-      const result = await verifyPassword(plainPassword, hashedPassword);
-
-      expect(bcrypt.compare).toHaveBeenCalledWith(plainPassword, hashedPassword);
-      expect(result).toBe(true);
-    });
-
-    it('should return false for non-matching password and hash', async () => {
-      // Mock bcrypt.compare to return false
-      (bcrypt.compare as jest.Mock).mockResolvedValue(false);
-
-      const plainPassword = 'wrongPassword123!';
-      const hashedPassword = '$2b$12$mockSaltValue.hashedPasswordValue';
-
-      const result = await verifyPassword(plainPassword, hashedPassword);
-
-      expect(bcrypt.compare).toHaveBeenCalledWith(plainPassword, hashedPassword);
-      expect(result).toBe(false);
-    });
-
-    it('should throw an error if password verification fails', async () => {
-      // Mock bcrypt.compare to throw an error
-      (bcrypt.compare as jest.Mock).mockRejectedValue(new Error('Verification failed'));
-
-      const plainPassword = 'securePassword123!';
-      const hashedPassword = '$2b$12$mockSaltValue.hashedPasswordValue';
-
-      await expect(verifyPassword(plainPassword, hashedPassword)).rejects.toThrow(
-        'Password verification failed: Verification failed'
-      );
+  describe('PASSWORD_CONFIG', () => {
+    it('should have the correct default values', () => {
+      expect(PASSWORD_CONFIG).toEqual({
+        SALT_ROUNDS: 10,
+        MIN_LENGTH: 8,
+        MAX_LENGTH: 64,
+        REQUIRE_UPPERCASE: true,
+        REQUIRE_LOWERCASE: true,
+        REQUIRE_NUMBER: true,
+        REQUIRE_SPECIAL: true,
+      });
     });
   });
 
   describe('validatePasswordStrength', () => {
-    it('should validate a strong password that meets all requirements', () => {
-      const password = 'StrongP@ssw0rd';
-      const result = validatePasswordStrength(password);
-
-      expect(result.isValid).toBe(true);
-      expect(result.errors).toHaveLength(0);
-      expect(result.errorCode).toBeUndefined();
+    it('should return true for a valid password with default options', () => {
+      const password = 'ValidPassword123!';
+      expect(validatePasswordStrength(password)).toBe(true);
     });
 
-    it('should reject a password that is too short', () => {
+    it('should throw ValidationError if password is empty', () => {
+      expect(() => validatePasswordStrength('')).toThrow(ValidationError);
+      expect(() => validatePasswordStrength('')).toThrow('Password is required');
+    });
+
+    it('should throw ValidationError if password is null or undefined', () => {
+      expect(() => validatePasswordStrength(null as any)).toThrow(ValidationError);
+      expect(() => validatePasswordStrength(undefined as any)).toThrow(ValidationError);
+    });
+
+    it('should throw ValidationError if password contains null characters', () => {
+      const password = 'Password\0123!';
+      expect(() => validatePasswordStrength(password)).toThrow(ValidationError);
+      expect(() => validatePasswordStrength(password)).toThrow('Password contains invalid characters');
+    });
+
+    it('should throw ValidationError if password is too short', () => {
       const password = 'Short1!';
-      const result = validatePasswordStrength(password);
-
-      expect(result.isValid).toBe(false);
-      expect(result.errors).toContain('Password must be at least 8 characters long');
-      expect(result.errorCode).toBe(AUTH_ERROR_CODES.PASSWORD_POLICY_VIOLATION);
+      expect(() => validatePasswordStrength(password, { minLength: 10 })).toThrow(ValidationError);
+      expect(() => validatePasswordStrength(password, { minLength: 10 }))
+        .toThrow('Password must be at least 10 characters long');
     });
 
-    it('should reject a password without uppercase letters when required', () => {
-      const password = 'nouppercase123!';
-      const result = validatePasswordStrength(password);
-
-      expect(result.isValid).toBe(false);
-      expect(result.errors).toContain('Password must contain at least one uppercase letter');
-      expect(result.errorCode).toBe(AUTH_ERROR_CODES.PASSWORD_POLICY_VIOLATION);
+    it('should throw ValidationError if password is too long', () => {
+      const password = 'VeryLongPassword'.repeat(10) + '123!';
+      expect(() => validatePasswordStrength(password, { maxLength: 20 })).toThrow(ValidationError);
+      expect(() => validatePasswordStrength(password, { maxLength: 20 }))
+        .toThrow('Password cannot exceed 20 characters');
     });
 
-    it('should reject a password without lowercase letters when required', () => {
-      const password = 'NOLOWERCASE123!';
-      const result = validatePasswordStrength(password);
-
-      expect(result.isValid).toBe(false);
-      expect(result.errors).toContain('Password must contain at least one lowercase letter');
-      expect(result.errorCode).toBe(AUTH_ERROR_CODES.PASSWORD_POLICY_VIOLATION);
+    it('should throw ValidationError if password has no uppercase letters when required', () => {
+      const password = 'lowercase123!';
+      expect(() => validatePasswordStrength(password)).toThrow(ValidationError);
+      expect(() => validatePasswordStrength(password))
+        .toThrow('Password must contain at least one uppercase letter');
     });
 
-    it('should reject a password without numbers when required', () => {
-      const password = 'NoNumbersHere!';
-      const result = validatePasswordStrength(password);
-
-      expect(result.isValid).toBe(false);
-      expect(result.errors).toContain('Password must contain at least one number');
-      expect(result.errorCode).toBe(AUTH_ERROR_CODES.PASSWORD_POLICY_VIOLATION);
+    it('should throw ValidationError if password has no lowercase letters when required', () => {
+      const password = 'UPPERCASE123!';
+      expect(() => validatePasswordStrength(password)).toThrow(ValidationError);
+      expect(() => validatePasswordStrength(password))
+        .toThrow('Password must contain at least one lowercase letter');
     });
 
-    it('should reject a password without special characters when required', () => {
-      const password = 'NoSpecialChars123';
-      const result = validatePasswordStrength(password);
-
-      expect(result.isValid).toBe(false);
-      expect(result.errors).toContain('Password must contain at least one special character');
-      expect(result.errorCode).toBe(AUTH_ERROR_CODES.PASSWORD_POLICY_VIOLATION);
+    it('should throw ValidationError if password has no numbers when required', () => {
+      const password = 'PasswordWithoutNumbers!';
+      expect(() => validatePasswordStrength(password)).toThrow(ValidationError);
+      expect(() => validatePasswordStrength(password))
+        .toThrow('Password must contain at least one number');
     });
 
-    it('should validate a password against a custom policy', () => {
-      const password = 'simple123';
-      const customPolicy: Partial<PasswordPolicyConfig> = {
+    it('should throw ValidationError if password has no special characters when required', () => {
+      const password = 'PasswordWithoutSpecial123';
+      expect(() => validatePasswordStrength(password)).toThrow(ValidationError);
+      expect(() => validatePasswordStrength(password))
+        .toThrow('Password must contain at least one special character');
+    });
+
+    it('should accept a password without uppercase when not required', () => {
+      const password = 'lowercase123!';
+      const options: PasswordValidationOptions = { requireUppercase: false };
+      expect(validatePasswordStrength(password, options)).toBe(true);
+    });
+
+    it('should accept a password without lowercase when not required', () => {
+      const password = 'UPPERCASE123!';
+      const options: PasswordValidationOptions = { requireLowercase: false };
+      expect(validatePasswordStrength(password, options)).toBe(true);
+    });
+
+    it('should accept a password without numbers when not required', () => {
+      const password = 'PasswordWithoutNumbers!';
+      const options: PasswordValidationOptions = { requireNumber: false };
+      expect(validatePasswordStrength(password, options)).toBe(true);
+    });
+
+    it('should accept a password without special characters when not required', () => {
+      const password = 'PasswordWithoutSpecial123';
+      const options: PasswordValidationOptions = { requireSpecial: false };
+      expect(validatePasswordStrength(password, options)).toBe(true);
+    });
+
+    it('should validate a password with custom options', () => {
+      const password = 'simple';
+      const options: PasswordValidationOptions = {
         minLength: 6,
+        maxLength: 10,
         requireUppercase: false,
-        requireSpecialChars: false
+        requireLowercase: true,
+        requireNumber: false,
+        requireSpecial: false,
       };
-
-      const result = validatePasswordStrength(password, customPolicy);
-
-      expect(result.isValid).toBe(true);
-      expect(result.errors).toHaveLength(0);
-      expect(result.errorCode).toBeUndefined();
-    });
-
-    it('should report multiple validation errors when a password fails multiple criteria', () => {
-      const password = 'weak';
-      const result = validatePasswordStrength(password);
-
-      expect(result.isValid).toBe(false);
-      expect(result.errors).toContain('Password must be at least 8 characters long');
-      expect(result.errors).toContain('Password must contain at least one uppercase letter');
-      expect(result.errors).toContain('Password must contain at least one number');
-      expect(result.errors).toContain('Password must contain at least one special character');
-      expect(result.errors).toHaveLength(4);
-      expect(result.errorCode).toBe(AUTH_ERROR_CODES.PASSWORD_POLICY_VIOLATION);
+      expect(validatePasswordStrength(password, options)).toBe(true);
     });
   });
 
-  describe('passwordNeedsRehash', () => {
-    it('should return true if the hash uses fewer rounds than required', async () => {
-      // Mock bcrypt.getRounds to return a lower number of rounds
-      (bcrypt.getRounds as jest.Mock).mockReturnValue(10);
+  describe('generateSalt', () => {
+    it('should call bcrypt.genSalt with default salt rounds', async () => {
+      const mockSalt = '$2b$10$abcdefghijklmnopqrstuv';
+      (bcrypt.genSalt as jest.Mock).mockResolvedValue(mockSalt);
 
-      const hashedPassword = '$2b$10$mockSaltValue.hashedPasswordValue';
-      const result = await passwordNeedsRehash(hashedPassword, 12);
+      const salt = await generateSalt();
 
-      expect(bcrypt.getRounds).toHaveBeenCalledWith(hashedPassword);
-      expect(result).toBe(true);
+      expect(bcrypt.genSalt).toHaveBeenCalledWith(PASSWORD_CONFIG.SALT_ROUNDS);
+      expect(salt).toBe(mockSalt);
     });
 
-    it('should return false if the hash uses the required number of rounds', async () => {
-      // Mock bcrypt.getRounds to return the same number of rounds
-      (bcrypt.getRounds as jest.Mock).mockReturnValue(12);
+    it('should call bcrypt.genSalt with custom salt rounds', async () => {
+      const mockSalt = '$2b$12$abcdefghijklmnopqrstuv';
+      const customRounds = 12;
+      (bcrypt.genSalt as jest.Mock).mockResolvedValue(mockSalt);
 
-      const hashedPassword = '$2b$12$mockSaltValue.hashedPasswordValue';
-      const result = await passwordNeedsRehash(hashedPassword, 12);
+      const salt = await generateSalt(customRounds);
 
-      expect(bcrypt.getRounds).toHaveBeenCalledWith(hashedPassword);
-      expect(result).toBe(false);
+      expect(bcrypt.genSalt).toHaveBeenCalledWith(customRounds);
+      expect(salt).toBe(mockSalt);
     });
 
-    it('should return false if the hash uses more rounds than required', async () => {
-      // Mock bcrypt.getRounds to return a higher number of rounds
-      (bcrypt.getRounds as jest.Mock).mockReturnValue(14);
+    it('should throw ValidationError if bcrypt.genSalt fails', async () => {
+      const error = new Error('Bcrypt error');
+      (bcrypt.genSalt as jest.Mock).mockRejectedValue(error);
 
-      const hashedPassword = '$2b$14$mockSaltValue.hashedPasswordValue';
-      const result = await passwordNeedsRehash(hashedPassword, 12);
+      await expect(generateSalt()).rejects.toThrow(ValidationError);
+      await expect(generateSalt()).rejects.toThrow('Failed to generate password salt');
+    });
+  });
 
-      expect(bcrypt.getRounds).toHaveBeenCalledWith(hashedPassword);
-      expect(result).toBe(false);
+  describe('generateSaltSync', () => {
+    it('should call bcrypt.genSaltSync with default salt rounds', () => {
+      const mockSalt = '$2b$10$abcdefghijklmnopqrstuv';
+      (bcrypt.genSaltSync as jest.Mock).mockReturnValue(mockSalt);
+
+      const salt = generateSaltSync();
+
+      expect(bcrypt.genSaltSync).toHaveBeenCalledWith(PASSWORD_CONFIG.SALT_ROUNDS);
+      expect(salt).toBe(mockSalt);
     });
 
-    it('should return true if an error occurs while checking the hash', async () => {
-      // Mock bcrypt.getRounds to throw an error
-      (bcrypt.getRounds as jest.Mock).mockImplementation(() => {
-        throw new Error('Invalid hash format');
+    it('should call bcrypt.genSaltSync with custom salt rounds', () => {
+      const mockSalt = '$2b$12$abcdefghijklmnopqrstuv';
+      const customRounds = 12;
+      (bcrypt.genSaltSync as jest.Mock).mockReturnValue(mockSalt);
+
+      const salt = generateSaltSync(customRounds);
+
+      expect(bcrypt.genSaltSync).toHaveBeenCalledWith(customRounds);
+      expect(salt).toBe(mockSalt);
+    });
+
+    it('should throw ValidationError if bcrypt.genSaltSync fails', () => {
+      const error = new Error('Bcrypt error');
+      (bcrypt.genSaltSync as jest.Mock).mockImplementation(() => {
+        throw error;
       });
 
-      const hashedPassword = 'invalidHashFormat';
-      const result = await passwordNeedsRehash(hashedPassword, 12);
+      expect(() => generateSaltSync()).toThrow(ValidationError);
+      expect(() => generateSaltSync()).toThrow('Failed to generate password salt');
+    });
+  });
 
-      expect(bcrypt.getRounds).toHaveBeenCalledWith(hashedPassword);
+  describe('hashPassword', () => {
+    it('should throw ValidationError if password is empty', async () => {
+      await expect(hashPassword('')).rejects.toThrow(ValidationError);
+      await expect(hashPassword('')).rejects.toThrow('Password is required for hashing');
+    });
+
+    it('should throw ValidationError if password is null or undefined', async () => {
+      await expect(hashPassword(null as any)).rejects.toThrow(ValidationError);
+      await expect(hashPassword(undefined as any)).rejects.toThrow(ValidationError);
+    });
+
+    it('should generate salt and hash password with default salt rounds', async () => {
+      const password = 'Password123!';
+      const mockSalt = '$2b$10$abcdefghijklmnopqrstuv';
+      const mockHash = '$2b$10$abcdefghijklmnopqrstuvwxyz0123456789';
+
+      (bcrypt.genSalt as jest.Mock).mockResolvedValue(mockSalt);
+      (bcrypt.hash as jest.Mock).mockResolvedValue(mockHash);
+
+      const hash = await hashPassword(password);
+
+      expect(bcrypt.genSalt).toHaveBeenCalledWith(PASSWORD_CONFIG.SALT_ROUNDS);
+      expect(bcrypt.hash).toHaveBeenCalledWith(password, mockSalt);
+      expect(hash).toBe(mockHash);
+    });
+
+    it('should generate salt and hash password with custom salt rounds', async () => {
+      const password = 'Password123!';
+      const customRounds = 12;
+      const mockSalt = '$2b$12$abcdefghijklmnopqrstuv';
+      const mockHash = '$2b$12$abcdefghijklmnopqrstuvwxyz0123456789';
+
+      (bcrypt.genSalt as jest.Mock).mockResolvedValue(mockSalt);
+      (bcrypt.hash as jest.Mock).mockResolvedValue(mockHash);
+
+      const hash = await hashPassword(password, customRounds);
+
+      expect(bcrypt.genSalt).toHaveBeenCalledWith(customRounds);
+      expect(bcrypt.hash).toHaveBeenCalledWith(password, mockSalt);
+      expect(hash).toBe(mockHash);
+    });
+
+    it('should throw ValidationError if bcrypt.hash fails', async () => {
+      const password = 'Password123!';
+      const mockSalt = '$2b$10$abcdefghijklmnopqrstuv';
+      const error = new Error('Bcrypt error');
+
+      (bcrypt.genSalt as jest.Mock).mockResolvedValue(mockSalt);
+      (bcrypt.hash as jest.Mock).mockRejectedValue(error);
+
+      await expect(hashPassword(password)).rejects.toThrow(ValidationError);
+      await expect(hashPassword(password)).rejects.toThrow('Failed to hash password');
+    });
+  });
+
+  describe('hashPasswordSync', () => {
+    it('should throw ValidationError if password is empty', () => {
+      expect(() => hashPasswordSync('')).toThrow(ValidationError);
+      expect(() => hashPasswordSync('')).toThrow('Password is required for hashing');
+    });
+
+    it('should throw ValidationError if password is null or undefined', () => {
+      expect(() => hashPasswordSync(null as any)).toThrow(ValidationError);
+      expect(() => hashPasswordSync(undefined as any)).toThrow(ValidationError);
+    });
+
+    it('should generate salt and hash password with default salt rounds', () => {
+      const password = 'Password123!';
+      const mockSalt = '$2b$10$abcdefghijklmnopqrstuv';
+      const mockHash = '$2b$10$abcdefghijklmnopqrstuvwxyz0123456789';
+
+      (bcrypt.genSaltSync as jest.Mock).mockReturnValue(mockSalt);
+      (bcrypt.hashSync as jest.Mock).mockReturnValue(mockHash);
+
+      const hash = hashPasswordSync(password);
+
+      expect(bcrypt.genSaltSync).toHaveBeenCalledWith(PASSWORD_CONFIG.SALT_ROUNDS);
+      expect(bcrypt.hashSync).toHaveBeenCalledWith(password, mockSalt);
+      expect(hash).toBe(mockHash);
+    });
+
+    it('should generate salt and hash password with custom salt rounds', () => {
+      const password = 'Password123!';
+      const customRounds = 12;
+      const mockSalt = '$2b$12$abcdefghijklmnopqrstuv';
+      const mockHash = '$2b$12$abcdefghijklmnopqrstuvwxyz0123456789';
+
+      (bcrypt.genSaltSync as jest.Mock).mockReturnValue(mockSalt);
+      (bcrypt.hashSync as jest.Mock).mockReturnValue(mockHash);
+
+      const hash = hashPasswordSync(password, customRounds);
+
+      expect(bcrypt.genSaltSync).toHaveBeenCalledWith(customRounds);
+      expect(bcrypt.hashSync).toHaveBeenCalledWith(password, mockSalt);
+      expect(hash).toBe(mockHash);
+    });
+
+    it('should throw ValidationError if bcrypt.hashSync fails', () => {
+      const password = 'Password123!';
+      const mockSalt = '$2b$10$abcdefghijklmnopqrstuv';
+      const error = new Error('Bcrypt error');
+
+      (bcrypt.genSaltSync as jest.Mock).mockReturnValue(mockSalt);
+      (bcrypt.hashSync as jest.Mock).mockImplementation(() => {
+        throw error;
+      });
+
+      expect(() => hashPasswordSync(password)).toThrow(ValidationError);
+      expect(() => hashPasswordSync(password)).toThrow('Failed to hash password');
+    });
+  });
+
+  describe('verifyPassword', () => {
+    it('should throw ValidationError if password is empty', async () => {
+      const hash = '$2b$10$abcdefghijklmnopqrstuvwxyz0123456789';
+
+      await expect(verifyPassword('', hash)).rejects.toThrow(ValidationError);
+      await expect(verifyPassword('', hash)).rejects.toThrow('Password and hash are required for verification');
+    });
+
+    it('should throw ValidationError if hash is empty', async () => {
+      const password = 'Password123!';
+
+      await expect(verifyPassword(password, '')).rejects.toThrow(ValidationError);
+      await expect(verifyPassword(password, '')).rejects.toThrow('Password and hash are required for verification');
+    });
+
+    it('should throw ValidationError if password or hash is null or undefined', async () => {
+      const password = 'Password123!';
+      const hash = '$2b$10$abcdefghijklmnopqrstuvwxyz0123456789';
+
+      await expect(verifyPassword(null as any, hash)).rejects.toThrow(ValidationError);
+      await expect(verifyPassword(password, null as any)).rejects.toThrow(ValidationError);
+      await expect(verifyPassword(undefined as any, hash)).rejects.toThrow(ValidationError);
+      await expect(verifyPassword(password, undefined as any)).rejects.toThrow(ValidationError);
+    });
+
+    it('should return true if password matches hash', async () => {
+      const password = 'Password123!';
+      const hash = '$2b$10$abcdefghijklmnopqrstuvwxyz0123456789';
+
+      (bcrypt.compare as jest.Mock).mockResolvedValue(true);
+
+      const result = await verifyPassword(password, hash);
+
+      expect(bcrypt.compare).toHaveBeenCalledWith(password, hash);
       expect(result).toBe(true);
     });
-  });
 
-  describe('generateSecurePassword', () => {
-    it('should generate a password with the default length', () => {
-      const password = generateSecurePassword();
+    it('should return false if password does not match hash', async () => {
+      const password = 'Password123!';
+      const hash = '$2b$10$abcdefghijklmnopqrstuvwxyz0123456789';
 
-      // Default length is 12
-      expect(password.length).toBe(12);
-      // Should meet all default requirements
-      const validationResult = validatePasswordStrength(password);
-      expect(validationResult.isValid).toBe(true);
-    });
-
-    it('should generate a password with a custom length', () => {
-      const customLength = 16;
-      const password = generateSecurePassword(customLength);
-
-      expect(password.length).toBe(customLength);
-      // Should meet all default requirements
-      const validationResult = validatePasswordStrength(password);
-      expect(validationResult.isValid).toBe(true);
-    });
-
-    it('should generate a password that meets custom policy requirements', () => {
-      const customPolicy: Partial<PasswordPolicyConfig> = {
-        requireUppercase: true,
-        requireLowercase: true,
-        requireNumbers: true,
-        requireSpecialChars: false // Don't require special characters
-      };
-
-      const password = generateSecurePassword(12, customPolicy);
-
-      // Should meet the custom requirements
-      expect(password.length).toBe(12);
-      expect(/[A-Z]/.test(password)).toBe(true); // Has uppercase
-      expect(/[a-z]/.test(password)).toBe(true); // Has lowercase
-      expect(/[0-9]/.test(password)).toBe(true); // Has numbers
-      // We don't check for special chars as they're not required in our custom policy
-    });
-
-    it('should enforce minimum length even if a shorter length is requested', () => {
-      // Try to generate a password shorter than the minimum length (8)
-      const password = generateSecurePassword(6);
-
-      // Should still be at least the minimum length
-      expect(password.length).toBeGreaterThanOrEqual(8);
-      const validationResult = validatePasswordStrength(password);
-      expect(validationResult.isValid).toBe(true);
-    });
-  });
-
-  describe('isPasswordPreviouslyUsed', () => {
-    it('should return false if there are no previous passwords', async () => {
-      const plainPassword = 'newPassword123!';
-      const result = await isPasswordPreviouslyUsed(plainPassword, []);
-
-      expect(result).toBe(false);
-      expect(bcrypt.compare).not.toHaveBeenCalled();
-    });
-
-    it('should return false if the password is not in the history', async () => {
-      // Mock bcrypt.compare to return false for all comparisons
       (bcrypt.compare as jest.Mock).mockResolvedValue(false);
 
-      const plainPassword = 'newPassword123!';
-      const previousHashes = [
-        '$2b$12$hash1.value',
-        '$2b$12$hash2.value',
-        '$2b$12$hash3.value'
-      ];
+      const result = await verifyPassword(password, hash);
 
-      const result = await isPasswordPreviouslyUsed(plainPassword, previousHashes);
-
+      expect(bcrypt.compare).toHaveBeenCalledWith(password, hash);
       expect(result).toBe(false);
-      expect(bcrypt.compare).toHaveBeenCalledTimes(3);
     });
 
-    it('should return true if the password is found in the history', async () => {
-      // Mock bcrypt.compare to return false for the first two comparisons and true for the third
-      (bcrypt.compare as jest.Mock)
-        .mockResolvedValueOnce(false)
-        .mockResolvedValueOnce(false)
-        .mockResolvedValueOnce(true);
+    it('should throw ValidationError if bcrypt.compare fails', async () => {
+      const password = 'Password123!';
+      const hash = '$2b$10$abcdefghijklmnopqrstuvwxyz0123456789';
+      const error = new Error('Bcrypt error');
 
-      const plainPassword = 'oldPassword123!';
-      const previousHashes = [
-        '$2b$12$hash1.value',
-        '$2b$12$hash2.value',
-        '$2b$12$hash3.value'
-      ];
+      (bcrypt.compare as jest.Mock).mockRejectedValue(error);
 
-      const result = await isPasswordPreviouslyUsed(plainPassword, previousHashes);
-
-      expect(result).toBe(true);
-      // Should stop checking after finding a match
-      expect(bcrypt.compare).toHaveBeenCalledTimes(3);
-    });
-
-    it('should continue checking if verification fails for a specific hash', async () => {
-      // Mock bcrypt.compare to throw an error for the first comparison and return true for the second
-      (bcrypt.compare as jest.Mock)
-        .mockRejectedValueOnce(new Error('Verification failed'))
-        .mockResolvedValueOnce(true);
-
-      const plainPassword = 'oldPassword123!';
-      const previousHashes = [
-        'invalidHash',
-        '$2b$12$validHash.value'
-      ];
-
-      const result = await isPasswordPreviouslyUsed(plainPassword, previousHashes);
-
-      expect(result).toBe(true);
-      expect(bcrypt.compare).toHaveBeenCalledTimes(2);
+      await expect(verifyPassword(password, hash)).rejects.toThrow(ValidationError);
+      await expect(verifyPassword(password, hash)).rejects.toThrow('Failed to verify password');
     });
   });
 
-  describe('loadPasswordPolicyFromEnv', () => {
-    it('should load default values when environment variables are not set', () => {
-      const policy = loadPasswordPolicyFromEnv();
+  describe('verifyPasswordSync', () => {
+    it('should throw ValidationError if password is empty', () => {
+      const hash = '$2b$10$abcdefghijklmnopqrstuvwxyz0123456789';
 
-      expect(policy).toEqual({
-        minLength: 8,
-        requireUppercase: true,
-        requireLowercase: true,
-        requireNumbers: true,
-        requireSpecialChars: true,
-        maxAgeDays: 90,
-        preventReuse: 3
-      });
+      expect(() => verifyPasswordSync('', hash)).toThrow(ValidationError);
+      expect(() => verifyPasswordSync('', hash)).toThrow('Password and hash are required for verification');
     });
 
-    it('should load values from environment variables when set', () => {
-      // Set environment variables
-      process.env.PASSWORD_MIN_LENGTH = '10';
-      process.env.PASSWORD_REQUIRE_UPPERCASE = 'false';
-      process.env.PASSWORD_REQUIRE_LOWERCASE = 'true';
-      process.env.PASSWORD_REQUIRE_NUMBER = 'true';
-      process.env.PASSWORD_REQUIRE_SPECIAL = 'false';
-      process.env.PASSWORD_MAX_AGE = '60';
-      process.env.PASSWORD_HISTORY = '5';
+    it('should throw ValidationError if hash is empty', () => {
+      const password = 'Password123!';
 
-      const policy = loadPasswordPolicyFromEnv();
-
-      expect(policy).toEqual({
-        minLength: 10,
-        requireUppercase: false,
-        requireLowercase: true,
-        requireNumbers: true,
-        requireSpecialChars: false,
-        maxAgeDays: 60,
-        preventReuse: 5
-      });
+      expect(() => verifyPasswordSync(password, '')).toThrow(ValidationError);
+      expect(() => verifyPasswordSync(password, '')).toThrow('Password and hash are required for verification');
     });
 
-    it('should handle invalid numeric values in environment variables', () => {
-      // Set invalid environment variables
-      process.env.PASSWORD_MIN_LENGTH = 'not-a-number';
-      process.env.PASSWORD_MAX_AGE = 'invalid';
-      process.env.PASSWORD_HISTORY = 'five';
+    it('should throw ValidationError if password or hash is null or undefined', () => {
+      const password = 'Password123!';
+      const hash = '$2b$10$abcdefghijklmnopqrstuvwxyz0123456789';
 
-      const policy = loadPasswordPolicyFromEnv();
+      expect(() => verifyPasswordSync(null as any, hash)).toThrow(ValidationError);
+      expect(() => verifyPasswordSync(password, null as any)).toThrow(ValidationError);
+      expect(() => verifyPasswordSync(undefined as any, hash)).toThrow(ValidationError);
+      expect(() => verifyPasswordSync(password, undefined as any)).toThrow(ValidationError);
+    });
 
-      // Should use default values for invalid numeric inputs
-      expect(policy.minLength).toBe(8); // Default
-      expect(policy.maxAgeDays).toBe(90); // Default
-      expect(policy.preventReuse).toBe(3); // Default
+    it('should return true if password matches hash', () => {
+      const password = 'Password123!';
+      const hash = '$2b$10$abcdefghijklmnopqrstuvwxyz0123456789';
+
+      (bcrypt.compareSync as jest.Mock).mockReturnValue(true);
+
+      const result = verifyPasswordSync(password, hash);
+
+      expect(bcrypt.compareSync).toHaveBeenCalledWith(password, hash);
+      expect(result).toBe(true);
+    });
+
+    it('should return false if password does not match hash', () => {
+      const password = 'Password123!';
+      const hash = '$2b$10$abcdefghijklmnopqrstuvwxyz0123456789';
+
+      (bcrypt.compareSync as jest.Mock).mockReturnValue(false);
+
+      const result = verifyPasswordSync(password, hash);
+
+      expect(bcrypt.compareSync).toHaveBeenCalledWith(password, hash);
+      expect(result).toBe(false);
+    });
+
+    it('should throw ValidationError if bcrypt.compareSync fails', () => {
+      const password = 'Password123!';
+      const hash = '$2b$10$abcdefghijklmnopqrstuvwxyz0123456789';
+      const error = new Error('Bcrypt error');
+
+      (bcrypt.compareSync as jest.Mock).mockImplementation(() => {
+        throw error;
+      });
+
+      expect(() => verifyPasswordSync(password, hash)).toThrow(ValidationError);
+      expect(() => verifyPasswordSync(password, hash)).toThrow('Failed to verify password');
     });
   });
 });
