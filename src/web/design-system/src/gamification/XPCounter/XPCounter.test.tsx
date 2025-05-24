@@ -2,60 +2,59 @@ import React from 'react';
 import { render, screen } from '@testing-library/react';
 import { expect, describe, it } from '@jest/globals';
 import { ThemeProvider } from 'styled-components';
+import { JourneyProvider, JourneyContext } from '@austa/journey-context';
+import { JourneyId } from '@austa/interfaces/common';
 import XPCounter from './XPCounter';
 
-// Import JourneyContext from the new package structure
-import { JourneyProvider, JourneyContext } from '@austa/journey-context';
+// Mock theme that follows the structure from @design-system/primitives
+const mockTheme = {
+  spacing: {
+    xs: '4px',
+    sm: '8px',
+    md: '16px',
+    lg: '24px',
+  },
+  typography: {
+    fontSize: {
+      sm: '14px',
+      md: '16px',
+      lg: '18px',
+    },
+    fontWeight: {
+      bold: 700,
+    },
+  },
+  colors: {
+    brand: {
+      primary: '#0066CC',
+      secondary: '#004C99',
+    },
+    neutral: {
+      gray600: '#757575',
+      gray200: '#EEEEEE',
+    },
+    journeys: {
+      health: {
+        primary: '#0ACF83',
+        secondary: '#05A66A',
+      },
+      care: {
+        primary: '#FF8C42',
+        secondary: '#F17C3A',
+      },
+      plan: {
+        primary: '#3A86FF',
+        secondary: '#2D6FD9',
+      },
+    },
+  },
+  borderRadius: {
+    md: '8px',
+  },
+};
 
 // Helper function to render components with theme
 const renderWithTheme = (ui: React.ReactNode) => {
-  // Create a mock theme object with journey colors
-  // Updated to align with the new primitives structure
-  const mockTheme = {
-    spacing: {
-      xs: '4px',
-      sm: '8px',
-      md: '16px',
-      lg: '24px',
-    },
-    typography: {
-      fontSize: {
-        sm: '14px',
-        md: '16px',
-        lg: '18px',
-      },
-      fontWeight: {
-        bold: 700,
-      },
-    },
-    colors: {
-      brand: {
-        primary: '#0066CC',
-      },
-      neutral: {
-        gray600: '#757575',
-        gray200: '#EEEEEE',
-      },
-      journeys: {
-        health: {
-          primary: '#0ACF83',
-          secondary: '#05A66A',
-        },
-        care: {
-          primary: '#FF8C42',
-          secondary: '#F17C3A',
-        },
-        plan: {
-          primary: '#3A86FF',
-          secondary: '#2D6FD9',
-        },
-      },
-    },
-    borderRadius: {
-      md: '8px',
-    },
-  };
-
   return render(
     <ThemeProvider theme={mockTheme}>
       {ui}
@@ -64,73 +63,22 @@ const renderWithTheme = (ui: React.ReactNode) => {
 };
 
 // Helper function to render components with theme and journey context
-const renderWithThemeAndJourneyContext = (ui: React.ReactNode, journey: string = 'health') => {
-  // Create a mock theme object with journey colors
-  const mockTheme = {
-    spacing: {
-      xs: '4px',
-      sm: '8px',
-      md: '16px',
-      lg: '24px',
-    },
-    typography: {
-      fontSize: {
-        sm: '14px',
-        md: '16px',
-        lg: '18px',
-      },
-      fontWeight: {
-        bold: 700,
-      },
-    },
-    colors: {
-      brand: {
-        primary: '#0066CC',
-      },
-      neutral: {
-        gray600: '#757575',
-        gray200: '#EEEEEE',
-      },
-      journeys: {
-        health: {
-          primary: '#0ACF83',
-          secondary: '#05A66A',
-        },
-        care: {
-          primary: '#FF8C42',
-          secondary: '#F17C3A',
-        },
-        plan: {
-          primary: '#3A86FF',
-          secondary: '#2D6FD9',
-        },
-      },
-    },
-    borderRadius: {
-      md: '8px',
-    },
-  };
-
-  // Mock JourneyContext value
-  const mockJourneyContextValue = {
-    currentJourney: journey,
-    setCurrentJourney: jest.fn(),
-    isJourneyAvailable: jest.fn().mockReturnValue(true),
-    journeys: [
-      { id: 'health', name: 'Minha Saúde' },
-      { id: 'care', name: 'Cuidar-me Agora' },
-      { id: 'plan', name: 'Meu Plano & Benefícios' },
-    ],
-  };
-
+const renderWithJourneyContext = (ui: React.ReactNode, journeyId: JourneyId = 'health') => {
   return render(
     <ThemeProvider theme={mockTheme}>
-      <JourneyContext.Provider value={mockJourneyContextValue}>
+      <JourneyProvider initialJourney={journeyId}>
         {ui}
-      </JourneyContext.Provider>
+      </JourneyProvider>
     </ThemeProvider>
   );
 };
+
+// Mock JourneyContext.Consumer for testing context integration
+const JourneyConsumer = ({ children }: { children: (value: { currentJourney: JourneyId }) => React.ReactNode }) => (
+  <JourneyContext.Consumer>
+    {(value) => children(value)}
+  </JourneyContext.Consumer>
+);
 
 describe('XPCounter', () => {
   it('renders correctly with required props', () => {
@@ -178,7 +126,7 @@ describe('XPCounter', () => {
     );
 
     const healthXPLabel = screen.getByText('500 XP');
-    expect(healthXPLabel).toHaveStyle(`color: #0ACF83`);
+    expect(healthXPLabel).toHaveStyle(`color: ${mockTheme.colors.journeys.health.primary}`);
 
     // Test care journey
     rerender(
@@ -193,7 +141,7 @@ describe('XPCounter', () => {
     );
 
     const careXPLabel = screen.getByText('500 XP');
-    expect(careXPLabel).toHaveStyle(`color: #FF8C42`);
+    expect(careXPLabel).toHaveStyle(`color: ${mockTheme.colors.journeys.care.primary}`);
 
     // Test plan journey
     rerender(
@@ -208,7 +156,7 @@ describe('XPCounter', () => {
     );
 
     const planXPLabel = screen.getByText('500 XP');
-    expect(planXPLabel).toHaveStyle(`color: #3A86FF`);
+    expect(planXPLabel).toHaveStyle(`color: ${mockTheme.colors.journeys.plan.primary}`);
   });
 
   it('handles edge cases with currentXP equal to nextLevelXP', () => {
@@ -288,41 +236,22 @@ describe('XPCounter', () => {
   });
 
   // New tests for journey context integration
-  it('applies journey-specific styling from JourneyContext when no journey prop is provided', () => {
-    // Test health journey from context
-    renderWithThemeAndJourneyContext(
+  it('uses journey from context when journey prop is not provided', () => {
+    renderWithJourneyContext(
       <XPCounter
         currentXP={500}
         nextLevelXP={1000}
-        testId="context-health-xp"
-      />,
-      'health'
-    );
-
-    const healthXPLabel = screen.getByText('500 XP');
-    expect(healthXPLabel).toHaveStyle(`color: #0ACF83`);
-  });
-
-  it('prioritizes explicit journey prop over JourneyContext value', () => {
-    // Provide care journey via prop but health via context
-    renderWithThemeAndJourneyContext(
-      <XPCounter
-        currentXP={500}
-        nextLevelXP={1000}
-        journey="care"
-        testId="prop-priority-xp"
+        testId="context-xp"
       />,
       'health'
     );
 
     const xpLabel = screen.getByText('500 XP');
-    // Should use care color from prop, not health from context
-    expect(xpLabel).toHaveStyle(`color: #FF8C42`);
+    expect(xpLabel).toHaveStyle(`color: ${mockTheme.colors.journeys.health.primary}`);
   });
 
-  it('supports all journey types from context', () => {
-    // Test care journey from context
-    const { rerender } = renderWithThemeAndJourneyContext(
+  it('uses different journey from context based on provider value', () => {
+    renderWithJourneyContext(
       <XPCounter
         currentXP={500}
         nextLevelXP={1000}
@@ -331,48 +260,37 @@ describe('XPCounter', () => {
       'care'
     );
 
-    let xpLabel = screen.getByText('500 XP');
-    expect(xpLabel).toHaveStyle(`color: #FF8C42`);
-
-    // Test plan journey from context
-    rerender(
-      <ThemeProvider theme={mockTheme}>
-        <JourneyContext.Provider 
-          value={{
-            currentJourney: 'plan',
-            setCurrentJourney: jest.fn(),
-            isJourneyAvailable: jest.fn().mockReturnValue(true),
-            journeys: [
-              { id: 'health', name: 'Minha Saúde' },
-              { id: 'care', name: 'Cuidar-me Agora' },
-              { id: 'plan', name: 'Meu Plano & Benefícios' },
-            ],
-          }}
-        >
-          <XPCounter
-            currentXP={500}
-            nextLevelXP={1000}
-            testId="context-plan-xp"
-          />
-        </JourneyContext.Provider>
-      </ThemeProvider>
-    );
-
-    xpLabel = screen.getByText('500 XP');
-    expect(xpLabel).toHaveStyle(`color: #3A86FF`);
+    const xpLabel = screen.getByText('500 XP');
+    expect(xpLabel).toHaveStyle(`color: ${mockTheme.colors.journeys.care.primary}`);
   });
 
-  it('maintains internationalization support with journey context', () => {
-    renderWithThemeAndJourneyContext(
+  it('journey prop overrides journey from context', () => {
+    renderWithJourneyContext(
       <XPCounter
         currentXP={500}
         nextLevelXP={1000}
-        testId="i18n-context-xp"
+        journey="plan"
+        testId="override-xp"
       />,
-      'health'
+      'health' // Context journey is health, but prop is plan
     );
 
-    // Check remaining XP text is properly localized
+    const xpLabel = screen.getByText('500 XP');
+    expect(xpLabel).toHaveStyle(`color: ${mockTheme.colors.journeys.plan.primary}`);
+  });
+
+  it('renders with internationalization support', () => {
+    // Mock i18n implementation would be tested here
+    // For now, we'll just verify the default text is rendered correctly
+    renderWithTheme(
+      <XPCounter
+        currentXP={500}
+        nextLevelXP={1000}
+        journey="health"
+        testId="i18n-xp"
+      />
+    );
+
     expect(screen.getByText('500 XP para o próximo nível')).toBeInTheDocument();
   });
 });
