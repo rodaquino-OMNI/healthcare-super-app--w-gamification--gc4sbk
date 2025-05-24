@@ -1,457 +1,269 @@
-/**
- * Unit tests for environment configuration error classes
- * 
- * These tests verify error instantiation, message formatting, error categorization,
- * and integration with the wider error handling system for environment-related errors.
- */
-
 import {
-  EnvironmentVariableError,
   MissingEnvironmentVariableError,
   InvalidEnvironmentVariableError,
-  ValidationEnvironmentVariableError,
-  TransformEnvironmentVariableError,
-  BatchEnvironmentValidationError,
-  formatErrorMessage,
-  withEnvErrorFallback,
-  validateEnvironmentBatch,
-  createRequiredEnvValidator,
-  categorizeEnvironmentError,
-  EnvironmentErrorCategory
+  EnvironmentVariableError,
+  EnvironmentValidationError,
 } from '../../../src/env/error';
+import { ErrorType } from '@austa/errors';
 
 describe('Environment Error Classes', () => {
   describe('EnvironmentVariableError', () => {
-    it('should create an error with formatted message', () => {
-      const error = new EnvironmentVariableError('TEST_VAR', 'Something went wrong');
+    it('should be instantiated with correct base properties', () => {
+      const error = new EnvironmentVariableError('TEST_ERROR', 'Test error message');
       
       expect(error).toBeInstanceOf(Error);
       expect(error.name).toBe('EnvironmentVariableError');
-      expect(error.message).toBe('Environment variable TEST_VAR: Something went wrong');
-      expect(error.variableName).toBe('TEST_VAR');
+      expect(error.message).toBe('Test error message');
+      expect(error.variableName).toBe('TEST_ERROR');
+      expect(error.errorType).toBe(ErrorType.TECHNICAL);
+      expect(error.errorCode).toContain('ENV_');
     });
-    
-    it('should capture stack trace', () => {
-      const error = new EnvironmentVariableError('TEST_VAR', 'Something went wrong');
+
+    it('should include variable name in serialized error', () => {
+      const error = new EnvironmentVariableError('DATABASE_URL', 'Invalid database URL');
+      const serialized = error.serialize();
       
-      expect(error.stack).toBeDefined();
-      expect(error.stack).toContain('EnvironmentVariableError');
+      expect(serialized).toHaveProperty('variableName', 'DATABASE_URL');
+      expect(serialized).toHaveProperty('message', 'Invalid database URL');
+      expect(serialized).toHaveProperty('errorType', ErrorType.TECHNICAL);
     });
   });
-  
+
   describe('MissingEnvironmentVariableError', () => {
-    it('should create an error for missing environment variable', () => {
+    it('should be instantiated with correct properties', () => {
       const error = new MissingEnvironmentVariableError('API_KEY');
       
       expect(error).toBeInstanceOf(EnvironmentVariableError);
       expect(error.name).toBe('MissingEnvironmentVariableError');
-      expect(error.message).toBe('Environment variable API_KEY: Required environment variable is missing.');
+      expect(error.message).toContain('API_KEY');
+      expect(error.message).toContain('missing');
       expect(error.variableName).toBe('API_KEY');
+      expect(error.errorCode).toBe('ENV_MISSING_VARIABLE');
     });
-    
-    it('should include additional context when provided', () => {
-      const error = new MissingEnvironmentVariableError(
-        'DATABASE_URL', 
-        'Required for database connection'
-      );
+
+    it('should allow custom message override', () => {
+      const customMessage = 'API_KEY is required for external service authentication';
+      const error = new MissingEnvironmentVariableError('API_KEY', customMessage);
       
-      expect(error.message).toBe(
-        'Environment variable DATABASE_URL: Required environment variable is missing. ' +
-        'Required for database connection'
-      );
+      expect(error.message).toBe(customMessage);
+    });
+
+    it('should be properly categorized as a technical error', () => {
+      const error = new MissingEnvironmentVariableError('DATABASE_URL');
+      
+      expect(error.errorType).toBe(ErrorType.TECHNICAL);
+      expect(error.isTechnicalError()).toBe(true);
+      expect(error.isValidationError()).toBe(false);
+    });
+
+    it('should include variable name in serialized error', () => {
+      const error = new MissingEnvironmentVariableError('JWT_SECRET');
+      const serialized = error.serialize();
+      
+      expect(serialized).toHaveProperty('variableName', 'JWT_SECRET');
+      expect(serialized).toHaveProperty('errorCode', 'ENV_MISSING_VARIABLE');
     });
   });
-  
+
   describe('InvalidEnvironmentVariableError', () => {
-    it('should create an error for invalid environment variable', () => {
+    it('should be instantiated with correct properties', () => {
       const error = new InvalidEnvironmentVariableError(
         'PORT', 
-        'abc', 
-        'a number between 1000 and 9999'
+        'Expected number, got string', 
+        '8080'
       );
       
       expect(error).toBeInstanceOf(EnvironmentVariableError);
       expect(error.name).toBe('InvalidEnvironmentVariableError');
-      expect(error.message).toBe(
-        'Environment variable PORT: Invalid value "abc". Expected a number between 1000 and 9999.'
-      );
+      expect(error.message).toContain('PORT');
+      expect(error.message).toContain('invalid');
       expect(error.variableName).toBe('PORT');
-      expect(error.providedValue).toBe('abc');
+      expect(error.errorCode).toBe('ENV_INVALID_VARIABLE');
+      expect(error.actualValue).toBe('8080');
+      expect(error.reason).toBe('Expected number, got string');
     });
-    
-    it('should handle undefined values', () => {
+
+    it('should handle undefined actual value', () => {
       const error = new InvalidEnvironmentVariableError(
         'DEBUG_MODE', 
-        undefined, 
-        'true or false'
+        'Expected boolean', 
+        undefined
       );
       
-      expect(error.message).toBe(
-        'Environment variable DEBUG_MODE: Invalid value undefined. Expected true or false.'
-      );
-      expect(error.providedValue).toBeUndefined();
+      expect(error.actualValue).toBeUndefined();
+      expect(error.message).toContain('DEBUG_MODE');
+      expect(error.message).toContain('invalid');
+      expect(error.message).toContain('Expected boolean');
     });
-    
-    it('should handle empty string values', () => {
+
+    it('should allow custom message override', () => {
+      const customMessage = 'PORT must be a valid number between 1024 and 65535';
+      const error = new InvalidEnvironmentVariableError(
+        'PORT', 
+        'Out of range', 
+        '80000', 
+        customMessage
+      );
+      
+      expect(error.message).toBe(customMessage);
+    });
+
+    it('should include detailed context in serialized error', () => {
+      const error = new InvalidEnvironmentVariableError(
+        'MAX_CONNECTIONS', 
+        'Expected positive integer', 
+        '-10'
+      );
+      const serialized = error.serialize();
+      
+      expect(serialized).toHaveProperty('variableName', 'MAX_CONNECTIONS');
+      expect(serialized).toHaveProperty('reason', 'Expected positive integer');
+      expect(serialized).toHaveProperty('actualValue', '-10');
+      expect(serialized).toHaveProperty('errorCode', 'ENV_INVALID_VARIABLE');
+    });
+
+    it('should be properly categorized as a technical error', () => {
       const error = new InvalidEnvironmentVariableError(
         'LOG_LEVEL', 
-        '', 
-        'one of: debug, info, warn, error'
+        'Invalid log level', 
+        'EXTREME'
       );
       
-      expect(error.message).toBe(
-        'Environment variable LOG_LEVEL: Invalid value empty string. Expected one of: debug, info, warn, error.'
-      );
-      expect(error.providedValue).toBe('');
+      expect(error.errorType).toBe(ErrorType.TECHNICAL);
+      expect(error.isTechnicalError()).toBe(true);
+      expect(error.isValidationError()).toBe(false);
     });
   });
-  
-  describe('ValidationEnvironmentVariableError', () => {
-    it('should create an error with a single validation error', () => {
-      const error = new ValidationEnvironmentVariableError(
-        'EMAIL', 
-        ['Invalid email format']
-      );
-      
-      expect(error).toBeInstanceOf(EnvironmentVariableError);
-      expect(error.name).toBe('ValidationEnvironmentVariableError');
-      expect(error.message).toBe(
-        'Environment variable EMAIL: Validation failed: Invalid email format'
-      );
-      expect(error.variableName).toBe('EMAIL');
-      expect(error.validationErrors).toEqual(['Invalid email format']);
-    });
-    
-    it('should create an error with multiple validation errors', () => {
-      const error = new ValidationEnvironmentVariableError(
-        'PASSWORD', 
-        [
-          'Must be at least 8 characters', 
-          'Must contain a number', 
-          'Must contain a special character'
-        ]
-      );
-      
-      expect(error.message).toBe(
-        'Environment variable PASSWORD: Multiple validation errors: ' +
-        'Must be at least 8 characters, Must contain a number, Must contain a special character'
-      );
-      expect(error.validationErrors).toHaveLength(3);
-    });
-  });
-  
-  describe('TransformEnvironmentVariableError', () => {
-    it('should create an error for transformation failure', () => {
-      const error = new TransformEnvironmentVariableError(
-        'MAX_RETRIES', 
-        'not-a-number', 
-        'number'
-      );
-      
-      expect(error).toBeInstanceOf(EnvironmentVariableError);
-      expect(error.name).toBe('TransformEnvironmentVariableError');
-      expect(error.message).toBe(
-        'Environment variable MAX_RETRIES: Could not transform "not-a-number" to number'
-      );
-      expect(error.variableName).toBe('MAX_RETRIES');
-      expect(error.providedValue).toBe('not-a-number');
-      expect(error.targetType).toBe('number');
-    });
-    
-    it('should include reason when provided', () => {
-      const error = new TransformEnvironmentVariableError(
-        'CONFIG_JSON', 
-        '{invalid-json}', 
-        'JSON object', 
-        'Unexpected token i in JSON at position 1'
-      );
-      
-      expect(error.message).toBe(
-        'Environment variable CONFIG_JSON: Could not transform "{invalid-json}" to JSON object: ' +
-        'Unexpected token i in JSON at position 1'
-      );
-    });
-    
-    it('should handle undefined values', () => {
-      const error = new TransformEnvironmentVariableError(
-        'TIMEOUT_MS', 
-        undefined, 
-        'number'
-      );
-      
-      expect(error.message).toBe(
-        'Environment variable TIMEOUT_MS: Could not transform undefined to number'
-      );
-      expect(error.providedValue).toBeUndefined();
-    });
-  });
-  
-  describe('BatchEnvironmentValidationError', () => {
-    it('should create an error with multiple environment variable errors', () => {
-      const errors = [
-        new MissingEnvironmentVariableError('API_KEY'),
-        new InvalidEnvironmentVariableError('PORT', 'abc', 'a number')
-      ];
-      
-      const error = new BatchEnvironmentValidationError(errors);
-      
-      expect(error).toBeInstanceOf(Error);
-      expect(error.name).toBe('BatchEnvironmentValidationError');
-      expect(error.message).toBe('2 environment variable validation errors occurred');
-      expect(error.errors).toEqual(errors);
-    });
-    
-    it('should include context message when provided', () => {
-      const errors = [
-        new MissingEnvironmentVariableError('DB_HOST'),
-        new MissingEnvironmentVariableError('DB_PORT'),
-        new MissingEnvironmentVariableError('DB_NAME')
-      ];
-      
-      const error = new BatchEnvironmentValidationError(
-        errors, 
-        'Database configuration validation failed'
-      );
-      
-      expect(error.message).toBe(
-        'Database configuration validation failed: 3 environment variable validation errors occurred'
-      );
-    });
-    
-    it('should provide detailed error messages', () => {
-      const errors = [
-        new MissingEnvironmentVariableError('API_KEY'),
-        new InvalidEnvironmentVariableError('PORT', 'abc', 'a number')
-      ];
-      
-      const error = new BatchEnvironmentValidationError(errors);
-      const detailedMessage = error.getDetailedMessage();
-      
-      expect(detailedMessage).toContain('1. Environment variable API_KEY: Required environment variable is missing.');
-      expect(detailedMessage).toContain('2. Environment variable PORT: Invalid value "abc". Expected a number.');
-    });
-  });
-});
 
-describe('Environment Error Utilities', () => {
-  describe('formatErrorMessage', () => {
-    it('should format error message with variable name', () => {
-      const message = formatErrorMessage('API_URL', 'Invalid URL format');
+  describe('EnvironmentValidationError', () => {
+    it('should aggregate multiple environment errors', () => {
+      const errors = [
+        new MissingEnvironmentVariableError('API_KEY'),
+        new InvalidEnvironmentVariableError('PORT', 'Expected number', 'abc'),
+        new InvalidEnvironmentVariableError('DEBUG', 'Expected boolean', 'maybe')
+      ];
       
-      expect(message).toBe('Environment variable API_URL: Invalid URL format');
+      const error = new EnvironmentValidationError('Multiple environment configuration errors', errors);
+      
+      expect(error).toBeInstanceOf(EnvironmentVariableError);
+      expect(error.name).toBe('EnvironmentValidationError');
+      expect(error.message).toBe('Multiple environment configuration errors');
+      expect(error.errors).toHaveLength(3);
+      expect(error.errors[0]).toBeInstanceOf(MissingEnvironmentVariableError);
+      expect(error.errors[1]).toBeInstanceOf(InvalidEnvironmentVariableError);
+      expect(error.errorCode).toBe('ENV_VALIDATION_FAILED');
     });
-    
-    it('should handle empty message', () => {
-      const message = formatErrorMessage('DEBUG', '');
+
+    it('should generate default message when not provided', () => {
+      const errors = [
+        new MissingEnvironmentVariableError('API_KEY'),
+        new InvalidEnvironmentVariableError('PORT', 'Expected number', 'abc')
+      ];
       
-      expect(message).toBe('Environment variable DEBUG: ');
+      const error = new EnvironmentValidationError(undefined, errors);
+      
+      expect(error.message).toContain('environment validation');
+      expect(error.message).toContain('2 errors');
+    });
+
+    it('should include all nested errors in serialized output', () => {
+      const errors = [
+        new MissingEnvironmentVariableError('API_KEY'),
+        new InvalidEnvironmentVariableError('PORT', 'Expected number', 'abc')
+      ];
+      
+      const error = new EnvironmentValidationError('Configuration validation failed', errors);
+      const serialized = error.serialize();
+      
+      expect(serialized).toHaveProperty('errors');
+      expect(serialized.errors).toHaveLength(2);
+      expect(serialized.errors[0]).toHaveProperty('variableName', 'API_KEY');
+      expect(serialized.errors[1]).toHaveProperty('variableName', 'PORT');
+      expect(serialized.errors[1]).toHaveProperty('actualValue', 'abc');
+    });
+
+    it('should handle empty errors array', () => {
+      const error = new EnvironmentValidationError('No errors found', []);
+      
+      expect(error.errors).toHaveLength(0);
+      expect(error.message).toBe('No errors found');
+      
+      const serialized = error.serialize();
+      expect(serialized.errors).toHaveLength(0);
     });
   });
-  
-  describe('withEnvErrorFallback', () => {
-    it('should return function result when no error occurs', () => {
-      const result = withEnvErrorFallback(
-        () => 'success',
-        'fallback'
-      );
+
+  describe('Error integration', () => {
+    it('should be catchable as EnvironmentVariableError base class', () => {
+      const throwError = () => {
+        throw new MissingEnvironmentVariableError('DATABASE_URL');
+      };
       
-      expect(result).toBe('success');
+      expect(() => {
+        try {
+          throwError();
+        } catch (error) {
+          if (error instanceof EnvironmentVariableError) {
+            // This is the expected path
+            expect(error.variableName).toBe('DATABASE_URL');
+            throw error;
+          }
+          throw new Error('Wrong error type caught');
+        }
+      }).toThrow(EnvironmentVariableError);
     });
-    
-    it('should return fallback value when error occurs', () => {
-      const result = withEnvErrorFallback(
-        () => { throw new Error('Something went wrong'); },
-        'fallback'
-      );
+
+    it('should support error discrimination by specific type', () => {
+      const error1 = new MissingEnvironmentVariableError('API_KEY');
+      const error2 = new InvalidEnvironmentVariableError('PORT', 'Invalid number', 'abc');
       
-      expect(result).toBe('fallback');
+      expect(error1 instanceof MissingEnvironmentVariableError).toBe(true);
+      expect(error2 instanceof MissingEnvironmentVariableError).toBe(false);
+      expect(error2 instanceof InvalidEnvironmentVariableError).toBe(true);
+      expect(error1 instanceof InvalidEnvironmentVariableError).toBe(false);
     });
-    
-    it('should call error handler when provided', () => {
-      const errorHandler = jest.fn();
-      const error = new Error('Something went wrong');
-      
-      const result = withEnvErrorFallback(
-        () => { throw error; },
-        'fallback',
-        errorHandler
-      );
-      
-      expect(result).toBe('fallback');
-      expect(errorHandler).toHaveBeenCalledWith(error);
-    });
-  });
-  
-  describe('validateEnvironmentBatch', () => {
-    it('should not throw when all validations pass', () => {
-      const validations = [
-        () => { /* passes */ },
-        () => { /* passes */ }
-      ];
-      
-      expect(() => validateEnvironmentBatch(validations)).not.toThrow();
-    });
-    
-    it('should throw BatchEnvironmentValidationError when validations fail', () => {
-      const validations = [
-        () => { /* passes */ },
-        () => { throw new MissingEnvironmentVariableError('API_KEY'); },
-        () => { throw new InvalidEnvironmentVariableError('PORT', 'abc', 'a number'); }
-      ];
-      
-      expect(() => validateEnvironmentBatch(validations))
-        .toThrow(BatchEnvironmentValidationError);
-    });
-    
-    it('should include all validation errors in the batch error', () => {
-      const validations = [
-        () => { throw new MissingEnvironmentVariableError('API_KEY'); },
-        () => { throw new InvalidEnvironmentVariableError('PORT', 'abc', 'a number'); }
-      ];
-      
-      try {
-        validateEnvironmentBatch(validations);
-        fail('Expected validateEnvironmentBatch to throw');
-      } catch (error) {
-        expect(error).toBeInstanceOf(BatchEnvironmentValidationError);
-        const batchError = error as BatchEnvironmentValidationError;
+
+    it('should support fail-fast validation pattern', () => {
+      const validateEnv = () => {
+        const errors = [];
         
-        expect(batchError.errors).toHaveLength(2);
-        expect(batchError.errors[0]).toBeInstanceOf(MissingEnvironmentVariableError);
-        expect(batchError.errors[1]).toBeInstanceOf(InvalidEnvironmentVariableError);
-      }
-    });
-    
-    it('should include context message when provided', () => {
-      const validations = [
-        () => { throw new MissingEnvironmentVariableError('DB_HOST'); }
-      ];
-      
-      try {
-        validateEnvironmentBatch(validations, 'Database configuration');
-        fail('Expected validateEnvironmentBatch to throw');
-      } catch (error) {
-        expect(error).toBeInstanceOf(BatchEnvironmentValidationError);
-        expect(error.message).toBe(
-          'Database configuration: 1 environment variable validation errors occurred'
-        );
-      }
-    });
-    
-    it('should wrap non-environment errors', () => {
-      const validations = [
-        () => { throw new Error('Generic error'); }
-      ];
-      
-      try {
-        validateEnvironmentBatch(validations);
-        fail('Expected validateEnvironmentBatch to throw');
-      } catch (error) {
-        expect(error).toBeInstanceOf(BatchEnvironmentValidationError);
-        const batchError = error as BatchEnvironmentValidationError;
+        if (!process.env.API_KEY) {
+          errors.push(new MissingEnvironmentVariableError('API_KEY'));
+        }
         
-        expect(batchError.errors).toHaveLength(1);
-        expect(batchError.errors[0]).toBeInstanceOf(EnvironmentVariableError);
-        expect(batchError.errors[0].variableName).toBe('UNKNOWN');
-        expect(batchError.errors[0].message).toContain('Generic error');
+        if (process.env.PORT && isNaN(Number(process.env.PORT))) {
+          errors.push(new InvalidEnvironmentVariableError(
+            'PORT', 
+            'Not a number', 
+            process.env.PORT
+          ));
+        }
+        
+        if (errors.length > 0) {
+          throw new EnvironmentValidationError('Environment validation failed', errors);
+        }
+      };
+      
+      // Mock process.env
+      const originalEnv = process.env;
+      process.env = { ...originalEnv, PORT: 'abc' };
+      
+      expect(validateEnv).toThrow(EnvironmentValidationError);
+      
+      try {
+        validateEnv();
+      } catch (error) {
+        if (error instanceof EnvironmentValidationError) {
+          expect(error.errors.length).toBe(2);
+          expect(error.errors[0]).toBeInstanceOf(MissingEnvironmentVariableError);
+          expect(error.errors[1]).toBeInstanceOf(InvalidEnvironmentVariableError);
+        } else {
+          fail('Expected EnvironmentValidationError');
+        }
       }
-    });
-  });
-  
-  describe('createRequiredEnvValidator', () => {
-    const originalEnv = process.env;
-    
-    beforeEach(() => {
-      // Reset process.env before each test
-      process.env = { ...originalEnv };
-    });
-    
-    afterAll(() => {
-      // Restore original process.env after all tests
+      
+      // Restore process.env
       process.env = originalEnv;
-    });
-    
-    it('should create a validator function that passes when variable exists', () => {
-      process.env.API_KEY = 'test-key';
-      const validator = createRequiredEnvValidator('API_KEY');
-      
-      expect(() => validator()).not.toThrow();
-    });
-    
-    it('should create a validator function that throws when variable is missing', () => {
-      delete process.env.API_KEY;
-      const validator = createRequiredEnvValidator('API_KEY');
-      
-      expect(() => validator()).toThrow(MissingEnvironmentVariableError);
-    });
-    
-    it('should create a validator function that throws when variable is empty', () => {
-      process.env.API_KEY = '';
-      const validator = createRequiredEnvValidator('API_KEY');
-      
-      expect(() => validator()).toThrow(MissingEnvironmentVariableError);
-    });
-    
-    it('should include additional context in the error when provided', () => {
-      delete process.env.DATABASE_URL;
-      const validator = createRequiredEnvValidator(
-        'DATABASE_URL', 
-        'Required for database connection'
-      );
-      
-      try {
-        validator();
-        fail('Expected validator to throw');
-      } catch (error) {
-        expect(error).toBeInstanceOf(MissingEnvironmentVariableError);
-        expect(error.message).toContain('Required for database connection');
-      }
-    });
-  });
-  
-  describe('categorizeEnvironmentError', () => {
-    it('should categorize MissingEnvironmentVariableError', () => {
-      const error = new MissingEnvironmentVariableError('API_KEY');
-      const category = categorizeEnvironmentError(error);
-      
-      expect(category).toBe(EnvironmentErrorCategory.MISSING);
-    });
-    
-    it('should categorize InvalidEnvironmentVariableError', () => {
-      const error = new InvalidEnvironmentVariableError('PORT', 'abc', 'a number');
-      const category = categorizeEnvironmentError(error);
-      
-      expect(category).toBe(EnvironmentErrorCategory.INVALID);
-    });
-    
-    it('should categorize ValidationEnvironmentVariableError', () => {
-      const error = new ValidationEnvironmentVariableError('EMAIL', ['Invalid format']);
-      const category = categorizeEnvironmentError(error);
-      
-      expect(category).toBe(EnvironmentErrorCategory.VALIDATION);
-    });
-    
-    it('should categorize TransformEnvironmentVariableError', () => {
-      const error = new TransformEnvironmentVariableError('TIMEOUT', 'abc', 'number');
-      const category = categorizeEnvironmentError(error);
-      
-      expect(category).toBe(EnvironmentErrorCategory.TRANSFORM);
-    });
-    
-    it('should categorize BatchEnvironmentValidationError', () => {
-      const error = new BatchEnvironmentValidationError([
-        new MissingEnvironmentVariableError('API_KEY')
-      ]);
-      const category = categorizeEnvironmentError(error);
-      
-      expect(category).toBe(EnvironmentErrorCategory.BATCH);
-    });
-    
-    it('should categorize other errors as OTHER', () => {
-      const error = new Error('Generic error');
-      const category = categorizeEnvironmentError(error);
-      
-      expect(category).toBe(EnvironmentErrorCategory.OTHER);
     });
   });
 });
