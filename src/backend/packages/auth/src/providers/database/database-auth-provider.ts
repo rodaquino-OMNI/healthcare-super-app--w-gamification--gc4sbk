@@ -1,682 +1,410 @@
 /**
- * @file Database Authentication Provider
+ * Database Authentication Provider
  * 
- * Implements the database authentication provider interface with functionality for
- * validating username/password credentials against database records. It handles user
- * lookup, password verification, and authentication error handling.
- *
- * @module @austa/auth/providers/database
+ * Implements the authentication provider interface with functionality for validating
+ * username/password credentials against database records. It handles user lookup,
+ * password verification, and authentication error handling.
+ * 
+ * This provider integrates with PrismaService for database access and uses secure
+ * password comparison functions from password-utils.
  */
 
-import { Injectable, Inject, UnauthorizedException, NotFoundException } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-
-// Import from other @austa packages
-import { PrismaService } from '@austa/database';
-import { LoggerService } from '@austa/logging';
+import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
+import { JwtService } from '@nestjs/jwt';
+import { PrismaClient, User } from '@prisma/client';
 import { JwtPayload } from '@austa/interfaces/auth';
 
-// Import local utilities and interfaces
-import { IAuthProvider } from '../auth-provider.interface';
-import { verifyPassword, passwordNeedsRehash, hashPassword } from './password-utils';
+import { AuthProvider } from '../auth-provider.interface';
+import { verifyPassword } from './password-utils';
 
-/**
- * Error codes for authentication failures
- */
-export enum AUTH_ERROR_CODES {
-  INVALID_CREDENTIALS = 'auth/invalid-credentials',
-  USER_NOT_FOUND = 'auth/user-not-found',
-  ACCOUNT_DISABLED = 'auth/account-disabled',
-  ACCOUNT_LOCKED = 'auth/account-locked',
-  PASSWORD_EXPIRED = 'auth/password-expired',
-  INVALID_TOKEN = 'auth/invalid-token',
-  TOKEN_EXPIRED = 'auth/token-expired',
-  INSUFFICIENT_PERMISSIONS = 'auth/insufficient-permissions',
-  MFA_REQUIRED = 'auth/mfa-required',
-  INTERNAL_ERROR = 'auth/internal-error',
-}
-
-/**
- * Configuration keys for authentication
- */
-export enum CONFIG_KEYS {
-  PASSWORD_MIN_LENGTH = 'AUTH_PASSWORD_MIN_LENGTH',
-  PASSWORD_REQUIRE_UPPERCASE = 'AUTH_PASSWORD_REQUIRE_UPPERCASE',
-  PASSWORD_REQUIRE_LOWERCASE = 'AUTH_PASSWORD_REQUIRE_LOWERCASE',
-  PASSWORD_REQUIRE_NUMBER = 'AUTH_PASSWORD_REQUIRE_NUMBER',
-  PASSWORD_REQUIRE_SPECIAL = 'AUTH_PASSWORD_REQUIRE_SPECIAL',
-  PASSWORD_MAX_AGE = 'AUTH_PASSWORD_MAX_AGE',
-  PASSWORD_HISTORY = 'AUTH_PASSWORD_HISTORY',
-  TOKEN_SECRET = 'AUTH_TOKEN_SECRET',
-  TOKEN_EXPIRATION = 'AUTH_TOKEN_EXPIRATION',
-  REFRESH_TOKEN_EXPIRATION = 'AUTH_REFRESH_TOKEN_EXPIRATION',
-  LOCKOUT_THRESHOLD = 'AUTH_LOCKOUT_THRESHOLD',
-  LOCKOUT_DURATION = 'AUTH_LOCKOUT_DURATION',
-}
+// Import error types from the errors package
+import { 
+  InvalidCredentialsError,
+  ResourceNotFoundError,
+  DatabaseError,
+  UnauthorizedError
+} from '@austa/errors';
 
 /**
  * Configuration options for the database authentication provider
  */
 export interface DatabaseAuthProviderOptions {
   /**
-   * The database table/collection to use for user authentication
-   * @default 'users'
+   * The Prisma model to use for user lookup
+   * @default 'user'
    */
-  userTable?: string;
-  
+  userModel?: string;
+
   /**
    * The field to use as the username for authentication
    * @default 'email'
    */
   usernameField?: string;
-  
+
   /**
-   * The field to use as the password for authentication
+   * The field that stores the password hash
    * @default 'password'
    */
   passwordField?: string;
-  
+
   /**
-   * Whether to enable case-insensitive username matching
-   * @default true
-   */
-  caseInsensitiveMatch?: boolean;
-  
-  /**
-   * Additional fields to select from the user table
-   * @default []
+   * Additional fields to select when retrieving the user
+   * @default ['id', 'email', 'name']
    */
   selectFields?: string[];
-  
+
   /**
    * Custom error messages
    */
   errorMessages?: {
     invalidCredentials?: string;
     userNotFound?: string;
-    accountDisabled?: string;
-    accountLocked?: string;
-    passwordExpired?: string;
+    databaseError?: string;
+  };
+
+  /**
+   * JWT token configuration
+   */
+  jwt?: {
+    /**
+     * Secret key for signing JWT tokens
+     */
+    secret?: string;
+
+    /**
+     * Expiration time for access tokens in seconds
+     * @default 3600 (1 hour)
+     */
+    accessTokenExpiration?: number;
+
+    /**
+     * Expiration time for refresh tokens in seconds
+     * @default 2592000 (30 days)
+     */
+    refreshTokenExpiration?: number;
   };
 }
 
 /**
- * Default options for the database authentication provider
+ * Default configuration for the database authentication provider
  */
-const defaultOptions: DatabaseAuthProviderOptions = {
-  userTable: 'users',
+const DEFAULT_OPTIONS: DatabaseAuthProviderOptions = {
+  userModel: 'user',
   usernameField: 'email',
   passwordField: 'password',
-  caseInsensitiveMatch: true,
-  selectFields: [],
+  selectFields: ['id', 'email', 'name'],
   errorMessages: {
-    invalidCredentials: 'Invalid username or password',
+    invalidCredentials: 'Invalid email or password',
     userNotFound: 'User not found',
-    accountDisabled: 'Account is disabled',
-    accountLocked: 'Account is locked due to too many failed login attempts',
-    passwordExpired: 'Password has expired and must be changed',
+    databaseError: 'Database error occurred during authentication',
+  },
+  jwt: {
+    accessTokenExpiration: 3600, // 1 hour
+    refreshTokenExpiration: 2592000, // 30 days
   },
 };
 
 /**
- * Credentials interface for database authentication
- */
-export interface DatabaseCredentials {
-  /**
-   * Username (email, username, etc.)
-   */
-  username: string;
-  
-  /**
-   * Password
-   */
-  password: string;
-  
-  /**
-   * Remember user session (extended token expiration)
-   */
-  rememberMe?: boolean;
-}
-
-/**
- * Database authentication provider that validates username/password credentials
- * against database records.
+ * Database Authentication Provider
  * 
- * This provider integrates with PrismaService for database access and uses secure
- * password comparison functions from password-utils. The implementation allows
- * configuration of lookup fields and error messages.
+ * Implements authentication against database records using Prisma ORM.
+ * Supports configurable user lookup fields and secure password verification.
  */
 @Injectable()
-export class DatabaseAuthProvider<TUser extends Record<string, any> = Record<string, any>>
-  implements IAuthProvider<TUser, DatabaseCredentials> {
-  
+export class DatabaseAuthProvider<TUser extends User = User> implements AuthProvider<TUser> {
+  private readonly logger = new Logger(DatabaseAuthProvider.name);
   private readonly options: DatabaseAuthProviderOptions;
-  private readonly logger: LoggerService;
-  
-  /**
-   * Creates a new DatabaseAuthProvider instance
-   * 
-   * @param prismaService - Prisma database service
-   * @param loggerService - Logger service
-   * @param options - Configuration options
-   * @param configService - Configuration service
-   */
+
   constructor(
-    private readonly prismaService: PrismaService,
-    @Inject(LoggerService) loggerService: LoggerService,
-    options?: DatabaseAuthProviderOptions,
-    private readonly configService?: ConfigService,
+    @Inject('PRISMA') private readonly prisma: PrismaClient,
+    @Optional() @Inject('JWT_SERVICE') private readonly jwtService: JwtService,
+    @Optional() @Inject('AUTH_OPTIONS') options?: DatabaseAuthProviderOptions,
   ) {
-    this.options = { ...defaultOptions, ...options };
-    this.logger = loggerService.createLogger('DatabaseAuthProvider');
-    this.logger.debug('Initialized with options:', this.options);
+    this.options = { ...DEFAULT_OPTIONS, ...options };
+    this.logger.log('Database authentication provider initialized');
   }
-  
+
   /**
-   * Validates user credentials against the database
+   * Validates user credentials against database records
    * 
-   * @param credentials - User credentials (username/password)
-   * @returns Promise resolving to the authenticated user or null if authentication fails
+   * @param credentials - User credentials (email/password)
+   * @returns The authenticated user if credentials are valid, null otherwise
+   * @throws InvalidCredentialsError if credentials are invalid
+   * @throws DatabaseError if a database error occurs
    */
-  async validateCredentials(credentials: DatabaseCredentials): Promise<TUser | null> {
+  async validateCredentials(credentials: { email: string; password: string }): Promise<TUser | null> {
+    const { email, password } = credentials;
+    const { usernameField, passwordField, userModel, selectFields, errorMessages } = this.options;
+
     try {
-      const { username, password } = credentials;
-      
-      if (!username || !password) {
-        this.logger.debug('Missing username or password');
+      // Build the query dynamically based on configuration
+      const where = { [usernameField]: email };
+      const select = selectFields.reduce((acc, field) => ({ ...acc, [field]: true }), {
+        [passwordField]: true, // Always include the password field for verification
+      });
+
+      // Retrieve the user from the database
+      const user = await this.prisma[userModel].findUnique({
+        where,
+        select,
+      }) as TUser & { [key: string]: any };
+
+      // If user not found, return null
+      if (!user) {
+        this.logger.debug(`User not found: ${email}`);
         return null;
       }
-      
-      // Find the user in the database
-      const user = await this.findUserByUsername(username);
-      
-      if (!user) {
-        this.logger.debug(`User not found: ${username}`);
-        throw new UnauthorizedException({
-          code: AUTH_ERROR_CODES.USER_NOT_FOUND,
-          message: this.options.errorMessages?.userNotFound || defaultOptions.errorMessages?.userNotFound,
-        });
-      }
-      
-      // Check if the account is disabled
-      if (user.disabled === true) {
-        this.logger.debug(`Account disabled: ${username}`);
-        throw new UnauthorizedException({
-          code: AUTH_ERROR_CODES.ACCOUNT_DISABLED,
-          message: this.options.errorMessages?.accountDisabled || defaultOptions.errorMessages?.accountDisabled,
-        });
-      }
-      
-      // Check if the account is locked
-      if (user.locked === true) {
-        this.logger.debug(`Account locked: ${username}`);
-        throw new UnauthorizedException({
-          code: AUTH_ERROR_CODES.ACCOUNT_LOCKED,
-          message: this.options.errorMessages?.accountLocked || defaultOptions.errorMessages?.accountLocked,
-        });
-      }
-      
-      // Get the password field from the user object
-      const passwordField = this.options.passwordField || defaultOptions.passwordField;
-      const hashedPassword = user[passwordField];
-      
-      if (!hashedPassword) {
-        this.logger.warn(`User ${username} has no password set`);
-        throw new UnauthorizedException({
-          code: AUTH_ERROR_CODES.INVALID_CREDENTIALS,
-          message: this.options.errorMessages?.invalidCredentials || defaultOptions.errorMessages?.invalidCredentials,
-        });
-      }
-      
+
       // Verify the password
-      const isPasswordValid = await verifyPassword(password, hashedPassword);
-      
+      const passwordHash = user[passwordField];
+      const isPasswordValid = await verifyPassword(passwordHash, password);
+
       if (!isPasswordValid) {
-        this.logger.debug(`Invalid password for user: ${username}`);
-        
-        // Update failed login attempts if tracking is enabled
-        if (user.failedLoginAttempts !== undefined) {
-          await this.updateFailedLoginAttempts(user);
-        }
-        
-        throw new UnauthorizedException({
-          code: AUTH_ERROR_CODES.INVALID_CREDENTIALS,
-          message: this.options.errorMessages?.invalidCredentials || defaultOptions.errorMessages?.invalidCredentials,
-        });
+        this.logger.debug(`Invalid password for user: ${email}`);
+        throw new InvalidCredentialsError(errorMessages.invalidCredentials);
       }
-      
-      // Check if password needs rehashing with newer/stronger algorithm
-      if (passwordNeedsRehash(hashedPassword)) {
-        this.logger.debug(`Rehashing password for user: ${username}`);
-        await this.updateUserPassword(user, password);
-      }
-      
-      // Reset failed login attempts if tracking is enabled
-      if (user.failedLoginAttempts !== undefined && user.failedLoginAttempts > 0) {
-        await this.resetFailedLoginAttempts(user);
-      }
-      
-      // Check if password has expired
-      if (user.passwordUpdatedAt && this.isPasswordExpired(user.passwordUpdatedAt)) {
-        this.logger.debug(`Password expired for user: ${username}`);
-        throw new UnauthorizedException({
-          code: AUTH_ERROR_CODES.PASSWORD_EXPIRED,
-          message: this.options.errorMessages?.passwordExpired || defaultOptions.errorMessages?.passwordExpired,
-        });
-      }
-      
-      // Update last login timestamp if tracking is enabled
-      if (user.lastLoginAt !== undefined) {
-        await this.updateLastLogin(user);
-      }
-      
-      return user as TUser;
+
+      // Remove the password hash from the returned user object
+      const { [passwordField]: _, ...userWithoutPassword } = user;
+
+      return userWithoutPassword as unknown as TUser;
     } catch (error) {
-      if (error instanceof UnauthorizedException) {
+      // If the error is already an AppError, rethrow it
+      if (error instanceof InvalidCredentialsError) {
         throw error;
       }
-      
-      this.logger.error('Error validating credentials:', error);
-      throw new UnauthorizedException({
-        code: AUTH_ERROR_CODES.INTERNAL_ERROR,
-        message: 'An internal error occurred during authentication',
-      });
+
+      // Log the error and throw a database error
+      this.logger.error(`Database error during authentication: ${error.message}`, error.stack);
+      throw new DatabaseError(
+        errorMessages.databaseError,
+        { originalError: error.message }
+      );
     }
   }
-  
+
   /**
-   * Validates a token and returns the associated user
+   * Validates a JWT token and returns the associated user
    * 
-   * @param token - Authentication token (JWT, session token, etc.)
-   * @returns Promise resolving to the authenticated user or null if validation fails
+   * @param payload - The decoded JWT payload
+   * @returns The authenticated user if token is valid, null otherwise
+   * @throws UnauthorizedError if token is invalid
+   * @throws DatabaseError if a database error occurs
    */
-  async validateToken(token: string): Promise<TUser | null> {
+  async validateToken(payload: JwtPayload): Promise<TUser | null> {
+    const { sub: userId } = payload;
+    const { userModel, selectFields, errorMessages } = this.options;
+
     try {
-      // This method would typically decode the JWT and validate it
-      // For database auth provider, we delegate this to the JWT provider
-      // This is just a placeholder implementation
-      this.logger.debug('Token validation not implemented in database provider');
-      return null;
+      // Build the query dynamically based on configuration
+      const select = selectFields.reduce((acc, field) => ({ ...acc, [field]: true }), {});
+
+      // Retrieve the user from the database
+      const user = await this.prisma[userModel].findUnique({
+        where: { id: userId },
+        select,
+      }) as TUser;
+
+      if (!user) {
+        this.logger.debug(`User not found for token validation: ${userId}`);
+        return null;
+      }
+
+      return user;
     } catch (error) {
-      this.logger.error('Error validating token:', error);
-      return null;
+      // Log the error and throw a database error
+      this.logger.error(`Database error during token validation: ${error.message}`, error.stack);
+      throw new DatabaseError(
+        errorMessages.databaseError,
+        { originalError: error.message }
+      );
     }
   }
-  
+
   /**
    * Retrieves a user by their unique identifier
    * 
-   * @param id - User identifier
-   * @returns Promise resolving to the user or null if not found
+   * @param userId - The unique identifier of the user
+   * @returns The user if found, null otherwise
+   * @throws DatabaseError if a database error occurs
    */
-  async getUserById(id: string): Promise<TUser | null> {
+  async findUserById(userId: string): Promise<TUser | null> {
+    const { userModel, selectFields, errorMessages } = this.options;
+
     try {
-      const userTable = this.options.userTable || defaultOptions.userTable;
-      
-      // Select fields to retrieve
-      const selectFields = this.getSelectFields();
-      
-      // Find the user by ID
-      const user = await this.prismaService[userTable].findUnique({
-        where: { id },
-        select: selectFields,
-      });
-      
-      return user as TUser || null;
-    } catch (error) {
-      this.logger.error(`Error retrieving user by ID ${id}:`, error);
-      return null;
-    }
-  }
-  
-  /**
-   * Generates a token for the authenticated user
-   * 
-   * @param user - Authenticated user
-   * @param expiresIn - Token expiration time in seconds (optional)
-   * @returns Promise resolving to the generated token
-   */
-  async generateToken(user: TUser, expiresIn?: number): Promise<string> {
-    // This method would typically generate a JWT
-    // For database auth provider, we delegate this to the JWT provider
-    // This is just a placeholder implementation
-    this.logger.debug('Token generation not implemented in database provider');
-    return 'database-auth-provider-token-placeholder';
-  }
-  
-  /**
-   * Decodes a token and returns its payload without validation
-   * 
-   * @param token - Authentication token
-   * @returns Promise resolving to the decoded token payload or null if decoding fails
-   */
-  async decodeToken(token: string): Promise<JwtPayload | null> {
-    // This method would typically decode the JWT without validation
-    // For database auth provider, we delegate this to the JWT provider
-    // This is just a placeholder implementation
-    this.logger.debug('Token decoding not implemented in database provider');
-    return null;
-  }
-  
-  /**
-   * Extracts the token from the request
-   * 
-   * @param request - HTTP request object
-   * @returns Extracted token or null if not found
-   */
-  extractTokenFromRequest(request: any): string | null {
-    // This method would typically extract the JWT from the Authorization header
-    // For database auth provider, we delegate this to the JWT provider
-    // This is just a placeholder implementation
-    this.logger.debug('Token extraction not implemented in database provider');
-    return null;
-  }
-  
-  /**
-   * Revokes a token, making it invalid for future authentication
-   * 
-   * @param token - Authentication token to revoke
-   * @returns Promise resolving to true if revocation was successful, false otherwise
-   */
-  async revokeToken(token: string): Promise<boolean> {
-    // This method would typically add the token to a blacklist or revoke it in the database
-    // For database auth provider, we delegate this to the JWT provider
-    // This is just a placeholder implementation
-    this.logger.debug('Token revocation not implemented in database provider');
-    return false;
-  }
-  
-  /**
-   * Refreshes an existing token and returns a new one
-   * 
-   * @param refreshToken - Refresh token
-   * @returns Promise resolving to the new access token or null if refresh fails
-   */
-  async refreshToken(refreshToken: string): Promise<string | null> {
-    // This method would typically validate the refresh token and generate a new access token
-    // For database auth provider, we delegate this to the JWT provider
-    // This is just a placeholder implementation
-    this.logger.debug('Token refresh not implemented in database provider');
-    return null;
-  }
-  
-  /**
-   * Finds a user by their username (email, username, etc.)
-   * 
-   * @param username - Username to search for
-   * @returns Promise resolving to the user or null if not found
-   * @private
-   */
-  private async findUserByUsername(username: string): Promise<Record<string, any> | null> {
-    try {
-      const userTable = this.options.userTable || defaultOptions.userTable;
-      const usernameField = this.options.usernameField || defaultOptions.usernameField;
-      const caseInsensitive = this.options.caseInsensitiveMatch ?? defaultOptions.caseInsensitiveMatch;
-      
-      // Select fields to retrieve
-      const selectFields = this.getSelectFields();
-      
-      // Build the query based on case sensitivity
-      let query: any;
-      
-      if (caseInsensitive) {
-        // Case-insensitive query using Prisma's mode: 'insensitive' option
-        query = {
-          where: {
-            [usernameField]: {
-              equals: username,
-              mode: 'insensitive',
-            },
-          },
-          select: selectFields,
-        };
-      } else {
-        // Case-sensitive query
-        query = {
-          where: {
-            [usernameField]: username,
-          },
-          select: selectFields,
-        };
-      }
-      
-      // Execute the query
-      const user = await this.prismaService[userTable].findFirst(query);
-      
+      // Build the query dynamically based on configuration
+      const select = selectFields.reduce((acc, field) => ({ ...acc, [field]: true }), {});
+
+      // Retrieve the user from the database
+      const user = await this.prisma[userModel].findUnique({
+        where: { id: userId },
+        select,
+      }) as TUser;
+
       return user || null;
     } catch (error) {
-      this.logger.error(`Error finding user by username ${username}:`, error);
-      return null;
+      // Log the error and throw a database error
+      this.logger.error(`Database error retrieving user by ID: ${error.message}`, error.stack);
+      throw new DatabaseError(
+        errorMessages.databaseError,
+        { originalError: error.message, userId }
+      );
     }
   }
-  
+
   /**
-   * Updates the user's password in the database
+   * Retrieves a user by their email address
    * 
-   * @param user - User object
-   * @param newPassword - New password (plain text)
-   * @returns Promise resolving to the updated user
-   * @private
+   * @param email - The email address of the user
+   * @returns The user if found, null otherwise
+   * @throws DatabaseError if a database error occurs
    */
-  private async updateUserPassword(user: Record<string, any>, newPassword: string): Promise<void> {
+  async findUserByEmail(email: string): Promise<TUser | null> {
+    const { userModel, usernameField, selectFields, errorMessages } = this.options;
+
     try {
-      const userTable = this.options.userTable || defaultOptions.userTable;
-      const passwordField = this.options.passwordField || defaultOptions.passwordField;
-      
-      // Hash the new password
-      const hashedPassword = await hashPassword(newPassword);
-      
-      // Update the user's password and password update timestamp
-      await this.prismaService[userTable].update({
-        where: { id: user.id },
-        data: {
-          [passwordField]: hashedPassword,
-          passwordUpdatedAt: new Date(),
-        },
-      });
-      
-      this.logger.debug(`Password updated for user ID: ${user.id}`);
+      // Build the query dynamically based on configuration
+      const where = { [usernameField]: email };
+      const select = selectFields.reduce((acc, field) => ({ ...acc, [field]: true }), {});
+
+      // Retrieve the user from the database
+      const user = await this.prisma[userModel].findUnique({
+        where,
+        select,
+      }) as TUser;
+
+      return user || null;
     } catch (error) {
-      this.logger.error(`Error updating password for user ID ${user.id}:`, error);
+      // Log the error and throw a database error
+      this.logger.error(`Database error retrieving user by email: ${error.message}`, error.stack);
+      throw new DatabaseError(
+        errorMessages.databaseError,
+        { originalError: error.message, email }
+      );
+    }
+  }
+
+  /**
+   * Creates a new access token for the authenticated user
+   * 
+   * @param user - The user for whom to create the token
+   * @returns The generated access token
+   * @throws Error if JWT service is not available
+   */
+  async createAccessToken(user: TUser): Promise<string> {
+    if (!this.jwtService) {
+      throw new Error('JWT service is not available. Make sure it is properly injected.');
+    }
+
+    const { jwt } = this.options;
+    const payload: JwtPayload = {
+      sub: user.id,
+      email: user.email,
+      name: user.name,
+      roles: user.roles || [],
+    };
+
+    return this.jwtService.sign(payload, {
+      expiresIn: jwt.accessTokenExpiration,
+      secret: jwt.secret,
+    });
+  }
+
+  /**
+   * Creates a new refresh token for the authenticated user
+   * 
+   * @param user - The user for whom to create the token
+   * @returns The generated refresh token
+   * @throws Error if JWT service is not available
+   */
+  async createRefreshToken(user: TUser): Promise<string> {
+    if (!this.jwtService) {
+      throw new Error('JWT service is not available. Make sure it is properly injected.');
+    }
+
+    const { jwt } = this.options;
+    const payload: JwtPayload = {
+      sub: user.id,
+      type: 'refresh',
+    };
+
+    return this.jwtService.sign(payload, {
+      expiresIn: jwt.refreshTokenExpiration,
+      secret: jwt.secret,
+    });
+  }
+
+  /**
+   * Validates a refresh token and returns a new access token
+   * 
+   * @param refreshToken - The refresh token to validate
+   * @returns A new access token if the refresh token is valid, null otherwise
+   * @throws UnauthorizedError if token is invalid
+   * @throws DatabaseError if a database error occurs
+   */
+  async refreshAccessToken(refreshToken: string): Promise<string | null> {
+    if (!this.jwtService) {
+      throw new Error('JWT service is not available. Make sure it is properly injected.');
+    }
+
+    try {
+      // Verify the refresh token
+      const payload = this.jwtService.verify(refreshToken, {
+        secret: this.options.jwt.secret,
+      }) as JwtPayload;
+
+      // Check if it's a refresh token
+      if (payload.type !== 'refresh') {
+        throw new UnauthorizedError('Invalid token type');
+      }
+
+      // Get the user from the database
+      const user = await this.findUserById(payload.sub);
+      if (!user) {
+        return null;
+      }
+
+      // Generate a new access token
+      return this.createAccessToken(user);
+    } catch (error) {
+      if (error.name === 'JsonWebTokenError' || error.name === 'TokenExpiredError') {
+        throw new UnauthorizedError('Invalid or expired refresh token');
+      }
       throw error;
     }
   }
-  
+
   /**
-   * Updates the failed login attempts counter for a user
+   * Revokes all active tokens for a user
    * 
-   * @param user - User object
-   * @returns Promise resolving when the update is complete
-   * @private
+   * @param userId - The unique identifier of the user
+   * @returns A promise that resolves when the operation is complete
+   * @throws DatabaseError if a database error occurs
+   * 
+   * Note: This implementation assumes a token blacklist table in the database.
+   * If your application uses a different approach for token revocation,
+   * this method should be overridden.
    */
-  private async updateFailedLoginAttempts(user: Record<string, any>): Promise<void> {
+  async revokeTokens(userId: string): Promise<void> {
     try {
-      const userTable = this.options.userTable || defaultOptions.userTable;
-      const currentAttempts = user.failedLoginAttempts || 0;
-      const lockoutThreshold = this.getConfigNumber('AUTH_LOCKOUT_THRESHOLD', 5);
-      
-      // Increment failed login attempts
-      const newAttempts = currentAttempts + 1;
-      
-      // Check if account should be locked
-      const shouldLock = newAttempts >= lockoutThreshold;
-      
-      // Update the user record
-      await this.prismaService[userTable].update({
-        where: { id: user.id },
-        data: {
-          failedLoginAttempts: newAttempts,
-          locked: shouldLock ? true : user.locked,
-          lockedAt: shouldLock ? new Date() : user.lockedAt,
-        },
-      });
-      
-      if (shouldLock) {
-        this.logger.warn(`Account locked for user ID ${user.id} after ${newAttempts} failed login attempts`);
+      // This is a simplified implementation that assumes a token blacklist table
+      // In a real application, you might use Redis or another mechanism for token blacklisting
+      if (this.prisma['tokenBlacklist']) {
+        await this.prisma['tokenBlacklist'].create({
+          data: {
+            userId,
+            revokedAt: new Date(),
+          },
+        });
       } else {
-        this.logger.debug(`Failed login attempts for user ID ${user.id}: ${newAttempts}`);
+        this.logger.warn('Token blacklist table not found. Token revocation may not be effective.');
       }
     } catch (error) {
-      this.logger.error(`Error updating failed login attempts for user ID ${user.id}:`, error);
+      this.logger.error(`Error revoking tokens for user ${userId}: ${error.message}`, error.stack);
+      throw new DatabaseError(
+        'Failed to revoke tokens',
+        { originalError: error.message, userId }
+      );
     }
-  }
-  
-  /**
-   * Resets the failed login attempts counter for a user
-   * 
-   * @param user - User object
-   * @returns Promise resolving when the update is complete
-   * @private
-   */
-  private async resetFailedLoginAttempts(user: Record<string, any>): Promise<void> {
-    try {
-      const userTable = this.options.userTable || defaultOptions.userTable;
-      
-      // Reset failed login attempts
-      await this.prismaService[userTable].update({
-        where: { id: user.id },
-        data: {
-          failedLoginAttempts: 0,
-        },
-      });
-      
-      this.logger.debug(`Reset failed login attempts for user ID: ${user.id}`);
-    } catch (error) {
-      this.logger.error(`Error resetting failed login attempts for user ID ${user.id}:`, error);
-    }
-  }
-  
-  /**
-   * Updates the last login timestamp for a user
-   * 
-   * @param user - User object
-   * @returns Promise resolving when the update is complete
-   * @private
-   */
-  private async updateLastLogin(user: Record<string, any>): Promise<void> {
-    try {
-      const userTable = this.options.userTable || defaultOptions.userTable;
-      
-      // Update last login timestamp
-      await this.prismaService[userTable].update({
-        where: { id: user.id },
-        data: {
-          lastLoginAt: new Date(),
-        },
-      });
-      
-      this.logger.debug(`Updated last login timestamp for user ID: ${user.id}`);
-    } catch (error) {
-      this.logger.error(`Error updating last login timestamp for user ID ${user.id}:`, error);
-    }
-  }
-  
-  /**
-   * Checks if a password has expired based on the last update timestamp
-   * 
-   * @param passwordUpdatedAt - Timestamp when the password was last updated
-   * @returns True if the password has expired, false otherwise
-   * @private
-   */
-  private isPasswordExpired(passwordUpdatedAt: Date): boolean {
-    // Get the maximum password age in days from configuration
-    const maxAgeDays = this.getConfigNumber('AUTH_PASSWORD_MAX_AGE', 90);
-    
-    // If max age is 0 or negative, passwords never expire
-    if (maxAgeDays <= 0) {
-      return false;
-    }
-    
-    // Calculate the expiration date
-    const expirationDate = new Date(passwordUpdatedAt);
-    expirationDate.setDate(expirationDate.getDate() + maxAgeDays);
-    
-    // Compare with current date
-    return new Date() > expirationDate;
-  }
-  
-  /**
-   * Gets the fields to select from the user table
-   * 
-   * @returns Object with field selections
-   * @private
-   */
-  private getSelectFields(): Record<string, boolean> {
-    const passwordField = this.options.passwordField || defaultOptions.passwordField;
-    const selectFields = this.options.selectFields || [];
-    
-    // Always include id and password field
-    const fields: Record<string, boolean> = {
-      id: true,
-      [passwordField]: true,
-    };
-    
-    // Add optional fields for account status tracking
-    const optionalFields = [
-      'disabled',
-      'locked',
-      'failedLoginAttempts',
-      'lastLoginAt',
-      'passwordUpdatedAt',
-      'lockedAt',
-    ];
-    
-    // Add all specified select fields
-    for (const field of [...selectFields, ...optionalFields]) {
-      fields[field] = true;
-    }
-    
-    return fields;
-  }
-  
-  /**
-   * Gets a number from configuration
-   * 
-   * @param key - Configuration key
-   * @param defaultValue - Default value if not found
-   * @returns Number value from configuration
-   * @private
-   */
-  private getConfigNumber(key: string, defaultValue: number): number {
-    if (!this.configService) {
-      return defaultValue;
-    }
-    
-    const value = this.configService.get<number>(key);
-    return value !== undefined ? value : defaultValue;
-  }
-  
-  /**
-   * Gets a boolean from configuration
-   * 
-   * @param key - Configuration key
-   * @param defaultValue - Default value if not found
-   * @returns Boolean value from configuration
-   * @private
-   */
-  private getConfigBoolean(key: string, defaultValue: boolean): boolean {
-    if (!this.configService) {
-      return defaultValue;
-    }
-    
-    const value = this.configService.get<boolean>(key);
-    return value !== undefined ? value : defaultValue;
-  }
-  
-  /**
-   * Gets a string from configuration
-   * 
-   * @param key - Configuration key
-   * @param defaultValue - Default value if not found
-   * @returns String value from configuration
-   * @private
-   */
-  private getConfigString(key: string, defaultValue: string): string {
-    if (!this.configService) {
-      return defaultValue;
-    }
-    
-    const value = this.configService.get<string>(key);
-    return value !== undefined ? value : defaultValue;
   }
 }
