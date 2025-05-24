@@ -1,5 +1,5 @@
 import { addons } from '@storybook/manager-api';
-import { austaTheme } from './theme';
+import austaTheme from './theme';
 
 addons.setConfig({
   // Apply the custom AUSTA theme to the Storybook UI
