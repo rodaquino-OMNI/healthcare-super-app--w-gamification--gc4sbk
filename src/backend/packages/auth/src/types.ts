@@ -1,383 +1,381 @@
 /**
  * @file Authentication system type definitions
- * @description Contains TypeScript type definitions specific to the authentication system,
- * including token payload types, authentication request types, and authentication configuration types.
+ * 
+ * This file contains TypeScript type definitions specific to the authentication system,
+ * including token payload types, authentication request types, and authentication
+ * configuration types. It enhances type safety across the authentication system by
+ * providing clear interface contracts, improving developer experience with
+ * autocompletion and compile-time type checking.
  */
 
-/**
- * JWT Token Types
- */
+import { Request } from 'express';
 
 /**
- * Standard JWT payload structure with user information and claims
+ * Supported authentication providers for social login
  */
-export interface TokenPayload {
-  /** Unique identifier for the user (subject) */
-  sub: string;
-  /** User's email address */
-  email: string;
-  /** User's roles for authorization */
-  roles: string[];
-  /** Journey-specific claims for cross-journey authorization */
-  journeyClaims?: Record<string, unknown>;
-  /** Token issued at timestamp (seconds since epoch) */
-  iat?: number;
-  /** Token expiration timestamp (seconds since epoch) */
-  exp?: number;
-  /** Token issuer identifier */
+export enum AuthProvider {
+  LOCAL = 'local',
+  GOOGLE = 'google',
+  FACEBOOK = 'facebook',
+  APPLE = 'apple',
+}
+
+/**
+ * Supported multi-factor authentication methods
+ */
+export enum MfaMethod {
+  SMS = 'sms',
+  EMAIL = 'email',
+  AUTHENTICATOR = 'authenticator',
+}
+
+/**
+ * Authentication event types for logging and monitoring
+ */
+export enum AuthEventType {
+  LOGIN = 'login',
+  LOGOUT = 'logout',
+  REGISTER = 'register',
+  PASSWORD_RESET = 'password_reset',
+  PASSWORD_CHANGE = 'password_change',
+  MFA_CHALLENGE = 'mfa_challenge',
+  MFA_VERIFY = 'mfa_verify',
+  TOKEN_REFRESH = 'token_refresh',
+  SOCIAL_LOGIN = 'social_login',
+}
+
+/**
+ * JWT token types
+ */
+export enum TokenType {
+  ACCESS = 'access',
+  REFRESH = 'refresh',
+  RESET_PASSWORD = 'reset_password',
+  VERIFY_EMAIL = 'verify_email',
+  MFA_CHALLENGE = 'mfa_challenge',
+}
+
+/**
+ * Standard claims included in JWT tokens
+ */
+export interface JwtClaims {
+  /** JWT issuer (who created and signed this token) */
   iss?: string;
-  /** Audience this token is intended for */
+  /** JWT subject (whom the token refers to) */
+  sub: string;
+  /** JWT audience (recipient for whom the token is intended) */
   aud?: string | string[];
-  /** JWT ID - unique identifier for this token */
+  /** Expiration time (as NumericDate) */
+  exp: number;
+  /** Not before (as NumericDate) */
+  nbf?: number;
+  /** Issued at (as NumericDate) */
+  iat: number;
+  /** JWT ID */
   jti?: string;
 }
 
 /**
- * Pair of access and refresh tokens used for authentication
+ * User information included in JWT token payload
  */
-export interface TokenPair {
-  /** JWT access token for API authorization */
-  accessToken: string;
-  /** Refresh token for obtaining new access tokens */
-  refreshToken: string;
-  /** Access token expiration timestamp (seconds since epoch) */
-  expiresAt: number;
+export interface TokenUserInfo {
+  /** User ID */
+  id: string;
+  /** User email */
+  email: string;
+  /** User roles */
+  roles: string[];
+  /** Journey-specific permissions */
+  permissions?: Record<string, string[]>;
 }
 
 /**
- * Standard response format for token-issuing operations
+ * Complete JWT token payload structure
  */
-export interface TokenResponse extends TokenPair {
+export interface TokenPayload extends JwtClaims, TokenUserInfo {
+  /** Token type (access, refresh, etc.) */
+  type: TokenType;
+  /** Provider used for authentication */
+  provider?: AuthProvider;
+  /** Journey context if applicable */
+  journeyContext?: string;
+}
+
+/**
+ * Token response returned to clients after successful authentication
+ */
+export interface TokenResponse {
+  /** JWT access token */
+  accessToken: string;
+  /** JWT refresh token */
+  refreshToken: string;
+  /** Access token expiration timestamp (in seconds) */
+  expiresIn: number;
   /** Token type (always 'Bearer' for JWT) */
   tokenType: 'Bearer';
 }
 
 /**
- * User Authentication Types
+ * Refresh token request payload
  */
-
-/**
- * Authenticated user information available in request objects
- */
-export interface AuthenticatedUser {
-  /** Unique identifier for the user */
-  id: string;
-  /** User's email address */
-  email: string;
-  /** User's display name */
-  name?: string;
-  /** User's assigned roles */
-  roles: string[];
-  /** User's permissions derived from roles */
-  permissions?: string[];
-  /** Journey-specific user attributes */
-  journeyAttributes?: Record<string, unknown>;
-  /** Last authentication timestamp */
-  lastAuthenticated?: Date;
+export interface RefreshTokenRequest {
+  /** JWT refresh token */
+  refreshToken: string;
 }
 
 /**
- * User credentials for login and registration
+ * Login request payload
  */
-export interface UserCredentials {
-  /** User's email address */
+export interface LoginRequest {
+  /** User email */
   email: string;
-  /** User's password (plain text for input only) */
+  /** User password */
   password: string;
-  /** User's display name (optional for login, required for registration) */
-  name?: string;
+  /** Remember user preference */
+  rememberMe?: boolean;
 }
 
 /**
- * Multi-factor authentication verification data
+ * Registration request payload
  */
-export interface MfaVerification {
-  /** Type of MFA method being used */
-  method: 'totp' | 'sms' | 'email';
-  /** Verification code provided by the user */
+export interface RegisterRequest {
+  /** User email */
+  email: string;
+  /** User password */
+  password: string;
+  /** User first name */
+  firstName: string;
+  /** User last name */
+  lastName: string;
+  /** User phone number */
+  phoneNumber?: string;
+}
+
+/**
+ * Social login request payload
+ */
+export interface SocialLoginRequest {
+  /** OAuth provider */
+  provider: AuthProvider;
+  /** Authorization code from OAuth provider */
   code: string;
-  /** User identifier for the verification */
-  userId: string;
-  /** Challenge identifier for this verification attempt */
-  challengeId?: string;
+  /** Redirect URI used in OAuth flow */
+  redirectUri?: string;
+  /** ID token (for Apple Sign In) */
+  idToken?: string;
 }
 
 /**
- * Session information for tracking authentication state
+ * Multi-factor authentication challenge request
  */
-export interface SessionInfo {
-  /** Unique session identifier */
+export interface MfaChallengeRequest {
+  /** User ID */
+  userId: string;
+  /** MFA method to use */
+  method: MfaMethod;
+}
+
+/**
+ * Multi-factor authentication verification request
+ */
+export interface MfaVerifyRequest {
+  /** Temporary token from MFA challenge */
+  token: string;
+  /** Verification code */
+  code: string;
+}
+
+/**
+ * Password reset request payload
+ */
+export interface PasswordResetRequest {
+  /** User email */
+  email: string;
+}
+
+/**
+ * Password reset confirmation payload
+ */
+export interface PasswordResetConfirmRequest {
+  /** Password reset token */
+  token: string;
+  /** New password */
+  password: string;
+}
+
+/**
+ * Password change request payload
+ */
+export interface PasswordChangeRequest {
+  /** Current password */
+  currentPassword: string;
+  /** New password */
+  newPassword: string;
+}
+
+/**
+ * Authentication result with token response
+ */
+export interface AuthResult {
+  /** User information */
+  user: UserResponse;
+  /** Token information */
+  tokens: TokenResponse;
+  /** Whether MFA is required */
+  mfaRequired?: boolean;
+  /** MFA challenge token if MFA is required */
+  mfaChallengeToken?: string;
+}
+
+/**
+ * Base user entity structure
+ */
+export interface User {
+  /** User ID */
   id: string;
-  /** User identifier associated with this session */
-  userId: string;
-  /** IP address that created this session */
-  ipAddress?: string;
-  /** User agent information for the session */
-  userAgent?: string;
-  /** Session creation timestamp */
+  /** User email */
+  email: string;
+  /** User first name */
+  firstName: string;
+  /** User last name */
+  lastName: string;
+  /** User phone number */
+  phoneNumber?: string;
+  /** Whether email is verified */
+  emailVerified: boolean;
+  /** Whether MFA is enabled */
+  mfaEnabled: boolean;
+  /** Preferred MFA method */
+  mfaMethod?: MfaMethod;
+  /** User creation date */
   createdAt: Date;
-  /** Last activity timestamp */
-  lastActiveAt: Date;
-  /** Session expiration timestamp */
-  expiresAt: Date;
-  /** Whether this session has been revoked */
-  isRevoked: boolean;
+  /** Last update date */
+  updatedAt: Date;
+  /** Authentication provider */
+  provider: AuthProvider;
+  /** External provider ID if using social login */
+  externalId?: string;
 }
 
 /**
- * Role and Permission Types
+ * User with roles and permissions
  */
+export interface UserWithRoles extends User {
+  /** User roles */
+  roles: Role[];
+}
 
 /**
- * Role definition for role-based access control
+ * User response returned to clients
+ */
+export interface UserResponse {
+  /** User ID */
+  id: string;
+  /** User email */
+  email: string;
+  /** User first name */
+  firstName: string;
+  /** User last name */
+  lastName: string;
+  /** User phone number */
+  phoneNumber?: string;
+  /** Whether email is verified */
+  emailVerified: boolean;
+  /** Whether MFA is enabled */
+  mfaEnabled: boolean;
+  /** Preferred MFA method */
+  mfaMethod?: MfaMethod;
+  /** User creation date */
+  createdAt: string;
+  /** Last update date */
+  updatedAt: string;
+  /** Authentication provider */
+  provider: AuthProvider;
+  /** User roles */
+  roles: string[];
+  /** Journey-specific permissions */
+  permissions?: Record<string, string[]>;
+}
+
+/**
+ * Role entity structure
  */
 export interface Role {
-  /** Unique identifier for the role */
+  /** Role ID */
   id: string;
-  /** Role name (e.g., 'admin', 'user', 'health-journey-user') */
+  /** Role name */
   name: string;
-  /** Human-readable description of the role */
+  /** Role description */
   description?: string;
-  /** Whether this is a system role that cannot be modified */
-  isSystem?: boolean;
-  /** Journey this role belongs to (null for global roles) */
-  journeyId?: string | null;
-  /** Permissions granted by this role */
+  /** Whether this is a system role */
+  isSystem: boolean;
+  /** Journey this role belongs to (if journey-specific) */
+  journey?: string;
+  /** Permissions assigned to this role */
   permissions?: Permission[];
 }
 
 /**
- * Permission definition for fine-grained access control
+ * Permission entity structure
  */
 export interface Permission {
-  /** Unique identifier for the permission */
+  /** Permission ID */
   id: string;
-  /** Permission name in format 'resource:action' (e.g., 'users:read') */
+  /** Permission name */
   name: string;
-  /** Human-readable description of the permission */
+  /** Permission description */
   description?: string;
   /** Resource this permission applies to */
   resource: string;
-  /** Action allowed on the resource */
+  /** Action this permission allows */
   action: string;
-  /** Conditions or constraints on this permission */
-  conditions?: Record<string, unknown>;
+  /** Journey this permission belongs to (if journey-specific) */
+  journey?: string;
 }
-
-/**
- * Role assignment linking users to roles
- */
-export interface RoleAssignment {
-  /** User identifier */
-  userId: string;
-  /** Role identifier */
-  roleId: string;
-  /** When this role was assigned */
-  assignedAt: Date;
-  /** Who assigned this role (user ID) */
-  assignedBy?: string;
-  /** When this role assignment expires (null for permanent) */
-  expiresAt?: Date | null;
-}
-
-/**
- * Authentication Response Types
- */
-
-/**
- * Response format for user registration
- */
-export interface RegisterResponse {
-  /** User information */
-  user: {
-    id: string;
-    email: string;
-    name?: string;
-  };
-  /** Authentication tokens */
-  tokens: TokenResponse;
-}
-
-/**
- * Response format for user login
- */
-export interface LoginResponse {
-  /** User information */
-  user: {
-    id: string;
-    email: string;
-    name?: string;
-    roles: string[];
-  };
-  /** Authentication tokens */
-  tokens: TokenResponse;
-}
-
-/**
- * Response format for token refresh
- */
-export interface RefreshTokenResponse {
-  /** New authentication tokens */
-  tokens: TokenResponse;
-}
-
-/**
- * Authentication Event Types
- */
-
-/**
- * Base interface for all authentication events
- */
-export interface BaseAuthEvent {
-  /** Event timestamp */
-  timestamp: Date;
-  /** User identifier */
-  userId: string;
-  /** IP address that triggered the event */
-  ipAddress?: string;
-  /** User agent information */
-  userAgent?: string;
-  /** Session identifier (if applicable) */
-  sessionId?: string;
-}
-
-/**
- * Login event data
- */
-export interface LoginEvent extends BaseAuthEvent {
-  /** Event type discriminator */
-  type: 'login';
-  /** Login method used */
-  method: 'password' | 'oauth' | 'token' | 'mfa';
-  /** Whether the login was successful */
-  success: boolean;
-  /** Error message if login failed */
-  errorMessage?: string;
-  /** OAuth provider if applicable */
-  oauthProvider?: string;
-}
-
-/**
- * Logout event data
- */
-export interface LogoutEvent extends BaseAuthEvent {
-  /** Event type discriminator */
-  type: 'logout';
-  /** Logout reason */
-  reason?: 'user_initiated' | 'session_expired' | 'admin_action' | 'security_violation';
-}
-
-/**
- * Registration event data
- */
-export interface RegistrationEvent extends BaseAuthEvent {
-  /** Event type discriminator */
-  type: 'registration';
-  /** Registration method used */
-  method: 'email_password' | 'oauth';
-  /** Whether the registration was successful */
-  success: boolean;
-  /** Error message if registration failed */
-  errorMessage?: string;
-  /** OAuth provider if applicable */
-  oauthProvider?: string;
-}
-
-/**
- * Password reset event data
- */
-export interface PasswordResetEvent extends BaseAuthEvent {
-  /** Event type discriminator */
-  type: 'password_reset';
-  /** Current stage in the password reset flow */
-  stage: 'requested' | 'token_validated' | 'completed';
-  /** Whether the operation was successful */
-  success: boolean;
-  /** Error message if the operation failed */
-  errorMessage?: string;
-}
-
-/**
- * MFA event data
- */
-export interface MfaEvent extends BaseAuthEvent {
-  /** Event type discriminator */
-  type: 'mfa';
-  /** MFA operation type */
-  operation: 'setup' | 'verify' | 'disable';
-  /** MFA method used */
-  method: 'totp' | 'sms' | 'email';
-  /** Whether the operation was successful */
-  success: boolean;
-  /** Error message if the operation failed */
-  errorMessage?: string;
-}
-
-/**
- * Token event data
- */
-export interface TokenEvent extends BaseAuthEvent {
-  /** Event type discriminator */
-  type: 'token';
-  /** Token operation type */
-  operation: 'issued' | 'refreshed' | 'revoked' | 'validated';
-  /** Token type */
-  tokenType: 'access' | 'refresh';
-  /** Whether the operation was successful */
-  success: boolean;
-  /** Error message if the operation failed */
-  errorMessage?: string;
-}
-
-/**
- * Union type for all authentication events
- */
-export type AuthEvent =
-  | LoginEvent
-  | LogoutEvent
-  | RegistrationEvent
-  | PasswordResetEvent
-  | MfaEvent
-  | TokenEvent;
-
-/**
- * Authentication Configuration Types
- */
 
 /**
  * JWT configuration options
  */
 export interface JwtConfig {
-  /** Secret key for signing JWTs */
+  /** Secret key for signing tokens */
   secret: string;
-  /** Access token expiration time in seconds */
+  /** Access token expiration time (in seconds) */
   accessTokenExpiration: number;
-  /** Refresh token expiration time in seconds */
+  /** Refresh token expiration time (in seconds) */
   refreshTokenExpiration: number;
-  /** JWT issuer claim */
+  /** Token issuer */
   issuer?: string;
-  /** JWT audience claim */
-  audience?: string | string[];
-  /** Whether to include timestamp claims (iat, exp) */
-  includeTimestampClaims?: boolean;
-  /** Algorithm to use for signing */
-  algorithm?: 'HS256' | 'HS384' | 'HS512' | 'RS256' | 'RS384' | 'RS512';
+  /** Token audience */
+  audience?: string;
+  /** Whether to use Redis for token blacklisting */
+  useRedisBlacklist?: boolean;
+  /** Redis connection options if using blacklist */
+  redis?: {
+    host: string;
+    port: number;
+    password?: string;
+    db?: number;
+  };
 }
 
 /**
  * OAuth provider configuration
  */
 export interface OAuthProviderConfig {
-  /** OAuth client ID */
+  /** Client ID */
   clientId: string;
-  /** OAuth client secret */
+  /** Client secret */
   clientSecret: string;
-  /** OAuth callback URL */
-  callbackUrl: string;
-  /** OAuth scopes to request */
-  scope: string[];
-  /** Additional provider-specific options */
-  options?: Record<string, unknown>;
+  /** Redirect URI */
+  redirectUri: string;
+  /** Authorization endpoint */
+  authorizationUrl?: string;
+  /** Token endpoint */
+  tokenUrl?: string;
+  /** User info endpoint */
+  userInfoUrl?: string;
+  /** Scope requested from provider */
+  scope?: string;
 }
 
 /**
@@ -389,55 +387,38 @@ export interface OAuthConfig {
   /** Facebook OAuth configuration */
   facebook?: OAuthProviderConfig;
   /** Apple OAuth configuration */
-  apple?: OAuthProviderConfig;
-  /** Microsoft OAuth configuration */
-  microsoft?: OAuthProviderConfig;
-  /** Additional OAuth providers */
-  [provider: string]: OAuthProviderConfig | undefined;
+  apple?: OAuthProviderConfig & {
+    /** Apple team ID */
+    teamId?: string;
+    /** Apple key ID */
+    keyId?: string;
+    /** Apple private key */
+    privateKey?: string;
+  };
 }
 
 /**
- * Password policy configuration
- */
-export interface PasswordPolicyConfig {
-  /** Minimum password length */
-  minLength: number;
-  /** Whether to require uppercase letters */
-  requireUppercase: boolean;
-  /** Whether to require lowercase letters */
-  requireLowercase: boolean;
-  /** Whether to require numbers */
-  requireNumbers: boolean;
-  /** Whether to require special characters */
-  requireSpecialChars: boolean;
-  /** Maximum password age in days (0 for no expiration) */
-  maxAgeDays: number;
-  /** Number of previous passwords to prevent reuse (0 to disable) */
-  preventReuse: number;
-}
-
-/**
- * MFA configuration options
+ * Multi-factor authentication configuration
  */
 export interface MfaConfig {
-  /** Whether MFA is enabled for the system */
+  /** Whether MFA is enabled */
   enabled: boolean;
   /** Available MFA methods */
-  methods: ('totp' | 'sms' | 'email')[];
-  /** Whether to enforce MFA for all users */
-  enforced: boolean;
-  /** User roles that require MFA */
-  requiredForRoles?: string[];
-  /** TOTP-specific configuration */
-  totp?: {
-    /** TOTP issuer name */
-    issuer: string;
-    /** TOTP algorithm */
-    algorithm: 'SHA1' | 'SHA256' | 'SHA512';
-    /** TOTP digits */
-    digits: 6 | 8;
-    /** TOTP period in seconds */
-    period: number;
+  methods: MfaMethod[];
+  /** Default MFA method */
+  defaultMethod?: MfaMethod;
+  /** MFA token expiration time (in seconds) */
+  challengeTokenExpiration: number;
+  /** SMS provider configuration */
+  sms?: {
+    provider: string;
+    apiKey: string;
+    from: string;
+  };
+  /** Email provider configuration */
+  email?: {
+    from: string;
+    templateId?: string;
   };
 }
 
@@ -449,26 +430,94 @@ export interface AuthConfig {
   jwt: JwtConfig;
   /** OAuth configuration */
   oauth?: OAuthConfig;
-  /** Password policy configuration */
-  passwordPolicy: PasswordPolicyConfig;
   /** MFA configuration */
   mfa?: MfaConfig;
-  /** Session configuration */
-  session?: {
-    /** Session duration in seconds */
-    duration: number;
-    /** Whether to use sliding expiration */
-    slidingExpiration: boolean;
-    /** Whether to enforce single session per user */
-    singleSession: boolean;
-  };
-  /** Rate limiting configuration */
-  rateLimit?: {
-    /** Max login attempts before lockout */
-    maxLoginAttempts: number;
-    /** Lockout duration in seconds */
-    lockoutDuration: number;
-    /** Whether to use exponential backoff for repeated failures */
-    useExponentialBackoff: boolean;
+  /** Password policy configuration */
+  passwordPolicy?: {
+    /** Minimum password length */
+    minLength: number;
+    /** Whether to require uppercase letters */
+    requireUppercase: boolean;
+    /** Whether to require lowercase letters */
+    requireLowercase: boolean;
+    /** Whether to require numbers */
+    requireNumbers: boolean;
+    /** Whether to require special characters */
+    requireSpecialChars: boolean;
+    /** Maximum password age (in days) */
+    maxAge?: number;
   };
 }
+
+/**
+ * Authentication event structure for logging and monitoring
+ */
+export interface AuthEvent {
+  /** Event type */
+  type: AuthEventType;
+  /** User ID */
+  userId?: string;
+  /** User email */
+  email?: string;
+  /** Authentication provider */
+  provider?: AuthProvider;
+  /** IP address */
+  ipAddress?: string;
+  /** User agent */
+  userAgent?: string;
+  /** Event timestamp */
+  timestamp: Date;
+  /** Event status (success/failure) */
+  status: 'success' | 'failure';
+  /** Error message if status is failure */
+  error?: string;
+  /** Additional metadata */
+  metadata?: Record<string, any>;
+}
+
+/**
+ * Express request with authenticated user
+ */
+export interface AuthenticatedRequest extends Request {
+  /** Authenticated user */
+  user?: TokenUserInfo;
+}
+
+/**
+ * Discriminated union type for auth events
+ */
+export type AuthEventUnion =
+  | { type: AuthEventType.LOGIN; email: string; provider: AuthProvider; rememberMe?: boolean }
+  | { type: AuthEventType.LOGOUT; userId: string }
+  | { type: AuthEventType.REGISTER; email: string; provider: AuthProvider }
+  | { type: AuthEventType.PASSWORD_RESET; email: string }
+  | { type: AuthEventType.PASSWORD_CHANGE; userId: string }
+  | { type: AuthEventType.MFA_CHALLENGE; userId: string; method: MfaMethod }
+  | { type: AuthEventType.MFA_VERIFY; userId: string; method: MfaMethod }
+  | { type: AuthEventType.TOKEN_REFRESH; userId: string }
+  | { type: AuthEventType.SOCIAL_LOGIN; email: string; provider: AuthProvider };
+
+/**
+ * Utility type for extracting user properties
+ */
+export type UserProperty<T extends keyof User> = User[T];
+
+/**
+ * Utility type for creating a partial user with required fields
+ */
+export type PartialUserWithRequired<RequiredKeys extends keyof User> = 
+  Pick<User, RequiredKeys> & Partial<Omit<User, RequiredKeys>>;
+
+/**
+ * Utility type for token operations
+ */
+export type TokenOperation = {
+  /** Operation type */
+  operation: 'create' | 'verify' | 'refresh' | 'revoke';
+  /** Token type */
+  tokenType: TokenType;
+  /** Token payload for create operations */
+  payload?: Omit<TokenPayload, keyof JwtClaims>;
+  /** Token string for verify/refresh/revoke operations */
+  token?: string;
+};
