@@ -1,70 +1,110 @@
+/**
+ * Custom Storybook theme for AUSTA SuperApp design system
+ * 
+ * This file defines the visual appearance of the Storybook UI (not the components)
+ * to ensure consistent branding and visual identity across all documentation.
+ * 
+ * The theme uses the same color tokens and typography as the AUSTA design system
+ * to create a cohesive experience between the components and their documentation.
+ */
+
 import { create } from '@storybook/theming/create';
 
+// Import our design tokens
+// Note: We're not directly importing from the primitives package to avoid circular dependencies
+// These values should be kept in sync with src/web/primitives/src/tokens/colors.ts
+const colors = {
+  brand: {
+    primary: '#0066CC',    // Primary brand color
+    secondary: '#00A3E0',  // Secondary brand color
+    tertiary: '#6D2077',   // Tertiary brand color for accents
+  },
+  neutral: {
+    white: '#FFFFFF',
+    gray100: '#F5F5F5',
+    gray200: '#EEEEEE',
+    gray300: '#E0E0E0',
+    gray400: '#BDBDBD',
+    gray500: '#9E9E9E',
+    gray600: '#757575',
+    gray700: '#616161',
+    gray800: '#424242',
+    gray900: '#212121',
+    black: '#000000',
+  },
+  journeys: {
+    health: '#0ACF83',    // Health journey color (Green)
+    care: '#FF8C42',      // Care journey color (Orange)
+    plan: '#3A86FF',      // Plan journey color (Blue)
+  },
+  semantic: {
+    success: '#00C853',  // Success color
+    warning: '#FFD600',  // Warning color
+    error: '#FF3B30',    // Error color
+    info: '#0066CC',     // Info color (same as brand.primary)
+  }
+};
+
 /**
- * AUSTA SuperApp Storybook Theme
+ * Custom AUSTA Storybook theme
  * 
- * This theme customizes the Storybook UI to match AUSTA's brand guidelines
- * and design system. It applies brand colors, typography, and branding elements
- * to create a cohesive documentation experience.
+ * This theme customizes the Storybook UI to match AUSTA brand guidelines
+ * and creates visual consistency with the design system components.
  */
 export default create({
-  // Base theme (light or dark)
+  // Base theme
   base: 'light',
-
+  
   // Brand information
-  brandTitle: 'AUSTA Design System',
-  brandUrl: 'https://austa.health',
-  brandImage: '/austa-logo.png', // Logo should be placed in the public folder
+  brandTitle: 'AUSTA SuperApp Design System',
+  brandUrl: '/',
+  // Note: In a production environment, this would be replaced with an actual logo path
+  // such as '/images/austa-logo.svg' or a direct import of an SVG file
+  brandImage: 'https://place-hold.it/350x150?text=AUSTA%20SuperApp&fontsize=23',
   brandTarget: '_self',
-
-  // Typography
-  fontBase: '"Open Sans", "Roboto", sans-serif',
-  fontCode: '"Roboto Mono", monospace',
-
-  // Colors
-  // Primary brand color used for active elements, buttons, etc.
-  colorPrimary: '#0066CC', // AUSTA brand primary blue
-  // Secondary color for highlights and secondary actions
-  colorSecondary: '#34C759', // Health journey green as accent
-
+  
   // UI colors
-  appBg: '#FFFFFF', // White background
-  appContentBg: '#FAFAFA', // Slightly off-white for content areas
-  appBorderColor: '#E6E6E6', // Light gray for borders
-  appBorderRadius: 4, // Rounded corners for UI elements
-
+  colorPrimary: colors.brand.primary,
+  colorSecondary: colors.brand.secondary,
+  
+  // UI Application colors
+  appBg: colors.neutral.white,
+  appContentBg: colors.neutral.white,
+  appBorderColor: colors.neutral.gray300,
+  appBorderRadius: 4,
+  
+  // Typography
+  fontBase: '"Roboto", "Helvetica Neue", Helvetica, Arial, sans-serif',
+  fontCode: 'monospace',
+  
   // Text colors
-  textColor: '#333333', // Dark gray for primary text
-  textInverseColor: '#FFFFFF', // White for text on dark backgrounds
-  textMutedColor: '#666666', // Medium gray for secondary text
-
+  textColor: colors.neutral.gray900,
+  textInverseColor: colors.neutral.white,
+  textMutedColor: colors.neutral.gray600,
+  
   // Toolbar colors
-  barTextColor: '#666666', // Medium gray for toolbar text
-  barSelectedColor: '#0066CC', // Primary blue for selected items
-  barHoverColor: '#34C759', // Health green for hover states
-  barBg: '#FFFFFF', // White background for toolbar
-
+  barTextColor: colors.neutral.gray700,
+  barSelectedColor: colors.brand.primary,
+  barBg: colors.neutral.white,
+  
   // Form colors
-  inputBg: '#FFFFFF', // White background for inputs
-  inputBorder: '#CCCCCC', // Light gray for input borders
-  inputTextColor: '#333333', // Dark gray for input text
-  inputBorderRadius: 4, // Rounded corners for inputs
-
-  // Journey-specific accent colors (used in custom components)
+  inputBg: colors.neutral.white,
+  inputBorder: colors.neutral.gray400,
+  inputTextColor: colors.neutral.gray900,
+  inputBorderRadius: 4,
+  
+  // Journey-specific accent colors for UI elements
+  // These are used in custom addons and UI elements
   journeyColors: {
-    health: '#34C759', // Green for health journey
-    care: '#FF8C42', // Orange for care journey
-    plan: '#007AFF', // Blue for plan journey
+    health: colors.journeys.health,
+    care: colors.journeys.care,
+    plan: colors.journeys.plan,
   },
-
+  
   // Button appearance
-  buttonBg: '#0066CC',
-  buttonTextColor: '#FFFFFF',
-
-  // Addon panel appearance
-  addonActionsTheme: {
-    // Customize the Actions addon appearance
-    BASE_FONT_FAMILY: '"Roboto Mono", monospace',
-    BASE_BACKGROUND_COLOR: 'transparent',
-  },
+  buttonBg: colors.brand.primary,
+  buttonBorder: colors.brand.primary,
+  
+  // Additional customizations for specific Storybook UI elements
+  gridCellSize: 12,
 });
