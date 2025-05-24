@@ -1,620 +1,563 @@
 /**
  * Test fixtures for role-based access control (RBAC) testing.
  * 
- * This file provides sample role data structures for testing authentication and authorization
- * across the AUSTA SuperApp, including role definitions, permission sets, and role hierarchies.
- * 
- * These fixtures are essential for testing the RolesGuard and role-based authorization
- * across all three journeys (Health, Care, Plan) and the gamification system.
+ * This file provides sample role data structures for testing the RolesGuard
+ * and role-based authorization across the AUSTA SuperApp. It includes role
+ * definitions, permission sets, and role hierarchies for all three journeys:
+ * Health, Care, and Plan.
  */
-
-import { JourneyType } from '../../src/interfaces/journey.enum';
 
 /**
- * Permission fixture interface matching the Permission entity structure
+ * Interface representing a permission for testing purposes
  */
-export interface PermissionFixture {
+export interface TestPermission {
   id: number;
   name: string;
   description: string;
 }
 
 /**
- * Role fixture interface matching the Role entity structure
+ * Interface representing a role for testing purposes
  */
-export interface RoleFixture {
+export interface TestRole {
   id: number;
   name: string;
   description: string;
-  journey: JourneyType | null;
+  journey: string | null;
   isDefault: boolean;
-  permissions: PermissionFixture[];
+  permissions: TestPermission[];
 }
 
 /**
- * User with roles fixture interface for testing authorization
+ * Sample permissions for testing, organized by journey and resource
  */
-export interface UserWithRolesFixture {
-  id: string;
-  email: string;
-  firstName: string;
-  lastName: string;
-  roles: RoleFixture[];
-}
-
-/**
- * Sample permission fixtures for testing
- * 
- * Permissions follow the format: journey:resource:action
- * For global permissions: resource:action
- */
-export const permissionFixtures: Record<string, PermissionFixture> = {
+export const testPermissions: Record<string, TestPermission> = {
   // Global permissions
-  viewUsers: {
+  viewProfile: {
     id: 1,
-    name: 'users:read',
-    description: 'View user information'
+    name: 'global:profile:read',
+    description: 'View user profile information'
+  },
+  updateProfile: {
+    id: 2,
+    name: 'global:profile:update',
+    description: 'Update user profile information'
   },
   manageUsers: {
-    id: 2,
-    name: 'users:write',
-    description: 'Create, update, and delete users'
-  },
-  viewRoles: {
     id: 3,
-    name: 'roles:read',
-    description: 'View roles and permissions'
-  },
-  manageRoles: {
-    id: 4,
-    name: 'roles:write',
-    description: 'Create, update, and delete roles'
-  },
-  viewSettings: {
-    id: 5,
-    name: 'settings:read',
-    description: 'View application settings'
-  },
-  manageSettings: {
-    id: 6,
-    name: 'settings:write',
-    description: 'Update application settings'
+    name: 'global:users:manage',
+    description: 'Manage user accounts'
   },
   
   // Health journey permissions
   viewHealthMetrics: {
-    id: 7,
+    id: 101,
     name: 'health:metrics:read',
     description: 'View health metrics'
   },
-  manageHealthMetrics: {
-    id: 8,
-    name: 'health:metrics:write',
-    description: 'Create and update health metrics'
+  createHealthMetrics: {
+    id: 102,
+    name: 'health:metrics:create',
+    description: 'Create health metrics'
+  },
+  updateHealthMetrics: {
+    id: 103,
+    name: 'health:metrics:update',
+    description: 'Update health metrics'
+  },
+  deleteHealthMetrics: {
+    id: 104,
+    name: 'health:metrics:delete',
+    description: 'Delete health metrics'
   },
   viewHealthGoals: {
-    id: 9,
+    id: 105,
     name: 'health:goals:read',
     description: 'View health goals'
   },
-  manageHealthGoals: {
-    id: 10,
-    name: 'health:goals:write',
-    description: 'Create, update, and delete health goals'
+  createHealthGoals: {
+    id: 106,
+    name: 'health:goals:create',
+    description: 'Create health goals'
   },
-  connectDevices: {
-    id: 11,
-    name: 'health:devices:connect',
-    description: 'Connect and manage health devices'
+  updateHealthGoals: {
+    id: 107,
+    name: 'health:goals:update',
+    description: 'Update health goals'
   },
-  viewMedicalHistory: {
-    id: 12,
-    name: 'health:history:read',
-    description: 'View medical history'
+  deleteHealthGoals: {
+    id: 108,
+    name: 'health:goals:delete',
+    description: 'Delete health goals'
   },
-  manageMedicalHistory: {
-    id: 13,
-    name: 'health:history:write',
-    description: 'Update medical history'
+  manageDevices: {
+    id: 109,
+    name: 'health:devices:manage',
+    description: 'Manage connected health devices'
   },
   
   // Care journey permissions
   viewAppointments: {
-    id: 14,
+    id: 201,
     name: 'care:appointments:read',
     description: 'View appointments'
   },
-  scheduleAppointments: {
-    id: 15,
-    name: 'care:appointments:write',
-    description: 'Schedule and manage appointments'
+  createAppointments: {
+    id: 202,
+    name: 'care:appointments:create',
+    description: 'Schedule appointments'
+  },
+  updateAppointments: {
+    id: 203,
+    name: 'care:appointments:update',
+    description: 'Update appointments'
+  },
+  cancelAppointments: {
+    id: 204,
+    name: 'care:appointments:cancel',
+    description: 'Cancel appointments'
   },
   viewProviders: {
-    id: 16,
+    id: 205,
     name: 'care:providers:read',
     description: 'View healthcare providers'
   },
   manageProviders: {
-    id: 17,
-    name: 'care:providers:write',
-    description: 'Manage healthcare provider information'
+    id: 206,
+    name: 'care:providers:manage',
+    description: 'Manage healthcare providers'
   },
   viewMedications: {
-    id: 18,
+    id: 207,
     name: 'care:medications:read',
     description: 'View medications'
   },
   manageMedications: {
-    id: 19,
-    name: 'care:medications:write',
-    description: 'Manage medication schedules'
+    id: 208,
+    name: 'care:medications:manage',
+    description: 'Manage medications'
   },
   accessTelemedicine: {
-    id: 20,
+    id: 209,
     name: 'care:telemedicine:access',
     description: 'Access telemedicine services'
   },
   provideTelemedicine: {
-    id: 21,
+    id: 210,
     name: 'care:telemedicine:provide',
     description: 'Provide telemedicine services'
   },
   
   // Plan journey permissions
-  viewCoverage: {
-    id: 22,
-    name: 'plan:coverage:read',
-    description: 'View insurance coverage information'
+  viewPlans: {
+    id: 301,
+    name: 'plan:plans:read',
+    description: 'View insurance plans'
   },
-  viewClaims: {
-    id: 23,
-    name: 'plan:claims:read',
-    description: 'View insurance claims'
-  },
-  submitClaims: {
-    id: 24,
-    name: 'plan:claims:submit',
-    description: 'Submit insurance claims'
-  },
-  manageClaims: {
-    id: 25,
-    name: 'plan:claims:manage',
-    description: 'Manage and process insurance claims'
+  managePlans: {
+    id: 302,
+    name: 'plan:plans:manage',
+    description: 'Manage insurance plans'
   },
   viewBenefits: {
-    id: 26,
+    id: 303,
     name: 'plan:benefits:read',
     description: 'View insurance benefits'
   },
   manageBenefits: {
-    id: 27,
-    name: 'plan:benefits:write',
+    id: 304,
+    name: 'plan:benefits:manage',
     description: 'Manage insurance benefits'
+  },
+  viewClaims: {
+    id: 305,
+    name: 'plan:claims:read',
+    description: 'View insurance claims'
+  },
+  submitClaims: {
+    id: 306,
+    name: 'plan:claims:submit',
+    description: 'Submit insurance claims'
+  },
+  approveClaims: {
+    id: 307,
+    name: 'plan:claims:approve',
+    description: 'Approve insurance claims'
+  },
+  rejectClaims: {
+    id: 308,
+    name: 'plan:claims:reject',
+    description: 'Reject insurance claims'
+  },
+  viewCoverage: {
+    id: 309,
+    name: 'plan:coverage:read',
+    description: 'View insurance coverage'
+  },
+  manageCoverage: {
+    id: 310,
+    name: 'plan:coverage:manage',
+    description: 'Manage insurance coverage'
   },
   
   // Gamification permissions
   viewAchievements: {
-    id: 28,
+    id: 401,
     name: 'gamification:achievements:read',
-    description: 'View achievements and progress'
+    description: 'View achievements'
   },
   manageAchievements: {
-    id: 29,
-    name: 'gamification:achievements:write',
-    description: 'Create and manage achievements'
-  },
-  viewLeaderboard: {
-    id: 30,
-    name: 'gamification:leaderboard:read',
-    description: 'View leaderboards'
+    id: 402,
+    name: 'gamification:achievements:manage',
+    description: 'Manage achievements'
   },
   viewRewards: {
-    id: 31,
+    id: 403,
     name: 'gamification:rewards:read',
-    description: 'View available rewards'
+    description: 'View rewards'
   },
   manageRewards: {
-    id: 32,
-    name: 'gamification:rewards:write',
-    description: 'Create and manage rewards'
+    id: 404,
+    name: 'gamification:rewards:manage',
+    description: 'Manage rewards'
   },
-  redeemRewards: {
-    id: 33,
-    name: 'gamification:rewards:redeem',
-    description: 'Redeem rewards'
+  viewLeaderboard: {
+    id: 405,
+    name: 'gamification:leaderboard:read',
+    description: 'View leaderboard'
+  },
+  manageLeaderboard: {
+    id: 406,
+    name: 'gamification:leaderboard:manage',
+    description: 'Manage leaderboard'
   }
 };
 
 /**
- * Sample role fixtures for testing
- * 
- * Includes global roles and journey-specific roles with associated permissions
+ * Permission sets grouped by role type for easier role creation
  */
-export const roleFixtures: Record<string, RoleFixture> = {
+export const permissionSets = {
+  // Global permission sets
+  basicUser: [
+    testPermissions.viewProfile,
+    testPermissions.updateProfile,
+    testPermissions.viewAchievements,
+    testPermissions.viewRewards,
+    testPermissions.viewLeaderboard
+  ],
+  admin: [
+    testPermissions.viewProfile,
+    testPermissions.updateProfile,
+    testPermissions.manageUsers,
+    testPermissions.manageAchievements,
+    testPermissions.manageRewards,
+    testPermissions.manageLeaderboard
+  ],
+  
+  // Health journey permission sets
+  healthViewer: [
+    testPermissions.viewHealthMetrics,
+    testPermissions.viewHealthGoals
+  ],
+  healthUser: [
+    testPermissions.viewHealthMetrics,
+    testPermissions.createHealthMetrics,
+    testPermissions.updateHealthMetrics,
+    testPermissions.viewHealthGoals,
+    testPermissions.createHealthGoals,
+    testPermissions.updateHealthGoals,
+    testPermissions.manageDevices
+  ],
+  healthManager: [
+    testPermissions.viewHealthMetrics,
+    testPermissions.createHealthMetrics,
+    testPermissions.updateHealthMetrics,
+    testPermissions.deleteHealthMetrics,
+    testPermissions.viewHealthGoals,
+    testPermissions.createHealthGoals,
+    testPermissions.updateHealthGoals,
+    testPermissions.deleteHealthGoals,
+    testPermissions.manageDevices
+  ],
+  
+  // Care journey permission sets
+  careViewer: [
+    testPermissions.viewAppointments,
+    testPermissions.viewProviders,
+    testPermissions.viewMedications
+  ],
+  careUser: [
+    testPermissions.viewAppointments,
+    testPermissions.createAppointments,
+    testPermissions.updateAppointments,
+    testPermissions.cancelAppointments,
+    testPermissions.viewProviders,
+    testPermissions.viewMedications,
+    testPermissions.manageMedications,
+    testPermissions.accessTelemedicine
+  ],
+  careProvider: [
+    testPermissions.viewAppointments,
+    testPermissions.updateAppointments,
+    testPermissions.cancelAppointments,
+    testPermissions.viewProviders,
+    testPermissions.viewMedications,
+    testPermissions.manageMedications,
+    testPermissions.accessTelemedicine,
+    testPermissions.provideTelemedicine
+  ],
+  careManager: [
+    testPermissions.viewAppointments,
+    testPermissions.createAppointments,
+    testPermissions.updateAppointments,
+    testPermissions.cancelAppointments,
+    testPermissions.viewProviders,
+    testPermissions.manageProviders,
+    testPermissions.viewMedications,
+    testPermissions.manageMedications,
+    testPermissions.accessTelemedicine,
+    testPermissions.provideTelemedicine
+  ],
+  
+  // Plan journey permission sets
+  planViewer: [
+    testPermissions.viewPlans,
+    testPermissions.viewBenefits,
+    testPermissions.viewClaims,
+    testPermissions.viewCoverage
+  ],
+  planUser: [
+    testPermissions.viewPlans,
+    testPermissions.viewBenefits,
+    testPermissions.viewClaims,
+    testPermissions.submitClaims,
+    testPermissions.viewCoverage
+  ],
+  planManager: [
+    testPermissions.viewPlans,
+    testPermissions.managePlans,
+    testPermissions.viewBenefits,
+    testPermissions.manageBenefits,
+    testPermissions.viewClaims,
+    testPermissions.submitClaims,
+    testPermissions.approveClaims,
+    testPermissions.rejectClaims,
+    testPermissions.viewCoverage,
+    testPermissions.manageCoverage
+  ]
+};
+
+/**
+ * Sample roles for testing, including global and journey-specific roles
+ */
+export const testRoles: Record<string, TestRole> = {
   // Global roles
-  superadmin: {
-    id: 1,
-    name: 'superadmin',
-    description: 'Super administrator with full system access',
-    journey: null,
-    isDefault: false,
-    permissions: Object.values(permissionFixtures)
-  },
   admin: {
-    id: 2,
+    id: 1,
     name: 'admin',
-    description: 'Administrator with access to all journeys',
+    description: 'Administrator with full access to all features',
     journey: null,
     isDefault: false,
-    permissions: [
-      permissionFixtures.viewUsers,
-      permissionFixtures.manageUsers,
-      permissionFixtures.viewRoles,
-      permissionFixtures.manageRoles,
-      permissionFixtures.viewSettings,
-      permissionFixtures.manageSettings,
-      // Health journey admin permissions
-      permissionFixtures.viewHealthMetrics,
-      permissionFixtures.manageHealthMetrics,
-      permissionFixtures.viewHealthGoals,
-      permissionFixtures.manageHealthGoals,
-      permissionFixtures.connectDevices,
-      permissionFixtures.viewMedicalHistory,
-      permissionFixtures.manageMedicalHistory,
-      // Care journey admin permissions
-      permissionFixtures.viewAppointments,
-      permissionFixtures.scheduleAppointments,
-      permissionFixtures.viewProviders,
-      permissionFixtures.manageProviders,
-      permissionFixtures.viewMedications,
-      permissionFixtures.manageMedications,
-      permissionFixtures.accessTelemedicine,
-      // Plan journey admin permissions
-      permissionFixtures.viewCoverage,
-      permissionFixtures.viewClaims,
-      permissionFixtures.submitClaims,
-      permissionFixtures.manageClaims,
-      permissionFixtures.viewBenefits,
-      permissionFixtures.manageBenefits,
-      // Gamification admin permissions
-      permissionFixtures.viewAchievements,
-      permissionFixtures.manageAchievements,
-      permissionFixtures.viewLeaderboard,
-      permissionFixtures.viewRewards,
-      permissionFixtures.manageRewards
-    ]
+    permissions: permissionSets.admin
   },
   user: {
-    id: 3,
+    id: 2,
     name: 'user',
-    description: 'Standard user with basic access',
+    description: 'Basic user with limited access',
     journey: null,
     isDefault: true,
-    permissions: [
-      // Basic user permissions across all journeys
-      permissionFixtures.viewHealthMetrics,
-      permissionFixtures.viewHealthGoals,
-      permissionFixtures.connectDevices,
-      permissionFixtures.viewMedicalHistory,
-      permissionFixtures.viewAppointments,
-      permissionFixtures.scheduleAppointments,
-      permissionFixtures.viewProviders,
-      permissionFixtures.viewMedications,
-      permissionFixtures.accessTelemedicine,
-      permissionFixtures.viewCoverage,
-      permissionFixtures.viewClaims,
-      permissionFixtures.submitClaims,
-      permissionFixtures.viewBenefits,
-      permissionFixtures.viewAchievements,
-      permissionFixtures.viewLeaderboard,
-      permissionFixtures.viewRewards,
-      permissionFixtures.redeemRewards
-    ]
+    permissions: permissionSets.basicUser
   },
   
   // Health journey roles
-  healthAdmin: {
-    id: 4,
-    name: 'health:admin',
-    description: 'Health journey administrator',
-    journey: JourneyType.HEALTH,
-    isDefault: false,
-    permissions: [
-      permissionFixtures.viewHealthMetrics,
-      permissionFixtures.manageHealthMetrics,
-      permissionFixtures.viewHealthGoals,
-      permissionFixtures.manageHealthGoals,
-      permissionFixtures.connectDevices,
-      permissionFixtures.viewMedicalHistory,
-      permissionFixtures.manageMedicalHistory
-    ]
-  },
   healthViewer: {
-    id: 5,
+    id: 101,
     name: 'health:viewer',
-    description: 'Health journey viewer (read-only)',
-    journey: JourneyType.HEALTH,
+    description: 'User who can view health data but not modify it',
+    journey: 'health',
     isDefault: false,
-    permissions: [
-      permissionFixtures.viewHealthMetrics,
-      permissionFixtures.viewHealthGoals,
-      permissionFixtures.viewMedicalHistory
-    ]
+    permissions: [...permissionSets.basicUser, ...permissionSets.healthViewer]
   },
-  caregiver: {
-    id: 6,
-    name: 'health:caregiver',
-    description: 'Caregiver with limited health management permissions',
-    journey: JourneyType.HEALTH,
+  healthUser: {
+    id: 102,
+    name: 'health:user',
+    description: 'User who can manage their own health data',
+    journey: 'health',
+    isDefault: true,
+    permissions: [...permissionSets.basicUser, ...permissionSets.healthUser]
+  },
+  healthManager: {
+    id: 103,
+    name: 'health:manager',
+    description: 'User who can manage all health data',
+    journey: 'health',
     isDefault: false,
-    permissions: [
-      permissionFixtures.viewHealthMetrics,
-      permissionFixtures.manageHealthMetrics,
-      permissionFixtures.viewHealthGoals,
-      permissionFixtures.manageHealthGoals,
-      permissionFixtures.viewMedicalHistory
-    ]
+    permissions: [...permissionSets.basicUser, ...permissionSets.healthManager]
   },
   
   // Care journey roles
-  careAdmin: {
-    id: 7,
-    name: 'care:admin',
-    description: 'Care journey administrator',
-    journey: JourneyType.CARE,
+  careViewer: {
+    id: 201,
+    name: 'care:viewer',
+    description: 'User who can view care data but not modify it',
+    journey: 'care',
     isDefault: false,
-    permissions: [
-      permissionFixtures.viewAppointments,
-      permissionFixtures.scheduleAppointments,
-      permissionFixtures.viewProviders,
-      permissionFixtures.manageProviders,
-      permissionFixtures.viewMedications,
-      permissionFixtures.manageMedications,
-      permissionFixtures.accessTelemedicine,
-      permissionFixtures.provideTelemedicine
-    ]
+    permissions: [...permissionSets.basicUser, ...permissionSets.careViewer]
   },
-  provider: {
-    id: 8,
+  careUser: {
+    id: 202,
+    name: 'care:user',
+    description: 'User who can manage their own care',
+    journey: 'care',
+    isDefault: true,
+    permissions: [...permissionSets.basicUser, ...permissionSets.careUser]
+  },
+  careProvider: {
+    id: 203,
     name: 'care:provider',
-    description: 'Healthcare provider',
-    journey: JourneyType.CARE,
+    description: 'Healthcare provider who can provide care services',
+    journey: 'care',
     isDefault: false,
-    permissions: [
-      permissionFixtures.viewAppointments,
-      permissionFixtures.scheduleAppointments,
-      permissionFixtures.viewProviders,
-      permissionFixtures.viewMedications,
-      permissionFixtures.manageMedications,
-      permissionFixtures.accessTelemedicine,
-      permissionFixtures.provideTelemedicine,
-      // Health journey permissions for providers
-      permissionFixtures.viewHealthMetrics,
-      permissionFixtures.viewHealthGoals,
-      permissionFixtures.viewMedicalHistory
-    ]
+    permissions: [...permissionSets.basicUser, ...permissionSets.careProvider]
   },
-  receptionist: {
-    id: 9,
-    name: 'care:receptionist',
-    description: 'Medical office receptionist',
-    journey: JourneyType.CARE,
+  careManager: {
+    id: 204,
+    name: 'care:manager',
+    description: 'User who can manage all care services',
+    journey: 'care',
     isDefault: false,
-    permissions: [
-      permissionFixtures.viewAppointments,
-      permissionFixtures.scheduleAppointments,
-      permissionFixtures.viewProviders
-    ]
+    permissions: [...permissionSets.basicUser, ...permissionSets.careManager]
   },
   
   // Plan journey roles
-  planAdmin: {
-    id: 10,
-    name: 'plan:admin',
-    description: 'Plan journey administrator',
-    journey: JourneyType.PLAN,
+  planViewer: {
+    id: 301,
+    name: 'plan:viewer',
+    description: 'User who can view plan data but not modify it',
+    journey: 'plan',
     isDefault: false,
-    permissions: [
-      permissionFixtures.viewCoverage,
-      permissionFixtures.viewClaims,
-      permissionFixtures.submitClaims,
-      permissionFixtures.manageClaims,
-      permissionFixtures.viewBenefits,
-      permissionFixtures.manageBenefits
-    ]
+    permissions: [...permissionSets.basicUser, ...permissionSets.planViewer]
   },
-  claimsProcessor: {
-    id: 11,
-    name: 'plan:claims-processor',
-    description: 'Insurance claims processor',
-    journey: JourneyType.PLAN,
-    isDefault: false,
-    permissions: [
-      permissionFixtures.viewClaims,
-      permissionFixtures.manageClaims,
-      permissionFixtures.viewBenefits
-    ]
+  planUser: {
+    id: 302,
+    name: 'plan:user',
+    description: 'User who can manage their own plan and submit claims',
+    journey: 'plan',
+    isDefault: true,
+    permissions: [...permissionSets.basicUser, ...permissionSets.planUser]
   },
-  benefitsManager: {
-    id: 12,
-    name: 'plan:benefits-manager',
-    description: 'Insurance benefits manager',
-    journey: JourneyType.PLAN,
+  planManager: {
+    id: 303,
+    name: 'plan:manager',
+    description: 'User who can manage all plans and claims',
+    journey: 'plan',
     isDefault: false,
-    permissions: [
-      permissionFixtures.viewBenefits,
-      permissionFixtures.manageBenefits,
-      permissionFixtures.viewCoverage
-    ]
-  },
-  
-  // Gamification roles
-  gamificationAdmin: {
-    id: 13,
-    name: 'gamification:admin',
-    description: 'Gamification system administrator',
-    journey: null, // Gamification spans all journeys
-    isDefault: false,
-    permissions: [
-      permissionFixtures.viewAchievements,
-      permissionFixtures.manageAchievements,
-      permissionFixtures.viewLeaderboard,
-      permissionFixtures.viewRewards,
-      permissionFixtures.manageRewards
-    ]
+    permissions: [...permissionSets.basicUser, ...permissionSets.planManager]
   }
 };
 
 /**
- * Sample user fixtures with roles for testing authorization
+ * Role hierarchy for testing inheritance and relationships
  */
-export const userWithRolesFixtures: Record<string, UserWithRolesFixture> = {
-  superadmin: {
-    id: '1',
-    email: 'superadmin@austa.health',
-    firstName: 'Super',
-    lastName: 'Admin',
-    roles: [roleFixtures.superadmin]
-  },
-  admin: {
-    id: '2',
-    email: 'admin@austa.health',
-    firstName: 'Admin',
-    lastName: 'User',
-    roles: [roleFixtures.admin]
-  },
-  regularUser: {
-    id: '3',
-    email: 'user@example.com',
-    firstName: 'Regular',
-    lastName: 'User',
-    roles: [roleFixtures.user]
-  },
-  healthAdmin: {
-    id: '4',
-    email: 'health.admin@austa.health',
-    firstName: 'Health',
-    lastName: 'Admin',
-    roles: [roleFixtures.healthAdmin]
-  },
-  careAdmin: {
-    id: '5',
-    email: 'care.admin@austa.health',
-    firstName: 'Care',
-    lastName: 'Admin',
-    roles: [roleFixtures.careAdmin]
-  },
-  planAdmin: {
-    id: '6',
-    email: 'plan.admin@austa.health',
-    firstName: 'Plan',
-    lastName: 'Admin',
-    roles: [roleFixtures.planAdmin]
-  },
-  provider: {
-    id: '7',
-    email: 'provider@hospital.org',
-    firstName: 'Doctor',
-    lastName: 'Provider',
-    roles: [roleFixtures.provider]
-  },
-  caregiver: {
-    id: '8',
-    email: 'caregiver@example.com',
-    firstName: 'Care',
-    lastName: 'Giver',
-    roles: [roleFixtures.caregiver]
-  },
-  multiRole: {
-    id: '9',
-    email: 'multi.role@example.com',
-    firstName: 'Multi',
-    lastName: 'Role',
-    roles: [roleFixtures.user, roleFixtures.caregiver, roleFixtures.healthViewer]
-  },
-  noRoles: {
-    id: '10',
-    email: 'no.roles@example.com',
-    firstName: 'No',
-    lastName: 'Roles',
-    roles: []
-  }
-};
-
-/**
- * Role hierarchy for testing inheritance
- * Maps child roles to their parent roles
- */
-export const roleHierarchy: Record<string, string[]> = {
+export const roleHierarchy = {
   // Global hierarchy
-  'superadmin': [],
-  'admin': ['superadmin'],
-  'user': ['admin'],
+  global: {
+    admin: ['user'],
+    user: []
+  },
   
   // Health journey hierarchy
-  'health:admin': ['admin'],
-  'health:viewer': ['health:admin'],
-  'health:caregiver': ['health:viewer'],
+  health: {
+    'health:manager': ['health:user', 'health:viewer'],
+    'health:user': ['health:viewer'],
+    'health:viewer': []
+  },
   
   // Care journey hierarchy
-  'care:admin': ['admin'],
-  'care:provider': ['care:admin'],
-  'care:receptionist': ['care:admin'],
+  care: {
+    'care:manager': ['care:provider', 'care:user', 'care:viewer'],
+    'care:provider': ['care:viewer'],
+    'care:user': ['care:viewer'],
+    'care:viewer': []
+  },
   
   // Plan journey hierarchy
-  'plan:admin': ['admin'],
-  'plan:claims-processor': ['plan:admin'],
-  'plan:benefits-manager': ['plan:admin'],
-  
-  // Gamification hierarchy
-  'gamification:admin': ['admin']
+  plan: {
+    'plan:manager': ['plan:user', 'plan:viewer'],
+    'plan:user': ['plan:viewer'],
+    'plan:viewer': []
+  }
 };
+
+/**
+ * Helper function to get all permissions for a given role, including inherited permissions
+ * @param roleName The name of the role
+ * @returns Array of permissions for the role
+ */
+export function getAllPermissionsForRole(roleName: string): TestPermission[] {
+  const role = testRoles[roleName];
+  if (!role) {
+    return [];
+  }
+  
+  // Get direct permissions
+  const permissions = [...role.permissions];
+  
+  // Get inherited permissions from role hierarchy
+  const journeyKey = role.journey || 'global';
+  const hierarchy = roleHierarchy[journeyKey];
+  
+  if (hierarchy && hierarchy[roleName]) {
+    const inheritedRoles = hierarchy[roleName];
+    for (const inheritedRole of inheritedRoles) {
+      const inheritedPermissions = getAllPermissionsForRole(inheritedRole);
+      for (const permission of inheritedPermissions) {
+        if (!permissions.some(p => p.id === permission.id)) {
+          permissions.push(permission);
+        }
+      }
+    }
+  }
+  
+  return permissions;
+}
 
 /**
  * Helper function to check if a role has a specific permission
- * @param roleName Name of the role to check
- * @param permissionName Name of the permission to check for
+ * @param roleName The name of the role
+ * @param permissionName The name of the permission
  * @returns Boolean indicating if the role has the permission
  */
 export function roleHasPermission(roleName: string, permissionName: string): boolean {
-  const role = roleFixtures[roleName];
-  if (!role) return false;
-  
-  return role.permissions.some(permission => permission.name === permissionName);
+  const permissions = getAllPermissionsForRole(roleName);
+  return permissions.some(p => p.name === permissionName);
 }
 
 /**
- * Helper function to check if a role inherits from another role
- * @param childRoleName Name of the child role
- * @param parentRoleName Name of the potential parent role
- * @returns Boolean indicating if childRole inherits from parentRole
+ * Helper function to get all roles that have a specific permission
+ * @param permissionName The name of the permission
+ * @returns Array of role names that have the permission
  */
-export function roleInheritsFrom(childRoleName: string, parentRoleName: string): boolean {
-  if (childRoleName === parentRoleName) return true;
-  
-  const parentRoles = roleHierarchy[childRoleName] || [];
-  if (parentRoles.includes(parentRoleName)) return true;
-  
-  // Check recursively up the hierarchy
-  return parentRoles.some(role => roleInheritsFrom(role, parentRoleName));
+export function getRolesWithPermission(permissionName: string): string[] {
+  return Object.keys(testRoles).filter(roleName => 
+    roleHasPermission(roleName, permissionName)
+  );
 }
 
 /**
- * Helper function to get all permissions for a role, including inherited permissions
- * @param roleName Name of the role to get permissions for
- * @returns Array of permission names
+ * Helper function to get all roles for a specific journey
+ * @param journey The journey name ('health', 'care', 'plan') or null for global roles
+ * @returns Array of roles for the journey
  */
-export function getAllRolePermissions(roleName: string): string[] {
-  const role = roleFixtures[roleName];
-  if (!role) return [];
-  
-  // Get direct permissions
-  const directPermissions = role.permissions.map(p => p.name);
-  
-  // Get inherited permissions from parent roles
-  const parentRoles = roleHierarchy[roleName] || [];
-  const inheritedPermissions = parentRoles.flatMap(parentRole => getAllRolePermissions(parentRole));
-  
-  // Combine and deduplicate
-  return [...new Set([...directPermissions, ...inheritedPermissions])];
+export function getRolesForJourney(journey: string | null): TestRole[] {
+  return Object.values(testRoles).filter(role => role.journey === journey);
+}
+
+/**
+ * Helper function to get default roles for a specific journey
+ * @param journey The journey name ('health', 'care', 'plan') or null for global roles
+ * @returns Array of default roles for the journey
+ */
+export function getDefaultRolesForJourney(journey: string | null): TestRole[] {
+  return getRolesForJourney(journey).filter(role => role.isDefault);
 }
