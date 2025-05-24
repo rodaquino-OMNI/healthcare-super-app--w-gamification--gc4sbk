@@ -1,55 +1,47 @@
 /**
- * @file goal.ts
- * @description Defines the HealthGoal interface and its corresponding Zod validation schema
- * for the AUSTA SuperApp. This interface represents health objectives set by users,
- * such as step targets, weight goals, or blood pressure targets. The interface includes
- * properties for goal type, numerical target, date range, and status.
+ * @file Defines the HealthGoal interface and its corresponding Zod validation schema.
+ * This interface represents health objectives set by users, such as step targets,
+ * weight goals, or blood pressure targets.
  */
 
-import { z } from 'zod';
+import { z } from 'zod'; // v3.22.4
 
 /**
- * Types of health goals that can be tracked in the application.
- * Aligned with the My Health journey requirements and gamification system.
+ * Types of health goals that can be set by users.
+ * Used for categorizing and filtering goals in the Health journey.
  */
 export enum HealthGoalType {
   /** Daily step count target */
   STEPS = 'STEPS',
   /** Target weight to achieve */
   WEIGHT = 'WEIGHT',
-  /** Target blood pressure reading */
+  /** Target blood pressure readings */
   BLOOD_PRESSURE = 'BLOOD_PRESSURE',
-  /** Target blood glucose level */
+  /** Target blood glucose levels */
   BLOOD_GLUCOSE = 'BLOOD_GLUCOSE',
   /** Sleep duration target */
   SLEEP = 'SLEEP',
-  /** Heart rate zone target (e.g., minutes in cardio zone) */
+  /** Heart rate zone target */
   HEART_RATE = 'HEART_RATE',
-  /** Water intake target */
-  WATER_INTAKE = 'WATER_INTAKE',
-  /** Exercise frequency target */
-  EXERCISE_FREQUENCY = 'EXERCISE_FREQUENCY',
-  /** Calorie intake target */
-  CALORIE_INTAKE = 'CALORIE_INTAKE',
   /** Custom user-defined goal */
-  CUSTOM = 'CUSTOM'
+  CUSTOM = 'CUSTOM',
 }
 
 /**
- * Status of a health goal, tracking its progress and completion state.
- * Used for goal tracking and gamification integration.
+ * Status of a health goal tracking progress.
+ * Used to display goal status in the UI and filter goals by state.
  */
 export enum HealthGoalStatus {
-  /** Goal is active and being tracked */
+  /** Goal is currently active and being tracked */
   ACTIVE = 'ACTIVE',
-  /** Goal has been achieved */
-  ACHIEVED = 'ACHIEVED',
+  /** Goal has been successfully completed */
+  COMPLETED = 'COMPLETED',
   /** Goal was not achieved by the end date */
   FAILED = 'FAILED',
   /** Goal has been paused by the user */
   PAUSED = 'PAUSED',
-  /** Goal has been abandoned by the user */
-  ABANDONED = 'ABANDONED'
+  /** Goal has been abandoned before completion */
+  ABANDONED = 'ABANDONED',
 }
 
 /**
@@ -67,151 +59,68 @@ export enum HealthGoalStatus {
  *   endDate: '2023-01-31T23:59:59Z',
  *   status: HealthGoalStatus.ACTIVE,
  *   currentValue: 7500,
- *   unit: 'steps',
- *   description: 'Walk 10,000 steps daily for January',
- *   relatedAchievementIds: ['123e4567-e89b-12d3-a456-426614174002']
- * };
- * 
- * // Weight loss goal example
- * const weightGoal: HealthGoal = {
- *   id: '123e4567-e89b-12d3-a456-426614174003',
- *   userId: '123e4567-e89b-12d3-a456-426614174001',
- *   type: HealthGoalType.WEIGHT,
- *   target: 70,
- *   startDate: '2023-01-01T00:00:00Z',
- *   endDate: '2023-03-31T23:59:59Z',
- *   status: HealthGoalStatus.ACTIVE,
- *   currentValue: 75,
- *   unit: 'kg',
- *   description: 'Reach 70kg by end of March',
- *   relatedAchievementIds: ['123e4567-e89b-12d3-a456-426614174004']
+ *   lastUpdated: '2023-01-15T14:30:00Z',
+ *   achievementId: '123e4567-e89b-12d3-a456-426614174002',
+ *   description: 'Walk 10,000 steps daily for the month of January'
  * };
  */
 export interface HealthGoal {
   /** Unique identifier for the goal */
   id: string;
-  
-  /** User ID of the goal owner */
+  /** User ID who owns this goal */
   userId: string;
-  
-  /** Type of health goal from HealthGoalType enum */
+  /** Type of health goal */
   type: HealthGoalType | string;
-  
   /** Numerical target value to achieve */
   target: number;
-  
-  /** When the goal tracking begins */
+  /** Start date for goal tracking */
   startDate: string;
-  
-  /** When the goal should be achieved by */
+  /** End date for goal completion */
   endDate: string;
-  
-  /** Current status of the goal from HealthGoalStatus enum */
+  /** Current status of the goal */
   status: HealthGoalStatus | string;
-  
   /** Current progress value (optional) */
   currentValue?: number;
-  
-  /** Unit of measurement (e.g., steps, kg, bpm) */
-  unit?: string;
-  
-  /** User-provided description of the goal */
+  /** Timestamp of last progress update (optional) */
+  lastUpdated?: string;
+  /** Associated achievement ID for gamification (optional) */
+  achievementId?: string;
+  /** User-provided description of the goal (optional) */
   description?: string;
-  
-  /** Related achievement IDs for gamification integration */
-  relatedAchievementIds?: string[];
 }
 
 /**
  * Zod schema for validating health goal data.
- * Ensures data consistency for goal tracking and gamification integration.
+ * Ensures data consistency for goal tracking and integration with the gamification system.
  */
 export const healthGoalSchema = z.object({
-  id: z.string().uuid({
-    message: "Goal ID must be a valid UUID"
-  }),
-  userId: z.string().uuid({
-    message: "User ID must be a valid UUID"
-  }),
+  id: z.string().uuid({ message: 'Goal ID must be a valid UUID' }),
+  userId: z.string().uuid({ message: 'User ID must be a valid UUID' }),
   type: z.union([
     z.nativeEnum(HealthGoalType),
-    z.string().min(1, {
-      message: "Goal type cannot be empty"
-    })
+    z.string().min(1, { message: 'Goal type is required' })
   ]),
-  target: z.number({
-    required_error: "Target value is required",
-    invalid_type_error: "Target must be a number"
-  }),
-  startDate: z.string().datetime({
-    message: "Start date must be a valid ISO datetime string"
-  }),
-  endDate: z.string().datetime({
-    message: "End date must be a valid ISO datetime string"
-  }),
+  target: z.number().positive({ message: 'Target must be a positive number' }),
+  startDate: z.string().datetime({ message: 'Start date must be a valid ISO datetime string' }),
+  endDate: z.string().datetime({ message: 'End date must be a valid ISO datetime string' }),
   status: z.union([
     z.nativeEnum(HealthGoalStatus),
-    z.string().min(1, {
-      message: "Goal status cannot be empty"
-    })
+    z.string().min(1, { message: 'Goal status is required' })
   ]),
   currentValue: z.number().optional(),
-  unit: z.string().optional(),
-  description: z.string().optional(),
-  relatedAchievementIds: z.array(z.string().uuid()).optional()
+  lastUpdated: z.string().datetime().optional(),
+  achievementId: z.string().uuid().optional(),
+  description: z.string().max(500).optional(),
 }).refine(
   (data) => new Date(data.startDate) <= new Date(data.endDate),
   {
-    message: "End date must be after start date",
-    path: ["endDate"]
+    message: 'End date must be after or equal to start date',
+    path: ['endDate'],
   }
 );
 
 /**
- * Type for creating a new health goal.
- * Omits the id field which will be generated by the backend.
+ * Type for a validated health goal.
+ * Represents a health goal that has been validated with the Zod schema.
  */
-export type CreateHealthGoalInput = Omit<HealthGoal, 'id'> & {
-  id?: string;
-};
-
-/**
- * Zod schema for validating health goal creation input.
- */
-export const createHealthGoalSchema = healthGoalSchema.omit({
-  id: true
-}).extend({
-  id: z.string().uuid().optional()
-});
-
-/**
- * Type for updating an existing health goal.
- * Makes all fields optional except id.
- */
-export type UpdateHealthGoalInput = Partial<Omit<HealthGoal, 'id'>> & {
-  id: string;
-};
-
-/**
- * Zod schema for validating health goal update input.
- */
-export const updateHealthGoalSchema = healthGoalSchema.partial().required({
-  id: true
-});
-
-/**
- * Interface for goal achievement events that integrate with the gamification system.
- * This matches the expected payload structure for HEALTH_GOAL_ACHIEVED events.
- */
-export interface HealthGoalAchievement {
-  /** ID of the health goal */
-  goalId: string;
-  /** Type of goal (steps, weight, etc.) */
-  goalType: HealthGoalType | string;
-  /** Target value that was achieved */
-  targetValue: number;
-  /** Unit of measurement */
-  unit: string;
-  /** When the goal was achieved */
-  achievedAt: string;
-}
+export type ValidatedHealthGoal = z.infer<typeof healthGoalSchema>;
