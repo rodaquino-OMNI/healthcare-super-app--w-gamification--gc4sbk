@@ -1,42 +1,47 @@
 /**
  * @file Defines TypeScript interfaces for quests in the gamification system.
- * @module interfaces/gamification/quests
+ * These interfaces standardize the representation of time-limited challenges
+ * that users can complete to earn rewards.
  */
 
 /**
- * Enum representing different categories of quests in the gamification system.
- * Used for organization, filtering, and display purposes.
+ * Categories for organizing quests by type or theme.
+ * Used for filtering and displaying quests in the UI.
  */
 export enum QuestCategory {
-  /** Health-related quests focused on physical wellbeing */
+  /** Daily challenges that reset every 24 hours */
+  DAILY = 'daily',
+  /** Weekly challenges that reset every 7 days */
+  WEEKLY = 'weekly',
+  /** Health journey specific quests */
   HEALTH = 'health',
-  /** Care-related quests focused on medical appointments and treatments */
+  /** Care journey specific quests */
   CARE = 'care',
-  /** Plan-related quests focused on insurance benefits and claims */
+  /** Plan journey specific quests */
   PLAN = 'plan',
-  /** General quests that span multiple journeys */
-  GENERAL = 'general',
-  /** Special event quests that are available for limited time periods */
+  /** Special event or seasonal quests */
   EVENT = 'event',
+  /** Onboarding or tutorial quests */
+  ONBOARDING = 'onboarding',
 }
 
 /**
- * Enum representing the possible states of a quest.
- * Used to track the progress and availability of quests.
+ * Status of a quest indicating its current state in the lifecycle.
+ * Used to track progress and determine UI presentation.
  */
 export enum QuestStatus {
-  /** Quest is currently active and can be completed */
+  /** Quest is available and in progress */
   ACTIVE = 'active',
-  /** Quest has been successfully completed by the user */
+  /** Quest has been successfully completed */
   COMPLETED = 'completed',
-  /** Quest has expired and can no longer be completed */
+  /** Quest has expired without completion */
   EXPIRED = 'expired',
-  /** Quest is locked and requires prerequisites to be unlocked */
+  /** Quest is locked and not yet available */
   LOCKED = 'locked',
 }
 
 /**
- * Defines the base structure for a quest in the gamification system.
+ * Defines the structure for a quest in the gamification system.
  * Quests are time-limited challenges that users can complete to
  * earn rewards and progress in the system.
  */
@@ -49,15 +54,15 @@ export interface Quest {
   description: string;
   /** Which journey this quest belongs to (health, care, plan) */
   journey: string;
-  /** Category of the quest for organization and filtering */
-  category: QuestCategory;
   /** Icon identifier for visual representation */
   icon: string;
   /** Current progress toward completing the quest */
   progress: number;
   /** Total progress needed to complete the quest */
   total: number;
-  /** Current status of the quest (active, completed, expired, locked) */
+  /** Category of the quest for organization and filtering */
+  category: QuestCategory;
+  /** Current status of the quest */
   status: QuestStatus;
   /** Deadline by which the quest must be completed */
   deadline: Date;
@@ -65,75 +70,65 @@ export interface Quest {
   xpReward: number;
   /** Optional additional rewards (items, badges, etc.) */
   rewards?: string[];
-  /** Optional prerequisites that must be completed before this quest becomes available */
-  prerequisites?: string[];
 }
 
 /**
- * Defines a daily quest that resets every 24 hours.
- * Daily quests typically involve simple tasks that encourage daily engagement.
+ * Specialized quest that resets daily.
+ * These quests typically have simpler objectives and smaller rewards.
  */
 export interface DailyQuest extends Quest {
-  /** The specific day this quest is available for */
-  availableDate: Date;
-  /** Whether the quest automatically resets at midnight */
-  autoReset: boolean;
+  /** Daily quests always have the DAILY category */
+  category: QuestCategory.DAILY;
+  /** Daily quests reset at midnight local time */
+  resetsAt: Date;
 }
 
 /**
- * Defines a weekly quest that spans multiple days.
- * Weekly quests typically involve more complex tasks that require sustained effort.
+ * Specialized quest that resets weekly.
+ * These quests typically have more complex objectives and larger rewards.
  */
 export interface WeeklyQuest extends Quest {
-  /** The start date of the week this quest is available for */
-  weekStartDate: Date;
-  /** The end date of the week this quest is available for */
-  weekEndDate: Date;
-  /** Daily progress tracking for each day of the week */
-  dailyProgress?: Record<string, number>;
+  /** Weekly quests always have the WEEKLY category */
+  category: QuestCategory.WEEKLY;
+  /** Weekly quests reset at the beginning of the week */
+  resetsAt: Date;
+  /** Weekly quests may have multiple stages or steps */
+  steps?: Array<{
+    /** Description of this step */
+    description: string;
+    /** Whether this step has been completed */
+    completed: boolean;
+  }>;
 }
 
 /**
- * Defines a special event quest tied to limited-time events.
- * Event quests are only available during specific promotional periods or special occasions.
+ * Defines the structure for quest progress updates.
+ * Used when incrementing progress toward quest completion.
  */
-export interface EventQuest extends Quest {
-  /** The name of the event this quest is associated with */
-  eventName: string;
-  /** The start date of the event */
-  eventStartDate: Date;
-  /** The end date of the event */
-  eventEndDate: Date;
-  /** Whether the quest is featured/highlighted in the UI */
-  featured: boolean;
+export interface QuestProgressUpdate {
+  /** ID of the quest being updated */
+  questId: string;
+  /** Amount of progress to add */
+  progressIncrement: number;
+  /** Timestamp of the progress update */
+  timestamp: Date;
+  /** User ID associated with this progress update */
+  userId: string;
 }
 
 /**
- * Defines a quest step, which is a sub-task within a multi-step quest.
- * Complex quests may be broken down into multiple steps that must be completed in sequence.
+ * Defines the structure for quest completion events.
+ * Triggered when a quest reaches 100% completion.
  */
-export interface QuestStep {
-  /** Unique identifier for the quest step */
-  id: string;
-  /** Display title of the step */
-  title: string;
-  /** Detailed description of what the step involves */
-  description: string;
-  /** Current status of the step */
-  status: QuestStatus;
-  /** Order of this step in the sequence */
-  order: number;
-  /** Whether this step is optional for quest completion */
-  optional: boolean;
-}
-
-/**
- * Defines a multi-step quest that consists of multiple sequential steps.
- * Multi-step quests provide a more structured and guided experience.
- */
-export interface MultiStepQuest extends Quest {
-  /** The steps that make up this quest */
-  steps: QuestStep[];
-  /** Whether steps must be completed in order */
-  strictOrder: boolean;
+export interface QuestCompletionEvent {
+  /** ID of the completed quest */
+  questId: string;
+  /** ID of the user who completed the quest */
+  userId: string;
+  /** Timestamp when the quest was completed */
+  completedAt: Date;
+  /** XP awarded for completion */
+  xpAwarded: number;
+  /** Any additional rewards granted */
+  additionalRewards?: string[];
 }
