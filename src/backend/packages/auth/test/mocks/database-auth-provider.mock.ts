@@ -1,16 +1,46 @@
 /**
- * @file Database Auth Provider Mock
+ * Mock implementation of the DatabaseAuthProvider
  * 
- * Mock implementation of the DatabaseAuthProvider that simulates credential validation
- * and user retrieval without database dependencies. This mock enables testing of
- * authentication flows that depend on database validation while maintaining isolation
- * from actual database services.
- *
- * @module @austa/auth/test/mocks
+ * This mock simulates credential validation and user retrieval without database dependencies.
+ * It enables testing of authentication flows that depend on database validation while
+ * maintaining isolation from actual database services.
  */
 
-import { JwtPayload } from '@austa/interfaces/auth';
-import { DatabaseCredentials, IDatabaseAuthProvider } from '../../src/providers/database/database-auth-provider.interface';
+import { Injectable, Logger } from '@nestjs/common';
+
+// Import the interfaces we need to implement
+import { AuthProvider } from '../../src/providers/auth-provider.interface';
+
+// Import error types from the errors package
+import { 
+  InvalidCredentialsError,
+  ResourceNotFoundError,
+  DatabaseError,
+  UnauthorizedError
+} from '@austa/errors';
+
+/**
+ * JwtPayload interface based on usage in the real implementation
+ */
+export interface JwtPayload {
+  sub: string;
+  email?: string;
+  name?: string;
+  roles?: string[];
+  type?: string;
+}
+
+/**
+ * Mock User type based on Prisma User model
+ */
+export interface MockUser {
+  id: string;
+  email: string;
+  name: string;
+  password: string;
+  roles?: string[];
+  [key: string]: any; // Allow for additional properties
+}
 
 /**
  * Configuration options for the mock database auth provider
@@ -19,673 +49,449 @@ export interface MockDatabaseAuthProviderOptions {
   /**
    * Predefined users for testing
    */
-  users?: Record<string, any>[];
-  
+  users?: MockUser[];
+
   /**
-   * Whether to simulate successful authentication
-   * @default true
+   * Whether to simulate database errors
    */
-  simulateSuccessfulAuth?: boolean;
-  
-  /**
-   * Whether to simulate account locking after failed attempts
-   * @default false
-   */
-  simulateAccountLocking?: boolean;
-  
-  /**
-   * Number of failed attempts before account is locked
-   * @default 3
-   */
-  lockoutThreshold?: number;
-  
-  /**
-   * Whether to simulate password expiration
-   * @default false
-   */
-  simulatePasswordExpiration?: boolean;
-  
-  /**
-   * Whether to simulate disabled accounts
-   * @default false
-   */
-  simulateDisabledAccounts?: boolean;
-  
+  simulateErrors?: boolean;
+
   /**
    * Custom error messages
    */
   errorMessages?: {
     invalidCredentials?: string;
     userNotFound?: string;
-    accountDisabled?: string;
-    accountLocked?: string;
-    passwordExpired?: string;
+    databaseError?: string;
+  };
+
+  /**
+   * JWT token configuration
+   */
+  jwt?: {
+    /**
+     * Secret key for signing JWT tokens
+     */
+    secret?: string;
+
+    /**
+     * Expiration time for access tokens in seconds
+     * @default 3600 (1 hour)
+     */
+    accessTokenExpiration?: number;
+
+    /**
+     * Expiration time for refresh tokens in seconds
+     * @default 2592000 (30 days)
+     */
+    refreshTokenExpiration?: number;
   };
 }
 
 /**
- * Default options for the mock database auth provider
+ * Default configuration for the mock database auth provider
  */
-const defaultOptions: MockDatabaseAuthProviderOptions = {
-  users: [],
-  simulateSuccessfulAuth: true,
-  simulateAccountLocking: false,
-  lockoutThreshold: 3,
-  simulatePasswordExpiration: false,
-  simulateDisabledAccounts: false,
+const DEFAULT_OPTIONS: MockDatabaseAuthProviderOptions = {
+  users: [
+    {
+      id: '1',
+      email: 'test@example.com',
+      name: 'Test User',
+      password: 'hashed_password_123', // Simulated hashed password
+      roles: ['user']
+    },
+    {
+      id: '2',
+      email: 'admin@example.com',
+      name: 'Admin User',
+      password: 'hashed_admin_password_456', // Simulated hashed password
+      roles: ['admin', 'user']
+    }
+  ],
+  simulateErrors: false,
   errorMessages: {
-    invalidCredentials: 'Invalid username or password',
+    invalidCredentials: 'Invalid email or password',
     userNotFound: 'User not found',
-    accountDisabled: 'Account is disabled',
-    accountLocked: 'Account is locked due to too many failed login attempts',
-    passwordExpired: 'Password has expired and must be changed',
+    databaseError: 'Database error occurred during authentication',
+  },
+  jwt: {
+    secret: 'test-secret-key',
+    accessTokenExpiration: 3600, // 1 hour
+    refreshTokenExpiration: 2592000, // 30 days
   },
 };
 
 /**
- * Mock implementation of the DatabaseAuthProvider for testing purposes.
+ * Mock Database Authentication Provider
  * 
- * This mock simulates database authentication without actual database dependencies,
- * allowing tests to verify authentication flows in isolation. It supports configurable
- * responses to test different authentication scenarios.
- * 
- * @template TUser The user entity type
+ * Simulates authentication against database records without actual database dependencies.
+ * Supports configurable user data and authentication responses for testing.
  */
-export class MockDatabaseAuthProvider<TUser extends Record<string, any> = Record<string, any>>
-  implements IDatabaseAuthProvider<TUser, DatabaseCredentials> {
-  
-  private options: MockDatabaseAuthProviderOptions;
-  private users: Map<string, TUser>;
-  private usernameToIdMap: Map<string, string>;
-  private failedAttempts: Map<string, number>;
-  private lockedAccounts: Set<string>;
-  private lastLoginTimestamps: Map<string, Date>;
-  
-  // Tracking for test verification
-  public methodCalls: {
-    validateCredentials: number;
-    findUserByUsername: number;
-    verifyUserPassword: number;
-    updateUserPassword: number;
-    isAccountLocked: number;
-    isAccountDisabled: number;
-    isPasswordExpired: number;
-    recordFailedLoginAttempt: number;
-    resetFailedLoginAttempts: number;
-    updateLastLogin: number;
-    lockUserAccount: number;
-    unlockUserAccount: number;
-    validatePasswordStrength: number;
-    getUserById: number;
-    validateToken: number;
-    generateToken: number;
-    decodeToken: number;
-    extractTokenFromRequest: number;
-    revokeToken: number;
-    refreshToken: number;
-  };
-  
-  /**
-   * Creates a new MockDatabaseAuthProvider instance
-   * 
-   * @param options - Configuration options
-   */
+@Injectable()
+export class MockDatabaseAuthProvider<TUser extends MockUser = MockUser> implements AuthProvider<TUser> {
+  private readonly logger = new Logger(MockDatabaseAuthProvider.name);
+  private readonly options: MockDatabaseAuthProviderOptions;
+  private users: MockUser[];
+  private tokenBlacklist: Set<string> = new Set();
+  private refreshTokens: Map<string, string> = new Map(); // userId -> refreshToken
+
   constructor(options?: MockDatabaseAuthProviderOptions) {
-    this.options = { ...defaultOptions, ...options };
-    this.users = new Map<string, TUser>();
-    this.usernameToIdMap = new Map<string, string>();
-    this.failedAttempts = new Map<string, number>();
-    this.lockedAccounts = new Set<string>();
-    this.lastLoginTimestamps = new Map<string, Date>();
-    
-    // Initialize method call tracking
-    this.methodCalls = {
-      validateCredentials: 0,
-      findUserByUsername: 0,
-      verifyUserPassword: 0,
-      updateUserPassword: 0,
-      isAccountLocked: 0,
-      isAccountDisabled: 0,
-      isPasswordExpired: 0,
-      recordFailedLoginAttempt: 0,
-      resetFailedLoginAttempts: 0,
-      updateLastLogin: 0,
-      lockUserAccount: 0,
-      unlockUserAccount: 0,
-      validatePasswordStrength: 0,
-      getUserById: 0,
-      validateToken: 0,
-      generateToken: 0,
-      decodeToken: 0,
-      extractTokenFromRequest: 0,
-      revokeToken: 0,
-      refreshToken: 0,
-    };
-    
-    // Initialize with predefined users
-    if (this.options.users && this.options.users.length > 0) {
-      this.options.users.forEach(user => {
-        if (user.id && user.email) {
-          this.users.set(user.id, user as TUser);
-          this.usernameToIdMap.set(user.email.toLowerCase(), user.id);
-        }
-      });
-    } else {
-      // Add a default test user if none provided
-      const defaultUser = {
-        id: '1',
-        email: 'test@example.com',
-        password: 'hashed_password_123',
-        name: 'Test User',
-        roles: ['user'],
-        disabled: false,
-        locked: false,
-        failedLoginAttempts: 0,
-        lastLoginAt: new Date(),
-        passwordUpdatedAt: new Date(),
-      } as unknown as TUser;
-      
-      this.users.set('1', defaultUser);
-      this.usernameToIdMap.set('test@example.com', '1');
-    }
+    this.options = { ...DEFAULT_OPTIONS, ...options };
+    this.users = [...(this.options.users || [])];
+    this.logger.log('Mock database authentication provider initialized');
   }
-  
+
   /**
-   * Adds a test user to the mock provider
+   * Adds a test user to the mock database
    * 
-   * @param user - User object to add
+   * @param user - The user to add
    * @returns The added user
    */
-  addUser(user: TUser): TUser {
-    if (!user.id) {
-      throw new Error('User must have an id property');
+  addUser(user: MockUser): MockUser {
+    // Check if user with this email already exists
+    const existingUserIndex = this.users.findIndex(u => u.email === user.email);
+    if (existingUserIndex >= 0) {
+      this.users[existingUserIndex] = { ...user };
+      return this.users[existingUserIndex];
     }
-    
-    if (!user.email) {
-      throw new Error('User must have an email property');
-    }
-    
-    this.users.set(user.id, { ...user });
-    this.usernameToIdMap.set(user.email.toLowerCase(), user.id);
+
+    // Add new user
+    this.users.push({ ...user });
     return user;
   }
-  
+
   /**
-   * Clears all test users from the mock provider
+   * Clears all test users
    */
   clearUsers(): void {
-    this.users.clear();
-    this.usernameToIdMap.clear();
-    this.failedAttempts.clear();
-    this.lockedAccounts.clear();
-    this.lastLoginTimestamps.clear();
+    this.users = [];
   }
-  
+
   /**
-   * Resets all method call counters
+   * Resets the mock to default state
    */
-  resetMethodCalls(): void {
-    Object.keys(this.methodCalls).forEach(key => {
-      this.methodCalls[key as keyof typeof this.methodCalls] = 0;
-    });
+  reset(): void {
+    this.users = [...(DEFAULT_OPTIONS.users || [])];
+    this.tokenBlacklist.clear();
+    this.refreshTokens.clear();
   }
-  
+
   /**
-   * Updates the configuration options
+   * Simulates password verification without actual hashing
    * 
-   * @param options - New configuration options
+   * @param storedHash - The stored password hash
+   * @param plainPassword - The plain text password to verify
+   * @returns True if the password is valid, false otherwise
    */
-  updateOptions(options: Partial<MockDatabaseAuthProviderOptions>): void {
-    this.options = { ...this.options, ...options };
+  private async verifyPassword(storedHash: string, plainPassword: string): Promise<boolean> {
+    // For testing purposes, we'll use a simple pattern to simulate password verification
+    // In a real implementation, this would use bcrypt or another secure hashing algorithm
+    
+    // For our mock, we'll consider a password valid if:
+    // 1. The stored hash starts with 'hashed_' and ends with the plain password
+    // 2. Or if the stored hash is exactly equal to the plain password (for simple test cases)
+    
+    return storedHash === plainPassword || 
+           (storedHash.startsWith('hashed_') && storedHash.endsWith(plainPassword));
   }
-  
+
   /**
-   * Validates user credentials
+   * Validates user credentials against mock database records
    * 
-   * @param credentials - User credentials (username/password)
-   * @returns Promise resolving to the authenticated user or null if authentication fails
+   * @param credentials - User credentials (email/password)
+   * @returns The authenticated user if credentials are valid, null otherwise
+   * @throws InvalidCredentialsError if credentials are invalid
+   * @throws DatabaseError if a database error occurs
    */
-  async validateCredentials(credentials: DatabaseCredentials): Promise<TUser | null> {
-    this.methodCalls.validateCredentials++;
-    
-    const { username, password } = credentials;
-    
-    if (!username || !password) {
-      return null;
+  async validateCredentials(credentials: { email: string; password: string }): Promise<TUser | null> {
+    const { email, password } = credentials;
+    const { errorMessages, simulateErrors } = this.options;
+
+    try {
+      // Simulate database error if configured
+      if (simulateErrors) {
+        throw new Error('Simulated database error');
+      }
+
+      // Find user by email
+      const user = this.users.find(u => u.email === email);
+
+      // If user not found, return null
+      if (!user) {
+        this.logger.debug(`User not found: ${email}`);
+        return null;
+      }
+
+      // Verify the password
+      const isPasswordValid = await this.verifyPassword(user.password, password);
+
+      if (!isPasswordValid) {
+        this.logger.debug(`Invalid password for user: ${email}`);
+        throw new InvalidCredentialsError(errorMessages.invalidCredentials);
+      }
+
+      // Remove the password hash from the returned user object
+      const { password: _, ...userWithoutPassword } = user;
+
+      return userWithoutPassword as unknown as TUser;
+    } catch (error) {
+      // If the error is already an InvalidCredentialsError, rethrow it
+      if (error instanceof InvalidCredentialsError) {
+        throw error;
+      }
+
+      // Log the error and throw a database error
+      this.logger.error(`Database error during authentication: ${error.message}`, error.stack);
+      throw new DatabaseError(
+        errorMessages.databaseError,
+        { originalError: error.message }
+      );
     }
-    
-    // Find the user
-    const user = await this.findUserByUsername(username);
-    
-    if (!user) {
-      return null;
-    }
-    
-    // Check if account is disabled
-    if (this.isAccountDisabled(user)) {
-      return null;
-    }
-    
-    // Check if account is locked
-    if (this.isAccountLocked(user)) {
-      return null;
-    }
-    
-    // Verify password
-    const isPasswordValid = await this.verifyUserPassword(password, user);
-    
-    if (!isPasswordValid) {
-      // Record failed login attempt
-      await this.recordFailedLoginAttempt(user.id);
-      return null;
-    }
-    
-    // Check if password is expired
-    if (this.isPasswordExpired(user)) {
-      return null;
-    }
-    
-    // Reset failed login attempts
-    await this.resetFailedLoginAttempts(user.id);
-    
-    // Update last login timestamp
-    await this.updateLastLogin(user.id);
-    
-    return user;
   }
-  
+
   /**
-   * Finds a user by their username (email, username, etc.)
+   * Validates a JWT token and returns the associated user
    * 
-   * @param username - Username to search for
-   * @returns Promise resolving to the user or null if not found
+   * @param payload - The decoded JWT payload
+   * @returns The authenticated user if token is valid, null otherwise
+   * @throws UnauthorizedError if token is invalid
+   * @throws DatabaseError if a database error occurs
    */
-  async findUserByUsername(username: string): Promise<TUser | null> {
-    this.methodCalls.findUserByUsername++;
-    
-    const lowercaseUsername = username.toLowerCase();
-    const userId = this.usernameToIdMap.get(lowercaseUsername);
-    
-    if (!userId) {
-      return null;
-    }
-    
-    return this.users.get(userId) || null;
-  }
-  
-  /**
-   * Verifies a password against a user's stored password hash
-   * 
-   * @param plainPassword - Plain text password to verify
-   * @param user - User object containing the hashed password
-   * @returns Promise resolving to true if the password is valid, false otherwise
-   */
-  async verifyUserPassword(plainPassword: string, user: TUser): Promise<boolean> {
-    this.methodCalls.verifyUserPassword++;
-    
-    // In a real implementation, this would use a secure password comparison
-    // For the mock, we can simulate success or failure based on configuration
-    if (!this.options.simulateSuccessfulAuth) {
-      return false;
-    }
-    
-    // For testing specific passwords, we can add logic here
-    // For example, only 'correct_password' is valid
-    return plainPassword === 'correct_password' || plainPassword === 'test_password';
-  }
-  
-  /**
-   * Updates a user's password in the database
-   * 
-   * @param userId - User identifier
-   * @param newPassword - New password (plain text)
-   * @returns Promise resolving to true if the update was successful, false otherwise
-   */
-  async updateUserPassword(userId: string, newPassword: string): Promise<boolean> {
-    this.methodCalls.updateUserPassword++;
-    
-    const user = this.users.get(userId);
-    
-    if (!user) {
-      return false;
-    }
-    
-    // Update the password (in a real implementation, this would hash the password)
-    const updatedUser = {
-      ...user,
-      password: `hashed_${newPassword}`,
-      passwordUpdatedAt: new Date(),
-    };
-    
-    this.users.set(userId, updatedUser);
-    return true;
-  }
-  
-  /**
-   * Checks if a user account is locked due to too many failed login attempts
-   * 
-   * @param user - User object
-   * @returns True if the account is locked, false otherwise
-   */
-  isAccountLocked(user: TUser): boolean {
-    this.methodCalls.isAccountLocked++;
-    
-    if (!this.options.simulateAccountLocking) {
-      return false;
-    }
-    
-    return this.lockedAccounts.has(user.id) || Boolean(user.locked);
-  }
-  
-  /**
-   * Checks if a user account is disabled/inactive
-   * 
-   * @param user - User object
-   * @returns True if the account is disabled, false otherwise
-   */
-  isAccountDisabled(user: TUser): boolean {
-    this.methodCalls.isAccountDisabled++;
-    
-    if (!this.options.simulateDisabledAccounts) {
-      return false;
-    }
-    
-    return Boolean(user.disabled);
-  }
-  
-  /**
-   * Checks if a user's password has expired and needs to be changed
-   * 
-   * @param user - User object
-   * @returns True if the password has expired, false otherwise
-   */
-  isPasswordExpired(user: TUser): boolean {
-    this.methodCalls.isPasswordExpired++;
-    
-    if (!this.options.simulatePasswordExpiration) {
-      return false;
-    }
-    
-    // In a real implementation, this would check the password age
-    // For the mock, we can use a property on the user object
-    return Boolean(user.passwordExpired);
-  }
-  
-  /**
-   * Records a failed login attempt for a user
-   * 
-   * @param userId - User identifier
-   * @returns Promise resolving to the updated number of failed attempts
-   */
-  async recordFailedLoginAttempt(userId: string): Promise<number> {
-    this.methodCalls.recordFailedLoginAttempt++;
-    
-    const currentAttempts = this.failedAttempts.get(userId) || 0;
-    const newAttempts = currentAttempts + 1;
-    this.failedAttempts.set(userId, newAttempts);
-    
-    // Check if account should be locked
-    if (this.options.simulateAccountLocking && newAttempts >= (this.options.lockoutThreshold || 3)) {
-      await this.lockUserAccount(userId);
-    }
-    
-    return newAttempts;
-  }
-  
-  /**
-   * Resets the failed login attempts counter for a user
-   * 
-   * @param userId - User identifier
-   * @returns Promise resolving when the reset is complete
-   */
-  async resetFailedLoginAttempts(userId: string): Promise<void> {
-    this.methodCalls.resetFailedLoginAttempts++;
-    this.failedAttempts.set(userId, 0);
-  }
-  
-  /**
-   * Updates the last login timestamp for a user
-   * 
-   * @param userId - User identifier
-   * @returns Promise resolving when the update is complete
-   */
-  async updateLastLogin(userId: string): Promise<void> {
-    this.methodCalls.updateLastLogin++;
-    this.lastLoginTimestamps.set(userId, new Date());
-    
-    const user = this.users.get(userId);
-    if (user) {
-      const updatedUser = {
-        ...user,
-        lastLoginAt: new Date(),
-      };
-      this.users.set(userId, updatedUser);
+  async validateToken(payload: JwtPayload): Promise<TUser | null> {
+    const { sub: userId } = payload;
+    const { errorMessages, simulateErrors } = this.options;
+
+    try {
+      // Simulate database error if configured
+      if (simulateErrors) {
+        throw new Error('Simulated database error');
+      }
+
+      // Check if the token is blacklisted
+      if (this.tokenBlacklist.has(userId)) {
+        throw new UnauthorizedError('Token has been revoked');
+      }
+
+      // Find user by ID
+      const user = this.users.find(u => u.id === userId);
+
+      if (!user) {
+        this.logger.debug(`User not found for token validation: ${userId}`);
+        return null;
+      }
+
+      // Remove the password hash from the returned user object
+      const { password: _, ...userWithoutPassword } = user;
+
+      return userWithoutPassword as unknown as TUser;
+    } catch (error) {
+      // If the error is already an UnauthorizedError, rethrow it
+      if (error instanceof UnauthorizedError) {
+        throw error;
+      }
+
+      // Log the error and throw a database error
+      this.logger.error(`Database error during token validation: ${error.message}`, error.stack);
+      throw new DatabaseError(
+        errorMessages.databaseError,
+        { originalError: error.message }
+      );
     }
   }
-  
-  /**
-   * Locks a user account, preventing further login attempts
-   * 
-   * @param userId - User identifier
-   * @param reason - Reason for locking the account (optional)
-   * @returns Promise resolving when the account is locked
-   */
-  async lockUserAccount(userId: string, reason?: string): Promise<void> {
-    this.methodCalls.lockUserAccount++;
-    this.lockedAccounts.add(userId);
-    
-    const user = this.users.get(userId);
-    if (user) {
-      const updatedUser = {
-        ...user,
-        locked: true,
-        lockedAt: new Date(),
-        lockReason: reason || 'Too many failed login attempts',
-      };
-      this.users.set(userId, updatedUser);
-    }
-  }
-  
-  /**
-   * Unlocks a previously locked user account
-   * 
-   * @param userId - User identifier
-   * @returns Promise resolving when the account is unlocked
-   */
-  async unlockUserAccount(userId: string): Promise<void> {
-    this.methodCalls.unlockUserAccount++;
-    this.lockedAccounts.delete(userId);
-    
-    const user = this.users.get(userId);
-    if (user) {
-      const updatedUser = {
-        ...user,
-        locked: false,
-        lockedAt: undefined,
-        lockReason: undefined,
-      };
-      this.users.set(userId, updatedUser);
-    }
-  }
-  
-  /**
-   * Validates that a password meets the required strength criteria
-   * 
-   * @param password - Password to validate
-   * @returns Object containing validation result and any error messages
-   */
-  validatePasswordStrength(password: string): {
-    isValid: boolean;
-    errors: string[];
-  } {
-    this.methodCalls.validatePasswordStrength++;
-    
-    const errors: string[] = [];
-    
-    // Simple password validation for testing
-    if (password.length < 8) {
-      errors.push('Password must be at least 8 characters long');
-    }
-    
-    if (!/[A-Z]/.test(password)) {
-      errors.push('Password must contain at least one uppercase letter');
-    }
-    
-    if (!/[a-z]/.test(password)) {
-      errors.push('Password must contain at least one lowercase letter');
-    }
-    
-    if (!/[0-9]/.test(password)) {
-      errors.push('Password must contain at least one number');
-    }
-    
-    if (!/[^A-Za-z0-9]/.test(password)) {
-      errors.push('Password must contain at least one special character');
-    }
-    
-    return {
-      isValid: errors.length === 0,
-      errors,
-    };
-  }
-  
+
   /**
    * Retrieves a user by their unique identifier
    * 
-   * @param id - User identifier
-   * @returns Promise resolving to the user or null if not found
+   * @param userId - The unique identifier of the user
+   * @returns The user if found, null otherwise
+   * @throws DatabaseError if a database error occurs
    */
-  async getUserById(id: string): Promise<TUser | null> {
-    this.methodCalls.getUserById++;
-    return this.users.get(id) || null;
-  }
-  
-  /**
-   * Validates a token and returns the associated user
-   * 
-   * @param token - Authentication token (JWT, session token, etc.)
-   * @returns Promise resolving to the authenticated user or null if validation fails
-   */
-  async validateToken(token: string): Promise<TUser | null> {
-    this.methodCalls.validateToken++;
-    
-    // For testing purposes, we can use a simple token format: 'user_id:timestamp'
-    const parts = token.split(':');
-    if (parts.length !== 2) {
-      return null;
+  async findUserById(userId: string): Promise<TUser | null> {
+    const { errorMessages, simulateErrors } = this.options;
+
+    try {
+      // Simulate database error if configured
+      if (simulateErrors) {
+        throw new Error('Simulated database error');
+      }
+
+      // Find user by ID
+      const user = this.users.find(u => u.id === userId);
+
+      if (!user) {
+        return null;
+      }
+
+      // Remove the password hash from the returned user object
+      const { password: _, ...userWithoutPassword } = user;
+
+      return userWithoutPassword as unknown as TUser;
+    } catch (error) {
+      // Log the error and throw a database error
+      this.logger.error(`Database error retrieving user by ID: ${error.message}`, error.stack);
+      throw new DatabaseError(
+        errorMessages.databaseError,
+        { originalError: error.message, userId }
+      );
     }
-    
-    const userId = parts[0];
-    return this.users.get(userId) || null;
   }
-  
+
   /**
-   * Generates a token for the authenticated user
+   * Retrieves a user by their email address
    * 
-   * @param user - Authenticated user
-   * @param expiresIn - Token expiration time in seconds (optional)
-   * @returns Promise resolving to the generated token
+   * @param email - The email address of the user
+   * @returns The user if found, null otherwise
+   * @throws DatabaseError if a database error occurs
    */
-  async generateToken(user: TUser, expiresIn?: number): Promise<string> {
-    this.methodCalls.generateToken++;
-    
-    // For testing purposes, we can use a simple token format: 'user_id:timestamp'
-    const timestamp = Date.now();
-    return `${user.id}:${timestamp}`;
+  async findUserByEmail(email: string): Promise<TUser | null> {
+    const { errorMessages, simulateErrors } = this.options;
+
+    try {
+      // Simulate database error if configured
+      if (simulateErrors) {
+        throw new Error('Simulated database error');
+      }
+
+      // Find user by email
+      const user = this.users.find(u => u.email === email);
+
+      if (!user) {
+        return null;
+      }
+
+      // Remove the password hash from the returned user object
+      const { password: _, ...userWithoutPassword } = user;
+
+      return userWithoutPassword as unknown as TUser;
+    } catch (error) {
+      // Log the error and throw a database error
+      this.logger.error(`Database error retrieving user by email: ${error.message}`, error.stack);
+      throw new DatabaseError(
+        errorMessages.databaseError,
+        { originalError: error.message, email }
+      );
+    }
   }
-  
+
   /**
-   * Decodes a token and returns its payload without validation
+   * Creates a new access token for the authenticated user
    * 
-   * @param token - Authentication token
-   * @returns Promise resolving to the decoded token payload or null if decoding fails
+   * @param user - The user for whom to create the token
+   * @returns The generated access token
    */
-  async decodeToken(token: string): Promise<JwtPayload | null> {
-    this.methodCalls.decodeToken++;
+  async createAccessToken(user: TUser): Promise<string> {
+    // In a real implementation, this would use JWT to sign a token
+    // For our mock, we'll create a simple string representation
     
-    // For testing purposes, we can use a simple token format: 'user_id:timestamp'
-    const parts = token.split(':');
-    if (parts.length !== 2) {
-      return null;
-    }
-    
-    const userId = parts[0];
-    const timestamp = parseInt(parts[1], 10);
-    
-    const user = this.users.get(userId);
-    if (!user) {
-      return null;
-    }
-    
-    return {
-      sub: userId,
-      iat: Math.floor(timestamp / 1000),
-      exp: Math.floor(timestamp / 1000) + 3600, // 1 hour expiration
-      roles: user.roles || [],
+    const payload: JwtPayload = {
+      sub: user.id,
       email: user.email,
+      name: user.name,
+      roles: user.roles || [],
     };
+
+    // Create a simple token format for testing
+    // Format: access_token:{userId}:{expiration}
+    const expiration = Date.now() + (this.options.jwt.accessTokenExpiration * 1000);
+    return `access_token:${user.id}:${expiration}`;
   }
-  
+
   /**
-   * Extracts the token from the request
+   * Creates a new refresh token for the authenticated user
    * 
-   * @param request - HTTP request object
-   * @returns Extracted token or null if not found
+   * @param user - The user for whom to create the token
+   * @returns The generated refresh token
    */
-  extractTokenFromRequest(request: any): string | null {
-    this.methodCalls.extractTokenFromRequest++;
+  async createRefreshToken(user: TUser): Promise<string> {
+    // In a real implementation, this would use JWT to sign a token
+    // For our mock, we'll create a simple string representation
     
-    // Check Authorization header
-    const authHeader = request?.headers?.authorization;
-    if (authHeader && authHeader.startsWith('Bearer ')) {
-      return authHeader.substring(7);
-    }
+    const payload: JwtPayload = {
+      sub: user.id,
+      type: 'refresh',
+    };
+
+    // Create a simple token format for testing
+    // Format: refresh_token:{userId}:{expiration}
+    const expiration = Date.now() + (this.options.jwt.refreshTokenExpiration * 1000);
+    const refreshToken = `refresh_token:${user.id}:${expiration}`;
     
-    // Check cookies
-    const token = request?.cookies?.token;
-    if (token) {
-      return token;
-    }
+    // Store the refresh token for this user
+    this.refreshTokens.set(user.id, refreshToken);
     
-    return null;
+    return refreshToken;
   }
-  
+
   /**
-   * Revokes a token, making it invalid for future authentication
+   * Validates a refresh token and returns a new access token
    * 
-   * @param token - Authentication token to revoke
-   * @returns Promise resolving to true if revocation was successful, false otherwise
+   * @param refreshToken - The refresh token to validate
+   * @returns A new access token if the refresh token is valid, null otherwise
+   * @throws UnauthorizedError if token is invalid
    */
-  async revokeToken(token: string): Promise<boolean> {
-    this.methodCalls.revokeToken++;
-    
-    // For testing purposes, we can simulate successful revocation
-    return true;
+  async refreshAccessToken(refreshToken: string): Promise<string | null> {
+    try {
+      // Parse the token to extract user ID and expiration
+      // Format: refresh_token:{userId}:{expiration}
+      const parts = refreshToken.split(':');
+      if (parts.length !== 3 || parts[0] !== 'refresh_token') {
+        throw new UnauthorizedError('Invalid token format');
+      }
+
+      const userId = parts[1];
+      const expiration = parseInt(parts[2], 10);
+
+      // Check if token is expired
+      if (Date.now() > expiration) {
+        throw new UnauthorizedError('Token expired');
+      }
+
+      // Check if token is blacklisted
+      if (this.tokenBlacklist.has(userId)) {
+        throw new UnauthorizedError('Token has been revoked');
+      }
+
+      // Check if this is the current refresh token for this user
+      const storedToken = this.refreshTokens.get(userId);
+      if (storedToken !== refreshToken) {
+        throw new UnauthorizedError('Token has been superseded');
+      }
+
+      // Get the user from the database
+      const user = await this.findUserById(userId);
+      if (!user) {
+        return null;
+      }
+
+      // Generate a new access token
+      return this.createAccessToken(user);
+    } catch (error) {
+      if (error instanceof UnauthorizedError) {
+        throw error;
+      }
+      throw new UnauthorizedError('Invalid or expired refresh token');
+    }
   }
-  
+
   /**
-   * Refreshes an existing token and returns a new one
+   * Revokes all active tokens for a user
    * 
-   * @param refreshToken - Refresh token
-   * @returns Promise resolving to the new access token or null if refresh fails
+   * @param userId - The unique identifier of the user
+   * @returns A promise that resolves when the operation is complete
    */
-  async refreshToken(refreshToken: string): Promise<string | null> {
-    this.methodCalls.refreshToken++;
-    
-    // For testing purposes, we can use a simple token format: 'user_id:timestamp'
-    const parts = refreshToken.split(':');
-    if (parts.length !== 2) {
-      return null;
+  async revokeTokens(userId: string): Promise<void> {
+    try {
+      // Add the user ID to the blacklist
+      this.tokenBlacklist.add(userId);
+      
+      // Remove any stored refresh tokens
+      this.refreshTokens.delete(userId);
+    } catch (error) {
+      this.logger.error(`Error revoking tokens for user ${userId}: ${error.message}`, error.stack);
+      throw new DatabaseError(
+        'Failed to revoke tokens',
+        { originalError: error.message, userId }
+      );
     }
-    
-    const userId = parts[0];
-    const user = this.users.get(userId);
-    
-    if (!user) {
-      return null;
-    }
-    
-    // Generate a new token
-    return this.generateToken(user);
   }
 }
