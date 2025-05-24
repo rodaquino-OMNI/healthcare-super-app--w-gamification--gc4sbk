@@ -1,57 +1,32 @@
 /**
- * Filter Array Test Fixtures
- * 
- * This module provides test fixtures specifically designed for testing array filtering operations,
- * with arrays containing elements that match various filtering criteria (by value, type, property,
- * or condition). These fixtures ensure consistent testing of filter functions across the codebase.
- * 
- * @module test/fixtures/array/filter-arrays
+ * @file Test fixtures for array filtering operations.
+ * Contains arrays with elements that match various filtering criteria (by value, type, property, or condition).
+ * These fixtures ensure consistent testing of filter functions across the codebase.
  */
+
+// ===== PRIMITIVE ARRAYS =====
 
 /**
- * Interface for objects used in filter operation tests
+ * Array of numbers for testing numeric filtering operations
  */
-export interface FilterTestObject {
-  id: number;
-  name: string;
-  active: boolean;
-  tags?: string[];
-  value?: number | null;
-  category?: string;
-  priority?: number;
-  createdAt?: Date;
-}
+export const numbers = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
 
 /**
- * Interface for a filter fixture with expected results
+ * Expected results for filtering numbers by common conditions
  */
-export interface FilterFixture<T> {
-  /** Description of the test case */
-  description: string;
-  /** Array to filter */
-  array: T[];
-  /** Expected filtered result */
-  expected: T[];
-  /** Optional filter criteria description */
-  filterCriteria?: string;
-}
-
-// ===== Primitive Value Arrays =====
+export const numbersFiltered = {
+  even: [2, 4, 6, 8, 10],
+  odd: [1, 3, 5, 7, 9],
+  greaterThanFive: [6, 7, 8, 9, 10],
+  lessThanFive: [1, 2, 3, 4],
+  divisibleByThree: [3, 6, 9],
+  betweenThreeAndSeven: [3, 4, 5, 6, 7]
+};
 
 /**
- * Empty array for testing filter operations on empty collections
+ * Array of strings for testing string filtering operations
  */
-export const emptyFilterArray: any[] = [];
-
-/**
- * Array of numbers for testing filter operations with numeric values
- */
-export const numberFilterArray = [1, 2, 3, 4, 5, 10, 20, 30, 40, 50];
-
-/**
- * Array of strings for testing filter operations with string values
- */
-export const stringFilterArray = [
+export const strings = [
   'apple',
   'banana',
   'cherry',
@@ -59,526 +34,487 @@ export const stringFilterArray = [
   'elderberry',
   'fig',
   'grape',
-  'honeydew'
+  'honeydew',
+  'apple pie',
+  'banana bread'
 ];
 
 /**
- * Array of booleans for testing filter operations with boolean values
+ * Expected results for filtering strings by common conditions
  */
-export const booleanFilterArray = [false, false, true, false, true];
+export const stringsFiltered = {
+  startingWithA: ['apple', 'apple pie'],
+  startingWithB: ['banana', 'banana bread'],
+  containingA: ['apple', 'banana', 'grape', 'apple pie', 'banana bread'],
+  lengthGreaterThanFive: ['banana', 'cherry', 'elderberry', 'honeydew', 'apple pie', 'banana bread'],
+  lengthLessThanFive: ['date', 'fig', 'grape'],
+  containingSpace: ['apple pie', 'banana bread']
+};
 
 /**
- * Array with duplicate values for testing uniqueness filters
+ * Array of booleans for testing boolean filtering operations
  */
-export const duplicateValueArray = [1, 2, 2, 3, 3, 3, 4, 4, 4, 4, 5, 5, 5, 5, 5];
+export const booleans = [true, false, true, true, false, false, true];
 
 /**
- * Array with duplicate strings for testing uniqueness filters
+ * Expected results for filtering booleans
  */
-export const duplicateStringArray = [
-  'apple',
-  'banana',
-  'apple',
-  'cherry',
-  'banana',
-  'date',
-  'cherry',
-  'apple'
+export const booleansFiltered = {
+  trueValues: [true, true, true, true],
+  falseValues: [false, false, false]
+};
+
+// ===== MIXED TYPE ARRAYS =====
+
+/**
+ * Array with mixed types for testing type-based filtering
+ */
+export const mixedTypes = [
+  1,
+  'string',
+  true,
+  { id: 1, name: 'object' },
+  null,
+  undefined,
+  42,
+  'another string',
+  false,
+  [1, 2, 3],
+  new Date('2023-01-01')
 ];
 
 /**
- * Array with null and undefined values for testing compact operations
+ * Expected results for filtering mixed types by type
  */
-export const nullUndefinedArray = [1, null, 2, undefined, 3, null, 4, undefined, 5];
+export const mixedTypesFiltered = {
+  numbers: [1, 42],
+  strings: ['string', 'another string'],
+  booleans: [true, false],
+  objects: [{ id: 1, name: 'object' }, [1, 2, 3], new Date('2023-01-01')],
+  nullish: [null, undefined],
+  notNullish: [1, 'string', true, { id: 1, name: 'object' }, 42, 'another string', false, [1, 2, 3], new Date('2023-01-01')]
+};
+
+// ===== OBJECT ARRAYS =====
 
 /**
- * Mixed type array for testing filter operations with different types
+ * Interface for user objects in test fixtures
  */
-export const mixedFilterArray = [1, 'two', true, null, undefined, { key: 'value' }, [1, 2, 3]];
-
-// ===== Object Arrays =====
+export interface TestUser {
+  id: number;
+  name: string;
+  age: number;
+  active: boolean;
+  role: string;
+  department?: string;
+  tags?: string[];
+}
 
 /**
- * Array of objects for testing filter operations with object properties
+ * Array of user objects for testing object filtering operations
  */
-export const objectFilterArray: FilterTestObject[] = [
-  { id: 1, name: 'Item 1', active: true, value: 100, tags: ['important', 'new'], category: 'A', priority: 1 },
-  { id: 2, name: 'Item 2', active: false, value: 200, tags: ['archived'], category: 'B', priority: 2 },
-  { id: 3, name: 'Item 3', active: true, value: 300, tags: ['important'], category: 'A', priority: 3 },
-  { id: 4, name: 'Item 4', active: false, value: null, tags: [], category: 'C', priority: 1 },
-  { id: 5, name: 'Item 5', active: true, value: 500, tags: ['new'], category: 'B', priority: 2 },
-  { id: 6, name: 'Item 6', active: true, value: 600, category: 'C', priority: 3 },
-  { id: 7, name: 'Item 7', active: false, value: 700, category: 'A', priority: 1 },
-  { id: 8, name: 'Special Item', active: true, value: 800, category: 'special', priority: 1 },
-  { id: 9, name: 'Priority Item', active: true, value: 900, category: 'normal', priority: 2 },
-  { id: 10, name: 'Regular Item', active: false, value: 1000, category: 'normal', priority: 3 }
+export const users: TestUser[] = [
+  { id: 1, name: 'Alice', age: 28, active: true, role: 'admin', department: 'IT', tags: ['developer', 'team-lead'] },
+  { id: 2, name: 'Bob', age: 35, active: true, role: 'user', department: 'HR', tags: ['manager'] },
+  { id: 3, name: 'Charlie', age: 42, active: false, role: 'user', department: 'Finance', tags: ['accountant'] },
+  { id: 4, name: 'Diana', age: 31, active: true, role: 'admin', department: 'IT', tags: ['developer', 'security'] },
+  { id: 5, name: 'Eve', age: 25, active: true, role: 'user', department: 'Marketing', tags: ['designer'] },
+  { id: 6, name: 'Frank', age: 44, active: false, role: 'user', department: 'Operations' },
+  { id: 7, name: 'Grace', age: 29, active: true, role: 'admin', department: 'IT', tags: ['developer'] },
+  { id: 8, name: 'Hank', age: 37, active: true, role: 'user', department: 'HR', tags: ['recruiter'] },
+  { id: 9, name: 'Ivy', age: 33, active: false, role: 'user', department: 'Finance', tags: ['analyst'] },
+  { id: 10, name: 'Jack', age: 27, active: true, role: 'user', department: 'Marketing', tags: ['copywriter'] }
 ];
 
 /**
- * Array of objects with duplicate IDs for testing uniqueBy operations
+ * Expected results for filtering users by common conditions
  */
-export const duplicateIdObjectArray: FilterTestObject[] = [
-  { id: 1, name: 'First Item', active: true, value: 100 },
-  { id: 2, name: 'Second Item', active: false, value: 200 },
-  { id: 1, name: 'First Item (Duplicate ID)', active: true, value: 150 },
-  { id: 3, name: 'Third Item', active: true, value: 300 },
-  { id: 2, name: 'Second Item (Duplicate ID)', active: false, value: 250 },
-  { id: 4, name: 'Fourth Item', active: false, value: 400 },
-  { id: 3, name: 'Third Item (Duplicate ID)', active: true, value: 350 }
-];
+export const usersFiltered = {
+  // Filter by single property
+  active: users.filter(user => user.active),
+  inactive: users.filter(user => !user.active),
+  admins: users.filter(user => user.role === 'admin'),
+  users: users.filter(user => user.role === 'user'),
+  
+  // Filter by department
+  itDepartment: users.filter(user => user.department === 'IT'),
+  hrDepartment: users.filter(user => user.department === 'HR'),
+  financeDepartment: users.filter(user => user.department === 'Finance'),
+  marketingDepartment: users.filter(user => user.department === 'Marketing'),
+  
+  // Filter by age
+  under30: users.filter(user => user.age < 30),
+  over30: users.filter(user => user.age >= 30),
+  between25And35: users.filter(user => user.age >= 25 && user.age <= 35),
+  
+  // Filter by multiple criteria
+  activeAdmins: users.filter(user => user.active && user.role === 'admin'),
+  inactiveUsers: users.filter(user => !user.active && user.role === 'user'),
+  itAdmins: users.filter(user => user.department === 'IT' && user.role === 'admin'),
+  
+  // Filter by array property
+  developers: users.filter(user => user.tags?.includes('developer')),
+  withTags: users.filter(user => user.tags && user.tags.length > 0),
+  withoutTags: users.filter(user => !user.tags || user.tags.length === 0)
+};
 
 /**
- * Array of objects with duplicate names (case-insensitive) for testing uniqueBy with selector function
+ * Interface for product objects in test fixtures
  */
-export const duplicateNameObjectArray: FilterTestObject[] = [
-  { id: 1, name: 'Alice', active: true, value: 100 },
-  { id: 2, name: 'Bob', active: false, value: 200 },
-  { id: 3, name: 'alice', active: true, value: 300 },  // Duplicate name (case-insensitive)
-  { id: 4, name: 'Charlie', active: false, value: 400 },
-  { id: 5, name: 'BOB', active: true, value: 500 },     // Duplicate name (case-insensitive)
-  { id: 6, name: 'David', active: true, value: 600 },
-  { id: 7, name: 'ALICE', active: false, value: 700 }   // Duplicate name (case-insensitive)
-];
+export interface TestProduct {
+  id: number;
+  name: string;
+  price: number;
+  category: string;
+  inStock: boolean;
+  tags?: string[];
+  attributes?: {
+    color?: string;
+    size?: string;
+    weight?: number;
+  };
+}
 
 /**
- * Array of objects with dates for testing date-based filtering
+ * Array of product objects for testing nested property filtering
  */
-export const dateObjectArray: FilterTestObject[] = [
-  { id: 1, name: 'Item 1', active: true, createdAt: new Date('2023-01-01') },
-  { id: 2, name: 'Item 2', active: false, createdAt: new Date('2023-02-15') },
-  { id: 3, name: 'Item 3', active: true, createdAt: new Date('2023-03-10') },
-  { id: 4, name: 'Item 4', active: false, createdAt: new Date('2023-04-20') },
-  { id: 5, name: 'Item 5', active: true, createdAt: new Date('2023-05-05') },
-  { id: 6, name: 'Item 6', active: true, createdAt: new Date('2023-06-30') },
-  { id: 7, name: 'Item 7', active: false, createdAt: new Date('2023-07-12') },
-  { id: 8, name: 'Item 8', active: true, createdAt: new Date('2023-08-22') },
-  { id: 9, name: 'Item 9', active: true, createdAt: new Date('2023-09-18') },
-  { id: 10, name: 'Item 10', active: false, createdAt: new Date('2023-10-01') }
-];
-
-/**
- * Arrays for testing differenceBy and intersectionBy operations
- */
-export const firstArray = [1, 2, 3, 4, 5];
-export const secondArray = [3, 4, 5, 6, 7];
-export const expectedDifference = [1, 2];
-export const expectedIntersection = [3, 4, 5];
-
-/**
- * Object arrays for testing differenceBy and intersectionBy operations
- */
-export const firstObjectArray: FilterTestObject[] = [
-  { id: 1, name: 'Item 1', active: true, value: 100 },
-  { id: 2, name: 'Item 2', active: false, value: 200 },
-  { id: 3, name: 'Item 3', active: true, value: 300 },
-  { id: 4, name: 'Item 4', active: false, value: 400 },
-  { id: 5, name: 'Item 5', active: true, value: 500 }
-];
-
-export const secondObjectArray: FilterTestObject[] = [
-  { id: 3, name: 'Item 3 (Different)', active: false, value: 300 },
-  { id: 4, name: 'Item 4 (Different)', active: true, value: 400 },
-  { id: 5, name: 'Item 5 (Different)', active: false, value: 500 },
-  { id: 6, name: 'Item 6', active: true, value: 600 },
-  { id: 7, name: 'Item 7', active: false, value: 700 }
-];
-
-// ===== Filter Fixtures with Expected Results =====
-
-/**
- * Fixtures for testing basic filter operations on number arrays
- */
-export const numberFilterFixtures: FilterFixture<number>[] = [
+export const products: TestProduct[] = [
   {
-    description: 'Filter numbers greater than 10',
-    array: numberFilterArray,
-    expected: [20, 30, 40, 50],
-    filterCriteria: 'value > 10'
+    id: 1,
+    name: 'Laptop',
+    price: 1200,
+    category: 'Electronics',
+    inStock: true,
+    tags: ['tech', 'work'],
+    attributes: { color: 'silver', weight: 2.5 }
   },
   {
-    description: 'Filter even numbers',
-    array: numberFilterArray,
-    expected: [2, 4, 10, 20, 30, 40, 50],
-    filterCriteria: 'value % 2 === 0'
+    id: 2,
+    name: 'Smartphone',
+    price: 800,
+    category: 'Electronics',
+    inStock: true,
+    tags: ['tech', 'mobile'],
+    attributes: { color: 'black', weight: 0.3 }
   },
   {
-    description: 'Filter numbers between 5 and 30 inclusive',
-    array: numberFilterArray,
-    expected: [5, 10, 20, 30],
-    filterCriteria: 'value >= 5 && value <= 30'
+    id: 3,
+    name: 'Headphones',
+    price: 150,
+    category: 'Electronics',
+    inStock: false,
+    tags: ['tech', 'audio'],
+    attributes: { color: 'black', weight: 0.2 }
   },
   {
-    description: 'Filter numbers that are multiples of 10',
-    array: numberFilterArray,
-    expected: [10, 20, 30, 40, 50],
-    filterCriteria: 'value % 10 === 0'
+    id: 4,
+    name: 'T-shirt',
+    price: 25,
+    category: 'Clothing',
+    inStock: true,
+    tags: ['casual', 'summer'],
+    attributes: { color: 'blue', size: 'M' }
   },
   {
-    description: 'Filter with no matches',
-    array: numberFilterArray,
-    expected: [],
-    filterCriteria: 'value > 100'
+    id: 5,
+    name: 'Jeans',
+    price: 60,
+    category: 'Clothing',
+    inStock: true,
+    tags: ['casual', 'denim'],
+    attributes: { color: 'blue', size: 'L' }
   },
   {
-    description: 'Filter on empty array',
-    array: [],
-    expected: [],
-    filterCriteria: 'any condition'
+    id: 6,
+    name: 'Sneakers',
+    price: 90,
+    category: 'Footwear',
+    inStock: false,
+    tags: ['casual', 'sports'],
+    attributes: { color: 'white', size: '42' }
+  },
+  {
+    id: 7,
+    name: 'Watch',
+    price: 300,
+    category: 'Accessories',
+    inStock: true,
+    tags: ['luxury', 'gift'],
+    attributes: { color: 'gold' }
+  },
+  {
+    id: 8,
+    name: 'Backpack',
+    price: 70,
+    category: 'Accessories',
+    inStock: true,
+    tags: ['travel', 'outdoor'],
+    attributes: { color: 'black' }
+  },
+  {
+    id: 9,
+    name: 'Coffee Maker',
+    price: 120,
+    category: 'Home',
+    inStock: false,
+    attributes: { color: 'silver', weight: 3.0 }
+  },
+  {
+    id: 10,
+    name: 'Desk Chair',
+    price: 180,
+    category: 'Furniture',
+    inStock: true,
+    attributes: { color: 'black', weight: 8.5 }
   }
 ];
 
 /**
- * Fixtures for testing string filter operations
+ * Expected results for filtering products by common conditions
  */
-export const stringFilterFixtures: FilterFixture<string>[] = [
+export const productsFiltered = {
+  // Filter by category
+  electronics: products.filter(product => product.category === 'Electronics'),
+  clothing: products.filter(product => product.category === 'Clothing'),
+  accessories: products.filter(product => product.category === 'Accessories'),
+  
+  // Filter by price
+  under100: products.filter(product => product.price < 100),
+  over100: products.filter(product => product.price >= 100),
+  between50And200: products.filter(product => product.price >= 50 && product.price <= 200),
+  
+  // Filter by stock
+  inStock: products.filter(product => product.inStock),
+  outOfStock: products.filter(product => !product.inStock),
+  
+  // Filter by tags
+  techProducts: products.filter(product => product.tags?.includes('tech')),
+  casualProducts: products.filter(product => product.tags?.includes('casual')),
+  
+  // Filter by nested attributes
+  blackProducts: products.filter(product => product.attributes?.color === 'black'),
+  lightProducts: products.filter(product => product.attributes?.weight && product.attributes.weight < 1.0),
+  heavyProducts: products.filter(product => product.attributes?.weight && product.attributes.weight >= 3.0),
+  
+  // Filter by multiple criteria
+  inStockElectronics: products.filter(product => product.inStock && product.category === 'Electronics'),
+  expensiveClothing: products.filter(product => product.category === 'Clothing' && product.price > 50),
+  blackTechProducts: products.filter(
+    product => product.attributes?.color === 'black' && product.tags?.includes('tech')
+  )
+};
+
+// ===== UNIQUE FILTERING FIXTURES =====
+
+/**
+ * Array with duplicate values for testing uniqueness filtering
+ */
+export const duplicateNumbers = [1, 2, 2, 3, 3, 3, 4, 4, 4, 4, 5, 5, 5, 5, 5];
+
+/**
+ * Expected result for unique filtering of duplicateNumbers
+ */
+export const uniqueNumbers = [1, 2, 3, 4, 5];
+
+/**
+ * Array of objects with duplicate values for testing uniqueness filtering by property
+ */
+export interface DuplicateItem {
+  id: number;
+  category: string;
+  value: number;
+}
+
+export const duplicateItems: DuplicateItem[] = [
+  { id: 1, category: 'A', value: 10 },
+  { id: 2, category: 'B', value: 20 },
+  { id: 3, category: 'A', value: 30 },
+  { id: 4, category: 'C', value: 40 },
+  { id: 5, category: 'B', value: 50 },
+  { id: 6, category: 'A', value: 60 },
+  { id: 7, category: 'C', value: 70 },
+  { id: 8, category: 'B', value: 80 },
+  { id: 9, category: 'A', value: 90 },
+  { id: 10, category: 'C', value: 100 }
+];
+
+/**
+ * Expected results for unique filtering of duplicateItems by category
+ */
+export const uniqueItemsByCategory = [
+  { id: 1, category: 'A', value: 10 },
+  { id: 2, category: 'B', value: 20 },
+  { id: 4, category: 'C', value: 40 }
+];
+
+// ===== DIFFERENCE FILTERING FIXTURES =====
+
+/**
+ * Arrays for testing difference operations
+ */
+export const arrayA = [1, 2, 3, 4, 5];
+export const arrayB = [3, 4, 5, 6, 7];
+
+/**
+ * Expected results for difference operations
+ */
+export const differenceResults = {
+  aMinusB: [1, 2],         // Elements in A that are not in B
+  bMinusA: [6, 7],         // Elements in B that are not in A
+  symmetricDifference: [1, 2, 6, 7]  // Elements in either A or B but not both
+};
+
+/**
+ * Object arrays for testing difference operations by property
+ */
+export interface IdentifiableItem {
+  id: number;
+  name: string;
+}
+
+export const objectArrayA: IdentifiableItem[] = [
+  { id: 1, name: 'Item 1' },
+  { id: 2, name: 'Item 2' },
+  { id: 3, name: 'Item 3' },
+  { id: 4, name: 'Item 4' },
+  { id: 5, name: 'Item 5' }
+];
+
+export const objectArrayB: IdentifiableItem[] = [
+  { id: 3, name: 'Item 3' },
+  { id: 4, name: 'Item 4 - Updated' },
+  { id: 5, name: 'Item 5' },
+  { id: 6, name: 'Item 6' },
+  { id: 7, name: 'Item 7' }
+];
+
+/**
+ * Expected results for difference operations on object arrays
+ */
+export const objectDifferenceResults = {
+  aMinusBById: [{ id: 1, name: 'Item 1' }, { id: 2, name: 'Item 2' }],
+  bMinusAById: [{ id: 6, name: 'Item 6' }, { id: 7, name: 'Item 7' }],
+  updatedItems: [{ id: 4, name: 'Item 4 - Updated' }]  // Items with same id but different properties
+};
+
+// ===== PROPERTY FILTERING FIXTURES =====
+
+/**
+ * Complex objects for testing property-based filtering
+ */
+export interface ComplexObject {
+  id: number;
+  properties: {
+    name: string;
+    values: number[];
+    metadata: {
+      created: Date;
+      tags: string[];
+      status: 'active' | 'inactive' | 'pending';
+    };
+  };
+}
+
+export const complexObjects: ComplexObject[] = [
   {
-    description: 'Filter strings containing "a"',
-    array: stringFilterArray,
-    expected: ['apple', 'banana', 'date', 'grape'],
-    filterCriteria: 'value.includes("a")'
+    id: 1,
+    properties: {
+      name: 'Object A',
+      values: [10, 20, 30],
+      metadata: {
+        created: new Date('2023-01-15'),
+        tags: ['important', 'featured'],
+        status: 'active'
+      }
+    }
   },
   {
-    description: 'Filter strings starting with "b"',
-    array: stringFilterArray,
-    expected: ['banana'],
-    filterCriteria: 'value.startsWith("b")'
+    id: 2,
+    properties: {
+      name: 'Object B',
+      values: [5, 15, 25],
+      metadata: {
+        created: new Date('2023-02-20'),
+        tags: ['normal'],
+        status: 'inactive'
+      }
+    }
   },
   {
-    description: 'Filter strings ending with "e"',
-    array: stringFilterArray,
-    expected: ['apple', 'date'],
-    filterCriteria: 'value.endsWith("e")'
+    id: 3,
+    properties: {
+      name: 'Object C',
+      values: [50, 100, 150],
+      metadata: {
+        created: new Date('2023-03-10'),
+        tags: ['important', 'urgent'],
+        status: 'active'
+      }
+    }
   },
   {
-    description: 'Filter strings with length > 6',
-    array: stringFilterArray,
-    expected: ['banana', 'elderberry', 'honeydew'],
-    filterCriteria: 'value.length > 6'
+    id: 4,
+    properties: {
+      name: 'Object D',
+      values: [7, 14, 21],
+      metadata: {
+        created: new Date('2023-04-05'),
+        tags: ['low-priority'],
+        status: 'pending'
+      }
+    }
   },
   {
-    description: 'Filter strings matching regex pattern',
-    array: stringFilterArray,
-    expected: ['apple', 'grape'],
-    filterCriteria: 'value.match(/^[ag]/)'
+    id: 5,
+    properties: {
+      name: 'Object E',
+      values: [33, 66, 99],
+      metadata: {
+        created: new Date('2023-05-12'),
+        tags: ['important', 'featured'],
+        status: 'active'
+      }
+    }
   }
 ];
 
 /**
- * Fixtures for testing uniqueBy operations
+ * Expected results for filtering complex objects by nested properties
  */
-export const uniqueByFixtures: FilterFixture<any>[] = [
-  {
-    description: 'Filter unique primitive values',
-    array: duplicateValueArray,
-    expected: [1, 2, 3, 4, 5],
-    filterCriteria: 'uniqueBy()'
-  },
-  {
-    description: 'Filter unique strings',
-    array: duplicateStringArray,
-    expected: ['apple', 'banana', 'cherry', 'date'],
-    filterCriteria: 'uniqueBy()'
-  },
-  {
-    description: 'Filter objects with unique IDs',
-    array: duplicateIdObjectArray,
-    expected: [
-      { id: 1, name: 'First Item', active: true, value: 100 },
-      { id: 2, name: 'Second Item', active: false, value: 200 },
-      { id: 3, name: 'Third Item', active: true, value: 300 },
-      { id: 4, name: 'Fourth Item', active: false, value: 400 }
-    ],
-    filterCriteria: 'uniqueBy(array, "id")'
-  },
-  {
-    description: 'Filter objects with unique case-insensitive names',
-    array: duplicateNameObjectArray,
-    expected: [
-      { id: 1, name: 'Alice', active: true, value: 100 },
-      { id: 2, name: 'Bob', active: false, value: 200 },
-      { id: 4, name: 'Charlie', active: false, value: 400 },
-      { id: 6, name: 'David', active: true, value: 600 }
-    ],
-    filterCriteria: 'uniqueBy(array, item => item.name.toLowerCase())'
-  }
-];
-
-/**
- * Fixtures for testing filterByProperties operations
- */
-export const filterByPropertiesFixtures: FilterFixture<FilterTestObject>[] = [
-  {
-    description: 'Filter by exact property match',
-    array: objectFilterArray,
-    expected: [
-      objectFilterArray[0],
-      objectFilterArray[2],
-      objectFilterArray[6]
-    ],
-    filterCriteria: 'filterByProperties(array, { category: "A" })'
-  },
-  {
-    description: 'Filter by multiple exact property matches (AND logic)',
-    array: objectFilterArray,
-    expected: [
-      objectFilterArray[0]
-    ],
-    filterCriteria: 'filterByProperties(array, { category: "A", priority: 1 })'
-  },
-  {
-    description: 'Filter by property matcher - contains',
-    array: objectFilterArray,
-    expected: [
-      objectFilterArray[7],
-      objectFilterArray[8],
-      objectFilterArray[9]
-    ],
-    filterCriteria: 'filterByProperties(array, { category: { contains: "al" } })'
-  },
-  {
-    description: 'Filter by property matcher - startsWith',
-    array: objectFilterArray,
-    expected: [
-      objectFilterArray[8],
-      objectFilterArray[9]
-    ],
-    filterCriteria: 'filterByProperties(array, { category: { startsWith: "nor" } })'
-  },
-  {
-    description: 'Filter by property matcher - in array',
-    array: objectFilterArray,
-    expected: [
-      objectFilterArray[0],
-      objectFilterArray[2],
-      objectFilterArray[4],
-      objectFilterArray[6]
-    ],
-    filterCriteria: 'filterByProperties(array, { priority: { in: [1, 2] } })'
-  },
-  {
-    description: 'Filter by property matcher - numeric comparison',
-    array: objectFilterArray,
-    expected: [
-      objectFilterArray[5],
-      objectFilterArray[7],
-      objectFilterArray[8],
-      objectFilterArray[9]
-    ],
-    filterCriteria: 'filterByProperties(array, { value: { gte: 600 } })'
-  },
-  {
-    description: 'Filter by property matcher - between range',
-    array: objectFilterArray,
-    expected: [
-      objectFilterArray[1],
-      objectFilterArray[2],
-      objectFilterArray[4]
-    ],
-    filterCriteria: 'filterByProperties(array, { value: { between: [200, 500] } })'
-  },
-  {
-    description: 'Filter by property matcher - exists',
-    array: objectFilterArray,
-    expected: [
-      objectFilterArray[0],
-      objectFilterArray[2],
-      objectFilterArray[4]
-    ],
-    filterCriteria: 'filterByProperties(array, { tags: { exists: true } })'
-  },
-  {
-    description: 'Filter by multiple property matchers (AND logic)',
-    array: objectFilterArray,
-    expected: [
-      objectFilterArray[0],
-      objectFilterArray[2]
-    ],
-    filterCriteria: 'filterByProperties(array, { active: true, value: { gt: 0 }, tags: { exists: true } })'
-  },
-  {
-    description: 'Filter by multiple property matchers (OR logic)',
-    array: objectFilterArray,
-    expected: [
-      objectFilterArray[0],
-      objectFilterArray[2],
-      objectFilterArray[3],
-      objectFilterArray[4],
-      objectFilterArray[5],
-      objectFilterArray[7],
-      objectFilterArray[8]
-    ],
-    filterCriteria: 'filterByProperties(array, { active: true, value: null }, false)'
-  }
-];
-
-/**
- * Fixtures for testing rejectByProperties operations
- */
-export const rejectByPropertiesFixtures: FilterFixture<FilterTestObject>[] = [
-  {
-    description: 'Reject by exact property match',
-    array: objectFilterArray,
-    expected: objectFilterArray.filter(item => item.category !== 'A'),
-    filterCriteria: 'rejectByProperties(array, { category: "A" })'
-  },
-  {
-    description: 'Reject inactive items',
-    array: objectFilterArray,
-    expected: objectFilterArray.filter(item => item.active),
-    filterCriteria: 'rejectByProperties(array, { active: false })'
-  },
-  {
-    description: 'Reject by property matcher - value range',
-    array: objectFilterArray,
-    expected: objectFilterArray.filter(item => !(item.value !== null && item.value >= 500)),
-    filterCriteria: 'rejectByProperties(array, { value: { gte: 500 } })'
-  },
-  {
-    description: 'Reject by multiple criteria (AND logic)',
-    array: objectFilterArray,
-    expected: objectFilterArray.filter(item => !(item.active && item.category === 'A')),
-    filterCriteria: 'rejectByProperties(array, { active: true, category: "A" })'
-  },
-  {
-    description: 'Reject by multiple criteria (OR logic)',
-    array: objectFilterArray,
-    expected: objectFilterArray.filter(item => !(item.active || item.category === 'A')),
-    filterCriteria: 'rejectByProperties(array, { active: true, category: "A" }, false)'
-  }
-];
-
-/**
- * Fixtures for testing differenceBy operations
- */
-export const differenceByFixtures: FilterFixture<any>[] = [
-  {
-    description: 'Difference between two number arrays',
-    array: firstArray,
-    expected: expectedDifference,
-    filterCriteria: 'differenceBy(firstArray, secondArray)'
-  },
-  {
-    description: 'Difference between object arrays by ID',
-    array: firstObjectArray,
-    expected: [
-      firstObjectArray[0],
-      firstObjectArray[1]
-    ],
-    filterCriteria: 'differenceBy(firstObjectArray, secondObjectArray, "id")'
-  },
-  {
-    description: 'Difference between object arrays by custom selector',
-    array: firstObjectArray,
-    expected: [],
-    filterCriteria: 'differenceBy(firstObjectArray, secondObjectArray, item => item.value)'
-  }
-];
-
-/**
- * Fixtures for testing intersectionBy operations
- */
-export const intersectionByFixtures: FilterFixture<any>[] = [
-  {
-    description: 'Intersection between two number arrays',
-    array: firstArray,
-    expected: expectedIntersection,
-    filterCriteria: 'intersectionBy(firstArray, secondArray)'
-  },
-  {
-    description: 'Intersection between object arrays by ID',
-    array: firstObjectArray,
-    expected: [
-      firstObjectArray[2],
-      firstObjectArray[3],
-      firstObjectArray[4]
-    ],
-    filterCriteria: 'intersectionBy(firstObjectArray, secondObjectArray, "id")'
-  },
-  {
-    description: 'Intersection between object arrays by custom selector',
-    array: firstObjectArray,
-    expected: [
-      firstObjectArray[2],
-      firstObjectArray[3],
-      firstObjectArray[4]
-    ],
-    filterCriteria: 'intersectionBy(firstObjectArray, secondObjectArray, item => item.value)'
-  }
-];
-
-/**
- * Fixtures for testing compact operations
- */
-export const compactFixtures: FilterFixture<any>[] = [
-  {
-    description: 'Remove null and undefined values',
-    array: nullUndefinedArray,
-    expected: [1, 2, 3, 4, 5],
-    filterCriteria: 'compact(array)'
-  },
-  {
-    description: 'Compact array with no null/undefined values',
-    array: [1, 2, 3, 4, 5],
-    expected: [1, 2, 3, 4, 5],
-    filterCriteria: 'compact(array)'
-  },
-  {
-    description: 'Compact array with only null/undefined values',
-    array: [null, undefined, null, undefined],
-    expected: [],
-    filterCriteria: 'compact(array)'
-  },
-  {
-    description: 'Compact mixed array',
-    array: [0, '', false, null, undefined, NaN, 'text'],
-    expected: [0, '', false, NaN, 'text'],
-    filterCriteria: 'compact(array)'
-  }
-];
-
-/**
- * Fixtures for testing filterWithRejections operations
- */
-export const filterWithRejectionsFixtures: FilterFixture<any>[] = [
-  {
-    description: 'Filter even numbers with rejections',
-    array: numberFilterArray,
-    expected: {
-      filtered: [2, 4, 10, 20, 30, 40, 50],
-      rejected: [1, 3, 5]
-    },
-    filterCriteria: 'filterWithRejections(array, num => num % 2 === 0)'
-  },
-  {
-    description: 'Filter active objects with rejections',
-    array: objectFilterArray,
-    expected: {
-      filtered: objectFilterArray.filter(item => item.active),
-      rejected: objectFilterArray.filter(item => !item.active)
-    },
-    filterCriteria: 'filterWithRejections(array, item => item.active)'
-  },
-  {
-    description: 'Filter objects by value threshold with rejections',
-    array: objectFilterArray,
-    expected: {
-      filtered: objectFilterArray.filter(item => item.value !== null && item.value > 500),
-      rejected: objectFilterArray.filter(item => item.value === null || item.value <= 500)
-    },
-    filterCriteria: 'filterWithRejections(array, item => item.value !== null && item.value > 500)'
-  }
-];
-
-/**
- * Combined collection of all filter fixtures for easy import
- */
-export const allFilterFixtures = [
-  ...numberFilterFixtures,
-  ...stringFilterFixtures,
-  ...uniqueByFixtures,
-  ...filterByPropertiesFixtures,
-  ...rejectByPropertiesFixtures,
-  ...differenceByFixtures,
-  ...intersectionByFixtures,
-  ...compactFixtures
-];
+export const complexObjectsFiltered = {
+  // Filter by status
+  active: complexObjects.filter(obj => obj.properties.metadata.status === 'active'),
+  inactive: complexObjects.filter(obj => obj.properties.metadata.status === 'inactive'),
+  pending: complexObjects.filter(obj => obj.properties.metadata.status === 'pending'),
+  
+  // Filter by tags
+  important: complexObjects.filter(obj => obj.properties.metadata.tags.includes('important')),
+  featured: complexObjects.filter(obj => obj.properties.metadata.tags.includes('featured')),
+  urgent: complexObjects.filter(obj => obj.properties.metadata.tags.includes('urgent')),
+  
+  // Filter by date
+  createdBefore: complexObjects.filter(
+    obj => obj.properties.metadata.created < new Date('2023-03-01')
+  ),
+  createdAfter: complexObjects.filter(
+    obj => obj.properties.metadata.created > new Date('2023-03-01')
+  ),
+  
+  // Filter by values
+  highValues: complexObjects.filter(
+    obj => obj.properties.values.some(value => value > 50)
+  ),
+  lowValues: complexObjects.filter(
+    obj => obj.properties.values.every(value => value < 50)
+  ),
+  
+  // Combined filters
+  activeAndImportant: complexObjects.filter(
+    obj => obj.properties.metadata.status === 'active' && 
+           obj.properties.metadata.tags.includes('important')
+  ),
+  featuredOrUrgent: complexObjects.filter(
+    obj => obj.properties.metadata.tags.includes('featured') || 
+           obj.properties.metadata.tags.includes('urgent')
+  )
+};
