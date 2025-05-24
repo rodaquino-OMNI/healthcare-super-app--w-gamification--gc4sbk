@@ -1,42 +1,24 @@
-/**
- * Touchable component styles for the AUSTA SuperApp
- * Provides consistent touchable behavior across web and mobile platforms
- * with appropriate visual feedback and accessibility features
- * 
- * @package @design-system/primitives
- * @version 2.0.0
- */
-
 import styled, { css } from 'styled-components';
 import { TouchableOpacity, Platform } from 'react-native';
-import { TouchableStyleProps } from '@austa/interfaces/components';
-import { animation } from '../../../tokens/animation';
+
+/**
+ * Props interface for the styled TouchableOpacity component
+ */
+interface StyledTouchableOpacityProps {
+  /** Whether the touchable should take up the full width of its container */
+  fullWidth?: boolean;
+  /** Whether the touchable is disabled */
+  disabled?: boolean;
+}
 
 /**
  * StyledTouchableOpacity provides a consistent touchable component that works across platforms
  * with appropriate visual feedback and styling.
  * 
- * Features:
- * - Cross-platform compatibility (web and mobile)
- * - Consistent visual feedback for all interactive states
- * - Accessibility-friendly focus styles for keyboard navigation
- * - Support for disabled state with visual indication
- * - Configurable width behavior
- * 
- * @example
- * ```tsx
- * import { StyledTouchableOpacity } from '@design-system/primitives/components/Touchable';
- * 
- * <StyledTouchableOpacity 
- *   fullWidth 
- *   activeOpacity={0.7} 
- *   onPress={() => console.log('Pressed!')}
- * >
- *   <Text>Press me</Text>
- * </StyledTouchableOpacity>
- * ```
+ * This styled component handles platform-specific styling differences between web and mobile,
+ * ensuring consistent interaction patterns while respecting platform conventions.
  */
-export const StyledTouchableOpacity = styled(TouchableOpacity)<TouchableStyleProps>`
+export const StyledTouchableOpacity = styled(TouchableOpacity)<StyledTouchableOpacityProps>`
   /* Base styles */
   align-items: center;
   justify-content: center;
@@ -51,7 +33,7 @@ export const StyledTouchableOpacity = styled(TouchableOpacity)<TouchableStylePro
   /* Platform-specific styles */
   ${props => Platform.OS === 'web' && css`
     cursor: ${props.disabled ? 'not-allowed' : 'pointer'};
-    transition: opacity ${animation.duration.fast}ms ${animation.easing.easeOut};
+    transition: opacity 0.2s ease;
     outline: none;
     
     ${!props.disabled && css`
@@ -64,18 +46,8 @@ export const StyledTouchableOpacity = styled(TouchableOpacity)<TouchableStylePro
       }
     `}
     
-    /* Enhanced focus state for accessibility */
     &:focus-visible {
       box-shadow: 0 0 0 2px rgba(0, 102, 204, 0.5);
-      outline: 2px solid transparent;
-      outline-offset: 2px;
-    }
-    
-    /* Ensure keyboard focus is visible even when using high contrast mode */
-    @media (forced-colors: active) {
-      &:focus-visible {
-        outline: 2px solid HighlightText;
-      }
     }
   `}
 `;
