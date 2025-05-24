@@ -1,270 +1,264 @@
 /**
- * @file Environment Restoration Utilities
+ * Utilities for restoring the Node.js process.env to its original state after tests
+ * that mock environment variables. These utilities ensure test isolation by preventing
+ * environment changes from leaking between tests.
+ *
+ * @module
+ */
+
+/**
+ * Type representing a snapshot of the environment state
+ * Maps environment variable names to their original values or undefined if they didn't exist
+ */
+type EnvSnapshot = Map<string, string | undefined>;
+
+/**
+ * Error thrown when attempting to restore environment without a snapshot
+ */
+export class NoEnvSnapshotError extends Error {
+  constructor() {
+    super('Cannot restore environment: No snapshot available. Did you forget to mock the environment first?');
+    this.name = 'NoEnvSnapshotError';
+  }
+}
+
+/**
+ * Restores the entire process.env to its original state using a snapshot
  * 
- * This module provides utilities for restoring the Node.js process.env to its
- * original state after tests that mock environment variables. These utilities
- * ensure test isolation by preventing environment changes from leaking between
- * tests.
- */
-
-import { EnvSnapshot } from './mock-env';
-
-/**
- * Error message constants
- */
-const ERROR_MESSAGES = {
-  INVALID_SNAPSHOT: 'Invalid environment snapshot provided for restoration',
-  NO_CHANGES: 'No environment changes detected to restore',
-  MISSING_SNAPSHOT: 'Environment snapshot is required for restoration',
-};
-
-/**
- * Options for environment restoration setup
- */
-export interface EnvRestorationOptions {
-  /**
-   * Use Jest's afterEach hook for automatic restoration
-   * @default false
-   */
-  useAfterEach?: boolean;
-  
-  /**
-   * Use Jest's afterAll hook for automatic restoration
-   * @default false
-   */
-  useAfterAll?: boolean;
-  
-  /**
-   * Throw an error if no environment changes were detected
-   * @default false
-   */
-  throwOnNoChanges?: boolean;
-  
-  /**
-   * Verify that the environment was properly mocked before restoration
-   * @default true
-   */
-  verifyMocked?: boolean;
-}
-
-/**
- * Verify that the environment has been properly mocked before restoration.
- * This helps prevent accidental restoration of an unmocked environment.
- *
- * @param snapshot - The environment snapshot to verify
- * @throws Error if the environment snapshot is invalid or not from a mocked environment
- */
-export function verifyMockedEnvironment(snapshot: EnvSnapshot): void {
-  if (!snapshot || typeof snapshot !== 'object') {
-    throw new Error(ERROR_MESSAGES.INVALID_SNAPSHOT);
-  }
-  
-  if (!snapshot.originalEnv || typeof snapshot.originalEnv !== 'object') {
-    throw new Error(ERROR_MESSAGES.INVALID_SNAPSHOT);
-  }
-  
-  // Check if any changes were made to the environment
-  const hasChanges = Object.keys(snapshot.originalEnv).length > 0;
-  
-  if (!hasChanges) {
-    throw new Error(ERROR_MESSAGES.NO_CHANGES);
-  }
-}
-
-/**
- * Restore the environment to its original state after testing.
- * This function will reset all environment variables that were modified
- * during testing to their original values.
- *
  * @param snapshot - The environment snapshot to restore from
- * @param options - Optional configuration for the restoration behavior
- * @throws Error if the snapshot is invalid or if verification fails
+ * @throws {NoEnvSnapshotError} If the snapshot is undefined or null
+ * @example
+ * ```typescript
+ * // In a test file
+ * import { mockEnv } from './mock-env';
+ * import { restoreEnv } from './restore-env';
+ * 
+ * const snapshot = mockEnv({ NODE_ENV: 'test' });
+ * // Run your test...
+ * restoreEnv(snapshot); // Restore original environment
+ * ```
  */
-export function restoreEnv(
-  snapshot: EnvSnapshot,
-  options: { throwOnNoChanges?: boolean; verifyMocked?: boolean } = {}
-): void {
+export function restoreEnv(snapshot: EnvSnapshot | undefined | null): void {
   if (!snapshot) {
-    throw new Error(ERROR_MESSAGES.MISSING_SNAPSHOT);
+    throw new NoEnvSnapshotError();
   }
+
+  // First, remove any keys that were added during testing
+  const currentKeys = Object.keys(process.env);
+  const originalKeys = Array.from(snapshot.keys());
   
-  const { throwOnNoChanges = false, verifyMocked = true } = options;
+  // Find keys that exist now but didn't exist in the snapshot
+  const addedKeys = currentKeys.filter(key => !snapshot.has(key));
   
-  // Verify the environment was properly mocked if required
-  if (verifyMocked) {
-    try {
-      verifyMockedEnvironment(snapshot);
-    } catch (error) {
-      if (throwOnNoChanges || error.message !== ERROR_MESSAGES.NO_CHANGES) {
-        throw error;
-      }
-      // If we're not throwing on no changes and that's the only issue, just return
-      return;
-    }
+  // Remove keys that were added during testing
+  for (const key of addedKeys) {
+    delete process.env[key];
   }
-  
-  const { originalEnv } = snapshot;
-  
-  // Restore all environment variables to their original state
-  Object.keys(originalEnv).forEach((key) => {
-    const originalValue = originalEnv[key];
-    
-    if (originalValue === undefined) {
-      // If the variable didn't exist before, delete it
+
+  // Restore original values for keys that existed in the snapshot
+  for (const [key, value] of snapshot.entries()) {
+    if (value === undefined) {
+      // This key didn't exist before, so remove it
       delete process.env[key];
     } else {
-      // Otherwise restore it to its original value
-      process.env[key] = originalValue;
+      // Restore the original value
+      process.env[key] = value;
     }
-  });
+  }
 }
 
 /**
- * Restore specific environment variables to their original values.
- * This allows for selective restoration when only certain variables
- * need to be reset while keeping others modified.
- *
+ * Restores specific environment variables to their original values
+ * 
  * @param snapshot - The environment snapshot to restore from
- * @param keys - Array of environment variable names to restore
- * @param options - Optional configuration for the restoration behavior
- * @throws Error if the snapshot is invalid or if verification fails
+ * @param keys - Array of environment variable keys to restore
+ * @throws {NoEnvSnapshotError} If the snapshot is undefined or null
+ * @example
+ * ```typescript
+ * // In a test file
+ * import { mockEnv } from './mock-env';
+ * import { restoreEnvVars } from './restore-env';
+ * 
+ * const snapshot = mockEnv({ NODE_ENV: 'test', DEBUG: 'true' });
+ * // Run your test...
+ * restoreEnvVars(snapshot, ['NODE_ENV']); // Only restore NODE_ENV
+ * ```
  */
-export function restoreEnvVariables(
-  snapshot: EnvSnapshot,
-  keys: string[],
-  options: { throwOnNoChanges?: boolean; verifyMocked?: boolean } = {}
-): void {
+export function restoreEnvVars(snapshot: EnvSnapshot | undefined | null, keys: string[]): void {
   if (!snapshot) {
-    throw new Error(ERROR_MESSAGES.MISSING_SNAPSHOT);
+    throw new NoEnvSnapshotError();
   }
-  
-  const { throwOnNoChanges = false, verifyMocked = true } = options;
-  
-  // Verify the environment was properly mocked if required
-  if (verifyMocked) {
-    try {
-      verifyMockedEnvironment(snapshot);
-    } catch (error) {
-      if (throwOnNoChanges || error.message !== ERROR_MESSAGES.NO_CHANGES) {
-        throw error;
+
+  for (const key of keys) {
+    if (snapshot.has(key)) {
+      const originalValue = snapshot.get(key);
+      if (originalValue === undefined) {
+        // This key didn't exist before, so remove it
+        delete process.env[key];
+      } else {
+        // Restore the original value
+        process.env[key] = originalValue;
       }
-      // If we're not throwing on no changes and that's the only issue, just return
-      return;
     }
+    // If the key wasn't in the snapshot, it means it wasn't changed by the test,
+    // so we don't need to restore it
   }
-  
-  const { originalEnv } = snapshot;
-  
-  // Only restore the specified environment variables
-  keys.forEach((key) => {
-    // Skip keys that weren't in the original snapshot
-    if (!(key in originalEnv)) {
-      return;
-    }
-    
-    const originalValue = originalEnv[key];
-    
-    if (originalValue === undefined) {
-      // If the variable didn't exist before, delete it
-      delete process.env[key];
-    } else {
-      // Otherwise restore it to its original value
-      process.env[key] = originalValue;
-    }
-  });
 }
 
 /**
- * Set up automatic environment restoration with Jest afterEach/afterAll hooks.
- * This utility simplifies test setup by automatically restoring the environment
- * after each test or after all tests in a suite.
- *
- * @param options - Configuration options for the restoration behavior
- * @throws Error if both useAfterEach and useAfterAll are true
+ * Creates a Jest afterEach hook that automatically restores the environment
+ * 
+ * @param snapshot - The environment snapshot to restore from
+ * @returns A function that can be used with Jest's afterEach
+ * @throws {NoEnvSnapshotError} If the snapshot is undefined or null
+ * @example
+ * ```typescript
+ * // In a test file
+ * import { mockEnv } from './mock-env';
+ * import { createAfterEachEnvRestorer } from './restore-env';
+ * 
+ * describe('My environment tests', () => {
+ *   const snapshot = mockEnv({ NODE_ENV: 'test' });
+ *   afterEach(createAfterEachEnvRestorer(snapshot));
+ *   
+ *   // Your tests...
+ * });
+ * ```
  */
-export function setupEnvRestoration(options: EnvRestorationOptions = {}): void {
-  const {
-    useAfterEach = false,
-    useAfterAll = false,
-    throwOnNoChanges = false,
-    verifyMocked = true,
-  } = options;
-  
-  // Ensure we're in a Jest environment
-  if (typeof afterEach !== 'function' || typeof afterAll !== 'function') {
-    throw new Error('setupEnvRestoration requires Jest testing environment');
+export function createAfterEachEnvRestorer(snapshot: EnvSnapshot | undefined | null): () => void {
+  return () => restoreEnv(snapshot);
+}
+
+/**
+ * Creates a Jest afterAll hook that automatically restores the environment
+ * 
+ * @param snapshot - The environment snapshot to restore from
+ * @returns A function that can be used with Jest's afterAll
+ * @throws {NoEnvSnapshotError} If the snapshot is undefined or null
+ * @example
+ * ```typescript
+ * // In a test file
+ * import { mockEnv } from './mock-env';
+ * import { createAfterAllEnvRestorer } from './restore-env';
+ * 
+ * describe('My environment tests', () => {
+ *   const snapshot = mockEnv({ NODE_ENV: 'test' });
+ *   afterAll(createAfterAllEnvRestorer(snapshot));
+ *   
+ *   // Your tests...
+ * });
+ * ```
+ */
+export function createAfterAllEnvRestorer(snapshot: EnvSnapshot | undefined | null): () => void {
+  return () => restoreEnv(snapshot);
+}
+
+/**
+ * Verifies that the environment has been modified since the snapshot was taken
+ * Useful for ensuring that your tests are actually modifying the environment as expected
+ * 
+ * @param snapshot - The environment snapshot to compare against
+ * @param keys - Optional array of specific keys to check
+ * @returns True if the environment has been modified, false otherwise
+ * @throws {NoEnvSnapshotError} If the snapshot is undefined or null
+ * @example
+ * ```typescript
+ * // In a test file
+ * import { mockEnv } from './mock-env';
+ * import { isEnvModified } from './restore-env';
+ * 
+ * test('should modify environment', () => {
+ *   const snapshot = mockEnv({ NODE_ENV: 'test' });
+ *   process.env.NODE_ENV = 'development';
+ *   
+ *   expect(isEnvModified(snapshot)).toBe(true);
+ *   expect(isEnvModified(snapshot, ['NODE_ENV'])).toBe(true);
+ *   expect(isEnvModified(snapshot, ['DEBUG'])).toBe(false);
+ * });
+ * ```
+ */
+export function isEnvModified(snapshot: EnvSnapshot | undefined | null, keys?: string[]): boolean {
+  if (!snapshot) {
+    throw new NoEnvSnapshotError();
   }
-  
-  // Prevent setting up both hooks simultaneously
-  if (useAfterEach && useAfterAll) {
-    throw new Error('Cannot use both afterEach and afterAll hooks simultaneously');
-  }
-  
-  // Set up a shared snapshot that will be updated by mock functions
-  let currentSnapshot: EnvSnapshot | null = null;
-  
-  // Monkey patch the global process.env to capture changes
-  const originalEnvDescriptor = Object.getOwnPropertyDescriptor(process, 'env');
-  let envProxy = new Proxy(process.env, {
-    set(target, prop, value) {
-      // When a property is set, capture the original value if not already captured
-      if (currentSnapshot && typeof prop === 'string' && !(prop in currentSnapshot.originalEnv)) {
-        currentSnapshot.originalEnv[prop] = target[prop];
-      }
-      return Reflect.set(target, prop, value);
-    },
-    deleteProperty(target, prop) {
-      // When a property is deleted, capture the original value if not already captured
-      if (currentSnapshot && typeof prop === 'string' && !(prop in currentSnapshot.originalEnv)) {
-        currentSnapshot.originalEnv[prop] = target[prop];
-      }
-      return Reflect.deleteProperty(target, prop);
-    },
-  });
-  
-  // Replace process.env with our proxy
-  Object.defineProperty(process, 'env', {
-    configurable: true,
-    enumerable: true,
-    get() {
-      return envProxy;
-    },
-    set(value) {
-      envProxy = new Proxy(value, envProxy);
-    },
-  });
-  
-  // Set up the appropriate Jest hook
-  if (useAfterEach) {
-    beforeEach(() => {
-      // Create a new snapshot for each test
-      currentSnapshot = { originalEnv: {} };
-    });
-    
-    afterEach(() => {
-      // Restore the environment after each test
-      if (currentSnapshot) {
-        restoreEnv(currentSnapshot, { throwOnNoChanges, verifyMocked });
-        currentSnapshot = null;
-      }
-    });
-  } else if (useAfterAll) {
-    beforeAll(() => {
-      // Create a single snapshot for the entire test suite
-      currentSnapshot = { originalEnv: {} };
-    });
-    
-    afterAll(() => {
-      // Restore the environment after all tests
-      if (currentSnapshot) {
-        restoreEnv(currentSnapshot, { throwOnNoChanges, verifyMocked });
-        currentSnapshot = null;
+
+  if (keys) {
+    // Check only specific keys
+    return keys.some(key => {
+      const originalValue = snapshot.get(key);
+      const currentValue = process.env[key];
+      
+      // If the key didn't exist in the snapshot but exists now, it's modified
+      if (originalValue === undefined && currentValue !== undefined) {
+        return true;
       }
       
-      // Restore the original process.env descriptor
-      if (originalEnvDescriptor) {
-        Object.defineProperty(process, 'env', originalEnvDescriptor);
+      // If the key existed in the snapshot but doesn't exist now, it's modified
+      if (originalValue !== undefined && currentValue === undefined) {
+        return true;
       }
+      
+      // If both exist but have different values, it's modified
+      return originalValue !== currentValue;
     });
+  } else {
+    // Check all keys in the snapshot
+    for (const [key, originalValue] of snapshot.entries()) {
+      const currentValue = process.env[key];
+      
+      // If the key didn't exist in the snapshot but exists now, it's modified
+      if (originalValue === undefined && currentValue !== undefined) {
+        return true;
+      }
+      
+      // If the key existed in the snapshot but doesn't exist now, it's modified
+      if (originalValue !== undefined && currentValue === undefined) {
+        return true;
+      }
+      
+      // If both exist but have different values, it's modified
+      if (originalValue !== currentValue) {
+        return true;
+      }
+    }
+    
+    // Check if any new keys were added that weren't in the snapshot
+    const currentKeys = Object.keys(process.env);
+    const originalKeys = Array.from(snapshot.keys());
+    const addedKeys = currentKeys.filter(key => !originalKeys.includes(key));
+    
+    return addedKeys.length > 0;
   }
+  
+  return false;
+}
+
+/**
+ * Restores the environment and returns a boolean indicating if it was modified
+ * Useful for tests that need to know if their actions modified the environment
+ * 
+ * @param snapshot - The environment snapshot to restore from
+ * @param keys - Optional array of specific keys to check
+ * @returns True if the environment was modified before restoration, false otherwise
+ * @throws {NoEnvSnapshotError} If the snapshot is undefined or null
+ * @example
+ * ```typescript
+ * // In a test file
+ * import { mockEnv } from './mock-env';
+ * import { restoreAndCheckModified } from './restore-env';
+ * 
+ * test('should modify and restore environment', () => {
+ *   const snapshot = mockEnv({ NODE_ENV: 'test' });
+ *   process.env.NODE_ENV = 'development';
+ *   
+ *   const wasModified = restoreAndCheckModified(snapshot);
+ *   expect(wasModified).toBe(true);
+ *   expect(process.env.NODE_ENV).toBe('test'); // Restored
+ * });
+ * ```
+ */
+export function restoreAndCheckModified(snapshot: EnvSnapshot | undefined | null, keys?: string[]): boolean {
+  const modified = isEnvModified(snapshot, keys);
+  restoreEnv(snapshot);
+  return modified;
 }
