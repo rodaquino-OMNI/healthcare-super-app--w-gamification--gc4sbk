@@ -1,35 +1,55 @@
+/**
+ * TypeScript configuration for Storybook environment
+ * 
+ * This configuration extends the main design system tsconfig.json and adds
+ * Storybook-specific settings. It ensures proper type checking for stories
+ * and maintains path aliases for all four design system packages:
+ * 
+ * - @austa/design-system: Main component library
+ * - @design-system/primitives: Design tokens and primitive components
+ * - @austa/interfaces: Shared TypeScript definitions
+ * - @austa/journey-context: Journey-specific state management
+ * 
+ * This configuration is referenced by Storybook's webpack configuration
+ * to ensure proper module resolution and type checking during development.
+ */
 {
   "extends": "../tsconfig.json",
   "compilerOptions": {
+    "emitDeclarationOnly": false,
+    "noEmit": true,
     "allowJs": true,
     "checkJs": false,
-    "skipLibCheck": true,
     "jsx": "react-jsx",
     "esModuleInterop": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
     "baseUrl": ".",
     "paths": {
-      "@/*": ["../src/*"],
-      "@tokens/*": ["../src/tokens/*"],
-      "@themes/*": ["../src/themes/*"],
-      "@primitives/*": ["../src/primitives/*"],
-      "@components/*": ["../src/components/*"],
-      "@gamification/*": ["../src/gamification/*"],
-      "@health/*": ["../src/health/*"],
-      "@care/*": ["../src/care/*"],
-      "@plan/*": ["../src/plan/*"],
-      "@charts/*": ["../src/charts/*"],
-      "@austa/design-system": ["../src"],
       "@design-system/primitives": ["../../primitives/src"],
+      "@design-system/primitives/*": ["../../primitives/src/*"],
       "@austa/interfaces": ["../../interfaces"],
-      "@austa/journey-context": ["../../journey-context/src"]
+      "@austa/interfaces/*": ["../../interfaces/*"],
+      "@austa/journey-context": ["../../journey-context/src"],
+      "@austa/journey-context/*": ["../../journey-context/src/*"],
+      "@austa/design-system": ["../src"],
+      "@austa/design-system/*": ["../src/*"],
+      "~/*": ["../src/*"]
     }
   },
   "include": [
+    "../src/**/*.ts",
+    "../src/**/*.tsx",
     "../src/**/*.stories.tsx",
-    "../src/**/*.stories.ts",
-    "../src/**/*.story.tsx",
-    "../.storybook/**/*.ts",
-    "../.storybook/**/*.tsx"
+    "./**/*.ts",
+    "./**/*.tsx",
+    "../src/**/*.mdx"
   ],
-  "exclude": ["../node_modules", "../dist"]
+  "exclude": [
+    "node_modules",
+    "../dist",
+    "../src/**/*.test.ts",
+    "../src/**/*.test.tsx"
+  ]
 }
