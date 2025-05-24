@@ -1,301 +1,426 @@
 /**
  * Notification Component Interfaces
  * 
- * This module defines TypeScript interfaces for notification-related UI components
- * in the AUSTA SuperApp. These interfaces provide strongly-typed props for notification
- * display, filtering, and interaction while integrating with the notification domain models.
+ * This file defines TypeScript interfaces for notification-related UI components
+ * in the AUSTA SuperApp. These interfaces provide strongly-typed props for
+ * notification display, filtering, and interaction while integrating with the
+ * notification domain models.
  * 
- * @packageDocumentation
+ * The interfaces ensure consistency between notification data structures and
+ * their visual representation across the application, supporting both web and
+ * mobile platforms.
  */
 
 import { ReactNode } from 'react';
 import {
   Notification,
-  NotificationFilter,
   NotificationType,
   NotificationStatus,
+  NotificationPriority,
+  NotificationFilter
 } from '../notification/types';
+import {
+  AchievementNotificationData,
+  LevelUpNotificationData,
+  AppointmentReminderData,
+  ClaimStatusUpdateData
+} from '../notification/data';
 
 /**
- * Defines the journey context for notification styling and presentation.
- * Different journeys may have different visual treatments for notifications.
+ * Base props for all notification components
+ * Provides common properties that all notification components should support
  */
-export type NotificationJourneyContext = 'health' | 'care' | 'plan' | 'gamification' | 'system';
-
-/**
- * Defines how notifications can be grouped in a list view.
- */
-export type NotificationGroupBy = 'date' | 'type' | 'status' | 'journey' | 'priority' | 'none';
-
-/**
- * Defines visual variants for notification cards.
- */
-export type NotificationCardVariant = 'default' | 'compact' | 'expanded' | 'interactive';
-
-/**
- * Defines visual variants for notification badges.
- */
-export type NotificationBadgeVariant = 'dot' | 'count' | 'pill';
-
-/**
- * Defines sizes for notification badges.
- */
-export type NotificationBadgeSize = 'sm' | 'md' | 'lg';
-
-/**
- * Interface for the NotificationList component props.
- * This component displays a list of notifications with filtering and interaction capabilities.
- */
-export interface NotificationListProps {
-  /** Array of notifications to display */
-  notifications: Notification[];
+export interface BaseNotificationComponentProps {
+  /** Optional CSS class name for styling */
+  className?: string;
   
-  /** Callback fired when a notification is pressed */
-  onNotificationPress: (notification: Notification) => void;
+  /** Optional inline style object */
+  style?: React.CSSProperties;
   
-  /** Callback fired when a notification is marked as read */
-  onMarkAsRead?: (notificationId: string) => void;
-  
-  /** Callback fired when a notification is dismissed */
-  onDismiss?: (notificationId: string) => void;
-  
-  /** Optional filter to apply to the notifications */
-  filter?: NotificationFilter;
-  
-  /** Optional grouping for the notifications */
-  groupBy?: NotificationGroupBy;
-  
-  /** Optional custom component to display when there are no notifications */
-  emptyState?: ReactNode;
-  
-  /** Whether the notifications are currently loading */
-  isLoading?: boolean;
-  
-  /** Optional loading state component */
-  loadingState?: ReactNode;
-  
-  /** Maximum number of notifications to display */
-  maxItems?: number;
-  
-  /** Whether to show unread indicators */
-  showUnreadIndicator?: boolean;
-  
-  /** Journey context for styling */
-  journeyContext?: NotificationJourneyContext;
-  
-  /** Whether to enable pull-to-refresh functionality (mobile only) */
-  enablePullToRefresh?: boolean;
-  
-  /** Callback fired when the list is refreshed via pull-to-refresh */
-  onRefresh?: () => void;
-  
-  /** Whether a refresh is currently in progress */
-  isRefreshing?: boolean;
-  
-  /** Callback fired when the end of the list is reached (for pagination) */
-  onEndReached?: () => void;
-  
-  /** Whether more notifications are available to load */
-  hasMore?: boolean;
-  
-  /** Optional header component */
-  header?: ReactNode;
-  
-  /** Optional footer component */
-  footer?: ReactNode;
-  
-  /** Optional test ID for testing */
+  /** Optional test ID for automated testing */
   testID?: string;
+  
+  /** Optional accessibility label */
+  accessibilityLabel?: string;
+  
+  /** Journey context for theming and styling */
+  journeyContext?: 'health' | 'care' | 'plan' | 'default';
 }
 
 /**
- * Interface for the NotificationCard component props.
- * This component displays a single notification with interaction capabilities.
+ * NotificationBadge Component Props
+ * 
+ * Interface for the NotificationBadge component that displays an unread
+ * notification count indicator, typically used in navigation elements.
  */
-export interface NotificationCardProps {
+export interface NotificationBadgeProps extends BaseNotificationComponentProps {
+  /** Number of unread notifications to display */
+  count: number;
+  
+  /** Maximum count to display before showing a '+' indicator */
+  maxCount?: number;
+  
+  /** Whether the badge should be visible when count is zero */
+  showZero?: boolean;
+  
+  /** Size variant of the badge */
+  size?: 'small' | 'medium' | 'large';
+  
+  /** Optional override for the badge color */
+  color?: string;
+  
+  /** Whether the badge should pulse to draw attention */
+  pulse?: boolean;
+  
+  /** Optional callback when the badge is pressed/clicked */
+  onPress?: () => void;
+  
+  /** Whether the badge is currently being updated (shows animation) */
+  isUpdating?: boolean;
+  
+  /** Optional filter to count only specific notification types */
+  filter?: {
+    types?: NotificationType[];
+    priorities?: NotificationPriority[];
+  };
+}
+
+/**
+ * NotificationCard Component Props
+ * 
+ * Interface for the NotificationCard component that displays a single
+ * notification with appropriate styling based on its type and priority.
+ */
+export interface NotificationCardProps extends BaseNotificationComponentProps {
   /** The notification to display */
   notification: Notification;
   
-  /** Callback fired when the card is pressed */
-  onPress?: (notification: Notification) => void;
+  /** Whether the card should display in a compact format */
+  compact?: boolean;
   
-  /** Callback fired when the notification is marked as read */
-  onMarkAsRead?: (notificationId: string) => void;
-  
-  /** Callback fired when the notification is dismissed */
-  onDismiss?: (notificationId: string) => void;
-  
-  /** Whether to show action buttons (mark as read, dismiss) */
-  showActions?: boolean;
-  
-  /** Whether the card is in an expanded state showing full details */
-  isExpanded?: boolean;
-  
-  /** Visual variant of the card */
-  variant?: NotificationCardVariant;
-  
-  /** Journey context for styling */
-  journeyContext?: NotificationJourneyContext;
+  /** Whether the notification is currently being updated */
+  isUpdating?: boolean;
   
   /** Whether to show the notification timestamp */
   showTimestamp?: boolean;
   
-  /** Whether to show the notification icon */
-  showIcon?: boolean;
+  /** Whether to show action buttons for the notification */
+  showActions?: boolean;
   
-  /** Custom icon to override the default for this notification type */
-  customIcon?: ReactNode;
+  /** Callback when the notification is marked as read */
+  onMarkAsRead?: (notificationId: string) => void | Promise<void>;
   
-  /** Whether the card is currently being swiped (mobile only) */
-  isSwiping?: boolean;
+  /** Callback when the notification is dismissed */
+  onDismiss?: (notificationId: string) => void | Promise<void>;
   
-  /** Callback fired when swipe actions are triggered (mobile only) */
-  onSwipeAction?: (action: 'read' | 'dismiss', notificationId: string) => void;
+  /** Callback when the notification card is pressed/clicked */
+  onPress?: (notification: Notification) => void;
   
-  /** Optional test ID for testing */
-  testID?: string;
+  /** Custom renderer for notification actions based on type */
+  actionRenderer?: (notification: Notification) => ReactNode;
+  
+  /** Custom renderer for notification icon based on type */
+  iconRenderer?: (notification: Notification) => ReactNode;
+  
+  /** Animation to use when the card appears */
+  appearAnimation?: 'fade' | 'slide' | 'scale' | 'none';
+  
+  /** Whether to show the notification priority indicator */
+  showPriorityIndicator?: boolean;
+  
+  /** Optional custom data renderer for specific notification types */
+  dataRenderers?: {
+    [NotificationType.ACHIEVEMENT]?: (data: AchievementNotificationData) => ReactNode;
+    [NotificationType.LEVEL_UP]?: (data: LevelUpNotificationData) => ReactNode;
+    [NotificationType.APPOINTMENT]?: (data: AppointmentReminderData) => ReactNode;
+    [NotificationType.CLAIM_STATUS]?: (data: ClaimStatusUpdateData) => ReactNode;
+    [key: string]: ((data: any) => ReactNode) | undefined;
+  };
 }
 
 /**
- * Interface for the NotificationBadge component props.
- * This component displays a badge indicating the number of notifications.
+ * NotificationList Component Props
+ * 
+ * Interface for the NotificationList component that displays a list of
+ * notifications with filtering, grouping, and interaction capabilities.
  */
-export interface NotificationBadgeProps {
-  /** Number of notifications to display */
-  count: number;
+export interface NotificationListProps extends BaseNotificationComponentProps {
+  /** Array of notifications to display */
+  notifications: Notification[];
   
-  /** Maximum count to display before showing "{max}+" */
-  maxCount?: number;
-  
-  /** Whether to show the badge when count is zero */
-  showZero?: boolean;
-  
-  /** Visual variant of the badge */
-  variant?: NotificationBadgeVariant;
-  
-  /** Size of the badge */
-  size?: NotificationBadgeSize;
-  
-  /** Callback fired when the badge is pressed */
-  onPress?: () => void;
-  
-  /** Journey context for styling */
-  journeyContext?: NotificationJourneyContext;
-  
-  /** Whether the badge is currently active/selected */
-  isActive?: boolean;
-  
-  /** Whether to animate the badge when count changes */
-  animate?: boolean;
-  
-  /** Optional label for accessibility */
-  accessibilityLabel?: string;
-  
-  /** Optional test ID for testing */
-  testID?: string;
-}
-
-/**
- * Interface for the NotificationIcon component props.
- * This component displays an icon representing a notification type.
- */
-export interface NotificationIconProps {
-  /** Type of notification */
-  type: NotificationType;
-  
-  /** Size of the icon */
-  size?: 'sm' | 'md' | 'lg';
-  
-  /** Color of the icon (defaults to journey color) */
-  color?: string;
-  
-  /** Journey context for styling */
-  journeyContext?: NotificationJourneyContext;
-  
-  /** Optional test ID for testing */
-  testID?: string;
-}
-
-/**
- * Interface for the NotificationCounter component props.
- * This component displays counts of notifications by status.
- */
-export interface NotificationCounterProps {
-  /** Total count of notifications */
-  total: number;
-  
-  /** Count of unread notifications */
-  unread: number;
-  
-  /** Optional counts by notification type */
-  byType?: Partial<Record<NotificationType, number>>;
-  
-  /** Whether the counter is currently loading */
+  /** Whether the list is currently loading */
   isLoading?: boolean;
   
-  /** Callback fired when a type filter is selected */
-  onTypeSelect?: (type: NotificationType | null) => void;
+  /** Error message if loading notifications failed */
+  error?: string;
   
-  /** Currently selected type filter */
-  selectedType?: NotificationType | null;
+  /** Whether to group notifications by type */
+  groupByType?: boolean;
   
-  /** Journey context for styling */
-  journeyContext?: NotificationJourneyContext;
+  /** Whether to group notifications by date */
+  groupByDate?: boolean;
   
-  /** Optional test ID for testing */
-  testID?: string;
+  /** Filter to apply to the notifications */
+  filter?: NotificationFilter;
+  
+  /** Callback when a notification is marked as read */
+  onMarkAsRead?: (notificationId: string) => void | Promise<void>;
+  
+  /** Callback when a notification is dismissed */
+  onDismiss?: (notificationId: string) => void | Promise<void>;
+  
+  /** Callback when a notification is pressed/clicked */
+  onNotificationPress?: (notification: Notification) => void;
+  
+  /** Callback when the list is refreshed (pull-to-refresh) */
+  onRefresh?: () => void | Promise<void>;
+  
+  /** Whether the list is currently refreshing */
+  isRefreshing?: boolean;
+  
+  /** Callback when the end of the list is reached (for pagination) */
+  onEndReached?: () => void | Promise<void>;
+  
+  /** Whether more notifications are available to load */
+  hasMore?: boolean;
+  
+  /** Custom empty state component when there are no notifications */
+  emptyComponent?: ReactNode;
+  
+  /** Custom loading component */
+  loadingComponent?: ReactNode;
+  
+  /** Custom error component */
+  errorComponent?: ReactNode;
+  
+  /** Custom renderer for notification items */
+  renderItem?: (notification: Notification) => ReactNode;
+  
+  /** Custom renderer for group headers */
+  renderGroupHeader?: (groupTitle: string, count: number) => ReactNode;
+  
+  /** Maximum number of notifications to display */
+  maxItems?: number;
+  
+  /** Whether to show a mark all as read button */
+  showMarkAllAsRead?: boolean;
+  
+  /** Callback when mark all as read is pressed */
+  onMarkAllAsRead?: () => void | Promise<void>;
+  
+  /** Whether real-time updates are enabled */
+  realTimeUpdates?: boolean;
+  
+  /** Animation to use when items are added or removed */
+  itemAnimation?: 'fade' | 'slide' | 'scale' | 'none';
 }
 
 /**
- * Interface for the NotificationEmptyState component props.
- * This component displays a message when there are no notifications.
+ * NotificationCenter Component Props
+ * 
+ * Interface for the NotificationCenter component that provides a complete
+ * notification management interface, typically used in a dropdown or modal.
  */
-export interface NotificationEmptyStateProps {
-  /** Optional custom message to display */
-  message?: string;
+export interface NotificationCenterProps extends BaseNotificationComponentProps {
+  /** Whether the notification center is open/visible */
+  isOpen: boolean;
   
-  /** Optional custom icon to display */
-  icon?: ReactNode;
+  /** Callback when the notification center is closed */
+  onClose: () => void;
   
-  /** Optional action button label */
-  actionLabel?: string;
+  /** Array of notifications to display */
+  notifications: Notification[];
   
-  /** Callback fired when the action button is pressed */
-  onAction?: () => void;
+  /** Whether notifications are currently loading */
+  isLoading?: boolean;
   
-  /** Journey context for styling */
-  journeyContext?: NotificationJourneyContext;
+  /** Error message if loading notifications failed */
+  error?: string;
   
-  /** Optional test ID for testing */
-  testID?: string;
+  /** Available filters for the notification list */
+  availableFilters?: {
+    types?: NotificationType[];
+    priorities?: NotificationPriority[];
+    statuses?: NotificationStatus[];
+    dateRange?: {
+      start: Date;
+      end: Date;
+    };
+  };
+  
+  /** Currently applied filter */
+  currentFilter?: NotificationFilter;
+  
+  /** Callback when filter is changed */
+  onFilterChange?: (filter: NotificationFilter) => void;
+  
+  /** Callback when a notification is marked as read */
+  onMarkAsRead?: (notificationId: string) => void | Promise<void>;
+  
+  /** Callback when a notification is dismissed */
+  onDismiss?: (notificationId: string) => void | Promise<void>;
+  
+  /** Callback when mark all as read is pressed */
+  onMarkAllAsRead?: () => void | Promise<void>;
+  
+  /** Callback when a notification is pressed/clicked */
+  onNotificationPress?: (notification: Notification) => void;
+  
+  /** Callback when the list is refreshed */
+  onRefresh?: () => void | Promise<void>;
+  
+  /** Whether the list is currently refreshing */
+  isRefreshing?: boolean;
+  
+  /** Callback when the end of the list is reached (for pagination) */
+  onEndReached?: () => void | Promise<void>;
+  
+  /** Whether more notifications are available to load */
+  hasMore?: boolean;
+  
+  /** Position of the notification center */
+  position?: 'top' | 'right' | 'bottom' | 'left' | 'center';
+  
+  /** Size of the notification center */
+  size?: 'small' | 'medium' | 'large' | 'fullscreen';
+  
+  /** Whether to show notification preferences link */
+  showPreferencesLink?: boolean;
+  
+  /** Callback when notification preferences link is clicked */
+  onPreferencesClick?: () => void;
+  
+  /** Whether real-time updates are enabled */
+  realTimeUpdates?: boolean;
+  
+  /** Custom header component */
+  headerComponent?: ReactNode;
+  
+  /** Custom footer component */
+  footerComponent?: ReactNode;
 }
 
 /**
- * Interface for the NotificationFilterBar component props.
- * This component provides UI for filtering notifications.
+ * NotificationToast Component Props
+ * 
+ * Interface for the NotificationToast component that displays a temporary
+ * notification toast/snackbar, typically for real-time notifications.
  */
-export interface NotificationFilterBarProps {
-  /** Current filter being applied */
-  filter: NotificationFilter;
+export interface NotificationToastProps extends BaseNotificationComponentProps {
+  /** The notification to display */
+  notification: Notification;
   
-  /** Callback fired when the filter changes */
-  onFilterChange: (filter: NotificationFilter) => void;
+  /** Duration to show the toast in milliseconds */
+  duration?: number;
   
-  /** Available notification types to filter by */
-  availableTypes?: NotificationType[];
+  /** Whether the toast is currently visible */
+  visible: boolean;
   
-  /** Available notification statuses to filter by */
-  availableStatuses?: NotificationStatus[];
+  /** Callback when the toast is dismissed */
+  onDismiss: () => void;
   
-  /** Whether to show date range filters */
-  showDateFilters?: boolean;
+  /** Callback when the toast is pressed/clicked */
+  onPress?: (notification: Notification) => void;
   
-  /** Whether the filter bar is compact */
-  isCompact?: boolean;
+  /** Position of the toast on the screen */
+  position?: 'top' | 'bottom';
   
-  /** Journey context for styling */
-  journeyContext?: NotificationJourneyContext;
+  /** Animation to use when the toast appears/disappears */
+  animation?: 'fade' | 'slide' | 'scale';
   
-  /** Optional test ID for testing */
-  testID?: string;
+  /** Whether to show a progress indicator for the duration */
+  showProgress?: boolean;
+  
+  /** Whether to show a close button */
+  showCloseButton?: boolean;
+  
+  /** Whether to auto-dismiss the toast after duration */
+  autoDismiss?: boolean;
+  
+  /** Z-index for the toast */
+  zIndex?: number;
+  
+  /** Custom renderer for the notification content */
+  contentRenderer?: (notification: Notification) => ReactNode;
+}
+
+/**
+ * NotificationPreferencesForm Component Props
+ * 
+ * Interface for the NotificationPreferencesForm component that allows users
+ * to manage their notification preferences across channels and journeys.
+ */
+export interface NotificationPreferencesFormProps extends BaseNotificationComponentProps {
+  /** Current notification preferences */
+  preferences: {
+    global: {
+      enabled: boolean;
+      channels: {
+        [key in NotificationChannel]?: boolean;
+      };
+    };
+    journeys: {
+      health?: {
+        enabled: boolean;
+        channels: {
+          [key in NotificationChannel]?: boolean;
+        };
+        types: {
+          [key in NotificationType]?: boolean;
+        };
+      };
+      care?: {
+        enabled: boolean;
+        channels: {
+          [key in NotificationChannel]?: boolean;
+        };
+        types: {
+          [key in NotificationType]?: boolean;
+        };
+      };
+      plan?: {
+        enabled: boolean;
+        channels: {
+          [key in NotificationChannel]?: boolean;
+        };
+        types: {
+          [key in NotificationType]?: boolean;
+        };
+      };
+    };
+  };
+  
+  /** Whether the form is currently saving */
+  isSaving?: boolean;
+  
+  /** Error message if saving preferences failed */
+  error?: string;
+  
+  /** Callback when preferences are changed */
+  onPreferencesChange: (preferences: any) => void | Promise<void>;
+  
+  /** Callback when the form is submitted */
+  onSubmit: () => void | Promise<void>;
+  
+  /** Callback when the form is reset */
+  onReset?: () => void;
+  
+  /** Whether to show a success message after saving */
+  showSuccessMessage?: boolean;
+  
+  /** Available notification channels to configure */
+  availableChannels?: NotificationChannel[];
+  
+  /** Available notification types to configure */
+  availableTypes?: {
+    health?: NotificationType[];
+    care?: NotificationType[];
+    plan?: NotificationType[];
+  };
+  
+  /** Whether to group preferences by journey */
+  groupByJourney?: boolean;
+  
+  /** Whether to show advanced preferences */
+  showAdvancedPreferences?: boolean;
 }
