@@ -1,191 +1,157 @@
-import { baseTheme } from './base.theme';
-import { colors, shadows } from '@design-system/primitives/src/tokens';
-import { HealthTheme } from '@austa/interfaces/themes';
-
 /**
  * Health Journey Theme
  * 
- * This theme extends the base theme with specific styling for the "Minha Saúde" journey.
- * It uses a green color palette (#34C759) to visually distinguish the Health journey from other journeys,
- * creating a consistent visual identity throughout the user experience.
- *
- * @remarks
- * The Health theme implements component-specific styling overrides for buttons, cards, inputs,
- * progress indicators, and health-specific components like MetricCard, HealthChart, GoalCard, and DeviceCard.
+ * This file defines the theme for the Health journey ("Minha Saúde") in the AUSTA SuperApp.
+ * It extends the base theme with a green-focused color palette and journey-specific
+ * component style overrides for Health journey UI components.
+ */
+
+import { baseTheme } from './base.theme';
+import { colors } from '@design-system/primitives/src/tokens';
+import { HealthTheme } from '@austa/interfaces/themes';
+
+/**
+ * Health Theme
+ * Extends the base theme with Health journey-specific styling
  */
 export const healthTheme: HealthTheme = {
   ...baseTheme,
+  journey: 'health',
+  accentColor: colors.journeys.health.primary, // Primary green color
   
-  // Journey identification
-  name: 'Health Theme',
-  journeyKey: 'health',
-  
-  // Override colors with Health-specific values
-  colors: {
-    ...baseTheme.colors,
-    primary: colors.journeys.health.primary,
-    secondary: colors.journeys.health.secondary,
-    accent: colors.journeys.health.accent,
-    background: colors.journeys.health.background,
-    text: colors.journeys.health.text,
-    border: colors.journeys.health.secondary,
-    focus: colors.journeys.health.primary,
+  // Health-specific semantic colors
+  healthSemantic: {
+    // Health metrics colors
+    metricHigh: colors.semantic.warning,
+    metricNormal: colors.semantic.success,
+    metricLow: colors.semantic.info,
+    metricCritical: colors.semantic.error,
+    
+    // Goal status colors
+    goalComplete: colors.semantic.success,
+    goalInProgress: colors.journeys.health.primary,
+    goalBehind: colors.semantic.warning,
+    
+    // Device connection status
+    deviceConnected: colors.semantic.success,
+    deviceDisconnected: colors.neutral.gray400,
+    deviceSyncing: colors.journeys.health.secondary,
+    
+    // Health insight colors
+    insightPositive: colors.semantic.success,
+    insightNeutral: colors.journeys.health.secondary,
+    insightNegative: colors.semantic.error,
+    insightActionable: colors.journeys.health.accent
   },
   
-  // Override shadows with Health-specific values
-  shadows: {
-    ...baseTheme.shadows,
-    focus: `0 0 0 2px ${colors.journeys.health.primary}`,
-    card: shadows.sm,
-    elevated: shadows.md,
-  },
-  
-  // Component-specific styling for the Health journey
+  // Health-specific component variations
   components: {
-    // Button variants
-    button: {
-      primary: {
-        background: colors.journeys.health.primary,
-        color: colors.neutral.white,
-        hoverBackground: colors.journeys.health.secondary,
-        activeBackground: colors.journeys.health.accent,
-        disabledBackground: `${colors.journeys.health.primary}80`, // 50% opacity
-        disabledColor: `${colors.neutral.white}CC`, // 80% opacity
-        focusRing: `0 0 0 2px ${colors.journeys.health.secondary}`,
-      },
-      secondary: {
-        background: 'transparent',
-        color: colors.journeys.health.primary,
-        border: `1px solid ${colors.journeys.health.primary}`,
-        hoverBackground: colors.journeys.health.background,
-        hoverBorder: `1px solid ${colors.journeys.health.secondary}`,
-        activeBackground: colors.journeys.health.background,
-        activeBorder: `1px solid ${colors.journeys.health.accent}`,
-        disabledBackground: 'transparent',
-        disabledColor: `${colors.journeys.health.primary}80`, // 50% opacity
-        disabledBorder: `1px solid ${colors.journeys.health.primary}80`, // 50% opacity
-        focusRing: `0 0 0 2px ${colors.journeys.health.secondary}`,
-      },
-      text: {
-        background: 'transparent',
-        color: colors.journeys.health.primary,
-        hoverColor: colors.journeys.health.secondary,
-        activeColor: colors.journeys.health.accent,
-        disabledColor: `${colors.journeys.health.primary}80`, // 50% opacity
-        focusRing: `0 0 0 2px ${colors.journeys.health.secondary}`,
-      },
-    },
-    
-    // Card styling
-    card: {
-      background: colors.neutral.white,
-      border: `1px solid ${colors.neutral.gray300}`,
-      borderLeft: `4px solid ${colors.journeys.health.primary}`,
-      borderRadius: '8px',
-      shadow: shadows.sm,
-      hoverShadow: shadows.md,
-      activeShadow: shadows.sm,
-    },
-    
-    // Input styling
-    input: {
-      border: `1px solid ${colors.neutral.gray400}`,
-      focusBorder: `1px solid ${colors.journeys.health.primary}`,
-      background: colors.neutral.white,
-      placeholderColor: colors.neutral.gray500,
-      errorBorder: `1px solid ${colors.semantic.error}`,
-      errorBackground: `${colors.semantic.error}10`, // 10% opacity
-      disabledBackground: colors.neutral.gray100,
-      disabledBorder: `1px solid ${colors.neutral.gray300}`,
-      disabledColor: colors.neutral.gray500,
-    },
-    
-    // Progress indicators
-    progressBar: {
-      background: colors.neutral.gray200,
-      fill: colors.journeys.health.primary,
-      borderRadius: '4px',
-      height: '8px',
-    },
-    
-    progressCircle: {
-      background: colors.neutral.gray200,
-      fill: colors.journeys.health.primary,
-      width: '48px',
-      strokeWidth: '4px',
-    },
-    
-    // Health journey specific components
+    // Card variations
     metricCard: {
-      background: colors.neutral.white,
-      border: `1px solid ${colors.neutral.gray300}`,
-      borderLeft: `4px solid ${colors.journeys.health.primary}`,
-      borderRadius: '8px',
-      shadow: shadows.sm,
-      hoverShadow: shadows.md,
-      iconColor: colors.journeys.health.primary,
-      trendColors: {
-        positive: colors.semantic.success,
-        negative: colors.semantic.error,
-        neutral: colors.neutral.gray600,
-      },
-      valueColor: colors.journeys.health.primary,
+      borderRadius: baseTheme.borderRadius.lg,
+      shadow: baseTheme.shadows.md,
+      bgGradient: `linear-gradient(135deg, ${colors.journeys.health.primary_10}, ${colors.journeys.health.background})`
+    },
+    goalCard: {
+      borderRadius: baseTheme.borderRadius.lg,
+      shadow: baseTheme.shadows.md,
+      bgGradient: `linear-gradient(135deg, ${colors.journeys.health.primary_10}, ${colors.journeys.health.background})`
+    },
+    deviceCard: {
+      borderRadius: baseTheme.borderRadius.lg,
+      shadow: baseTheme.shadows.md,
+      bgGradient: `linear-gradient(135deg, ${colors.journeys.health.primary_10}, ${colors.journeys.health.background})`
     },
     
+    // Chart variations
     healthChart: {
-      background: colors.neutral.white,
-      border: `1px solid ${colors.neutral.gray300}`,
-      borderRadius: '8px',
-      shadow: shadows.sm,
       lineColor: colors.journeys.health.primary,
       gridColor: colors.neutral.gray200,
-      labelColor: colors.neutral.gray600,
-      tooltipBackground: colors.journeys.health.primary,
-      tooltipColor: colors.neutral.white,
-      rangeColors: {
-        normal: `${colors.semantic.success}30`, // 30% opacity
-        warning: `${colors.semantic.warning}30`, // 30% opacity
-        critical: `${colors.semantic.error}30`, // 30% opacity
-      },
+      labelColor: colors.neutral.gray700,
+      tooltipBg: colors.neutral.white
     },
     
-    goalCard: {
-      background: colors.neutral.white,
-      border: `1px solid ${colors.neutral.gray300}`,
-      borderTop: `4px solid ${colors.journeys.health.primary}`,
-      borderRadius: '8px',
-      shadow: shadows.sm,
-      iconColor: colors.journeys.health.primary,
-      progressBackground: colors.neutral.gray200,
-      progressFill: colors.journeys.health.primary,
-      highlightBackground: `${colors.journeys.health.background}50`, // 50% opacity
-      highlightText: colors.journeys.health.primary,
-      statusColors: {
-        completed: colors.semantic.success,
-        inProgress: colors.journeys.health.primary,
-        notStarted: colors.neutral.gray500,
-        overdue: colors.semantic.error,
-      },
+    // Override base component styles with health-specific styling
+    Button: {
+      ...baseTheme.components.Button,
+      variants: {
+        ...baseTheme.components.Button.variants,
+        primary: {
+          backgroundColor: colors.journeys.health.primary,
+          color: colors.accessibility.getJourneyContrastText('health', 'primary'),
+          hoverBackgroundColor: colors.journeys.health.primary_dark,
+          activeBackgroundColor: colors.journeys.health.primary_light,
+          disabledBackgroundColor: colors.journeys.health.primary_30,
+          disabledColor: colors.neutral.gray500
+        },
+        secondary: {
+          backgroundColor: colors.journeys.health.secondary,
+          color: colors.accessibility.getJourneyContrastText('health', 'secondary'),
+          hoverBackgroundColor: colors.journeys.health.secondary_token._dark,
+          activeBackgroundColor: colors.journeys.health.secondary_token._light,
+          disabledBackgroundColor: colors.journeys.health.secondary_token._30,
+          disabledColor: colors.neutral.gray500
+        },
+        outline: {
+          ...baseTheme.components.Button.variants.outline,
+          color: colors.journeys.health.primary,
+          borderColor: colors.journeys.health.primary,
+          hoverBorderColor: colors.journeys.health.primary_dark,
+          activeBorderColor: colors.journeys.health.primary_light
+        },
+        text: {
+          ...baseTheme.components.Button.variants.text,
+          color: colors.journeys.health.primary
+        }
+      }
     },
     
-    deviceCard: {
-      background: colors.neutral.white,
-      border: `1px solid ${colors.neutral.gray300}`,
-      borderRadius: '8px',
-      shadow: shadows.sm,
-      iconBackground: colors.journeys.health.background,
-      iconColor: colors.journeys.health.primary,
-      connectionStatus: {
-        connected: colors.semantic.success,
-        disconnected: colors.neutral.gray500,
-        syncing: colors.journeys.health.primary,
-        error: colors.semantic.error,
-      },
-      batteryStatus: {
-        high: colors.semantic.success,
-        medium: colors.semantic.warning,
-        low: colors.semantic.error,
-      },
+    Card: {
+      ...baseTheme.components.Card,
+      boxShadow: baseTheme.shadows.md,
+      borderRadius: baseTheme.borderRadius.lg,
+      header: {
+        ...baseTheme.components.Card.header,
+        backgroundColor: colors.journeys.health.background
+      }
     },
+    
+    Input: {
+      ...baseTheme.components.Input,
+      focusBorderColor: colors.journeys.health.primary
+    },
+    
+    ProgressBar: {
+      ...baseTheme.components.ProgressBar,
+      filledColor: colors.journeys.health.primary
+    },
+    
+    ProgressCircle: {
+      ...baseTheme.components.ProgressCircle,
+      filledColor: colors.journeys.health.primary
+    }
   },
+  
+  // Health-specific typography variations
+  typography: {
+    ...baseTheme.typography,
+    metricValue: {
+      fontFamily: baseTheme.typography.fontFamily.heading,
+      fontSize: baseTheme.typography.fontSize['2xl'],
+      fontWeight: baseTheme.typography.fontWeight.bold,
+      lineHeight: baseTheme.typography.lineHeight.tight
+    },
+    goalHeading: {
+      fontFamily: baseTheme.typography.fontFamily.heading,
+      fontSize: baseTheme.typography.fontSize.lg,
+      fontWeight: baseTheme.typography.fontWeight.medium,
+      lineHeight: baseTheme.typography.lineHeight.base
+    },
+    insightText: {
+      fontFamily: baseTheme.typography.fontFamily.base,
+      fontSize: baseTheme.typography.fontSize.md,
+      fontWeight: baseTheme.typography.fontWeight.regular,
+      lineHeight: baseTheme.typography.lineHeight.relaxed
+    }
+  }
 };
