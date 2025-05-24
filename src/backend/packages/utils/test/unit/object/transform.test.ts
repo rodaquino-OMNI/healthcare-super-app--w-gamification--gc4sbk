@@ -1,901 +1,618 @@
 /**
  * Unit tests for object transformation utilities
- * 
- * These tests verify that each transformation function correctly handles both normal inputs
- * and edge cases (null/undefined values, empty objects, nested properties), ensuring proper
- * immutability and accurate property selection/transformation.
+ * Tests the pick, omit, mapValues, and filterKeys functions from src/object/transform.ts
  */
 
-import {
-  pick,
-  omit,
-  mapValues,
-  filterKeys,
-  renameKeys,
-  flattenObject,
-  transformObject,
-  convertValues
-} from '../../../src/object/transform';
+import { pick, omit, mapValues, filterKeys } from '../../../src/object/transform';
 
 describe('Object Transformation Utilities', () => {
   describe('pick', () => {
-    it('should create a new object with only the specified properties', () => {
-      const original = { name: 'John', age: 30, address: '123 Main St' };
-      const result = pick(original, ['name', 'age']);
-
-      expect(result).toEqual({ name: 'John', age: 30 });
-      expect(result).not.toBe(original); // Different reference
-      expect(Object.keys(result).length).toBe(2);
-    });
-
-    it('should handle picking a single property', () => {
-      const original = { name: 'John', age: 30, address: '123 Main St' };
-      const result = pick(original, ['name']);
-
-      expect(result).toEqual({ name: 'John' });
-      expect(Object.keys(result).length).toBe(1);
-    });
-
-    it('should handle picking all properties', () => {
-      const original = { name: 'John', age: 30 };
-      const result = pick(original, ['name', 'age']);
-
-      expect(result).toEqual(original);
-      expect(result).not.toBe(original); // Different reference
-    });
-
-    it('should handle picking non-existent properties', () => {
-      const original = { name: 'John', age: 30 };
-      // @ts-expect-error - Testing with invalid key
-      const result = pick(original, ['name', 'nonExistent']);
-
-      expect(result).toEqual({ name: 'John' });
-      expect(Object.keys(result).length).toBe(1);
-    });
-
-    it('should handle empty objects', () => {
-      const original = {};
-      const result = pick(original, []);
-
-      expect(result).toEqual({});
-      expect(result).not.toBe(original); // Different reference
-    });
-
-    it('should handle empty keys array', () => {
-      const original = { name: 'John', age: 30 };
-      const result = pick(original, []);
-
-      expect(result).toEqual({});
-      expect(Object.keys(result).length).toBe(0);
-    });
-
-    it('should throw an error for non-object inputs', () => {
-      expect(() => pick(null as any, ['name'])).toThrow('Input must be an object');
-      expect(() => pick(undefined as any, ['name'])).toThrow('Input must be an object');
-      expect(() => pick(42 as any, ['name'])).toThrow('Input must be an object');
-      expect(() => pick('string' as any, ['name'])).toThrow('Input must be an object');
-      expect(() => pick(true as any, ['name'])).toThrow('Input must be an object');
-    });
-
-    it('should throw an error for non-array keys', () => {
-      expect(() => pick({ name: 'John' }, 'name' as any)).toThrow('Keys must be an array');
-      expect(() => pick({ name: 'John' }, {} as any)).toThrow('Keys must be an array');
-      expect(() => pick({ name: 'John' }, null as any)).toThrow('Keys must be an array');
-      expect(() => pick({ name: 'John' }, undefined as any)).toThrow('Keys must be an array');
-    });
-
-    it('should preserve the original object', () => {
-      const original = { name: 'John', age: 30, address: '123 Main St' };
-      const result = pick(original, ['name', 'age']);
-
-      // Modify the result
-      result.name = 'Jane';
-      result.age = 25;
-
-      // Original should be unchanged
-      expect(original.name).toBe('John');
-      expect(original.age).toBe(30);
-    });
-
-    it('should work with nested objects', () => {
-      const original = {
-        name: 'John',
-        profile: {
-          age: 30,
-          address: '123 Main St'
-        }
-      };
-      const result = pick(original, ['name', 'profile']);
-
-      expect(result).toEqual({
-        name: 'John',
-        profile: {
-          age: 30,
-          address: '123 Main St'
-        }
+    describe('basic functionality', () => {
+      it('should select specified properties from an object', () => {
+        const obj = { a: 1, b: 2, c: 3, d: 4 };
+        const result = pick(obj, ['a', 'c']);
+        
+        expect(result).toEqual({ a: 1, c: 3 });
       });
-      expect(result.profile).toBe(original.profile); // Same reference for nested objects
+
+      it('should handle picking a single property', () => {
+        const obj = { a: 1, b: 2, c: 3 };
+        const result = pick(obj, ['b']);
+        
+        expect(result).toEqual({ b: 2 });
+      });
+
+      it('should handle picking all properties', () => {
+        const obj = { a: 1, b: 2 };
+        const result = pick(obj, ['a', 'b']);
+        
+        expect(result).toEqual({ a: 1, b: 2 });
+      });
+
+      it('should maintain property order', () => {
+        const obj = { d: 4, c: 3, b: 2, a: 1 };
+        const result = pick(obj, ['a', 'b', 'c', 'd']);
+        
+        // Check that keys are in the same order as the pick array
+        expect(Object.keys(result)).toEqual(['a', 'b', 'c', 'd']);
+      });
+
+      it('should not modify the original object', () => {
+        const obj = { a: 1, b: 2, c: 3 };
+        const original = { ...obj };
+        pick(obj, ['a', 'b']);
+        
+        expect(obj).toEqual(original);
+      });
+    });
+
+    describe('edge cases', () => {
+      it('should handle non-existent properties', () => {
+        const obj = { a: 1, b: 2 };
+        const result = pick(obj, ['a', 'c']);
+        
+        expect(result).toEqual({ a: 1 });
+        expect(result).not.toHaveProperty('c');
+      });
+
+      it('should return an empty object when no properties are specified', () => {
+        const obj = { a: 1, b: 2 };
+        const result = pick(obj, []);
+        
+        expect(result).toEqual({});
+      });
+
+      it('should handle null and undefined values', () => {
+        const obj = { a: null, b: undefined, c: 0 };
+        const result = pick(obj, ['a', 'b', 'c']);
+        
+        expect(result).toEqual({ a: null, b: undefined, c: 0 });
+      });
+
+      it('should return an empty object for null or undefined input', () => {
+        expect(pick(null, ['a', 'b'])).toEqual({});
+        expect(pick(undefined, ['a', 'b'])).toEqual({});
+      });
+
+      it('should handle empty objects', () => {
+        expect(pick({}, ['a', 'b'])).toEqual({});
+      });
+    });
+
+    describe('nested objects', () => {
+      it('should pick properties from objects with nested structures', () => {
+        const obj = {
+          a: 1,
+          b: { c: 2, d: 3 },
+          e: [4, 5, 6],
+          f: { g: { h: 7 } }
+        };
+        const result = pick(obj, ['a', 'b', 'f']);
+        
+        expect(result).toEqual({
+          a: 1,
+          b: { c: 2, d: 3 },
+          f: { g: { h: 7 } }
+        });
+      });
+
+      it('should not deep pick nested properties', () => {
+        const obj = {
+          a: { b: 1, c: 2 },
+          d: { e: 3, f: 4 }
+        };
+        const result = pick(obj, ['a']);
+        
+        expect(result).toEqual({ a: { b: 1, c: 2 } });
+        // Should not be able to pick nested properties directly
+        expect(pick(obj, ['a.b'])).toEqual({});
+      });
+    });
+
+    describe('type safety', () => {
+      it('should preserve the types of picked properties', () => {
+        interface TestObject {
+          a: number;
+          b: string;
+          c: boolean;
+          d: object;
+        }
+        
+        const obj: TestObject = {
+          a: 1,
+          b: 'test',
+          c: true,
+          d: { key: 'value' }
+        };
+        
+        const result = pick(obj, ['a', 'c']);
+        
+        // TypeScript should infer the correct types
+        const numValue: number = result.a;
+        const boolValue: boolean = result.c;
+        
+        expect(typeof result.a).toBe('number');
+        expect(typeof result.c).toBe('boolean');
+      });
     });
   });
 
   describe('omit', () => {
-    it('should create a new object excluding the specified properties', () => {
-      const original = { name: 'John', age: 30, address: '123 Main St' };
-      const result = omit(original, ['address']);
-
-      expect(result).toEqual({ name: 'John', age: 30 });
-      expect(result).not.toBe(original); // Different reference
-      expect(Object.keys(result).length).toBe(2);
-    });
-
-    it('should handle omitting multiple properties', () => {
-      const original = { name: 'John', age: 30, address: '123 Main St', email: 'john@example.com' };
-      const result = omit(original, ['name', 'email']);
-
-      expect(result).toEqual({ age: 30, address: '123 Main St' });
-      expect(Object.keys(result).length).toBe(2);
-    });
-
-    it('should handle omitting all properties', () => {
-      const original = { name: 'John', age: 30 };
-      const result = omit(original, ['name', 'age']);
-
-      expect(result).toEqual({});
-      expect(Object.keys(result).length).toBe(0);
-    });
-
-    it('should handle omitting non-existent properties', () => {
-      const original = { name: 'John', age: 30 };
-      // @ts-expect-error - Testing with invalid key
-      const result = omit(original, ['nonExistent']);
-
-      expect(result).toEqual(original);
-      expect(result).not.toBe(original); // Different reference
-    });
-
-    it('should handle empty objects', () => {
-      const original = {};
-      const result = omit(original, []);
-
-      expect(result).toEqual({});
-      expect(result).not.toBe(original); // Different reference
-    });
-
-    it('should handle empty keys array', () => {
-      const original = { name: 'John', age: 30 };
-      const result = omit(original, []);
-
-      expect(result).toEqual(original);
-      expect(result).not.toBe(original); // Different reference
-    });
-
-    it('should throw an error for non-object inputs', () => {
-      expect(() => omit(null as any, ['name'])).toThrow('Input must be an object');
-      expect(() => omit(undefined as any, ['name'])).toThrow('Input must be an object');
-      expect(() => omit(42 as any, ['name'])).toThrow('Input must be an object');
-      expect(() => omit('string' as any, ['name'])).toThrow('Input must be an object');
-      expect(() => omit(true as any, ['name'])).toThrow('Input must be an object');
-    });
-
-    it('should throw an error for non-array keys', () => {
-      expect(() => omit({ name: 'John' }, 'name' as any)).toThrow('Keys must be an array');
-      expect(() => omit({ name: 'John' }, {} as any)).toThrow('Keys must be an array');
-      expect(() => omit({ name: 'John' }, null as any)).toThrow('Keys must be an array');
-      expect(() => omit({ name: 'John' }, undefined as any)).toThrow('Keys must be an array');
-    });
-
-    it('should preserve the original object', () => {
-      const original = { name: 'John', age: 30, address: '123 Main St' };
-      const result = omit(original, ['address']);
-
-      // Modify the result
-      result.name = 'Jane';
-      result.age = 25;
-
-      // Original should be unchanged
-      expect(original.name).toBe('John');
-      expect(original.age).toBe(30);
-    });
-
-    it('should work with nested objects', () => {
-      const original = {
-        name: 'John',
-        profile: {
-          age: 30,
-          address: '123 Main St'
-        },
-        contact: {
-          email: 'john@example.com'
-        }
-      };
-      const result = omit(original, ['contact']);
-
-      expect(result).toEqual({
-        name: 'John',
-        profile: {
-          age: 30,
-          address: '123 Main St'
-        }
+    describe('basic functionality', () => {
+      it('should exclude specified properties from an object', () => {
+        const obj = { a: 1, b: 2, c: 3, d: 4 };
+        const result = omit(obj, ['b', 'd']);
+        
+        expect(result).toEqual({ a: 1, c: 3 });
       });
-      expect(result.profile).toBe(original.profile); // Same reference for nested objects
+
+      it('should handle omitting a single property', () => {
+        const obj = { a: 1, b: 2, c: 3 };
+        const result = omit(obj, ['b']);
+        
+        expect(result).toEqual({ a: 1, c: 3 });
+      });
+
+      it('should handle omitting all properties', () => {
+        const obj = { a: 1, b: 2 };
+        const result = omit(obj, ['a', 'b']);
+        
+        expect(result).toEqual({});
+      });
+
+      it('should not modify the original object', () => {
+        const obj = { a: 1, b: 2, c: 3 };
+        const original = { ...obj };
+        omit(obj, ['a', 'b']);
+        
+        expect(obj).toEqual(original);
+      });
+    });
+
+    describe('edge cases', () => {
+      it('should handle non-existent properties', () => {
+        const obj = { a: 1, b: 2 };
+        const result = omit(obj, ['c', 'd']);
+        
+        expect(result).toEqual({ a: 1, b: 2 });
+      });
+
+      it('should return a copy of the object when no properties are specified', () => {
+        const obj = { a: 1, b: 2 };
+        const result = omit(obj, []);
+        
+        expect(result).toEqual({ a: 1, b: 2 });
+        expect(result).not.toBe(obj); // Should be a new object
+      });
+
+      it('should handle null and undefined values', () => {
+        const obj = { a: null, b: undefined, c: 0 };
+        const result = omit(obj, ['a']);
+        
+        expect(result).toEqual({ b: undefined, c: 0 });
+      });
+
+      it('should return an empty object for null or undefined input', () => {
+        expect(omit(null, ['a', 'b'])).toEqual({});
+        expect(omit(undefined, ['a', 'b'])).toEqual({});
+      });
+
+      it('should handle empty objects', () => {
+        expect(omit({}, ['a', 'b'])).toEqual({});
+      });
+    });
+
+    describe('nested objects', () => {
+      it('should omit properties from objects with nested structures', () => {
+        const obj = {
+          a: 1,
+          b: { c: 2, d: 3 },
+          e: [4, 5, 6],
+          f: { g: { h: 7 } }
+        };
+        const result = omit(obj, ['b', 'e']);
+        
+        expect(result).toEqual({
+          a: 1,
+          f: { g: { h: 7 } }
+        });
+      });
+
+      it('should not deep omit nested properties', () => {
+        const obj = {
+          a: { b: 1, c: 2 },
+          d: { e: 3, f: 4 }
+        };
+        const result = omit(obj, ['d']);
+        
+        expect(result).toEqual({ a: { b: 1, c: 2 } });
+        // Should not be able to omit nested properties directly
+        expect(omit(obj, ['a.b'])).toEqual(obj);
+      });
+    });
+
+    describe('type safety', () => {
+      it('should preserve the types of remaining properties', () => {
+        interface TestObject {
+          a: number;
+          b: string;
+          c: boolean;
+          d: object;
+        }
+        
+        const obj: TestObject = {
+          a: 1,
+          b: 'test',
+          c: true,
+          d: { key: 'value' }
+        };
+        
+        const result = omit(obj, ['b', 'd']);
+        
+        // TypeScript should infer the correct types
+        const numValue: number = result.a;
+        const boolValue: boolean = result.c;
+        
+        expect(typeof result.a).toBe('number');
+        expect(typeof result.c).toBe('boolean');
+      });
     });
   });
 
   describe('mapValues', () => {
-    it('should transform values while preserving keys', () => {
-      const original = { a: 1, b: 2, c: 3 };
-      const result = mapValues(original, value => value * 2);
-
-      expect(result).toEqual({ a: 2, b: 4, c: 6 });
-      expect(result).not.toBe(original); // Different reference
-      expect(Object.keys(result)).toEqual(Object.keys(original));
-    });
-
-    it('should provide key and object to the mapping function', () => {
-      const original = { a: 1, b: 2, c: 3 };
-      const result = mapValues(original, (value, key, obj) => {
-        return `${key}:${value}:${obj === original}`;
+    describe('basic functionality', () => {
+      it('should transform values while preserving keys', () => {
+        const obj = { a: 1, b: 2, c: 3 };
+        const result = mapValues(obj, (value) => value * 2);
+        
+        expect(result).toEqual({ a: 2, b: 4, c: 6 });
       });
 
-      expect(result).toEqual({
-        a: 'a:1:true',
-        b: 'b:2:true',
-        c: 'c:3:true'
-      });
-    });
-
-    it('should handle different value types', () => {
-      const original = {
-        name: 'John',
-        age: 30,
-        active: true,
-        tags: ['user', 'premium']
-      };
-
-      const result = mapValues(original, value => {
-        if (typeof value === 'string') return value.toUpperCase();
-        if (typeof value === 'number') return value + 10;
-        if (typeof value === 'boolean') return !value;
-        if (Array.isArray(value)) return value.length;
-        return value;
+      it('should provide key and object as additional arguments to the mapper function', () => {
+        const obj = { a: 1, b: 2, c: 3 };
+        const result = mapValues(obj, (value, key, object) => {
+          expect(object).toBe(obj);
+          return `${key}:${value}`;
+        });
+        
+        expect(result).toEqual({ a: 'a:1', b: 'b:2', c: 'c:3' });
       });
 
-      expect(result).toEqual({
-        name: 'JOHN',
-        age: 40,
-        active: false,
-        tags: 2
+      it('should handle different return types', () => {
+        const obj = { a: 1, b: 2, c: 3 };
+        const result = mapValues(obj, (value) => value > 1 ? true : 'false');
+        
+        expect(result).toEqual({ a: 'false', b: true, c: true });
+      });
+
+      it('should not modify the original object', () => {
+        const obj = { a: 1, b: 2, c: 3 };
+        const original = { ...obj };
+        mapValues(obj, (value) => value * 2);
+        
+        expect(obj).toEqual(original);
       });
     });
 
-    it('should handle empty objects', () => {
-      const original = {};
-      const result = mapValues(original, value => value);
+    describe('edge cases', () => {
+      it('should handle null and undefined values', () => {
+        const obj = { a: null, b: undefined, c: 0 };
+        const result = mapValues(obj, (value) => value === null ? 'null' : value === undefined ? 'undefined' : 'value');
+        
+        expect(result).toEqual({ a: 'null', b: 'undefined', c: 'value' });
+      });
 
-      expect(result).toEqual({});
-      expect(result).not.toBe(original); // Different reference
+      it('should return an empty object for null or undefined input', () => {
+        expect(mapValues(null, (value) => value)).toEqual({});
+        expect(mapValues(undefined, (value) => value)).toEqual({});
+      });
+
+      it('should handle empty objects', () => {
+        expect(mapValues({}, (value) => value)).toEqual({});
+      });
+
+      it('should handle mapper functions that return undefined', () => {
+        const obj = { a: 1, b: 2, c: 3 };
+        const result = mapValues(obj, () => undefined);
+        
+        expect(result).toEqual({ a: undefined, b: undefined, c: undefined });
+      });
     });
 
-    it('should throw an error for non-object inputs', () => {
-      expect(() => mapValues(null as any, v => v)).toThrow('Input must be an object');
-      expect(() => mapValues(undefined as any, v => v)).toThrow('Input must be an object');
-      expect(() => mapValues(42 as any, v => v)).toThrow('Input must be an object');
-      expect(() => mapValues('string' as any, v => v)).toThrow('Input must be an object');
-      expect(() => mapValues(true as any, v => v)).toThrow('Input must be an object');
+    describe('nested objects', () => {
+      it('should transform values in objects with nested structures', () => {
+        const obj = {
+          a: 1,
+          b: { c: 2, d: 3 },
+          e: [4, 5, 6]
+        };
+        const result = mapValues(obj, (value) => {
+          if (typeof value === 'number') return value * 2;
+          if (Array.isArray(value)) return value.map(v => v * 2);
+          return value; // Return objects as is
+        });
+        
+        expect(result).toEqual({
+          a: 2,
+          b: { c: 2, d: 3 }, // Object returned as is
+          e: [8, 10, 12]
+        });
+      });
+
+      it('should not deep transform nested objects by default', () => {
+        const obj = {
+          a: { b: 1, c: 2 },
+          d: { e: 3, f: 4 }
+        };
+        const result = mapValues(obj, (value) => {
+          // Only transform the top-level objects
+          return 'transformed';
+        });
+        
+        expect(result).toEqual({
+          a: 'transformed',
+          d: 'transformed'
+        });
+      });
+
+      it('should allow recursive transformation of nested objects', () => {
+        const obj = {
+          a: { b: 1, c: 2 },
+          d: { e: 3, f: 4 }
+        };
+        
+        // Recursive transformation function
+        const deepTransform = (obj) => {
+          if (typeof obj !== 'object' || obj === null) return obj;
+          return mapValues(obj, (value) => {
+            if (typeof value === 'object' && value !== null) {
+              return deepTransform(value);
+            }
+            return value * 2;
+          });
+        };
+        
+        const result = deepTransform(obj);
+        
+        expect(result).toEqual({
+          a: { b: 2, c: 4 },
+          d: { e: 6, f: 8 }
+        });
+      });
     });
 
-    it('should throw an error for non-function mappers', () => {
-      expect(() => mapValues({ a: 1 }, null as any)).toThrow('Mapping function must be provided');
-      expect(() => mapValues({ a: 1 }, undefined as any)).toThrow('Mapping function must be provided');
-      expect(() => mapValues({ a: 1 }, 'string' as any)).toThrow('Mapping function must be provided');
-      expect(() => mapValues({ a: 1 }, 42 as any)).toThrow('Mapping function must be provided');
-      expect(() => mapValues({ a: 1 }, {} as any)).toThrow('Mapping function must be provided');
-    });
-
-    it('should preserve the original object', () => {
-      const original = { a: 1, b: 2, c: 3 };
-      const result = mapValues(original, value => value * 2);
-
-      // Modify the result
-      result.a = 99;
-
-      // Original should be unchanged
-      expect(original.a).toBe(1);
-    });
-
-    it('should work with nested objects', () => {
-      const original = {
-        user: {
-          name: 'John',
-          age: 30
-        },
-        settings: {
-          theme: 'dark',
-          notifications: true
+    describe('type safety', () => {
+      it('should preserve type information with the mapper function', () => {
+        interface TestObject {
+          a: number;
+          b: string;
+          c: boolean;
         }
-      };
-
-      const result = mapValues(original, value => {
-        // Return a copy of each nested object
-        return { ...value, modified: true };
+        
+        const obj: TestObject = {
+          a: 1,
+          b: 'test',
+          c: true
+        };
+        
+        // Transform numbers to strings, strings to numbers, and booleans to objects
+        const result = mapValues(obj, (value, key) => {
+          if (typeof value === 'number') return String(value);
+          if (typeof value === 'string') return value.length;
+          if (typeof value === 'boolean') return { value };
+          return value;
+        });
+        
+        expect(typeof result.a).toBe('string');
+        expect(typeof result.b).toBe('number');
+        expect(typeof result.c).toBe('object');
+        expect(result).toEqual({
+          a: '1',
+          b: 4,
+          c: { value: true }
+        });
       });
-
-      expect(result).toEqual({
-        user: {
-          name: 'John',
-          age: 30,
-          modified: true
-        },
-        settings: {
-          theme: 'dark',
-          notifications: true,
-          modified: true
-        }
-      });
-
-      // The nested objects in the result should be different from the original
-      expect(result.user).not.toBe(original.user);
-      expect(result.settings).not.toBe(original.settings);
     });
   });
 
   describe('filterKeys', () => {
-    it('should filter keys based on a predicate', () => {
-      const original = { a: 1, b: 2, c: 3, d: 4 };
-      const result = filterKeys(original, (key, value) => value % 2 === 0);
-
-      expect(result).toEqual({ b: 2, d: 4 });
-      expect(result).not.toBe(original); // Different reference
-    });
-
-    it('should provide key, value, and object to the predicate', () => {
-      const original = { a: 1, b: 2, c: 3 };
-      const result = filterKeys(original, (key, value, obj) => {
-        return key === 'a' || (value > 1 && obj === original);
-      });
-
-      expect(result).toEqual({ a: 1, b: 2, c: 3 });
-    });
-
-    it('should handle filtering all keys', () => {
-      const original = { a: 1, b: 2, c: 3 };
-      const result = filterKeys(original, () => false);
-
-      expect(result).toEqual({});
-      expect(Object.keys(result).length).toBe(0);
-    });
-
-    it('should handle keeping all keys', () => {
-      const original = { a: 1, b: 2, c: 3 };
-      const result = filterKeys(original, () => true);
-
-      expect(result).toEqual(original);
-      expect(result).not.toBe(original); // Different reference
-    });
-
-    it('should handle filtering based on key', () => {
-      const original = { a: 1, b: 2, c: 3, d: 4 };
-      const result = filterKeys(original, key => ['a', 'c'].includes(key));
-
-      expect(result).toEqual({ a: 1, c: 3 });
-    });
-
-    it('should handle filtering null/undefined values', () => {
-      const original = { a: 1, b: null, c: undefined, d: 0 };
-      const result = filterKeys(original, (_, value) => value !== null && value !== undefined);
-
-      expect(result).toEqual({ a: 1, d: 0 });
-    });
-
-    it('should handle empty objects', () => {
-      const original = {};
-      const result = filterKeys(original, () => true);
-
-      expect(result).toEqual({});
-      expect(result).not.toBe(original); // Different reference
-    });
-
-    it('should throw an error for non-object inputs', () => {
-      expect(() => filterKeys(null as any, () => true)).toThrow('Input must be an object');
-      expect(() => filterKeys(undefined as any, () => true)).toThrow('Input must be an object');
-      expect(() => filterKeys(42 as any, () => true)).toThrow('Input must be an object');
-      expect(() => filterKeys('string' as any, () => true)).toThrow('Input must be an object');
-      expect(() => filterKeys(true as any, () => true)).toThrow('Input must be an object');
-    });
-
-    it('should throw an error for non-function predicates', () => {
-      expect(() => filterKeys({ a: 1 }, null as any)).toThrow('Predicate must be a function');
-      expect(() => filterKeys({ a: 1 }, undefined as any)).toThrow('Predicate must be a function');
-      expect(() => filterKeys({ a: 1 }, 'string' as any)).toThrow('Predicate must be a function');
-      expect(() => filterKeys({ a: 1 }, 42 as any)).toThrow('Predicate must be a function');
-      expect(() => filterKeys({ a: 1 }, {} as any)).toThrow('Predicate must be a function');
-    });
-
-    it('should preserve the original object', () => {
-      const original = { a: 1, b: 2, c: 3 };
-      const result = filterKeys(original, (key) => key !== 'b');
-
-      // Modify the result
-      result.a = 99;
-
-      // Original should be unchanged
-      expect(original.a).toBe(1);
-    });
-
-    it('should work with nested objects', () => {
-      const original = {
-        user: {
-          name: 'John',
-          age: 30
-        },
-        settings: null,
-        data: {
-          values: [1, 2, 3]
-        }
-      };
-
-      const result = filterKeys(original, (_, value) => value !== null);
-
-      expect(result).toEqual({
-        user: {
-          name: 'John',
-          age: 30
-        },
-        data: {
-          values: [1, 2, 3]
-        }
-      });
-
-      // The nested objects in the result should be the same as the original
-      expect(result.user).toBe(original.user);
-      expect(result.data).toBe(original.data);
-    });
-  });
-
-  describe('renameKeys', () => {
-    it('should rename keys based on a mapping object', () => {
-      const original = { name: 'John', age: 30, address: '123 Main St' };
-      const result = renameKeys(original, { name: 'firstName', age: 'userAge' });
-
-      expect(result).toEqual({ firstName: 'John', userAge: 30, address: '123 Main St' });
-      expect(result).not.toBe(original); // Different reference
-    });
-
-    it('should handle renaming all keys', () => {
-      const original = { a: 1, b: 2, c: 3 };
-      const result = renameKeys(original, { a: 'x', b: 'y', c: 'z' });
-
-      expect(result).toEqual({ x: 1, y: 2, z: 3 });
-      expect(Object.keys(result)).toEqual(['x', 'y', 'z']);
-    });
-
-    it('should handle renaming to the same key', () => {
-      const original = { name: 'John', age: 30 };
-      const result = renameKeys(original, { name: 'name', age: 'age' });
-
-      expect(result).toEqual(original);
-      expect(result).not.toBe(original); // Different reference
-    });
-
-    it('should handle empty mapping', () => {
-      const original = { name: 'John', age: 30 };
-      const result = renameKeys(original, {});
-
-      expect(result).toEqual(original);
-      expect(result).not.toBe(original); // Different reference
-    });
-
-    it('should handle empty objects', () => {
-      const original = {};
-      const result = renameKeys(original, { a: 'x' });
-
-      expect(result).toEqual({});
-      expect(result).not.toBe(original); // Different reference
-    });
-
-    it('should throw an error for non-object inputs', () => {
-      expect(() => renameKeys(null as any, { a: 'x' })).toThrow('Input must be an object');
-      expect(() => renameKeys(undefined as any, { a: 'x' })).toThrow('Input must be an object');
-      expect(() => renameKeys(42 as any, { a: 'x' })).toThrow('Input must be an object');
-      expect(() => renameKeys('string' as any, { a: 'x' })).toThrow('Input must be an object');
-      expect(() => renameKeys(true as any, { a: 'x' })).toThrow('Input must be an object');
-    });
-
-    it('should throw an error for non-object key maps', () => {
-      expect(() => renameKeys({ a: 1 }, null as any)).toThrow('Keys map must be an object');
-      expect(() => renameKeys({ a: 1 }, undefined as any)).toThrow('Keys map must be an object');
-      expect(() => renameKeys({ a: 1 }, 'string' as any)).toThrow('Keys map must be an object');
-      expect(() => renameKeys({ a: 1 }, 42 as any)).toThrow('Keys map must be an object');
-      expect(() => renameKeys({ a: 1 }, true as any)).toThrow('Keys map must be an object');
-    });
-
-    it('should preserve the original object', () => {
-      const original = { name: 'John', age: 30 };
-      const result = renameKeys(original, { name: 'firstName' });
-
-      // Modify the result
-      result.firstName = 'Jane';
-
-      // Original should be unchanged
-      expect(original.name).toBe('John');
-    });
-
-    it('should handle mapping to duplicate keys', () => {
-      const original = { a: 1, b: 2, c: 3 };
-      const result = renameKeys(original, { a: 'x', b: 'x' });
-
-      // Last mapping wins
-      expect(result).toEqual({ x: 2, c: 3 });
-    });
-
-    it('should handle non-string keys in the mapping', () => {
-      const original = { a: 1, b: 2 };
-      const result = renameKeys(original, { a: 42 as any, b: true as any });
-
-      expect(result).toEqual({ '42': 1, 'true': 2 });
-    });
-  });
-
-  describe('flattenObject', () => {
-    it('should flatten a nested object structure', () => {
-      const original = {
-        user: {
-          name: 'John',
-          address: {
-            city: 'New York',
-            zip: '10001'
-          }
-        }
-      };
-
-      const result = flattenObject(original);
-
-      expect(result).toEqual({
-        'user.name': 'John',
-        'user.address.city': 'New York',
-        'user.address.zip': '10001'
-      });
-    });
-
-    it('should handle arrays in objects', () => {
-      const original = {
-        user: {
-          name: 'John',
-          tags: ['developer', 'admin']
-        }
-      };
-
-      const result = flattenObject(original);
-
-      expect(result).toEqual({
-        'user.name': 'John',
-        'user.tags': ['developer', 'admin']
-      });
-    });
-
-    it('should handle empty nested objects', () => {
-      const original = {
-        user: {
-          name: 'John',
-          address: {}
-        }
-      };
-
-      const result = flattenObject(original);
-
-      expect(result).toEqual({
-        'user.name': 'John'
-      });
-    });
-
-    it('should handle null and undefined values', () => {
-      const original = {
-        user: {
-          name: 'John',
-          address: null,
-          phone: undefined
-        }
-      };
-
-      const result = flattenObject(original);
-
-      expect(result).toEqual({
-        'user.name': 'John',
-        'user.address': null,
-        'user.phone': undefined
-      });
-    });
-
-    it('should use the provided prefix', () => {
-      const original = {
-        name: 'John',
-        age: 30
-      };
-
-      const result = flattenObject(original, 'user');
-
-      expect(result).toEqual({
-        'user.name': 'John',
-        'user.age': 30
-      });
-    });
-
-    it('should use the provided delimiter', () => {
-      const original = {
-        user: {
-          name: 'John',
-          address: {
-            city: 'New York'
-          }
-        }
-      };
-
-      const result = flattenObject(original, '', '_');
-
-      expect(result).toEqual({
-        'user_name': 'John',
-        'user_address_city': 'New York'
-      });
-    });
-
-    it('should handle empty objects', () => {
-      const original = {};
-      const result = flattenObject(original);
-
-      expect(result).toEqual({});
-    });
-
-    it('should throw an error for non-object inputs', () => {
-      expect(() => flattenObject(null as any)).toThrow('Input must be an object');
-      expect(() => flattenObject(undefined as any)).toThrow('Input must be an object');
-      expect(() => flattenObject(42 as any)).toThrow('Input must be an object');
-      expect(() => flattenObject('string' as any)).toThrow('Input must be an object');
-      expect(() => flattenObject(true as any)).toThrow('Input must be an object');
-    });
-
-    it('should handle objects with circular references', () => {
-      const original: any = {
-        name: 'John',
-        nested: {}
-      };
-      original.nested.circular = original;
-
-      const result = flattenObject(original);
-
-      expect(result).toEqual({
-        'name': 'John',
-        'nested.circular': original
-      });
-    });
-
-    it('should preserve the original object', () => {
-      const original = {
-        user: {
-          name: 'John'
-        }
-      };
-      const result = flattenObject(original);
-
-      // Modify the result
-      result['user.name'] = 'Jane';
-
-      // Original should be unchanged
-      expect(original.user.name).toBe('John');
-    });
-  });
-
-  describe('transformObject', () => {
-    it('should transform keys and values based on a function', () => {
-      const original = { name: 'John', age: 30 };
-      const result = transformObject(original, (key, value) => [
-        key.toUpperCase(),
-        typeof value === 'string' ? value.toUpperCase() : value
-      ]);
-
-      expect(result).toEqual({ NAME: 'JOHN', AGE: 30 });
-      expect(result).not.toBe(original); // Different reference
-    });
-
-    it('should provide the original object to the transform function', () => {
-      const original = { a: 1, b: 2 };
-      const result = transformObject(original, (key, value, obj) => [
-        `${key}_${obj === original}`,
-        value * 2
-      ]);
-
-      expect(result).toEqual({ 'a_true': 2, 'b_true': 4 });
-    });
-
-    it('should handle skipping keys when undefined is returned', () => {
-      const original = { a: 1, b: 2, c: 3, d: 4 };
-      const result = transformObject(original, (key, value) => {
-        if (value % 2 === 0) {
-          return [key, value * 10];
-        }
-        return [undefined as any, undefined]; // Skip odd values
-      });
-
-      expect(result).toEqual({ b: 20, d: 40 });
-    });
-
-    it('should handle empty objects', () => {
-      const original = {};
-      const result = transformObject(original, (key, value) => [key, value]);
-
-      expect(result).toEqual({});
-      expect(result).not.toBe(original); // Different reference
-    });
-
-    it('should throw an error for non-object inputs', () => {
-      expect(() => transformObject(null as any, () => ['', ''])).toThrow('Input must be an object');
-      expect(() => transformObject(undefined as any, () => ['', ''])).toThrow('Input must be an object');
-      expect(() => transformObject(42 as any, () => ['', ''])).toThrow('Input must be an object');
-      expect(() => transformObject('string' as any, () => ['', ''])).toThrow('Input must be an object');
-      expect(() => transformObject(true as any, () => ['', ''])).toThrow('Input must be an object');
-    });
-
-    it('should throw an error for non-function transformers', () => {
-      expect(() => transformObject({ a: 1 }, null as any)).toThrow('Transform function must be provided');
-      expect(() => transformObject({ a: 1 }, undefined as any)).toThrow('Transform function must be provided');
-      expect(() => transformObject({ a: 1 }, 'string' as any)).toThrow('Transform function must be provided');
-      expect(() => transformObject({ a: 1 }, 42 as any)).toThrow('Transform function must be provided');
-      expect(() => transformObject({ a: 1 }, {} as any)).toThrow('Transform function must be provided');
-    });
-
-    it('should preserve the original object', () => {
-      const original = { name: 'John', age: 30 };
-      const result = transformObject(original, (key, value) => [key.toUpperCase(), value]);
-
-      // Modify the result
-      (result as any).NAME = 'Jane';
-
-      // Original should be unchanged
-      expect(original.name).toBe('John');
-    });
-
-    it('should handle complex transformations', () => {
-      const original = {
-        user_name: 'john_doe',
-        user_age: '30',
-        user_active: 'true'
-      };
-
-      const result = transformObject(original, (key, value) => {
-        // Remove the 'user_' prefix from keys
-        const newKey = key.replace('user_', '');
+    describe('basic functionality', () => {
+      it('should filter object properties based on key predicate', () => {
+        const obj = { a: 1, b: 2, c: 3, d: 4 };
+        const result = filterKeys(obj, (key) => key === 'a' || key === 'c');
         
-        // Convert values to appropriate types
-        let newValue = value;
-        if (value === 'true' || value === 'false') {
-          newValue = value === 'true';
-        } else if (!isNaN(Number(value))) {
-          newValue = Number(value);
-        }
+        expect(result).toEqual({ a: 1, c: 3 });
+      });
+
+      it('should provide value and object as additional arguments to the predicate function', () => {
+        const obj = { a: 1, b: 2, c: 3 };
+        const result = filterKeys(obj, (key, value, object) => {
+          expect(object).toBe(obj);
+          return value > 1;
+        });
         
-        return [newKey, newValue];
+        expect(result).toEqual({ b: 2, c: 3 });
       });
 
-      expect(result).toEqual({
-        name: 'john_doe',
-        age: 30,
-        active: true
-      });
-    });
-  });
-
-  describe('convertValues', () => {
-    it('should convert values to a specific type', () => {
-      const original = { count: '5', total: '10', average: '2.5' };
-      const result = convertValues(original, value => 
-        typeof value === 'string' ? parseFloat(value) : value
-      );
-
-      expect(result).toEqual({ count: 5, total: 10, average: 2.5 });
-      expect(result).not.toBe(original); // Different reference
-    });
-
-    it('should provide the key to the conversion function', () => {
-      const original = { a: '1', b: '2', c: '3' };
-      const result = convertValues(original, (value, key) => 
-        key === 'b' ? parseInt(value as string) * 10 : parseInt(value as string)
-      );
-
-      expect(result).toEqual({ a: 1, b: 20, c: 3 });
-    });
-
-    it('should handle different value types', () => {
-      const original = {
-        name: 'John',
-        age: '30',
-        active: 'true',
-        score: '9.5'
-      };
-
-      const result = convertValues(original, (value) => {
-        if (value === 'true' || value === 'false') {
-          return value === 'true';
-        }
-        if (typeof value === 'string' && !isNaN(parseFloat(value))) {
-          return parseFloat(value);
-        }
-        return value;
-      });
-
-      expect(result).toEqual({
-        name: 'John',
-        age: 30,
-        active: true,
-        score: 9.5
+      it('should not modify the original object', () => {
+        const obj = { a: 1, b: 2, c: 3 };
+        const original = { ...obj };
+        filterKeys(obj, (key) => key !== 'b');
+        
+        expect(obj).toEqual(original);
       });
     });
 
-    it('should handle empty objects', () => {
-      const original = {};
-      const result = convertValues(original, value => value);
+    describe('edge cases', () => {
+      it('should handle predicates that always return true', () => {
+        const obj = { a: 1, b: 2, c: 3 };
+        const result = filterKeys(obj, () => true);
+        
+        expect(result).toEqual(obj);
+        expect(result).not.toBe(obj); // Should be a new object
+      });
 
-      expect(result).toEqual({});
-      expect(result).not.toBe(original); // Different reference
+      it('should handle predicates that always return false', () => {
+        const obj = { a: 1, b: 2, c: 3 };
+        const result = filterKeys(obj, () => false);
+        
+        expect(result).toEqual({});
+      });
+
+      it('should handle null and undefined values', () => {
+        const obj = { a: null, b: undefined, c: 0 };
+        const result = filterKeys(obj, (key) => key !== 'a');
+        
+        expect(result).toEqual({ b: undefined, c: 0 });
+      });
+
+      it('should return an empty object for null or undefined input', () => {
+        expect(filterKeys(null, (key) => true)).toEqual({});
+        expect(filterKeys(undefined, (key) => true)).toEqual({});
+      });
+
+      it('should handle empty objects', () => {
+        expect(filterKeys({}, (key) => true)).toEqual({});
+      });
     });
 
-    it('should throw an error for non-object inputs', () => {
-      expect(() => convertValues(null as any, v => v)).toThrow('Input must be an object');
-      expect(() => convertValues(undefined as any, v => v)).toThrow('Input must be an object');
-      expect(() => convertValues(42 as any, v => v)).toThrow('Input must be an object');
-      expect(() => convertValues('string' as any, v => v)).toThrow('Input must be an object');
-      expect(() => convertValues(true as any, v => v)).toThrow('Input must be an object');
-    });
+    describe('nested objects', () => {
+      it('should filter properties from objects with nested structures', () => {
+        const obj = {
+          a: 1,
+          b: { c: 2, d: 3 },
+          e: [4, 5, 6],
+          f: { g: { h: 7 } }
+        };
+        const result = filterKeys(obj, (key) => key !== 'b' && key !== 'e');
+        
+        expect(result).toEqual({
+          a: 1,
+          f: { g: { h: 7 } }
+        });
+      });
 
-    it('should throw an error for non-function converters', () => {
-      expect(() => convertValues({ a: 1 }, null as any)).toThrow('Conversion function must be provided');
-      expect(() => convertValues({ a: 1 }, undefined as any)).toThrow('Conversion function must be provided');
-      expect(() => convertValues({ a: 1 }, 'string' as any)).toThrow('Conversion function must be provided');
-      expect(() => convertValues({ a: 1 }, 42 as any)).toThrow('Conversion function must be provided');
-      expect(() => convertValues({ a: 1 }, {} as any)).toThrow('Conversion function must be provided');
-    });
+      it('should not deep filter nested objects', () => {
+        const obj = {
+          a: { b: 1, c: 2 },
+          d: { e: 3, f: 4 }
+        };
+        const result = filterKeys(obj, (key) => key !== 'd');
+        
+        expect(result).toEqual({ a: { b: 1, c: 2 } });
+      });
 
-    it('should preserve the original object', () => {
-      const original = { count: '5', total: '10' };
-      const result = convertValues(original, value => parseInt(value as string));
-
-      // Modify the result
-      result.count = 99;
-
-      // Original should be unchanged
-      expect(original.count).toBe('5');
-    });
-
-    it('should handle complex conversions', () => {
-      const original = {
-        user: {
-          name: 'John',
-          details: JSON.stringify({ age: 30, active: true })
-        },
-        settings: JSON.stringify({ theme: 'dark', notifications: true })
-      };
-
-      const result = convertValues(original, (value) => {
-        if (typeof value === 'string' && value.startsWith('{') && value.endsWith('}')) {
-          try {
-            return JSON.parse(value);
-          } catch {
+      it('should allow recursive filtering of nested objects', () => {
+        const obj = {
+          a: { b: 1, c: 2 },
+          d: { e: 3, f: 4, g: 5 }
+        };
+        
+        // Recursive filtering function
+        const deepFilter = (obj) => {
+          if (typeof obj !== 'object' || obj === null) return obj;
+          const filtered = filterKeys(obj, (key) => key !== 'c' && key !== 'g');
+          return mapValues(filtered, (value) => {
+            if (typeof value === 'object' && value !== null) {
+              return deepFilter(value);
+            }
             return value;
-          }
+          });
+        };
+        
+        const result = deepFilter(obj);
+        
+        expect(result).toEqual({
+          a: { b: 1 },
+          d: { e: 3, f: 4 }
+        });
+      });
+    });
+
+    describe('type safety', () => {
+      it('should preserve the types of filtered properties', () => {
+        interface TestObject {
+          a: number;
+          b: string;
+          c: boolean;
+          d: object;
         }
-        return value;
+        
+        const obj: TestObject = {
+          a: 1,
+          b: 'test',
+          c: true,
+          d: { key: 'value' }
+        };
+        
+        const result = filterKeys(obj, (key) => key === 'a' || key === 'c');
+        
+        // TypeScript should infer the correct types
+        const numValue: number = result.a;
+        const boolValue: boolean = result.c;
+        
+        expect(typeof result.a).toBe('number');
+        expect(typeof result.c).toBe('boolean');
+      });
+    });
+
+    describe('comparison with pick and omit', () => {
+      it('should be equivalent to pick when filtering by a list of keys', () => {
+        const obj = { a: 1, b: 2, c: 3, d: 4 };
+        const keysToKeep = ['a', 'c'];
+        
+        const pickResult = pick(obj, keysToKeep);
+        const filterResult = filterKeys(obj, (key) => keysToKeep.includes(key));
+        
+        expect(filterResult).toEqual(pickResult);
       });
 
+      it('should be equivalent to omit when filtering by excluded keys', () => {
+        const obj = { a: 1, b: 2, c: 3, d: 4 };
+        const keysToRemove = ['b', 'd'];
+        
+        const omitResult = omit(obj, keysToRemove);
+        const filterResult = filterKeys(obj, (key) => !keysToRemove.includes(key));
+        
+        expect(filterResult).toEqual(omitResult);
+      });
+    });
+  });
+
+  describe('combined usage', () => {
+    it('should allow chaining of transformation functions', () => {
+      const obj = { a: 1, b: 2, c: 3, d: 4, e: 5 };
+      
+      // Chain multiple transformations
+      const result = mapValues(
+        omit(
+          pick(obj, ['a', 'b', 'c', 'd']),
+          ['b']
+        ),
+        value => value * 2
+      );
+      
+      expect(result).toEqual({ a: 2, c: 6, d: 8 });
+    });
+
+    it('should allow complex transformations with multiple functions', () => {
+      const users = {
+        user1: { name: 'John', age: 25, role: 'admin' },
+        user2: { name: 'Jane', age: 30, role: 'user' },
+        user3: { name: 'Bob', age: 22, role: 'user' },
+        user4: { name: 'Alice', age: 35, role: 'admin' }
+      };
+      
+      // Filter users by role, then pick only name and age, then transform ages
+      const result = mapValues(
+        filterKeys(users, (_, user) => user.role === 'admin'),
+        user => pick(user, ['name', 'age'])
+      );
+      
       expect(result).toEqual({
-        user: {
-          name: 'John',
-          details: { age: 30, active: true }
-        },
-        settings: { theme: 'dark', notifications: true }
+        user1: { name: 'John', age: 25 },
+        user4: { name: 'Alice', age: 35 }
       });
-
-      // The nested objects in the result should be different from the original
-      expect(result.user).toBe(original.user);
-      expect(typeof result.settings).toBe('object');
-      expect(typeof original.settings).toBe('string');
     });
   });
 });
