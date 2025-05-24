@@ -1,21 +1,20 @@
 /**
- * Database Authentication Provider
+ * Database Authentication Provider Barrel Export
  * 
- * This module provides components for authenticating users against database records.
- * It includes interfaces, implementations, and utilities for secure password handling
- * and user credential validation.
+ * This file exports all components related to database authentication,
+ * providing a centralized access point for consumers of this package.
  * 
  * @module auth/providers/database
  */
 
-// Interfaces
+// Export the database authentication provider interface
 export * from './database-auth-provider.interface';
 
-// Implementations
+// Export the database authentication provider implementation
 export * from './database-auth-provider';
 
-// Modules
-export * from './database-auth.module';
-
-// Utilities
+// Export password utilities
 export * from './password-utils';
+
+// Export the database authentication module
+export * from './database-auth.module';
