@@ -1,7 +1,7 @@
 /**
  * @file model.ts
  * @description Common model interfaces shared across all domains in the AUSTA SuperApp.
- * These interfaces provide consistent data structures for common concepts throughout the application.
+ * These interfaces ensure consistent data structures for common concepts throughout the application.
  */
 
 /**
@@ -15,21 +15,23 @@ export interface BaseEntity {
   id: string;
 
   /**
-   * ISO timestamp when the entity was created
+   * Timestamp when the entity was created
+   * ISO 8601 format (YYYY-MM-DDTHH:mm:ss.sssZ)
    */
   createdAt: string;
 
   /**
-   * ISO timestamp when the entity was last updated
+   * Timestamp when the entity was last updated
+   * ISO 8601 format (YYYY-MM-DDTHH:mm:ss.sssZ)
    */
   updatedAt: string;
 }
 
 /**
- * Interface for entities that are owned by a specific user.
- * Extends BaseEntity to include user ownership information.
+ * Interface for entities that are owned by a user.
+ * Extends BaseEntity with user ownership information.
  */
-export interface UserOwned extends BaseEntity {
+export interface UserOwnedEntity extends BaseEntity {
   /**
    * ID of the user who owns this entity
    */
@@ -37,10 +39,10 @@ export interface UserOwned extends BaseEntity {
 }
 
 /**
- * Interface for entities that track who created and updated them.
- * Provides audit trail capabilities for sensitive data.
+ * Interface for entities with audit information.
+ * Tracks who created and last updated the entity.
  */
-export interface Auditable extends BaseEntity {
+export interface AuditedEntity extends BaseEntity {
   /**
    * ID of the user who created this entity
    */
@@ -53,14 +55,38 @@ export interface Auditable extends BaseEntity {
 }
 
 /**
- * Interface for paginated API responses.
- * Ensures consistent pagination structure across all API endpoints.
+ * Interface for entities that are both user-owned and audited.
+ * Combines UserOwnedEntity and AuditedEntity.
+ */
+export interface UserOwnedAuditedEntity extends UserOwnedEntity, AuditedEntity {}
+
+/**
+ * Interface for pagination parameters in API requests.
+ * Used for consistent pagination across all API endpoints.
+ */
+export interface PaginationParams {
+  /**
+   * Page number (1-based indexing)
+   * @default 1
+   */
+  page?: number;
+
+  /**
+   * Number of items per page
+   * @default 20
+   */
+  limit?: number;
+}
+
+/**
+ * Interface for paginated response data.
+ * Used for consistent response structure across all API endpoints.
  */
 export interface PaginatedResponse<T> {
   /**
    * Array of items for the current page
    */
-  data: T[];
+  items: T[];
 
   /**
    * Total number of items across all pages
@@ -68,7 +94,7 @@ export interface PaginatedResponse<T> {
   total: number;
 
   /**
-   * Current page number (1-based)
+   * Current page number (1-based indexing)
    */
   page: number;
 
@@ -78,35 +104,19 @@ export interface PaginatedResponse<T> {
   limit: number;
 
   /**
-   * Total number of pages available
+   * Total number of pages
    */
-  totalPages: number;
+  pages: number;
 
   /**
    * Whether there is a next page available
    */
-  hasNextPage: boolean;
+  hasNext: boolean;
 
   /**
    * Whether there is a previous page available
    */
-  hasPreviousPage: boolean;
-}
-
-/**
- * Interface for pagination parameters in API requests.
- * Used for standardizing pagination inputs across all API endpoints.
- */
-export interface PaginationParams {
-  /**
-   * Page number to retrieve (1-based)
-   */
-  page?: number;
-
-  /**
-   * Number of items per page
-   */
-  limit?: number;
+  hasPrevious: boolean;
 }
 
 /**
@@ -115,110 +125,121 @@ export interface PaginationParams {
 export type SortDirection = 'asc' | 'desc';
 
 /**
- * Interface for sorting options in API requests.
- * Provides a consistent way to specify sorting across all API endpoints.
+ * Interface for sorting parameters in API requests.
+ * Used for consistent sorting across all API endpoints.
  */
-export interface SortOptions {
+export interface SortParams {
   /**
    * Field to sort by
    */
-  field: string;
+  sortBy: string;
 
   /**
-   * Direction to sort (ascending or descending)
+   * Sort direction (ascending or descending)
    */
-  direction: SortDirection;
+  sortDirection: SortDirection;
 }
 
 /**
- * Filter operators for API requests.
+ * Interface for filtering parameters in API requests.
+ * Used for consistent filtering across all API endpoints.
  */
-export type FilterOperator = 
-  | 'eq'      // equals
-  | 'neq'     // not equals
-  | 'gt'      // greater than
-  | 'gte'     // greater than or equal
-  | 'lt'      // less than
-  | 'lte'     // less than or equal
-  | 'in'      // in array
-  | 'nin'     // not in array
-  | 'contains' // string contains
-  | 'starts'   // string starts with
-  | 'ends'     // string ends with
-  | 'between'  // between two values
-  | 'exists'   // field exists
-  | 'notExists'; // field does not exist
-
-/**
- * Interface for a single filter condition in API requests.
- * Provides a consistent way to specify filtering across all API endpoints.
- */
-export interface FilterCondition {
+export interface FilterParams {
   /**
-   * Field to filter on
+   * Filter criteria as key-value pairs
+   * Keys are field names, values are the filter values
    */
-  field: string;
-
-  /**
-   * Operator to apply
-   */
-  operator: FilterOperator;
-
-  /**
-   * Value to compare against (type depends on the field and operator)
-   */
-  value: any;
+  [key: string]: string | number | boolean | string[] | number[] | null;
 }
 
 /**
- * Interface for filter options in API requests.
- * Supports both simple filtering and complex logical operations.
+ * Interface for API query parameters combining pagination, sorting, and filtering.
+ * Used for consistent query parameter structure across all API endpoints.
  */
-export interface FilterOptions {
+export interface QueryParams extends PaginationParams, Partial<SortParams> {
   /**
-   * Array of filter conditions to apply (combined with AND logic)
+   * Filter criteria
    */
-  conditions: FilterCondition[];
-
-  /**
-   * Optional nested OR filters
-   */
-  or?: FilterOptions[];
-
-  /**
-   * Optional nested AND filters
-   */
-  and?: FilterOptions[];
+  filters?: FilterParams;
 }
 
 /**
- * Interface for API query parameters that include pagination, sorting, and filtering.
- * Provides a standardized way to handle data retrieval across all API endpoints.
+ * Interface for API response metadata.
+ * Provides additional context about the response.
  */
-export interface QueryParams extends PaginationParams {
+export interface ResponseMetadata {
   /**
-   * Optional sorting configuration
+   * Timestamp when the response was generated
+   * ISO 8601 format (YYYY-MM-DDTHH:mm:ss.sssZ)
    */
-  sort?: SortOptions | SortOptions[];
+  timestamp: string;
 
   /**
-   * Optional filtering configuration
+   * Request ID for tracing and debugging
    */
-  filter?: FilterOptions;
+  requestId?: string;
+
+  /**
+   * Additional metadata specific to the response
+   */
+  [key: string]: any;
+}
+
+/**
+ * Interface for standard API response structure.
+ * Ensures consistent response format across all API endpoints.
+ */
+export interface ApiResponse<T> {
+  /**
+   * Response data
+   */
+  data: T;
+
+  /**
+   * Response metadata
+   */
+  meta: ResponseMetadata;
+}
+
+/**
+ * Interface for error response structure.
+ * Ensures consistent error format across all API endpoints.
+ */
+export interface ErrorResponse {
+  /**
+   * Error code
+   */
+  code: string;
+
+  /**
+   * Error message
+   */
+  message: string;
+
+  /**
+   * Detailed error information (optional)
+   */
+  details?: any;
+
+  /**
+   * Response metadata
+   */
+  meta: ResponseMetadata;
 }
 
 /**
  * Interface for soft-deleted entities.
- * Extends BaseEntity to include deletion information.
+ * Extends BaseEntity with deletion information.
  */
-export interface SoftDeleteable extends BaseEntity {
+export interface SoftDeletedEntity extends BaseEntity {
   /**
-   * Whether the entity has been soft-deleted
+   * Whether the entity has been deleted
    */
   isDeleted: boolean;
 
   /**
-   * ISO timestamp when the entity was deleted (if applicable)
+   * Timestamp when the entity was deleted (if applicable)
+   * ISO 8601 format (YYYY-MM-DDTHH:mm:ss.sssZ)
    */
   deletedAt?: string;
 
@@ -229,54 +250,29 @@ export interface SoftDeleteable extends BaseEntity {
 }
 
 /**
- * Interface for entities that can be activated or deactivated.
- * Useful for resources that need to be temporarily disabled without deletion.
+ * Interface for entities with version tracking.
+ * Useful for optimistic concurrency control.
  */
-export interface Activatable extends BaseEntity {
+export interface VersionedEntity extends BaseEntity {
   /**
-   * Whether the entity is currently active
-   */
-  isActive: boolean;
-
-  /**
-   * ISO timestamp when the entity was last activated or deactivated
-   */
-  statusChangedAt?: string;
-
-  /**
-   * ID of the user who last changed the active status
-   */
-  statusChangedBy?: string;
-}
-
-/**
- * Interface for entities that have a version history.
- * Useful for tracking changes to important resources over time.
- */
-export interface Versionable extends BaseEntity {
-  /**
-   * Current version number of the entity
+   * Version number, incremented on each update
    */
   version: number;
-
-  /**
-   * Optional reference to previous version ID
-   */
-  previousVersionId?: string;
 }
 
 /**
- * Interface for entities that can be tagged with metadata.
- * Provides a flexible way to add arbitrary metadata to entities.
+ * Interface for entities with status tracking.
+ * Provides a standardized way to track entity status.
  */
-export interface Taggable extends BaseEntity {
+export interface StatusEntity<T extends string = string> extends BaseEntity {
   /**
-   * Map of key-value pairs for entity metadata
+   * Current status of the entity
    */
-  metadata: Record<string, any>;
+  status: T;
 
   /**
-   * Optional array of string tags associated with the entity
+   * Timestamp when the status was last updated
+   * ISO 8601 format (YYYY-MM-DDTHH:mm:ss.sssZ)
    */
-  tags?: string[];
+  statusUpdatedAt: string;
 }
