@@ -1,153 +1,132 @@
 /**
- * TelemedicineSession Interface
+ * TelemedicineSession interface for the AUSTA SuperApp Care journey
  * 
- * Defines the structure for telemedicine sessions in the AUSTA SuperApp Care journey.
- * This interface represents virtual healthcare consultations, including properties
- * for session identification, connection details, participants, timing, and status tracking.
+ * Represents virtual healthcare consultations, including properties for session
+ * identification, connection details, participants, timing, and status tracking.
  */
 
 import { AppointmentType } from './types';
+import { Provider } from './provider';
 
 /**
- * Connection status for telemedicine sessions
+ * Represents the current connection status of a telemedicine session
  */
 export enum TelemedicineConnectionStatus {
-  /** Session not yet started */
+  /** Session has not been connected yet */
   NOT_CONNECTED = 'NOT_CONNECTED',
-  /** Connection in progress */
+  /** Session is currently connecting */
   CONNECTING = 'CONNECTING',
-  /** Successfully connected */
+  /** Session is fully connected with audio and video */
   CONNECTED = 'CONNECTED',
-  /** Connection temporarily interrupted */
-  RECONNECTING = 'RECONNECTING',
-  /** Connection ended normally */
+  /** Session has connection issues (poor quality, intermittent) */
+  UNSTABLE = 'UNSTABLE',
+  /** Session has been disconnected */
   DISCONNECTED = 'DISCONNECTED',
-  /** Connection failed due to error */
+  /** Session failed to connect */
   FAILED = 'FAILED'
 }
 
 /**
- * Stage of the telemedicine session
+ * Represents the current stage of a telemedicine session
  */
 export enum TelemedicineSessionStage {
-  /** Waiting for participants to join */
+  /** Session is scheduled but not started */
+  SCHEDULED = 'SCHEDULED',
+  /** Waiting room before the session starts */
   WAITING_ROOM = 'WAITING_ROOM',
-  /** Session in progress */
+  /** Session is in progress */
   IN_PROGRESS = 'IN_PROGRESS',
-  /** Session completed normally */
+  /** Session has been completed */
   COMPLETED = 'COMPLETED',
-  /** Session ended prematurely */
-  ENDED_EARLY = 'ENDED_EARLY',
-  /** Session cancelled before starting */
+  /** Session was cancelled */
   CANCELLED = 'CANCELLED',
-  /** Session rescheduled */
-  RESCHEDULED = 'RESCHEDULED'
+  /** Session was missed/no-show */
+  MISSED = 'MISSED'
 }
 
 /**
- * Participant in a telemedicine session
- */
-export interface TelemedicineParticipant {
-  /** Unique identifier for the participant */
-  id: string;
-  /** Full name of the participant */
-  name: string;
-  /** Role of the participant (provider, patient, guest) */
-  role: 'provider' | 'patient' | 'guest';
-  /** Connection status of this participant */
-  connectionStatus: TelemedicineConnectionStatus;
-  /** Whether participant has camera enabled */
-  videoEnabled: boolean;
-  /** Whether participant has microphone enabled */
-  audioEnabled: boolean;
-  /** Whether participant is sharing their screen */
-  screenSharing: boolean;
-  /** Time when participant joined the session */
-  joinedAt?: Date;
-  /** Time when participant left the session */
-  leftAt?: Date;
-}
-
-/**
- * TelemedicineSession interface representing a virtual healthcare consultation
+ * Represents a telemedicine session in the Care journey
  */
 export interface TelemedicineSession {
   /** Unique identifier for the telemedicine session */
   id: string;
   
-  /** Reference to the associated appointment ID */
+  /** Reference to the appointment ID this session is associated with */
   appointmentId: string;
   
   /** Type of appointment (should be VIRTUAL for telemedicine) */
   appointmentType: AppointmentType;
   
-  /** Current stage of the telemedicine session */
-  stage: TelemedicineSessionStage;
+  /** Healthcare provider participating in the session */
+  provider: Provider;
   
-  /** Connection status of the overall session */
+  /** Patient user ID participating in the session */
+  patientId: string;
+  
+  /** Current connection status of the session */
   connectionStatus: TelemedicineConnectionStatus;
   
-  /** Secure URL for joining the telemedicine session */
-  sessionUrl: string;
+  /** Current stage of the telemedicine session */
+  sessionStage: TelemedicineSessionStage;
   
-  /** Optional session access code for additional security */
-  accessCode?: string;
-  
-  /** List of participants in the session */
-  participants: TelemedicineParticipant[];
-  
-  /** Scheduled start time for the session */
+  /** Scheduled start time of the session */
   scheduledStartTime: Date;
   
-  /** Actual time when the session started */
+  /** Actual start time when the session began */
   actualStartTime?: Date;
   
-  /** Time when the session ended */
+  /** End time when the session was completed */
   endTime?: Date;
   
   /** Duration of the session in minutes */
   durationMinutes?: number;
   
-  /** Whether the session is being recorded */
-  isRecorded: boolean;
+  /** WebRTC session ID for the connection */
+  webRtcSessionId?: string;
   
-  /** URL to access the recording after the session */
-  recordingUrl?: string;
+  /** ICE servers configuration for WebRTC */
+  iceServers?: Array<{
+    urls: string | string[];
+    username?: string;
+    credential?: string;
+  }>;
   
-  /** Technical details about the connection */
-  connectionDetails?: {
-    /** Connection quality (excellent, good, fair, poor) */
-    quality?: 'excellent' | 'good' | 'fair' | 'poor';
-    /** Bandwidth in Kbps */
-    bandwidth?: number;
-    /** Latency in milliseconds */
-    latency?: number;
-    /** Packet loss percentage */
-    packetLoss?: number;
-  };
+  /** Whether the patient's camera is enabled */
+  patientCameraEnabled: boolean;
+  
+  /** Whether the patient's microphone is enabled */
+  patientMicrophoneEnabled: boolean;
+  
+  /** Whether the provider's camera is enabled */
+  providerCameraEnabled: boolean;
+  
+  /** Whether the provider's microphone is enabled */
+  providerMicrophoneEnabled: boolean;
+  
+  /** Whether screen sharing is currently active */
+  screenSharingActive: boolean;
+  
+  /** ID of the user who is sharing their screen (if active) */
+  screenSharingUserId?: string;
+  
+  /** Whether the session has chat enabled */
+  chatEnabled: boolean;
+  
+  /** Whether the session supports file sharing */
+  fileSharingEnabled: boolean;
   
   /** Notes taken during the session */
   sessionNotes?: string;
   
-  /** Files shared during the session */
-  sharedFiles?: Array<{
-    /** File identifier */
-    id: string;
-    /** Name of the file */
-    name: string;
-    /** Type of file */
-    type: string;
-    /** URL to access the file */
-    url: string;
-    /** Time when the file was shared */
-    sharedAt: Date;
-    /** User who shared the file */
-    sharedBy: string;
-  }>;
+  /** Technical issues encountered during the session */
+  technicalIssues?: string[];
   
-  /** Time when the session was created */
+  /** Quality rating of the session (1-5) */
+  qualityRating?: number;
+  
+  /** Timestamp when the session was created */
   createdAt: Date;
   
-  /** Time when the session was last updated */
+  /** Timestamp when the session was last updated */
   updatedAt: Date;
 }
