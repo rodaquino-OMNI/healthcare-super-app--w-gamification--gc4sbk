@@ -1,15 +1,40 @@
 /**
- * Authentication-specific validation utilities
+ * Authentication Validation Utilities
  * 
- * This module provides specialized validation functions for authentication-related inputs,
+ * This file provides specialized validation utilities for authentication-related inputs,
  * including token format validation, authorization header parsing, and OAuth state validation.
  * These pure functions centralize validation logic for authentication operations, ensuring
  * consistent verification of security-critical data.
- * 
- * @module validation.util
- * @packageDocumentation
- * @preferred
  */
+
+import { ERROR_CODES } from '../constants';
+
+/**
+ * Validation error interface for standardized error reporting
+ */
+export interface ValidationError {
+  code: string;
+  message: string;
+  field?: string;
+}
+
+/**
+ * Creates a standardized validation error object
+ * 
+ * @param code - Error code from ERROR_CODES
+ * @param message - Human-readable error message
+ * @param field - Optional field name that failed validation
+ * @returns Validation error object
+ */
+export const createValidationError = (
+  code: string,
+  message: string,
+  field?: string
+): ValidationError => ({
+  code,
+  message,
+  field,
+});
 
 /**
  * Validates a Brazilian CPF (Cadastro de Pessoas Físicas) number.
@@ -19,11 +44,11 @@
  * @returns True if the CPF is valid, false otherwise
  */
 export const isValidCPF = (cpf: string): boolean => {
-  // Return false for empty or null inputs
+  // Return false for null, undefined or empty strings
   if (!cpf) {
     return false;
   }
-
+  
   // Remove non-digit characters
   const cleanCPF = cpf.replace(/\D/g, '');
   
@@ -61,219 +86,359 @@ export const isValidCPF = (cpf: string): boolean => {
 };
 
 /**
- * Validates if a string is a properly formatted JWT token.
- * Checks for the correct structure (header.payload.signature) without verifying the signature.
+ * Validates a Brazilian CPF and returns a validation error if invalid
  * 
- * @param token - The token string to validate
- * @returns True if the token has valid JWT format, false otherwise
+ * @param cpf - The CPF string to validate
+ * @returns ValidationError if invalid, null if valid
+ */
+export const validateCPF = (cpf: string): ValidationError | null => {
+  if (!cpf) {
+    return createValidationError(
+      ERROR_CODES.INVALID_CREDENTIALS,
+      'CPF is required',
+      'cpf'
+    );
+  }
+  
+  // Remove non-digit characters for display in error message
+  const cleanCPF = cpf.replace(/\D/g, '');
+  
+  if (cleanCPF.length !== 11) {
+    return createValidationError(
+      ERROR_CODES.INVALID_CREDENTIALS,
+      'CPF must have 11 digits',
+      'cpf'
+    );
+  }
+  
+  if (!isValidCPF(cpf)) {
+    return createValidationError(
+      ERROR_CODES.INVALID_CREDENTIALS,
+      'Invalid CPF',
+      'cpf'
+    );
+  }
+  
+  return null;
+};
+
+/**
+ * Validates if a string has the format of a JWT token.
+ * This performs a basic structural validation without verifying the signature.
+ * 
+ * @param token - The string to validate as a JWT token
+ * @returns True if the string has a valid JWT format, false otherwise
  */
 export const isValidTokenFormat = (token: string): boolean => {
   if (!token) {
     return false;
   }
-
-  // JWT token should have 3 parts separated by dots
+  
+  // JWT tokens consist of three parts separated by dots: header.payload.signature
   const parts = token.split('.');
   if (parts.length !== 3) {
     return false;
   }
-
-  // Each part should be a valid base64url string
+  
+  // Each part should be a non-empty base64url encoded string
   const base64UrlRegex = /^[A-Za-z0-9_-]+$/;
-  return parts.every(part => base64UrlRegex.test(part));
+  return parts.every(part => part.length > 0 && base64UrlRegex.test(part));
 };
 
 /**
- * Extracts a JWT token from an Authorization header.
- * Validates the header format and extracts the Bearer token.
+ * Validates a token format and returns a validation error if invalid
  * 
- * @param authHeader - The Authorization header string
- * @returns The extracted token or null if the header is invalid
+ * @param token - The token to validate
+ * @param tokenType - Type of token being validated (for error message)
+ * @returns ValidationError if invalid, null if valid
  */
-export const extractTokenFromHeader = (authHeader: string): string | null => {
-  if (!authHeader) {
-    return null;
-  }
-
-  // Check if the header starts with 'Bearer '
-  const parts = authHeader.split(' ');
-  if (parts.length !== 2 || parts[0] !== 'Bearer') {
-    return null;
-  }
-
-  const token = parts[1];
-  return isValidTokenFormat(token) ? token : null;
-};
-
-/**
- * Validates an OAuth state parameter to protect against CSRF attacks.
- * 
- * @param storedState - The state value that was originally generated and stored
- * @param receivedState - The state value received in the OAuth callback
- * @returns True if the state is valid, false otherwise
- */
-export const isValidOAuthState = (storedState: string, receivedState: string): boolean => {
-  if (!storedState || !receivedState) {
-    return false;
-  }
-
-  // Simple string comparison to verify state hasn't been tampered with
-  // This helps prevent CSRF attacks in OAuth flows
-  return storedState === receivedState;
-};
-
-/**
- * Generates a secure random state parameter for OAuth flows.
- * 
- * @param length - The length of the state parameter (default: 32)
- * @returns A cryptographically secure random string
- */
-export const generateOAuthState = (length: number = 32): string => {
-  // In a browser environment, use Web Crypto API
-  if (typeof window !== 'undefined' && window.crypto && window.crypto.getRandomValues) {
-    const charset = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-    const values = new Uint32Array(length);
-    window.crypto.getRandomValues(values);
-    
-    let result = '';
-    for (let i = 0; i < length; i++) {
-      result += charset[values[i] % charset.length];
-    }
-    return result;
-  } 
-  // In Node.js environment, use crypto module
-  else if (typeof require !== 'undefined') {
-    try {
-      const crypto = require('crypto');
-      return crypto.randomBytes(length).toString('base64url').slice(0, length);
-    } catch (e) {
-      throw new Error('Secure random number generation not supported');
-    }
+export const validateTokenFormat = (
+  token: string,
+  tokenType = 'token'
+): ValidationError | null => {
+  if (!token) {
+    return createValidationError(
+      ERROR_CODES.INVALID_TOKEN,
+      `${tokenType.charAt(0).toUpperCase() + tokenType.slice(1)} is required`,
+      tokenType
+    );
   }
   
-  throw new Error('No secure random number generator available');
+  if (!isValidTokenFormat(token)) {
+    return createValidationError(
+      ERROR_CODES.INVALID_TOKEN,
+      `Invalid ${tokenType} format`,
+      tokenType
+    );
+  }
+  
+  return null;
 };
 
 /**
- * Validates if a JWT token has expired based on its expiration claim.
+ * Extracts a Bearer token from an Authorization header.
  * 
- * @param token - The JWT token to check
- * @param allowedSkewSeconds - Allowed time skew in seconds to account for clock differences (default: 30)
- * @returns True if the token is still valid (not expired), false otherwise
+ * @param authorizationHeader - The Authorization header value
+ * @returns The extracted token or null if no valid Bearer token is found
  */
-export const isTokenExpired = (token: string, allowedSkewSeconds: number = 30): boolean => {
-  if (!token) {
-    return true; // No token is treated as expired
+export const extractBearerToken = (authorizationHeader: string): string | null => {
+  if (!authorizationHeader) {
+    return null;
   }
+  
+  // Check if it's a Bearer token
+  const parts = authorizationHeader.split(' ');
+  if (parts.length !== 2 || parts[0].toLowerCase() !== 'bearer') {
+    return null;
+  }
+  
+  const token = parts[1].trim();
+  return token.length > 0 ? token : null;
+};
 
-  try {
-    // Split the token and get the payload part
-    const parts = token.split('.');
-    if (parts.length !== 3) {
-      return true; // Invalid token format is treated as expired
-    }
+/**
+ * Validates an Authorization header and extracts the Bearer token
+ * 
+ * @param authorizationHeader - The Authorization header to validate
+ * @returns Object containing the extracted token or validation error
+ */
+export const validateAuthorizationHeader = (
+  authorizationHeader: string
+): { token: string; error: null } | { token: null; error: ValidationError } => {
+  if (!authorizationHeader) {
+    return {
+      token: null,
+      error: createValidationError(
+        ERROR_CODES.INVALID_TOKEN,
+        'Authorization header is required',
+        'authorization'
+      )
+    };
+  }
+  
+  const token = extractBearerToken(authorizationHeader);
+  if (!token) {
+    return {
+      token: null,
+      error: createValidationError(
+        ERROR_CODES.INVALID_TOKEN,
+        'Invalid Authorization header format. Expected: Bearer <token>',
+        'authorization'
+      )
+    };
+  }
+  
+  if (!isValidTokenFormat(token)) {
+    return {
+      token: null,
+      error: createValidationError(
+        ERROR_CODES.INVALID_TOKEN,
+        'Invalid token format in Authorization header',
+        'authorization'
+      )
+    };
+  }
+  
+  return { token, error: null };
+};
 
-    // Decode the payload
-    const payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString());
-    
-    // Check if the token has an expiration claim
-    if (!payload.exp) {
-      return false; // No expiration means token doesn't expire
-    }
+/**
+ * Validates an OAuth state parameter to prevent CSRF attacks.
+ * The state parameter should be a non-empty string with sufficient entropy.
+ * 
+ * @param state - The OAuth state parameter to validate
+ * @param minLength - Minimum required length (default: 32)
+ * @returns True if the state parameter is valid, false otherwise
+ */
+export const isValidOAuthState = (state: string, minLength = 32): boolean => {
+  if (!state || typeof state !== 'string') {
+    return false;
+  }
+  
+  // Check minimum length for sufficient entropy
+  if (state.length < minLength) {
+    return false;
+  }
+  
+  // State should only contain URL-safe characters
+  const urlSafeRegex = /^[A-Za-z0-9_-]+$/;
+  return urlSafeRegex.test(state);
+};
 
-    // Get current time in seconds and add the allowed skew
-    const currentTime = Math.floor(Date.now() / 1000) - allowedSkewSeconds;
-    
-    // Compare with the expiration time
-    return payload.exp < currentTime;
-  } catch (error) {
-    // If there's any error parsing the token, treat it as expired
-    return true;
+/**
+ * Validates an OAuth state parameter and returns a validation error if invalid
+ * 
+ * @param state - The OAuth state parameter to validate
+ * @param minLength - Minimum required length (default: 32)
+ * @returns ValidationError if invalid, null if valid
+ */
+export const validateOAuthState = (
+  state: string,
+  minLength = 32
+): ValidationError | null => {
+  if (!state || typeof state !== 'string') {
+    return createValidationError(
+      ERROR_CODES.OAUTH_PROVIDER_ERROR,
+      'OAuth state parameter is required',
+      'state'
+    );
+  }
+  
+  if (state.length < minLength) {
+    return createValidationError(
+      ERROR_CODES.OAUTH_PROVIDER_ERROR,
+      `OAuth state parameter must be at least ${minLength} characters long`,
+      'state'
+    );
+  }
+  
+  const urlSafeRegex = /^[A-Za-z0-9_-]+$/;
+  if (!urlSafeRegex.test(state)) {
+    return createValidationError(
+      ERROR_CODES.OAUTH_PROVIDER_ERROR,
+      'OAuth state parameter contains invalid characters',
+      'state'
+    );
+  }
+  
+  return null;
+};
+
+/**
+ * Validates if a string is a valid JWT access token.
+ * This combines format validation with additional checks specific to access tokens.
+ * 
+ * @param token - The token to validate
+ * @returns True if the token is a valid access token format, false otherwise
+ */
+export const isValidAccessToken = (token: string): boolean => {
+  // First check the basic JWT format
+  if (!isValidTokenFormat(token)) {
+    return false;
+  }
+  
+  // Additional checks could be added here if needed
+  // For example, checking token length or other characteristics
+  // specific to access tokens in your system
+  
+  return true;
+};
+
+/**
+ * Validates if a string is a valid JWT refresh token.
+ * This combines format validation with additional checks specific to refresh tokens.
+ * 
+ * @param token - The token to validate
+ * @returns True if the token is a valid refresh token format, false otherwise
+ */
+export const isValidRefreshToken = (token: string): boolean => {
+  // First check the basic JWT format
+  if (!isValidTokenFormat(token)) {
+    return false;
+  }
+  
+  // Additional checks could be added here if needed
+  // For example, checking token length or other characteristics
+  // specific to refresh tokens in your system
+  
+  return true;
+};
+
+/**
+ * Validates an email address format.
+ * 
+ * @param email - The email address to validate
+ * @returns True if the email format is valid, false otherwise
+ */
+export const isValidEmail = (email: string): boolean => {
+  if (!email) {
+    return false;
+  }
+  
+  // RFC 5322 compliant email regex
+  const emailRegex = /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/;
+  return emailRegex.test(email);
+};
+
+/**
+ * Validates a password against basic security requirements.
+ * 
+ * @param password - The password to validate
+ * @param minLength - Minimum required length (default: 8)
+ * @param requireUppercase - Whether to require at least one uppercase letter (default: true)
+ * @param requireLowercase - Whether to require at least one lowercase letter (default: true)
+ * @param requireNumbers - Whether to require at least one number (default: true)
+ * @param requireSpecialChars - Whether to require at least one special character (default: true)
+ * @returns True if the password meets all requirements, false otherwise
+ */
+export const isValidPassword = (
+  password: string,
+  minLength = 8,
+  requireUppercase = true,
+  requireLowercase = true,
+  requireNumbers = true,
+  requireSpecialChars = true
+): boolean => {
+  if (!password || password.length < minLength) {
+    return false;
+  }
+  
+  // Check for required character types
+  if (requireUppercase && !/[A-Z]/.test(password)) {
+    return false;
+  }
+  
+  if (requireLowercase && !/[a-z]/.test(password)) {
+    return false;
+  }
+  
+  if (requireNumbers && !/[0-9]/.test(password)) {
+    return false;
+  }
+  
+  if (requireSpecialChars && !/[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(password)) {
+    return false;
+  }
+  
+  return true;
+};
+
+/**
+ * Validates a phone number format.
+ * This is a basic validation that can be adjusted based on specific country requirements.
+ * 
+ * @param phoneNumber - The phone number to validate
+ * @param allowInternational - Whether to allow international format (default: true)
+ * @returns True if the phone number format is valid, false otherwise
+ */
+export const isValidPhoneNumber = (phoneNumber: string, allowInternational = true): boolean => {
+  if (!phoneNumber) {
+    return false;
+  }
+  
+  // Remove common formatting characters
+  const cleanPhone = phoneNumber.replace(/[\s()-]/g, '');
+  
+  // Basic validation for numeric content with optional + prefix
+  if (allowInternational) {
+    return /^\+?[0-9]{8,15}$/.test(cleanPhone);
+  } else {
+    return /^[0-9]{8,15}$/.test(cleanPhone);
   }
 };
 
 /**
- * Validates the issuer (iss) claim of a JWT token.
+ * Validates a Multi-Factor Authentication (MFA) code.
  * 
- * @param token - The JWT token to validate
- * @param expectedIssuer - The expected issuer value or array of allowed issuers
- * @returns True if the token's issuer matches the expected issuer, false otherwise
+ * @param code - The MFA code to validate
+ * @param length - Expected length of the code (default: 6)
+ * @returns True if the MFA code format is valid, false otherwise
  */
-export const isValidIssuer = (token: string, expectedIssuer: string | string[]): boolean => {
-  if (!token) {
+export const isValidMfaCode = (code: string, length = 6): boolean => {
+  if (!code) {
     return false;
   }
-
-  try {
-    // Split the token and get the payload part
-    const parts = token.split('.');
-    if (parts.length !== 3) {
-      return false;
-    }
-
-    // Decode the payload
-    const payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString());
-    
-    // Check if the token has an issuer claim
-    if (!payload.iss) {
-      return false;
-    }
-
-    // Check if the issuer matches the expected issuer
-    if (Array.isArray(expectedIssuer)) {
-      return expectedIssuer.includes(payload.iss);
-    }
-    
-    return payload.iss === expectedIssuer;
-  } catch (error) {
-    return false;
-  }
-};
-
-/**
- * Validates the audience (aud) claim of a JWT token.
- * 
- * @param token - The JWT token to validate
- * @param expectedAudience - The expected audience value or array of allowed audiences
- * @returns True if the token's audience matches the expected audience, false otherwise
- */
-export const isValidAudience = (token: string, expectedAudience: string | string[]): boolean => {
-  if (!token) {
-    return false;
-  }
-
-  try {
-    // Split the token and get the payload part
-    const parts = token.split('.');
-    if (parts.length !== 3) {
-      return false;
-    }
-
-    // Decode the payload
-    const payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString());
-    
-    // Check if the token has an audience claim
-    if (!payload.aud) {
-      return false;
-    }
-
-    // Handle case where token audience is an array
-    if (Array.isArray(payload.aud)) {
-      if (Array.isArray(expectedAudience)) {
-        // Check if any of the expected audiences is in the token's audience array
-        return expectedAudience.some(expected => payload.aud.includes(expected));
-      }
-      // Check if the single expected audience is in the token's audience array
-      return payload.aud.includes(expectedAudience);
-    }
-    
-    // Handle case where token audience is a string
-    if (Array.isArray(expectedAudience)) {
-      return expectedAudience.includes(payload.aud);
-    }
-    
-    return payload.aud === expectedAudience;
-  } catch (error) {
-    return false;
-  }
+  
+  // MFA codes are typically numeric and of fixed length
+  return new RegExp(`^[0-9]{${length}}$`).test(code);
 };
