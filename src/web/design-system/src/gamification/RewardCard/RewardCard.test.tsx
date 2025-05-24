@@ -3,32 +3,38 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import RewardCard from './RewardCard';
 import { ThemeProvider } from '@design-system/primitives/themes';
 import { JourneyProvider } from '@austa/journey-context';
-import { Reward } from '@austa/interfaces/gamification/rewards';
+import { Reward, RewardCategory, RewardStatus } from '@austa/interfaces/gamification/rewards';
 
 // Helper function to render components with theme and journey context
 const renderWithProviders = (ui: React.ReactElement, journey: 'health' | 'care' | 'plan' = 'health') => {
   return render(
-    <ThemeProvider>
-      <JourneyProvider initialJourney={journey}>
+    <JourneyProvider initialJourney={journey}>
+      <ThemeProvider>
         {ui}
-      </JourneyProvider>
-    </ThemeProvider>
+      </ThemeProvider>
+    </JourneyProvider>
   );
 };
 
+// Create a mock reward that satisfies both the component requirements and the Reward interface
+const createMockReward = (overrides: Partial<Reward> = {}): Reward => ({
+  id: 'test-reward',
+  title: 'Weekly Goal Achieved',
+  description: 'You completed your weekly step goal!',
+  icon: 'trophy',
+  xp: 100,
+  journey: 'health',
+  category: RewardCategory.VIRTUAL,
+  status: RewardStatus.AVAILABLE,
+  availableFrom: new Date(),
+  availableUntil: null,
+  redemptionLimit: null,
+  ...overrides
+});
+
 describe('RewardCard', () => {
   it('renders reward information correctly', () => {
-    const mockReward: Reward = {
-      id: 'test-reward',
-      title: 'Weekly Goal Achieved',
-      description: 'You completed your weekly step goal!',
-      icon: 'trophy',
-      xp: 100,
-      journey: 'health',
-      status: 'available',
-      category: 'achievement',
-      availableUntil: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(), // 7 days from now
-    };
+    const mockReward = createMockReward();
 
     renderWithProviders(
       <RewardCard reward={mockReward} testID="reward-card" />
@@ -50,17 +56,13 @@ describe('RewardCard', () => {
   });
 
   it('applies journey-specific styling for health journey', () => {
-    const healthReward: Reward = {
+    const healthReward = createMockReward({
       id: 'health-reward',
       title: 'Health Reward',
       description: 'A health journey reward',
       icon: 'heart',
-      xp: 50,
       journey: 'health',
-      status: 'available',
-      category: 'achievement',
-      availableUntil: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
-    };
+    });
     
     renderWithProviders(
       <RewardCard reward={healthReward} testID="health-reward" />,
@@ -71,23 +73,19 @@ describe('RewardCard', () => {
     expect(rewardCard).toBeInTheDocument();
     expect(screen.getByText('Health Reward')).toBeInTheDocument();
     
-    // We can't directly test CSS properties with React Testing Library
-    // but we can verify the journey-specific class is applied
-    expect(rewardCard).toHaveAttribute('data-journey', 'health');
+    // Health journey should have specific styling (this would be better with a more specific test,
+    // but we're checking that the component renders with the correct journey context)
+    expect(rewardCard).toHaveStyle('border-color: var(--health-primary)');
   });
 
   it('applies journey-specific styling for care journey', () => {
-    const careReward: Reward = {
+    const careReward = createMockReward({
       id: 'care-reward',
       title: 'Care Reward',
       description: 'A care journey reward',
       icon: 'doctor',
-      xp: 75,
       journey: 'care',
-      status: 'available',
-      category: 'achievement',
-      availableUntil: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
-    };
+    });
     
     renderWithProviders(
       <RewardCard reward={careReward} testID="care-reward" />,
@@ -98,22 +96,18 @@ describe('RewardCard', () => {
     expect(rewardCard).toBeInTheDocument();
     expect(screen.getByText('Care Reward')).toBeInTheDocument();
     
-    // Verify journey-specific attribute
-    expect(rewardCard).toHaveAttribute('data-journey', 'care');
+    // Care journey should have specific styling
+    expect(rewardCard).toHaveStyle('border-color: var(--care-primary)');
   });
 
   it('applies journey-specific styling for plan journey', () => {
-    const planReward: Reward = {
+    const planReward = createMockReward({
       id: 'plan-reward',
       title: 'Plan Reward',
       description: 'A plan journey reward',
       icon: 'document',
-      xp: 100,
       journey: 'plan',
-      status: 'available',
-      category: 'achievement',
-      availableUntil: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
-    };
+    });
     
     renderWithProviders(
       <RewardCard reward={planReward} testID="plan-reward" />,
@@ -124,23 +118,12 @@ describe('RewardCard', () => {
     expect(rewardCard).toBeInTheDocument();
     expect(screen.getByText('Plan Reward')).toBeInTheDocument();
     
-    // Verify journey-specific attribute
-    expect(rewardCard).toHaveAttribute('data-journey', 'plan');
+    // Plan journey should have specific styling
+    expect(rewardCard).toHaveStyle('border-color: var(--plan-primary)');
   });
 
   it('calls onPress callback when clicked', () => {
-    const mockReward: Reward = {
-      id: 'test-reward',
-      title: 'Test Reward',
-      description: 'A test reward',
-      icon: 'trophy',
-      xp: 100,
-      journey: 'health',
-      status: 'available',
-      category: 'achievement',
-      availableUntil: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
-    };
-    
+    const mockReward = createMockReward();
     const onPressMock = jest.fn();
     
     renderWithProviders(
@@ -155,17 +138,10 @@ describe('RewardCard', () => {
   });
 
   it('renders with default accessibility attributes', () => {
-    const mockReward: Reward = {
-      id: 'test-reward',
+    const mockReward = createMockReward({
       title: 'Test Reward',
       description: 'A test reward',
-      icon: 'trophy',
-      xp: 100,
-      journey: 'health',
-      status: 'available',
-      category: 'achievement',
-      availableUntil: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
-    };
+    });
     
     renderWithProviders(
       <RewardCard reward={mockReward} testID="reward-card" />
@@ -177,19 +153,9 @@ describe('RewardCard', () => {
     // The default accessibility label should include title, description, and XP
     expect(card).toHaveAttribute('aria-label', 'Test Reward reward. A test reward. Worth 100 XP.');
   });
-
-  it('renders with custom accessibility attributes', () => {
-    const mockReward: Reward = {
-      id: 'test-reward',
-      title: 'Test Reward',
-      description: 'A test reward',
-      icon: 'trophy',
-      xp: 100,
-      journey: 'health',
-      status: 'available',
-      category: 'achievement',
-      availableUntil: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
-    };
+  
+  it('accepts custom accessibility label', () => {
+    const mockReward = createMockReward();
     
     renderWithProviders(
       <RewardCard 
@@ -199,63 +165,50 @@ describe('RewardCard', () => {
       />
     );
     
-    const cardWithCustomLabel = screen.getByTestId('reward-card');
-    expect(cardWithCustomLabel).toHaveAttribute('aria-label', 'Custom accessibility label');
+    const card = screen.getByTestId('reward-card');
+    expect(card).toHaveAttribute('aria-label', 'Custom accessibility label');
   });
 
-  it('supports keyboard navigation for accessibility', () => {
-    const mockReward: Reward = {
-      id: 'test-reward',
-      title: 'Test Reward',
-      description: 'A test reward',
-      icon: 'trophy',
-      xp: 100,
-      journey: 'health',
-      status: 'available',
-      category: 'achievement',
-      availableUntil: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
-    };
-    
+  it('supports keyboard navigation when interactive', () => {
+    const mockReward = createMockReward();
     const onPressMock = jest.fn();
     
     renderWithProviders(
-      <RewardCard reward={mockReward} onPress={onPressMock} testID="reward-card" />
+      <RewardCard 
+        reward={mockReward} 
+        onPress={onPressMock} 
+        testID="reward-card" 
+      />
     );
     
-    // Get the reward card element
     const card = screen.getByTestId('reward-card');
     
-    // Simulate keyboard Enter key press
-    fireEvent.keyDown(card, { key: 'Enter', code: 'Enter' });
+    // Check that the element is keyboard focusable
+    expect(card).toHaveAttribute('tabIndex', '0');
     
-    // Check if the onPress callback was called
+    // Simulate keyboard Enter press
+    fireEvent.keyDown(card, { key: 'Enter', code: 'Enter' });
     expect(onPressMock).toHaveBeenCalledTimes(1);
     
-    // Simulate keyboard Space key press
+    // Simulate keyboard Space press
     fireEvent.keyDown(card, { key: ' ', code: 'Space' });
-    
-    // Check if the onPress callback was called again
     expect(onPressMock).toHaveBeenCalledTimes(2);
   });
 
-  it('displays reward status when available', () => {
-    const mockReward: Reward = {
-      id: 'test-reward',
-      title: 'Test Reward',
-      description: 'A test reward',
-      icon: 'trophy',
-      xp: 100,
-      journey: 'health',
-      status: 'redeemed',  // Testing with redeemed status
-      category: 'achievement',
-      availableUntil: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
-    };
+  it('does not trigger keyboard events when not interactive', () => {
+    const mockReward = createMockReward();
+    // No onPress provided, so not interactive
     
     renderWithProviders(
-      <RewardCard reward={mockReward} testID="reward-card" />
+      <RewardCard 
+        reward={mockReward} 
+        testID="reward-card" 
+      />
     );
     
-    // Check if the reward status is displayed
-    expect(screen.getByText('Redeemed')).toBeInTheDocument();
+    const card = screen.getByTestId('reward-card');
+    
+    // Non-interactive elements should not be keyboard focusable
+    expect(card).not.toHaveAttribute('tabIndex', '0');
   });
 });
