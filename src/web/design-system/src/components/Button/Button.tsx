@@ -1,15 +1,9 @@
 import React from 'react';
 import styled from 'styled-components';
 import { ActivityIndicator } from 'react-native';
-import { Touchable } from '@design-system/primitives/src/components/Touchable';
-import { Text } from '@design-system/primitives/src/components/Text';
-import { Icon } from '@design-system/primitives/src/components/Icon';
-import { colors } from '@design-system/primitives/src/tokens/colors';
-import { typography } from '@design-system/primitives/src/tokens/typography';
-import { spacing } from '@design-system/primitives/src/tokens/spacing';
-import { shadows } from '@design-system/primitives/src/tokens/shadows';
-import { ButtonProps } from '@austa/interfaces/components/core.types';
-import { useJourney } from '@austa/journey-context/src/providers';
+import { Box, Text, Stack, Icon, Touchable } from '@design-system/primitives/src/components';
+import { useJourneyContext } from '@austa/journey-context/src/hooks';
+import { ButtonProps } from '@austa/interfaces/components';
 
 /**
  * Styled button component with journey-specific theming
@@ -26,24 +20,24 @@ const StyledButton = styled(Touchable)<{
   justify-content: center;
   padding: ${props => {
     switch (props.size) {
-      case 'sm': return `${spacing.xs} ${spacing.sm}`;
-      case 'lg': return `${spacing.md} ${spacing.lg}`;
-      default: return `${spacing.sm} ${spacing.md}`;
+      case 'sm': return `${props.theme.spacing.xs} ${props.theme.spacing.sm}`;
+      case 'lg': return `${props.theme.spacing.md} ${props.theme.spacing.lg}`;
+      default: return `${props.theme.spacing.sm} ${props.theme.spacing.md}`;
     }
   }};
-  border-radius: ${props => props.theme.borderRadius?.md || '4px'};
-  font-weight: ${typography.fontWeight.medium};
-  font-size: ${typography.fontSize.md};
-  box-shadow: ${shadows.md};
+  border-radius: ${props => props.theme.borderRadius.md};
+  font-weight: ${props => props.theme.typography.fontWeight.medium};
+  font-size: ${props => props.theme.typography.fontSize.md};
+  box-shadow: ${props => props.theme.shadows.md};
   cursor: pointer;
   opacity: ${props => props.disabled ? 0.5 : 1};
   pointer-events: ${props => props.disabled ? 'none' : 'auto'};
   
   background-color: ${props => {
-    const journeyColors = colors.journeys[props.journey];
+    const journeyColors = props.theme.colors.journeys[props.journey];
     switch (props.variant) {
       case 'secondary':
-        return colors.neutral.white;
+        return props.theme.colors.neutral.white;
       case 'tertiary':
         return 'transparent';
       default:
@@ -52,32 +46,29 @@ const StyledButton = styled(Touchable)<{
   }};
   
   color: ${props => {
-    const journeyColors = colors.journeys[props.journey];
+    const journeyColors = props.theme.colors.journeys[props.journey];
     switch (props.variant) {
       case 'secondary':
         return journeyColors.primary;
       case 'tertiary':
         return journeyColors.primary;
       default:
-        return colors.neutral.white;
+        return props.theme.colors.neutral.white;
     }
   }};
   
   border: ${props => props.variant === 'secondary' ? 
-    `1px solid ${colors.journeys[props.journey].primary}` : 
+    `1px solid ${props.theme.colors.journeys[props.journey].primary}` : 
     'none'};
   
   &:hover {
-    ${props => !props.disabled && `box-shadow: ${shadows.lg}`}
+    ${props => !props.disabled && `box-shadow: ${props.theme.shadows.lg}`}
   }
-`;
-
-/**
- * Spacer component for gap between icon and text
- */
-const IconSpacing = styled.View`
-  width: ${spacing.sm};
-  height: 1px;
+  
+  &:focus-visible {
+    outline: 2px solid ${props => props.theme.colors.journeys[props.journey].primary};
+    outline-offset: 2px;
+  }
 `;
 
 /**
@@ -95,12 +86,9 @@ export const Button: React.FC<ButtonProps> = ({
   accessibilityLabel,
   children,
   journey: journeyProp,
-  testID = 'button',
-  fullWidth = false,
-  iconOnly = false,
 }) => {
-  // Use journey context if journey prop is not provided
-  const { currentJourney } = useJourney();
+  // Use journey context with fallback to prop
+  const { currentJourney } = useJourneyContext();
   const journey = journeyProp || currentJourney || 'health';
   
   // Determine if there's content other than just an icon
@@ -124,22 +112,31 @@ export const Button: React.FC<ButtonProps> = ({
     }
   };
   
-  // Calculate text color for loading indicator
-  const getTextColor = () => {
+  // Calculate text color for loading indicator and content
+  const getTextColor = (theme) => {
     if (variant === 'primary') {
-      return colors.neutral.white;
+      return theme.colors.neutral.white;
     }
-    return colors.journeys[journey].primary;
+    return theme.colors.journeys[journey].primary;
   };
   
-  // Determine appropriate ARIA role and state attributes
-  const getAriaAttributes = () => {
-    return {
-      role: 'button',
-      'aria-disabled': disabled || loading,
-      'aria-busy': loading,
-      'aria-label': accessibilityLabel || (typeof children === 'string' ? children.toString() : undefined),
+  // Generate accessibility props
+  const getAccessibilityProps = () => {
+    const baseProps = {
+      accessibilityRole: "button",
+      accessibilityState: { disabled: disabled || loading },
+      accessibilityLabel: accessibilityLabel || (typeof children === 'string' ? children.toString() : undefined),
     };
+    
+    if (loading) {
+      return {
+        ...baseProps,
+        accessibilityState: { ...baseProps.accessibilityState, busy: true },
+        accessibilityLiveRegion: "polite" as "polite",
+      };
+    }
+    
+    return baseProps;
   };
   
   return (
@@ -149,42 +146,37 @@ export const Button: React.FC<ButtonProps> = ({
       journey={journey}
       disabled={disabled || loading}
       onPress={onPress}
-      accessibilityLabel={accessibilityLabel || (typeof children === 'string' ? children.toString() : undefined)}
-      accessibilityRole="button"
-      accessibilityState={{ disabled: disabled || loading, busy: loading }}
-      testID={testID}
-      fullWidth={fullWidth}
-      {...getAriaAttributes()}
+      testID="button"
+      {...getAccessibilityProps()}
     >
       {loading ? (
-        <ActivityIndicator
-          size={size === 'sm' ? 'small' : 'small'}
-          color={getTextColor()}
-          accessibilityLabel="Loading"
-        />
+        <Stack direction="row" align="center" justify="center">
+          <ActivityIndicator
+            size={size === 'sm' ? 'small' : 'small'}
+            color={theme => getTextColor(theme)}
+            accessibilityLabel="Loading"
+          />
+        </Stack>
       ) : (
-        <>
+        <Stack direction="row" align="center" justify="center" spacing="sm">
           {icon && (
             <Icon
               name={icon}
               size={getIconSize()}
               color="currentColor"
-              aria-hidden={hasContent ? true : undefined}
-              testID={`${testID}-icon`}
+              accessibilityRole="presentation"
             />
           )}
-          {icon && hasContent && !iconOnly && <IconSpacing />}
-          {hasContent && !iconOnly && (
+          {hasContent && (
             <Text
               fontWeight="medium"
               fontSize={getFontSize()}
               color="inherit"
-              testID={`${testID}-text`}
             >
               {children}
             </Text>
           )}
-        </>
+        </Stack>
       )}
     </StyledButton>
   );
