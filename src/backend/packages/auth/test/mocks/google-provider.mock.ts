@@ -1,407 +1,456 @@
-import { LoggerService } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import { OAuthProfile, OAuthToken } from '../../src/providers/oauth/interfaces';
-import { OAuthProviderMock } from './oauth-provider.mock';
+/**
+ * @file Google OAuth Provider Mock
+ * @description Mock implementation of the Google OAuth provider that extends the base OAuth provider mock.
+ * This mock simulates Google-specific authentication behavior with predefined test profiles and token responses.
+ * It enables testing of Google login flows without requiring actual Google API credentials or network connectivity.
+ */
+
+import { BaseOAuthProviderMock } from './oauth-provider.mock';
+import { GoogleOAuthConfig, GoogleProfile, OAuthToken } from '../../src/providers/oauth/interfaces';
 
 /**
- * Mock implementation of the Google OAuth provider for testing.
- * Extends the base OAuth provider mock with Google-specific functionality.
+ * Mock implementation of the Google OAuth provider
+ * Simulates Google-specific authentication behavior for testing
  */
-export class GoogleProviderMock extends OAuthProviderMock {
+export class GoogleOAuthProviderMock extends BaseOAuthProviderMock {
   /**
-   * Predefined Google user profiles for testing different scenarios.
+   * Provider name
    */
-  private readonly predefinedProfiles = {
-    /**
-     * Standard user with all information provided.
-     */
-    standard: {
-      id: '123456789012345678901',
+  readonly providerName = 'google';
+
+  /**
+   * Google-specific configuration
+   */
+  protected config: GoogleOAuthConfig;
+
+  /**
+   * Creates an instance of GoogleOAuthProviderMock
+   * @param config - Mock configuration for the Google provider
+   */
+  constructor(config?: Partial<GoogleOAuthConfig>) {
+    // Create default Google OAuth configuration for testing
+    const defaultConfig: GoogleOAuthConfig = {
+      clientID: 'test_google_client_id',
+      clientSecret: 'test_google_client_secret',
+      callbackURL: 'https://austa.app/auth/google/callback',
+      scope: ['email', 'profile'],
+      includeGrantedScopes: true,
+      hostedDomain: '',
+      includeProfile: true,
+    };
+
+    super({ ...defaultConfig, ...config });
+    this.config = { ...defaultConfig, ...config } as GoogleOAuthConfig;
+  }
+
+  /**
+   * Initializes test data for Google authentication scenarios
+   */
+  protected initializeTestData(): void {
+    // Standard user with all profile information
+    this.testProfiles['standard'] = {
+      id: 'google_user_123456',
       provider: 'google',
-      displayName: 'John Doe',
+      email: 'user@example.com',
+      emailVerified: true,
       firstName: 'John',
       lastName: 'Doe',
-      email: 'john.doe@example.com',
-      emailVerified: true,
-      picture: 'https://lh3.googleusercontent.com/-XdUIqdMkCWA/AAAAAAAAAAI/AAAAAAAAAAA/4252rscbv5M/photo.jpg',
+      displayName: 'John Doe',
+      picture: 'https://lh3.googleusercontent.com/a/google_user_123456',
       locale: 'en',
-      _raw: '{"sub":"123456789012345678901","name":"John Doe","given_name":"John","family_name":"Doe","picture":"https://lh3.googleusercontent.com/-XdUIqdMkCWA/AAAAAAAAAAI/AAAAAAAAAAA/4252rscbv5M/photo.jpg","email":"john.doe@example.com","email_verified":true,"locale":"en"}',
-      _json: {
-        sub: '123456789012345678901',
+      gender: 'male',
+      photos: [
+        { value: 'https://lh3.googleusercontent.com/a/google_user_123456' }
+      ],
+      emails: [
+        { value: 'user@example.com', verified: true }
+      ],
+      _raw: JSON.stringify({
+        sub: 'google_user_123456',
         name: 'John Doe',
         given_name: 'John',
         family_name: 'Doe',
-        picture: 'https://lh3.googleusercontent.com/-XdUIqdMkCWA/AAAAAAAAAAI/AAAAAAAAAAA/4252rscbv5M/photo.jpg',
-        email: 'john.doe@example.com',
+        picture: 'https://lh3.googleusercontent.com/a/google_user_123456',
+        email: 'user@example.com',
         email_verified: true,
-        locale: 'en'
-      }
-    },
+        locale: 'en',
+        gender: 'male'
+      }),
+      _json: {
+        sub: 'google_user_123456',
+        name: 'John Doe',
+        given_name: 'John',
+        family_name: 'Doe',
+        picture: 'https://lh3.googleusercontent.com/a/google_user_123456',
+        email: 'user@example.com',
+        email_verified: true,
+        locale: 'en',
+        gender: 'male'
+      },
+    };
 
-    /**
-     * User with minimal profile information.
-     */
-    minimal: {
-      id: '987654321098765432109',
+    // User with work domain email
+    this.testProfiles['work'] = {
+      id: 'google_user_789012',
       provider: 'google',
-      displayName: 'Jane Smith',
+      email: 'employee@company.com',
+      emailVerified: true,
       firstName: 'Jane',
       lastName: 'Smith',
-      email: 'jane.smith@example.com',
-      emailVerified: true,
-      picture: 'https://lh3.googleusercontent.com/-XdUIqdMkCWA/AAAAAAAAAAI/AAAAAAAAAAA/4252rscbv5M/photo.jpg',
-      _raw: '{"sub":"987654321098765432109","name":"Jane Smith","given_name":"Jane","family_name":"Smith","picture":"https://lh3.googleusercontent.com/-XdUIqdMkCWA/AAAAAAAAAAI/AAAAAAAAAAA/4252rscbv5M/photo.jpg","email":"jane.smith@example.com","email_verified":true}',
-      _json: {
-        sub: '987654321098765432109',
+      displayName: 'Jane Smith',
+      picture: 'https://lh3.googleusercontent.com/a/google_user_789012',
+      locale: 'en',
+      photos: [
+        { value: 'https://lh3.googleusercontent.com/a/google_user_789012' }
+      ],
+      emails: [
+        { value: 'employee@company.com', verified: true }
+      ],
+      _raw: JSON.stringify({
+        sub: 'google_user_789012',
         name: 'Jane Smith',
         given_name: 'Jane',
         family_name: 'Smith',
-        picture: 'https://lh3.googleusercontent.com/-XdUIqdMkCWA/AAAAAAAAAAI/AAAAAAAAAAA/4252rscbv5M/photo.jpg',
-        email: 'jane.smith@example.com',
+        picture: 'https://lh3.googleusercontent.com/a/google_user_789012',
+        email: 'employee@company.com',
+        email_verified: true,
+        hd: 'company.com',
+        locale: 'en'
+      }),
+      _json: {
+        sub: 'google_user_789012',
+        name: 'Jane Smith',
+        given_name: 'Jane',
+        family_name: 'Smith',
+        picture: 'https://lh3.googleusercontent.com/a/google_user_789012',
+        email: 'employee@company.com',
+        email_verified: true,
+        hd: 'company.com',
+        locale: 'en'
+      },
+    };
+
+    // User with minimal profile information
+    this.testProfiles['minimal'] = {
+      id: 'google_user_345678',
+      provider: 'google',
+      email: 'minimal@example.com',
+      emailVerified: true,
+      displayName: 'Minimal User',
+      picture: 'https://lh3.googleusercontent.com/a/google_user_345678',
+      photos: [
+        { value: 'https://lh3.googleusercontent.com/a/google_user_345678' }
+      ],
+      emails: [
+        { value: 'minimal@example.com', verified: true }
+      ],
+      _raw: JSON.stringify({
+        sub: 'google_user_345678',
+        name: 'Minimal User',
+        picture: 'https://lh3.googleusercontent.com/a/google_user_345678',
+        email: 'minimal@example.com',
         email_verified: true
-      }
-    },
-
-    /**
-     * User with G Suite hosted domain.
-     */
-    gSuite: {
-      id: '555555555555555555555',
-      provider: 'google',
-      displayName: 'Alex Corporate',
-      firstName: 'Alex',
-      lastName: 'Corporate',
-      email: 'alex@company.com',
-      emailVerified: true,
-      picture: 'https://lh3.googleusercontent.com/-XdUIqdMkCWA/AAAAAAAAAAI/AAAAAAAAAAA/4252rscbv5M/photo.jpg',
-      locale: 'en',
-      _raw: '{"sub":"555555555555555555555","name":"Alex Corporate","given_name":"Alex","family_name":"Corporate","picture":"https://lh3.googleusercontent.com/-XdUIqdMkCWA/AAAAAAAAAAI/AAAAAAAAAAA/4252rscbv5M/photo.jpg","email":"alex@company.com","email_verified":true,"locale":"en","hd":"company.com"}',
+      }),
       _json: {
-        sub: '555555555555555555555',
-        name: 'Alex Corporate',
-        given_name: 'Alex',
-        family_name: 'Corporate',
-        picture: 'https://lh3.googleusercontent.com/-XdUIqdMkCWA/AAAAAAAAAAI/AAAAAAAAAAA/4252rscbv5M/photo.jpg',
-        email: 'alex@company.com',
-        email_verified: true,
-        locale: 'en',
-        hd: 'company.com'
-      }
-    },
+        sub: 'google_user_345678',
+        name: 'Minimal User',
+        picture: 'https://lh3.googleusercontent.com/a/google_user_345678',
+        email: 'minimal@example.com',
+        email_verified: true
+      },
+    };
 
-    /**
-     * User with unverified email.
-     */
-    unverifiedEmail: {
-      id: '111111111111111111111',
+    // User with unverified email
+    this.testProfiles['unverified'] = {
+      id: 'google_user_901234',
       provider: 'google',
-      displayName: 'Sam Unverified',
-      firstName: 'Sam',
-      lastName: 'Unverified',
-      email: 'sam.unverified@example.com',
+      email: 'unverified@example.com',
       emailVerified: false,
-      picture: 'https://lh3.googleusercontent.com/-XdUIqdMkCWA/AAAAAAAAAAI/AAAAAAAAAAA/4252rscbv5M/photo.jpg',
-      locale: 'pt-BR',
-      _raw: '{"sub":"111111111111111111111","name":"Sam Unverified","given_name":"Sam","family_name":"Unverified","picture":"https://lh3.googleusercontent.com/-XdUIqdMkCWA/AAAAAAAAAAI/AAAAAAAAAAA/4252rscbv5M/photo.jpg","email":"sam.unverified@example.com","email_verified":false,"locale":"pt-BR"}',
+      firstName: 'Unverified',
+      lastName: 'User',
+      displayName: 'Unverified User',
+      picture: 'https://lh3.googleusercontent.com/a/google_user_901234',
+      photos: [
+        { value: 'https://lh3.googleusercontent.com/a/google_user_901234' }
+      ],
+      emails: [
+        { value: 'unverified@example.com', verified: false }
+      ],
+      _raw: JSON.stringify({
+        sub: 'google_user_901234',
+        name: 'Unverified User',
+        given_name: 'Unverified',
+        family_name: 'User',
+        picture: 'https://lh3.googleusercontent.com/a/google_user_901234',
+        email: 'unverified@example.com',
+        email_verified: false
+      }),
       _json: {
-        sub: '111111111111111111111',
-        name: 'Sam Unverified',
-        given_name: 'Sam',
-        family_name: 'Unverified',
-        picture: 'https://lh3.googleusercontent.com/-XdUIqdMkCWA/AAAAAAAAAAI/AAAAAAAAAAA/4252rscbv5M/photo.jpg',
-        email: 'sam.unverified@example.com',
-        email_verified: false,
-        locale: 'pt-BR'
-      }
-    },
+        sub: 'google_user_901234',
+        name: 'Unverified User',
+        given_name: 'Unverified',
+        family_name: 'User',
+        picture: 'https://lh3.googleusercontent.com/a/google_user_901234',
+        email: 'unverified@example.com',
+        email_verified: false
+      },
+    };
 
-    /**
-     * User with additional profile information.
-     */
-    extended: {
-      id: '222222222222222222222',
-      provider: 'google',
-      displayName: 'Maria Extended',
-      firstName: 'Maria',
-      middleName: 'Profile',
-      lastName: 'Extended',
-      email: 'maria.extended@example.com',
-      emailVerified: true,
-      picture: 'https://lh3.googleusercontent.com/-XdUIqdMkCWA/AAAAAAAAAAI/AAAAAAAAAAA/4252rscbv5M/photo.jpg',
-      gender: 'female',
-      birthdate: '1990-01-01',
-      locale: 'es',
-      _raw: '{"sub":"222222222222222222222","name":"Maria Profile Extended","given_name":"Maria","middle_name":"Profile","family_name":"Extended","picture":"https://lh3.googleusercontent.com/-XdUIqdMkCWA/AAAAAAAAAAI/AAAAAAAAAAA/4252rscbv5M/photo.jpg","email":"maria.extended@example.com","email_verified":true,"gender":"female","birthdate":"1990-01-01","locale":"es"}',
-      _json: {
-        sub: '222222222222222222222',
-        name: 'Maria Profile Extended',
-        given_name: 'Maria',
-        middle_name: 'Profile',
-        family_name: 'Extended',
-        picture: 'https://lh3.googleusercontent.com/-XdUIqdMkCWA/AAAAAAAAAAI/AAAAAAAAAAA/4252rscbv5M/photo.jpg',
-        email: 'maria.extended@example.com',
-        email_verified: true,
-        gender: 'female',
-        birthdate: '1990-01-01',
-        locale: 'es'
-      }
-    }
-  };
-
-  /**
-   * Constructor for the Google provider mock.
-   * @param logger Mock logger service
-   * @param configService Mock config service
-   */
-  constructor(
-    protected readonly logger: LoggerService,
-    protected readonly configService: ConfigService,
-  ) {
-    super(logger, configService);
-    this.initializeMockData();
+    // Create test tokens for each profile
+    this.createTestTokensForProfiles();
   }
 
   /**
-   * Initializes mock data with predefined profiles and tokens.
+   * Creates test tokens for each predefined profile
    */
-  private initializeMockData(): void {
-    // Add predefined profiles to mock profiles
-    Object.entries(this.predefinedProfiles).forEach(([key, profile]) => {
-      this.addMockProfile(`google_token_${key}`, profile as OAuthProfile);
-      
-      // Create corresponding mock tokens for each profile
-      this.addMockToken(`google_code_${key}`, {
-        access_token: `google_access_token_${key}`,
-        token_type: 'Bearer',
-        expires_in: 3600,
-        id_token: `google_id_token_${key}`,
-        refresh_token: `google_refresh_token_${key}`,
-        scope: 'openid profile email',
-        issued_at: new Date().toISOString(),
-        expires_at: Math.floor(Date.now() / 1000) + 3600
-      });
-    });
-  }
-
-  /**
-   * Simulates Google token validation by checking against the tokeninfo endpoint.
-   * This is a mock implementation for testing purposes.
-   * @param idToken The Google ID token to validate
-   * @returns A boolean indicating whether the token is valid
-   */
-  async validateGoogleIdToken(idToken: string): Promise<boolean> {
-    this.logger.debug(`[GoogleProviderMock] Validating Google ID token: ${idToken}`);
-    
-    if (this.shouldFailValidation) {
-      this.logger.debug('[GoogleProviderMock] Token validation failed (simulated)');
-      return false;
-    }
-
-    // Check if the token exists in our mock profiles
-    const isValidToken = Object.keys(this.mockProfiles).some(token => {
-      return token.includes(idToken.replace('google_id_token_', 'google_token_'));
+  private createTestTokensForProfiles(): void {
+    // Create tokens for each profile
+    Object.keys(this.testProfiles).forEach(profileId => {
+      const tokenId = `google_${profileId}`;
+      this.testTokens[tokenId] = {
+        accessToken: `google_access_token_${profileId}`,
+        refreshToken: `google_refresh_token_${profileId}`,
+        idToken: `google_id_token_${profileId}`,
+        tokenType: 'Bearer',
+        expiresIn: 3600,
+        scope: 'email profile',
+      };
     });
 
-    if (!isValidToken) {
-      this.logger.debug('[GoogleProviderMock] Token not found');
-      return false;
-    }
+    // Add a special expired token
+    this.testTokens['expired'] = {
+      accessToken: 'google_expired_token',
+      refreshToken: 'google_expired_refresh_token',
+      idToken: 'google_expired_id_token',
+      tokenType: 'Bearer',
+      expiresIn: -3600, // Negative value to indicate expiration
+      scope: 'email profile',
+    };
 
-    this.logger.debug('[GoogleProviderMock] Token validated successfully');
-    return true;
+    // Add a special invalid token
+    this.testTokens['invalid'] = {
+      accessToken: 'google_invalid_token',
+      refreshToken: 'google_invalid_refresh_token',
+      idToken: 'google_invalid_id_token',
+      tokenType: 'Bearer',
+      expiresIn: 3600,
+      scope: 'email profile',
+    };
   }
 
   /**
-   * Simulates the Google tokeninfo endpoint response.
-   * @param idToken The Google ID token to get info for
-   * @returns A mock tokeninfo response or null if validation fails
+   * Simulates validating a Google access token
+   * @param token - The access token or ID token to validate
+   * @returns The validated user profile
+   * @throws Error if token validation fails
    */
-  async getTokenInfo(idToken: string): Promise<Record<string, any> | null> {
-    this.logger.debug(`[GoogleProviderMock] Getting token info: ${idToken}`);
-    
-    if (this.shouldFailValidation) {
-      this.logger.debug('[GoogleProviderMock] Token info failed (simulated)');
-      return null;
+  async validateToken(token: string): Promise<GoogleProfile> {
+    // Special case for expired token
+    if (token === this.testTokens['expired']?.accessToken || 
+        token === this.testTokens['expired']?.idToken) {
+      const error = new Error('Token expired') as Error & { name: string };
+      error.name = 'TokenExpiredError';
+      throw error;
     }
 
-    // Extract the profile key from the token
-    const profileKey = idToken.replace('google_id_token_', '');
-    const profile = this.predefinedProfiles[profileKey as keyof typeof this.predefinedProfiles];
-    
+    // Special case for invalid token
+    if (token === this.testTokens['invalid']?.accessToken || 
+        token === this.testTokens['invalid']?.idToken) {
+      throw new Error('Invalid token');
+    }
+
+    // Use the base implementation for other tokens
+    return super.validateToken(token) as Promise<GoogleProfile>;
+  }
+
+  /**
+   * Simulates exchanging an authorization code for Google tokens
+   * @param code - The authorization code to exchange
+   * @returns The OAuth tokens from Google
+   * @throws Error if code exchange fails
+   */
+  async exchangeCodeForToken(code: string): Promise<OAuthToken> {
+    // Check if this is a special test code
+    if (code === 'invalid_code') {
+      throw new Error('Invalid authorization code');
+    }
+
+    if (code === 'server_error') {
+      throw new Error('Google server error');
+    }
+
+    // Map profile codes to tokens
+    if (code.startsWith('profile_')) {
+      const profileId = code.replace('profile_', '');
+      const tokenId = `google_${profileId}`;
+      if (this.testTokens[tokenId]) {
+        return this.testTokens[tokenId];
+      }
+    }
+
+    // Use the base implementation for other codes
+    return super.exchangeCodeForToken(code);
+  }
+
+  /**
+   * Simulates refreshing a Google access token
+   * @param refreshToken - The refresh token to use
+   * @returns The new OAuth tokens from Google
+   * @throws Error if token refresh fails
+   */
+  async refreshToken(refreshToken: string): Promise<OAuthToken> {
+    // Check if this is a special test refresh token
+    if (refreshToken === 'invalid_refresh') {
+      throw new Error('Invalid refresh token');
+    }
+
+    if (refreshToken === 'server_error_refresh') {
+      throw new Error('Google server error during refresh');
+    }
+
+    // Use the base implementation for other refresh tokens
+    return super.refreshToken(refreshToken);
+  }
+
+  /**
+   * Simulates validating a Google ID token
+   * @param idToken - The ID token to validate
+   * @returns The payload of the ID token if valid
+   * @throws Error if token validation fails
+   */
+  async verifyIdToken(idToken: string): Promise<Record<string, any>> {
+    // Special case for expired token
+    if (idToken === this.testTokens['expired']?.idToken) {
+      throw new Error('ID token expired');
+    }
+
+    // Special case for invalid token
+    if (idToken === this.testTokens['invalid']?.idToken) {
+      throw new Error('Invalid ID token');
+    }
+
+    // Check if this is one of our test tokens
+    const tokenId = this.getTokenId(idToken);
+    if (!tokenId) {
+      throw new Error('Invalid ID token');
+    }
+
+    // Get the profile associated with this token
+    const profileId = tokenId.replace('google_', '');
+    const profile = this.testProfiles[profileId];
     if (!profile) {
-      this.logger.debug('[GoogleProviderMock] Profile not found for token');
-      return null;
+      throw new Error('Profile not found for token');
     }
 
-    const clientId = this.configService.get<string>('GOOGLE_CLIENT_ID') || 'mock_client_id';
-    const now = Math.floor(Date.now() / 1000);
-    const expiresAt = now + 3600; // 1 hour from now
-
+    // Return a simulated ID token payload based on the profile
     return {
       iss: 'https://accounts.google.com',
-      azp: clientId,
-      aud: clientId,
       sub: profile.id,
+      aud: this.config.clientID,
+      iat: Math.floor(Date.now() / 1000) - 100,
+      exp: Math.floor(Date.now() / 1000) + 3500,
       email: profile.email,
       email_verified: profile.emailVerified,
-      at_hash: 'mock_at_hash',
       name: profile.displayName,
       picture: profile.picture,
       given_name: profile.firstName,
       family_name: profile.lastName,
-      locale: profile._json?.locale,
-      iat: now - 60, // Issued 1 minute ago
-      exp: expiresAt,
-      hd: profile._json?.hd // Hosted domain for G Suite users
+      locale: (profile as GoogleProfile).locale,
+      hd: (profile._json as any).hd,
     };
   }
 
   /**
-   * Gets a predefined profile by key.
-   * @param key The key of the predefined profile
-   * @returns The profile or undefined if not found
+   * Gets a test profile by scenario name
+   * @param scenario - The scenario name ('standard', 'work', 'minimal', 'unverified')
+   * @returns The test profile for the scenario
    */
-  getPredefinedProfile(key: keyof typeof this.predefinedProfiles): OAuthProfile | undefined {
-    return this.predefinedProfiles[key] as OAuthProfile;
+  getProfileByScenario(scenario: 'standard' | 'work' | 'minimal' | 'unverified'): GoogleProfile {
+    return this.testProfiles[scenario] as GoogleProfile;
   }
 
   /**
-   * Gets a mock token for a predefined profile by key.
-   * @param key The key of the predefined profile
-   * @returns The token or null if not found
+   * Gets a test token by scenario name
+   * @param scenario - The scenario name ('standard', 'work', 'minimal', 'unverified', 'expired', 'invalid')
+   * @returns The test token for the scenario
    */
-  getMockTokenForPredefinedProfile(key: keyof typeof this.predefinedProfiles): OAuthToken | null {
-    return this.mockTokens[`google_code_${key}`] || null;
+  getTokenByScenario(scenario: 'standard' | 'work' | 'minimal' | 'unverified' | 'expired' | 'invalid'): OAuthToken {
+    const tokenId = ['expired', 'invalid'].includes(scenario) ? scenario : `google_${scenario}`;
+    return this.testTokens[tokenId];
   }
 
   /**
-   * Simulates the Google login flow for a predefined profile.
-   * @param key The key of the predefined profile to use
-   * @returns An object containing the authorization code, access token, and ID token
+   * Creates a test authorization code for a specific profile scenario
+   * @param scenario - The profile scenario to create a code for
+   * @returns A test authorization code
    */
-  simulateGoogleLogin(key: keyof typeof this.predefinedProfiles): {
-    authorizationCode: string;
-    accessToken: string;
-    idToken: string;
-    userId: string;
-  } | null {
-    const profile = this.getPredefinedProfile(key);
-    const token = this.getMockTokenForPredefinedProfile(key);
-    
-    if (!profile || !token) {
-      return null;
+  createAuthorizationCode(scenario: 'standard' | 'work' | 'minimal' | 'unverified'): string {
+    return `profile_${scenario}`;
+  }
+
+  /**
+   * Simulates a Google userinfo API response
+   * @param accessToken - The access token to use for the request
+   * @returns A mock userinfo API response
+   * @throws Error if the access token is invalid
+   */
+  async getUserInfo(accessToken: string): Promise<Record<string, any>> {
+    // Special case for expired token
+    if (accessToken === this.testTokens['expired']?.accessToken) {
+      throw new Error('Access token expired');
     }
 
-    return {
-      authorizationCode: `google_code_${key}`,
-      accessToken: token.access_token,
-      idToken: token.id_token || '',
-      userId: profile.id,
-    };
-  }
-
-  /**
-   * Simulates the Google userinfo endpoint response.
-   * @param accessToken The Google access token
-   * @returns A mock userinfo response or null if token is invalid
-   */
-  async getUserInfo(accessToken: string): Promise<Record<string, any> | null> {
-    this.logger.debug(`[GoogleProviderMock] Getting user info for access token: ${accessToken}`);
-    
-    if (this.shouldFailValidation) {
-      this.logger.debug('[GoogleProviderMock] User info failed (simulated)');
-      return null;
+    // Special case for invalid token
+    if (accessToken === this.testTokens['invalid']?.accessToken) {
+      throw new Error('Invalid access token');
     }
 
-    // Extract the profile key from the token
-    const profileKey = accessToken.replace('google_access_token_', '');
-    const profile = this.predefinedProfiles[profileKey as keyof typeof this.predefinedProfiles];
-    
+    // Check if this is one of our test tokens
+    const tokenId = this.getTokenId(accessToken);
+    if (!tokenId) {
+      throw new Error('Invalid access token');
+    }
+
+    // Get the profile associated with this token
+    const profileId = tokenId.replace('google_', '');
+    const profile = this.testProfiles[profileId];
     if (!profile) {
-      this.logger.debug('[GoogleProviderMock] Profile not found for access token');
-      return null;
+      throw new Error('Profile not found for token');
     }
 
-    // Return the profile in userinfo endpoint format
+    // Return a simulated userinfo response based on the profile
     return {
       sub: profile.id,
       name: profile.displayName,
       given_name: profile.firstName,
       family_name: profile.lastName,
-      middle_name: profile.middleName,
       picture: profile.picture,
       email: profile.email,
       email_verified: profile.emailVerified,
-      gender: profile._json?.gender,
-      birthdate: profile._json?.birthdate,
-      locale: profile._json?.locale,
-      hd: profile._json?.hd
+      locale: (profile as GoogleProfile).locale,
+      hd: (profile._json as any).hd,
     };
   }
 
   /**
-   * Simulates token revocation for Google OAuth.
-   * @param token The token to revoke
-   * @returns A boolean indicating whether the revocation was successful
+   * Simulates a hosted domain check for Google Workspace accounts
+   * @param profile - The Google profile to check
+   * @param allowedDomain - The allowed hosted domain
+   * @returns True if the profile's domain matches the allowed domain
    */
-  async revokeToken(token: string): Promise<boolean> {
-    this.logger.debug(`[GoogleProviderMock] Revoking token: ${token}`);
-    
-    if (this.shouldFailValidation) {
-      this.logger.debug('[GoogleProviderMock] Token revocation failed (simulated)');
+  checkHostedDomain(profile: GoogleProfile, allowedDomain: string): boolean {
+    // If no domain restriction is set, allow all domains
+    if (!allowedDomain) {
+      return true;
+    }
+
+    // Check if the profile has a hosted domain
+    const hostedDomain = (profile._json as any).hd;
+    if (!hostedDomain) {
       return false;
     }
 
-    // Check if the token exists in our mock profiles or tokens
-    const isValidToken = Object.keys(this.mockProfiles).some(key => key.includes(token)) ||
-      Object.values(this.mockTokens).some(t => 
-        t.access_token === token || t.refresh_token === token || t.id_token === token
-      );
-
-    if (!isValidToken) {
-      this.logger.debug('[GoogleProviderMock] Token not found for revocation');
-      return false;
-    }
-
-    this.logger.debug('[GoogleProviderMock] Token revoked successfully');
-    return true;
-  }
-
-  /**
-   * Simulates refreshing an access token using a refresh token.
-   * @param refreshToken The refresh token to use
-   * @returns A new token response or null if refresh fails
-   */
-  async refreshAccessToken(refreshToken: string): Promise<OAuthToken | null> {
-    this.logger.debug(`[GoogleProviderMock] Refreshing access token with refresh token: ${refreshToken}`);
-    
-    if (this.shouldFailTokenRetrieval) {
-      this.logger.debug('[GoogleProviderMock] Token refresh failed (simulated)');
-      return null;
-    }
-
-    // Find the profile key associated with this refresh token
-    const profileKey = refreshToken.replace('google_refresh_token_', '');
-    const existingToken = this.mockTokens[`google_code_${profileKey}`];
-    
-    if (!existingToken) {
-      this.logger.debug('[GoogleProviderMock] Refresh token not found');
-      return null;
-    }
-
-    // Create a new token with updated expiration
-    const newToken: OAuthToken = {
-      access_token: `google_access_token_${profileKey}_refreshed`,
-      token_type: 'Bearer',
-      expires_in: 3600,
-      id_token: existingToken.id_token,
-      refresh_token: existingToken.refresh_token,
-      scope: existingToken.scope,
-      issued_at: new Date().toISOString(),
-      expires_at: Math.floor(Date.now() / 1000) + 3600
-    };
-
-    this.logger.debug('[GoogleProviderMock] Access token refreshed successfully');
-    return newToken;
+    // Check if the hosted domain matches the allowed domain
+    return hostedDomain === allowedDomain;
   }
 }
