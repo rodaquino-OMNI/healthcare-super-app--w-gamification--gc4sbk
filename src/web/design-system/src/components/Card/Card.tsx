@@ -1,6 +1,7 @@
 import React from 'react';
 import { Box } from '@design-system/primitives';
 import { CardProps } from '@austa/interfaces/components';
+import { CardContainer } from './Card.styles';
 
 /**
  * A versatile card component that serves as a container for content with consistent 
@@ -39,22 +40,20 @@ export const Card: React.FC<CardProps> = ({
   width,
   height,
   accessibilityLabel,
-  testID,
-  className,
   ...rest
 }) => {
   // Determine if card should be interactive based on props
   const isInteractive = interactive || !!onPress;
   
-  // Style object to override Box defaults when needed
+  // Style object to override CardContainer defaults when needed
   const style = {
     cursor: isInteractive ? 'pointer' : 'default',
     transition: 'all 0.2s ease-in-out',
-    ...(rest.style || {})
   };
   
   return (
     <Box
+      as={CardContainer}
       display="flex"
       flexDirection="column"
       boxShadow={elevation}
@@ -74,8 +73,6 @@ export const Card: React.FC<CardProps> = ({
       // Apply border color if specified
       borderColor={borderColor || 'neutral.gray200'}
       style={style}
-      testID={testID}
-      className={className}
       {...rest}
     >
       {children}
