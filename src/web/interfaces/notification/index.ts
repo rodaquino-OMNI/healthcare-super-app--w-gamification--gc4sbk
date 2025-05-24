@@ -1,23 +1,13 @@
 /**
- * @austa/interfaces/notification
+ * @file Notification Interfaces Barrel Export
  * 
- * This barrel file re-exports all notification-related TypeScript interfaces
- * from the notification module, providing a centralized import point for the
- * AUSTA SuperApp. It enables developers to import all notification types,
- * data structures, templates, and preferences through a single import statement,
- * ensuring consistent usage patterns across the application while maintaining
- * proper module organization.
+ * This file serves as a centralized export point for all notification-related
+ * TypeScript interfaces in the AUSTA SuperApp. It enables developers to import
+ * all notification types, data structures, templates, and preferences through
+ * a single import statement, ensuring consistent usage patterns across the
+ * application while maintaining proper module organization.
  *
- * @example
- * // Import all notification interfaces
- * import * as NotificationInterfaces from '@austa/interfaces/notification';
- * 
- * // Import specific notification interfaces
- * import { 
- *   NotificationType, 
- *   Notification,
- *   NotificationPreference 
- * } from '@austa/interfaces/notification';
+ * @module @austa/interfaces/notification
  */
 
 /**
@@ -26,27 +16,28 @@
  * Basic notification type definitions including enums for notification types,
  * channels, statuses, priorities, and the base Notification interface.
  */
+export type {
+  Notification,
+} from './types';
+
 export {
   NotificationType,
   NotificationChannel,
   NotificationStatus,
   NotificationPriority,
-  Notification,
-  NotificationFilter,
-  NotificationCount
 } from './types';
 
 /**
  * Notification Data Types
  * 
- * Journey-specific notification data interfaces that define the payload
- * structure for different notification types across health, care, and plan journeys.
+ * Journey-specific notification data interfaces that define the payload structure
+ * for different notification types across health, care, and plan journeys.
  */
-export {
+export type {
   AchievementNotificationData,
   LevelUpNotificationData,
   AppointmentReminderData,
-  ClaimStatusUpdateData
+  ClaimStatusUpdateData,
 } from './data';
 
 /**
@@ -55,8 +46,8 @@ export {
  * Interfaces for the notification templating system that enable consistent
  * notification formatting and localization across all journeys.
  */
-export {
-  NotificationTemplate
+export type {
+  NotificationTemplate,
 } from './templates';
 
 /**
@@ -65,16 +56,18 @@ export {
  * Interfaces for user notification preferences, including global settings
  * and per-journey customization of notification channels.
  */
-export {
+export type {
   NotificationPreference,
-  JourneyNotificationPreference
+  JourneyNotificationPreference,
 } from './preferences';
 
 /**
- * Notification Request Types
+ * Notification Request/Response Types
  * 
- * Interfaces for sending notifications and interacting with the notification service.
+ * Interfaces for notification API requests, responses, and filtering.
  */
-export {
-  SendNotificationRequest
+export type {
+  SendNotificationRequest,
+  NotificationFilter,
+  NotificationCount,
 } from './types';
