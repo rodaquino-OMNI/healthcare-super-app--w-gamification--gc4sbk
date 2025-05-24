@@ -10,206 +10,201 @@
 import { z } from 'zod'; // v3.22.4
 
 /**
- * Common validation schemas for frequently used data types
+ * Common validation error messages to ensure consistency across the application
  */
-export const CommonValidation = {
-  /**
-   * UUID validation schema with custom error message
-   */
-  uuid: () => z.string().uuid({
-    message: 'Invalid ID format. Must be a valid UUID.',
-  }),
-
-  /**
-   * Non-empty string validation with optional min/max length constraints
-   */
-  nonEmptyString: (options?: { min?: number; max?: number; field?: string }) => {
-    const fieldName = options?.field || 'Field';
-    let schema = z.string({
-      required_error: `${fieldName} is required`,
-      invalid_type_error: `${fieldName} must be a string`,
-    }).min(1, { message: `${fieldName} cannot be empty` });
-    
-    if (options?.min) {
-      schema = schema.min(options.min, { 
-        message: `${fieldName} must be at least ${options.min} characters` 
-      });
-    }
-    
-    if (options?.max) {
-      schema = schema.max(options.max, { 
-        message: `${fieldName} cannot exceed ${options.max} characters` 
-      });
-    }
-    
-    return schema;
-  },
-
-  /**
-   * ISO date string validation (YYYY-MM-DD)
-   */
-  dateString: () => z.string().regex(
-    /^\d{4}-\d{2}-\d{2}$/,
-    { message: 'Invalid date format. Use YYYY-MM-DD.' }
-  ),
-
-  /**
-   * ISO datetime string validation
-   */
-  dateTimeString: () => z.string().datetime({
-    message: 'Invalid datetime format. Use ISO 8601 format (e.g., 2023-01-01T12:00:00Z).'
-  }),
-
-  /**
-   * Positive integer validation
-   */
-  positiveInteger: (options?: { field?: string }) => {
-    const fieldName = options?.field || 'Value';
-    return z.number({
-      required_error: `${fieldName} is required`,
-      invalid_type_error: `${fieldName} must be a number`,
-    }).int({
-      message: `${fieldName} must be an integer`
-    }).positive({
-      message: `${fieldName} must be positive`
-    });
-  },
-
-  /**
-   * Non-negative integer validation (zero or positive)
-   */
-  nonNegativeInteger: (options?: { field?: string }) => {
-    const fieldName = options?.field || 'Value';
-    return z.number({
-      required_error: `${fieldName} is required`,
-      invalid_type_error: `${fieldName} must be a number`,
-    }).int({
-      message: `${fieldName} must be an integer`
-    }).min(0, {
-      message: `${fieldName} must be zero or positive`
-    });
-  },
-
-  /**
-   * Email validation
-   */
-  email: () => z.string().email({
-    message: 'Invalid email address format.'
-  }),
-
-  /**
-   * Phone number validation (basic format)
-   */
-  phoneNumber: () => z.string().regex(
-    /^\+?[0-9\s\-\(\)]{8,20}$/,
-    { message: 'Invalid phone number format.' }
-  ),
-
-  /**
-   * URL validation
-   */
-  url: () => z.string().url({
-    message: 'Invalid URL format.'
-  }),
-
-  /**
-   * Boolean validation
-   */
-  boolean: (options?: { field?: string }) => {
-    const fieldName = options?.field || 'Value';
-    return z.boolean({
-      required_error: `${fieldName} is required`,
-      invalid_type_error: `${fieldName} must be a boolean`,
-    });
-  },
-
-  /**
-   * Array validation with min/max length constraints
-   */
-  array: <T extends z.ZodTypeAny>(
-    schema: T,
-    options?: { min?: number; max?: number; field?: string }
-  ) => {
-    const fieldName = options?.field || 'Array';
-    let arraySchema = z.array(schema, {
-      required_error: `${fieldName} is required`,
-      invalid_type_error: `${fieldName} must be an array`,
-    });
-
-    if (options?.min !== undefined) {
-      arraySchema = arraySchema.min(options.min, {
-        message: `${fieldName} must contain at least ${options.min} item(s)`
-      });
-    }
-
-    if (options?.max !== undefined) {
-      arraySchema = arraySchema.max(options.max, {
-        message: `${fieldName} cannot contain more than ${options.max} item(s)`
-      });
-    }
-
-    return arraySchema;
-  },
+export const ValidationMessages = {
+  REQUIRED: 'Este campo é obrigatório',
+  INVALID_UUID: 'ID inválido',
+  INVALID_DATE: 'Data inválida',
+  INVALID_EMAIL: 'Email inválido',
+  INVALID_PHONE: 'Número de telefone inválido',
+  INVALID_CPF: 'CPF inválido',
+  INVALID_PASSWORD: 'Senha inválida',
+  INVALID_NUMBER: 'Número inválido',
+  INVALID_STRING: 'Texto inválido',
+  INVALID_BOOLEAN: 'Valor booleano inválido',
+  INVALID_ENUM: 'Valor de enumeração inválido',
+  INVALID_ARRAY: 'Lista inválida',
+  INVALID_OBJECT: 'Objeto inválido',
+  MIN_LENGTH: (min: number) => `Deve ter pelo menos ${min} caracteres`,
+  MAX_LENGTH: (max: number) => `Deve ter no máximo ${max} caracteres`,
+  MIN_VALUE: (min: number) => `Deve ser maior ou igual a ${min}`,
+  MAX_VALUE: (max: number) => `Deve ser menor ou igual a ${max}`,
+  INVALID_FORMAT: (format: string) => `Formato inválido. Use ${format}`,
 };
 
 /**
- * Common pagination parameters validation schema
+ * Common ID validation schema
+ * Used for validating UUIDs across the application
  */
-export const PaginationParamsSchema = z.object({
-  page: z.number().int().min(1).optional().default(1),
-  limit: z.number().int().min(1).max(100).optional().default(20),
-  sortBy: z.string().optional(),
-  sortOrder: z.enum(['asc', 'desc']).optional().default('asc'),
+export const idSchema = z.string().uuid({
+  message: ValidationMessages.INVALID_UUID,
 });
 
 /**
- * Type definition for pagination parameters
+ * Common date validation schema
+ * Used for validating ISO date strings across the application
  */
-export type PaginationParams = z.infer<typeof PaginationParamsSchema>;
+export const dateSchema = z.string().datetime({
+  message: ValidationMessages.INVALID_DATE,
+  offset: true,
+});
 
 /**
- * Common date range parameters validation schema
+ * Common date range validation schema
+ * Used for validating date ranges across the application
  */
-export const DateRangeParamsSchema = z.object({
-  startDate: CommonValidation.dateString(),
-  endDate: CommonValidation.dateString(),
+export const dateRangeSchema = z.object({
+  startDate: dateSchema,
+  endDate: dateSchema,
 }).refine(
   (data) => new Date(data.startDate) <= new Date(data.endDate),
   {
-    message: 'End date must be after or equal to start date',
-    path: ['endDate'],
+    message: 'A data de início deve ser anterior à data de fim',
+    path: ['startDate'],
   }
 );
 
 /**
- * Type definition for date range parameters
+ * Common email validation schema
+ * Used for validating email addresses across the application
  */
-export type DateRangeParams = z.infer<typeof DateRangeParamsSchema>;
-
-/**
- * Common ID parameter validation schema
- */
-export const IdParamSchema = z.object({
-  id: CommonValidation.uuid(),
+export const emailSchema = z.string().email({
+  message: ValidationMessages.INVALID_EMAIL,
 });
 
 /**
- * Type definition for ID parameter
+ * Common phone validation schema
+ * Used for validating Brazilian phone numbers across the application
  */
-export type IdParam = z.infer<typeof IdParamSchema>;
+export const phoneSchema = z.string().regex(
+  /^\(\d{2}\)\s\d{4,5}-\d{4}$/,
+  {
+    message: ValidationMessages.INVALID_PHONE,
+  }
+);
+
+/**
+ * Common CPF validation schema
+ * Used for validating Brazilian CPF numbers across the application
+ */
+export const cpfSchema = z.string().regex(
+  /^\d{3}\.\d{3}\.\d{3}-\d{2}$/,
+  {
+    message: ValidationMessages.INVALID_CPF,
+  }
+);
+
+/**
+ * Common password validation schema
+ * Used for validating passwords across the application
+ * Requires at least 8 characters, one uppercase letter, one lowercase letter,
+ * one number, and one special character
+ */
+export const passwordSchema = z.string()
+  .min(8, { message: ValidationMessages.MIN_LENGTH(8) })
+  .regex(/[A-Z]/, { message: 'Deve conter pelo menos uma letra maiúscula' })
+  .regex(/[a-z]/, { message: 'Deve conter pelo menos uma letra minúscula' })
+  .regex(/[0-9]/, { message: 'Deve conter pelo menos um número' })
+  .regex(/[^A-Za-z0-9]/, { message: 'Deve conter pelo menos um caractere especial' });
+
+/**
+ * Common pagination parameters validation schema
+ * Used for validating pagination parameters across the application
+ */
+export const paginationSchema = z.object({
+  page: z.number().int().min(1, { message: ValidationMessages.MIN_VALUE(1) }).default(1),
+  limit: z.number().int().min(1, { message: ValidationMessages.MIN_VALUE(1) }).max(100, { message: ValidationMessages.MAX_VALUE(100) }).default(20),
+});
+
+/**
+ * Common sorting parameters validation schema
+ * Used for validating sorting parameters across the application
+ */
+export const sortingSchema = z.object({
+  sortBy: z.string(),
+  sortOrder: z.enum(['asc', 'desc']).default('asc'),
+});
 
 /**
  * Common search parameters validation schema
+ * Used for validating search parameters across the application
  */
-export const SearchParamsSchema = z.object({
-  query: z.string().min(1).max(100),
-  ...PaginationParamsSchema.shape,
+export const searchSchema = z.object({
+  query: z.string().min(1, { message: ValidationMessages.MIN_LENGTH(1) }),
 });
 
 /**
- * Type definition for search parameters
+ * Common filter parameters validation schema
+ * Used for validating filter parameters across the application
  */
-export type SearchParams = z.infer<typeof SearchParamsSchema>;
+export const filterSchema = z.record(z.union([z.string(), z.number(), z.boolean(), z.array(z.string()), z.array(z.number())]));
+
+/**
+ * Common query parameters validation schema
+ * Used for validating query parameters across the application
+ * Combines pagination, sorting, search, and filter schemas
+ */
+export const queryParamsSchema = z.object({
+  pagination: paginationSchema.optional(),
+  sorting: sortingSchema.optional(),
+  search: searchSchema.optional(),
+  filters: filterSchema.optional(),
+});
+
+/**
+ * Type inference helper for Zod schemas
+ * Extracts the inferred type from a Zod schema
+ */
+export type InferSchema<T extends z.ZodType<any, any, any>> = z.infer<T>;
+
+/**
+ * Common ID type
+ * Used for typing UUIDs across the application
+ */
+export type ID = InferSchema<typeof idSchema>;
+
+/**
+ * Common date type
+ * Used for typing ISO date strings across the application
+ */
+export type DateString = InferSchema<typeof dateSchema>;
+
+/**
+ * Common date range type
+ * Used for typing date ranges across the application
+ */
+export type DateRange = InferSchema<typeof dateRangeSchema>;
+
+/**
+ * Common pagination parameters type
+ * Used for typing pagination parameters across the application
+ */
+export type PaginationParams = InferSchema<typeof paginationSchema>;
+
+/**
+ * Common sorting parameters type
+ * Used for typing sorting parameters across the application
+ */
+export type SortingParams = InferSchema<typeof sortingSchema>;
+
+/**
+ * Common search parameters type
+ * Used for typing search parameters across the application
+ */
+export type SearchParams = InferSchema<typeof searchSchema>;
+
+/**
+ * Common filter parameters type
+ * Used for typing filter parameters across the application
+ */
+export type FilterParams = InferSchema<typeof filterSchema>;
+
+/**
+ * Common query parameters type
+ * Used for typing query parameters across the application
+ */
+export type QueryParams = InferSchema<typeof queryParamsSchema>;
 
 /**
  * Validation utility functions
@@ -217,43 +212,69 @@ export type SearchParams = z.infer<typeof SearchParamsSchema>;
 export const ValidationUtils = {
   /**
    * Validates data against a schema and returns the result
-   * @param schema Zod schema to validate against
-   * @param data Data to validate
-   * @returns Validation result with success flag, data, and errors
+   * @param schema The Zod schema to validate against
+   * @param data The data to validate
+   * @returns The validation result with success flag, validated data, and errors
    */
-  validate: <T extends z.ZodType>(schema: T, data: unknown): {
+  validate: <T extends z.ZodType<any, any, any>>(schema: T, data: unknown): {
     success: boolean;
     data?: z.infer<T>;
     errors?: z.ZodError;
   } => {
     try {
-      const validData = schema.parse(data);
-      return { success: true, data: validData };
+      const validatedData = schema.parse(data);
+      return {
+        success: true,
+        data: validatedData,
+      };
     } catch (error) {
       if (error instanceof z.ZodError) {
-        return { success: false, errors: error };
+        return {
+          success: false,
+          errors: error,
+        };
       }
       throw error;
     }
   },
 
   /**
-   * Validates data against a schema asynchronously and returns the result
-   * @param schema Zod schema to validate against
-   * @param data Data to validate
-   * @returns Promise with validation result containing success flag, data, and errors
+   * Validates data against a schema and returns the validated data or throws an error
+   * @param schema The Zod schema to validate against
+   * @param data The data to validate
+   * @returns The validated data
+   * @throws {z.ZodError} If validation fails
    */
-  validateAsync: async <T extends z.ZodType>(schema: T, data: unknown): Promise<{
+  validateOrThrow: <T extends z.ZodType<any, any, any>>(schema: T, data: unknown): z.infer<T> => {
+    return schema.parse(data);
+  },
+
+  /**
+   * Validates data against a schema asynchronously and returns the result
+   * @param schema The Zod schema to validate against
+   * @param data The data to validate
+   * @returns A promise that resolves to the validation result
+   */
+  validateAsync: async <T extends z.ZodType<any, any, any>>(
+    schema: T,
+    data: unknown
+  ): Promise<{
     success: boolean;
     data?: z.infer<T>;
     errors?: z.ZodError;
   }> => {
     try {
-      const validData = await schema.parseAsync(data);
-      return { success: true, data: validData };
+      const validatedData = await schema.parseAsync(data);
+      return {
+        success: true,
+        data: validatedData,
+      };
     } catch (error) {
       if (error instanceof z.ZodError) {
-        return { success: false, errors: error };
+        return {
+          success: false,
+          errors: error,
+        };
       }
       throw error;
     }
@@ -261,72 +282,115 @@ export const ValidationUtils = {
 
   /**
    * Formats Zod validation errors into a user-friendly object
-   * @param zodError Zod error object
-   * @returns Object with field names as keys and error messages as values
+   * @param error The Zod error to format
+   * @returns An object with field names as keys and error messages as values
    */
-  formatErrors: (zodError: z.ZodError): Record<string, string> => {
+  formatErrors: (error: z.ZodError): Record<string, string> => {
     const formattedErrors: Record<string, string> = {};
-    
-    zodError.errors.forEach((error) => {
-      const path = error.path.join('.');
-      formattedErrors[path] = error.message;
+    error.errors.forEach((err) => {
+      const path = err.path.join('.');
+      formattedErrors[path] = err.message;
     });
-    
     return formattedErrors;
   },
 
   /**
-   * Creates a partial schema from an existing schema where all properties are optional
-   * @param schema Original Zod schema
-   * @returns New schema with all properties made optional
+   * Creates a partial schema from an existing schema
+   * Makes all properties optional
+   * @param schema The schema to make partial
+   * @returns A new schema with all properties optional
    */
   createPartialSchema: <T extends z.ZodRawShape>(schema: z.ZodObject<T>) => {
-    return z.object({
-      ...Object.fromEntries(
-        Object.entries(schema.shape).map(([key, value]) => [key, value.optional()])
-      ),
-    }) as z.ZodObject<{ [K in keyof T]: z.ZodOptional<T[K]> }>;
+    return schema.partial();
   },
-};
-
-/**
- * Type inference helpers for Zod schemas
- */
-export const SchemaTypes = {
-  /**
-   * Infers the type from a Zod schema
-   * @param schema Zod schema to infer type from
-   * @returns Type inferred from the schema (for TypeScript only)
-   */
-  infer: <T extends z.ZodType>(schema: T) => {} as z.infer<T>,
 
   /**
-   * Creates a partial type from a Zod schema
-   * @param schema Zod schema to create partial type from
-   * @returns Partial type inferred from the schema (for TypeScript only)
+   * Creates a schema that requires at least one of the specified fields
+   * @param schema The base schema
+   * @param keys The keys that should have at least one present
+   * @returns A new schema with the specified constraint
    */
-  partial: <T extends z.ZodRawShape>(schema: z.ZodObject<T>) => {
-    return {} as Partial<z.infer<z.ZodObject<T>>>;
+  requireAtLeastOne: <T extends z.ZodRawShape>(
+    schema: z.ZodObject<T>,
+    keys: (keyof T)[],
+    errorMessage = 'Pelo menos um dos campos deve ser fornecido'
+  ) => {
+    return schema.refine(
+      (data) => keys.some((key) => data[key as keyof typeof data] !== undefined),
+      {
+        message: errorMessage,
+        path: [keys[0] as string],
+      }
+    );
   },
-};
 
-/**
- * Common error messages for validation failures
- */
-export const ValidationErrorMessages = {
-  REQUIRED: 'This field is required',
-  INVALID_TYPE: 'Invalid data type',
-  INVALID_FORMAT: 'Invalid format',
-  INVALID_LENGTH: 'Invalid length',
-  INVALID_RANGE: 'Value is out of allowed range',
-  INVALID_ENUM: 'Value is not one of the allowed options',
-  INVALID_DATE: 'Invalid date format',
-  INVALID_EMAIL: 'Invalid email address',
-  INVALID_PHONE: 'Invalid phone number',
-  INVALID_URL: 'Invalid URL',
-  INVALID_UUID: 'Invalid UUID format',
-  INVALID_PASSWORD: 'Password does not meet security requirements',
-  INVALID_USERNAME: 'Username contains invalid characters',
-  PASSWORDS_DONT_MATCH: 'Passwords do not match',
-  TERMS_NOT_ACCEPTED: 'You must accept the terms and conditions',
+  /**
+   * Creates a schema that requires exactly one of the specified fields
+   * @param schema The base schema
+   * @param keys The keys that should have exactly one present
+   * @returns A new schema with the specified constraint
+   */
+  requireExactlyOne: <T extends z.ZodRawShape>(
+    schema: z.ZodObject<T>,
+    keys: (keyof T)[],
+    errorMessage = 'Exatamente um dos campos deve ser fornecido'
+  ) => {
+    return schema.refine(
+      (data) => keys.filter((key) => data[key as keyof typeof data] !== undefined).length === 1,
+      {
+        message: errorMessage,
+        path: [keys[0] as string],
+      }
+    );
+  },
+
+  /**
+   * Creates a schema that requires all or none of the specified fields
+   * @param schema The base schema
+   * @param keys The keys that should all be present or all be absent
+   * @returns A new schema with the specified constraint
+   */
+  requireAllOrNone: <T extends z.ZodRawShape>(
+    schema: z.ZodObject<T>,
+    keys: (keyof T)[],
+    errorMessage = 'Todos ou nenhum dos campos devem ser fornecidos'
+  ) => {
+    return schema.refine(
+      (data) => {
+        const definedCount = keys.filter((key) => data[key as keyof typeof data] !== undefined).length;
+        return definedCount === 0 || definedCount === keys.length;
+      },
+      {
+        message: errorMessage,
+        path: [keys[0] as string],
+      }
+    );
+  },
+
+  /**
+   * Creates a schema that requires fields conditionally based on another field
+   * @param schema The base schema
+   * @param condition The condition field and value
+   * @param requiredFields The fields that are required when the condition is met
+   * @returns A new schema with the specified constraint
+   */
+  requireWhen: <T extends z.ZodRawShape>(
+    schema: z.ZodObject<T>,
+    condition: { field: keyof T; value: any },
+    requiredFields: (keyof T)[],
+    errorMessage = (field: string) => `O campo ${field} é obrigatório quando ${String(condition.field)} é ${condition.value}`
+  ) => {
+    return schema.refine(
+      (data) => {
+        if (data[condition.field as keyof typeof data] === condition.value) {
+          return requiredFields.every((field) => data[field as keyof typeof data] !== undefined);
+        }
+        return true;
+      },
+      (data) => ({
+        message: errorMessage(String(requiredFields[0])),
+        path: [requiredFields[0] as string],
+      })
+    );
+  },
 };
