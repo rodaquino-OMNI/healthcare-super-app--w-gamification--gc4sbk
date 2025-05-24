@@ -2,9 +2,9 @@
 
 ## Overview
 
-The `@design-system/primitives` package provides the foundational building blocks for the AUSTA SuperApp design system. It contains design tokens, atomic UI components, and primitive elements that form the basis of all higher-level components across both web and mobile platforms.
+The `@design-system/primitives` package provides the foundational building blocks for the AUSTA SuperApp design system. It contains design tokens, atomic UI components, and primitive elements that form the basis of all UI components across both web and mobile platforms.
 
-This package is platform-agnostic and works seamlessly with both React (web) and React Native (mobile) applications, ensuring consistent design implementation across all AUSTA SuperApp interfaces.
+This package is platform-agnostic and works seamlessly with both React (web) and React Native (mobile) applications, ensuring consistent styling and behavior across all platforms.
 
 ## Installation
 
@@ -25,12 +25,12 @@ Design tokens are the atomic values that define the visual language of the AUSTA
 
 ### Colors
 
-```tsx
+```jsx
 import { tokens } from '@design-system/primitives';
 
 // Brand colors
-const brandPrimary = tokens.colors.brand.primary; // #0066CC
-const brandSecondary = tokens.colors.brand.secondary; // #00A3E0
+const primaryColor = tokens.colors.brand.primary; // #5B39F3
+const secondaryColor = tokens.colors.brand.secondary; // #8F7DF7
 
 // Journey-specific colors
 const healthPrimary = tokens.colors.journeys.health.primary; // #0ACF83
@@ -38,61 +38,45 @@ const carePrimary = tokens.colors.journeys.care.primary; // #FF8C42
 const planPrimary = tokens.colors.journeys.plan.primary; // #3A86FF
 
 // Semantic colors
-const success = tokens.colors.semantic.success; // #0ACF83
-const warning = tokens.colors.semantic.warning; // #FFCC00
-const error = tokens.colors.semantic.error; // #FF3B30
-const info = tokens.colors.semantic.info; // #00A3E0
+const successColor = tokens.colors.semantic.success; // #0ACF83
+const errorColor = tokens.colors.semantic.error; // #FF3B30
+const warningColor = tokens.colors.semantic.warning; // #FFCC00
+const infoColor = tokens.colors.semantic.info; // #3A86FF
 
 // Neutral colors
 const black = tokens.colors.neutral.black; // #000000
 const white = tokens.colors.neutral.white; // #FFFFFF
 const gray100 = tokens.colors.neutral.gray100; // #F8F9FA
-// ... other gray scales
+const gray900 = tokens.colors.neutral.gray900; // #212529
 ```
 
 ### Typography
 
-```tsx
+```jsx
 import { tokens } from '@design-system/primitives';
 
 // Font families
-const fontPrimary = tokens.typography.fontFamily.primary; // 'Nunito Sans'
-const fontSecondary = tokens.typography.fontFamily.secondary; // 'Roboto'
+const fontFamily = tokens.typography.fontFamily.base; // 'Inter, system-ui, sans-serif'
+const monoFamily = tokens.typography.fontFamily.mono; // 'Roboto Mono, monospace'
 
 // Font sizes
-const fontXs = tokens.typography.fontSize.xs; // 12px
-const fontSm = tokens.typography.fontSize.sm; // 14px
-const fontMd = tokens.typography.fontSize.md; // 16px
-const fontLg = tokens.typography.fontSize.lg; // 18px
-const fontXl = tokens.typography.fontSize.xl; // 20px
-const font2xl = tokens.typography.fontSize['2xl']; // 24px
-const font3xl = tokens.typography.fontSize['3xl']; // 30px
-const font4xl = tokens.typography.fontSize['4xl']; // 36px
+const fontSize = tokens.typography.fontSize.md; // 16px
+const headingSize = tokens.typography.fontSize.xl; // 24px
 
 // Font weights
-const fontRegular = tokens.typography.fontWeight.regular; // 400
-const fontMedium = tokens.typography.fontWeight.medium; // 500
-const fontSemibold = tokens.typography.fontWeight.semibold; // 600
-const fontBold = tokens.typography.fontWeight.bold; // 700
+const regular = tokens.typography.fontWeight.regular; // 400
+const bold = tokens.typography.fontWeight.bold; // 700
 
 // Line heights
-const lineHeightTight = tokens.typography.lineHeight.tight; // 1.25
-const lineHeightBase = tokens.typography.lineHeight.base; // 1.5
-const lineHeightRelaxed = tokens.typography.lineHeight.relaxed; // 1.75
-
-// Letter spacing
-const letterSpacingTight = tokens.typography.letterSpacing.tight; // -0.05em
-const letterSpacingNormal = tokens.typography.letterSpacing.normal; // 0
-const letterSpacingWide = tokens.typography.letterSpacing.wide; // 0.05em
+const lineHeight = tokens.typography.lineHeight.md; // 1.5
 ```
 
 ### Spacing
 
-```tsx
+```jsx
 import { tokens } from '@design-system/primitives';
 
-// Based on 8-point grid system
-const spaceXxs = tokens.spacing.xxs; // 2px
+// Spacing values (8-point grid system)
 const spaceXs = tokens.spacing.xs; // 4px
 const spaceSm = tokens.spacing.sm; // 8px
 const spaceMd = tokens.spacing.md; // 16px
@@ -100,15 +84,14 @@ const spaceLg = tokens.spacing.lg; // 24px
 const spaceXl = tokens.spacing.xl; // 32px
 const space2xl = tokens.spacing['2xl']; // 48px
 const space3xl = tokens.spacing['3xl']; // 64px
-const space4xl = tokens.spacing['4xl']; // 96px
 ```
 
 ### Shadows
 
-```tsx
+```jsx
 import { tokens } from '@design-system/primitives';
 
-// Elevation shadows
+// Shadow values
 const shadowSm = tokens.shadows.sm; // '0 1px 2px rgba(0, 0, 0, 0.05)'
 const shadowMd = tokens.shadows.md; // '0 4px 6px rgba(0, 0, 0, 0.1)'
 const shadowLg = tokens.shadows.lg; // '0 10px 15px rgba(0, 0, 0, 0.1)'
@@ -117,15 +100,15 @@ const shadowXl = tokens.shadows.xl; // '0 20px 25px rgba(0, 0, 0, 0.15)'
 
 ### Animation
 
-```tsx
+```jsx
 import { tokens } from '@design-system/primitives';
 
-// Duration
-const durationFast = tokens.animation.duration.fast; // 150ms
-const durationNormal = tokens.animation.duration.normal; // 300ms
-const durationSlow = tokens.animation.duration.slow; // 500ms
+// Animation durations
+const durationFast = tokens.animation.duration.fast; // '150ms'
+const durationNormal = tokens.animation.duration.normal; // '300ms'
+const durationSlow = tokens.animation.duration.slow; // '500ms'
 
-// Easing
+// Animation easing curves
 const easingStandard = tokens.animation.easing.standard; // 'cubic-bezier(0.4, 0.0, 0.2, 1)'
 const easingAccelerate = tokens.animation.easing.accelerate; // 'cubic-bezier(0.4, 0.0, 1, 1)'
 const easingDecelerate = tokens.animation.easing.decelerate; // 'cubic-bezier(0.0, 0.0, 0.2, 1)'
@@ -133,156 +116,139 @@ const easingDecelerate = tokens.animation.easing.decelerate; // 'cubic-bezier(0.
 
 ### Breakpoints
 
-```tsx
+```jsx
 import { tokens } from '@design-system/primitives';
 
 // Responsive breakpoints
-const breakpointXs = tokens.breakpoints.xs; // 0px (base)
-const breakpointSm = tokens.breakpoints.sm; // 576px
-const breakpointMd = tokens.breakpoints.md; // 768px
-const breakpointLg = tokens.breakpoints.lg; // 992px
-const breakpointXl = tokens.breakpoints.xl; // 1200px
-const breakpoint2xl = tokens.breakpoints['2xl']; // 1400px
+const breakpointSm = tokens.breakpoints.sm; // '640px'
+const breakpointMd = tokens.breakpoints.md; // '768px'
+const breakpointLg = tokens.breakpoints.lg; // '1024px'
+const breakpointXl = tokens.breakpoints.xl; // '1280px'
+const breakpoint2xl = tokens.breakpoints['2xl']; // '1536px'
 ```
 
 ## Primitive Components
 
-The package provides five foundational UI primitives that serve as the building blocks for all higher-level components in the design system.
+The package includes five foundational primitive components that serve as the building blocks for all UI components in the design system.
 
 ### Box
 
-A versatile layout component that provides comprehensive styling capabilities.
+A versatile layout component that provides comprehensive layout capabilities including flex, grid, spacing, sizing, and positioning.
 
-```tsx
-// Web (React)
+```jsx
 import { Box } from '@design-system/primitives';
 
-const MyComponent = () => (
+// Web example
+const WebExample = () => (
   <Box 
-    padding="md"
-    margin="sm"
+    display="flex" 
+    flexDirection="column" 
+    padding="md" 
     backgroundColor="neutral.gray100"
     borderRadius="md"
-    display="flex"
-    flexDirection="column"
-    alignItems="center"
-    justifyContent="center"
     width="100%"
-    height="200px"
-    shadow="md"
+    maxWidth="500px"
   >
-    Content goes here
+    <Box padding="sm" backgroundColor="white" marginBottom="md">
+      Content Box 1
+    </Box>
+    <Box padding="sm" backgroundColor="white">
+      Content Box 2
+    </Box>
   </Box>
 );
 
-// Mobile (React Native)
-import { Box } from '@design-system/primitives';
-
-const MyComponent = () => (
+// React Native example
+const MobileExample = () => (
   <Box 
-    padding="md"
-    margin="sm"
+    display="flex" 
+    flexDirection="column" 
+    padding="md" 
     backgroundColor="neutral.gray100"
     borderRadius="md"
-    flexDirection="column"
-    alignItems="center"
-    justifyContent="center"
     width="100%"
-    height={200}
-    shadow="md"
   >
-    {/* Content goes here */}
+    <Box padding="sm" backgroundColor="white" marginBottom="md">
+      <Text>Content Box 1</Text>
+    </Box>
+    <Box padding="sm" backgroundColor="white">
+      <Text>Content Box 2</Text>
+    </Box>
   </Box>
 );
 ```
 
 ### Text
 
-A component for rendering text with typography controls.
+Handles typography with support for all text styles, colors, and truncation options.
 
-```tsx
-// Web (React)
+```jsx
 import { Text } from '@design-system/primitives';
 
-const MyComponent = () => (
-  <Text 
-    fontSize="md"
-    fontWeight="bold"
-    color="journeys.health.primary"
-    textAlign="center"
-    lineHeight="base"
-    letterSpacing="normal"
-    truncate
-    numberOfLines={2}
-  >
-    This is a text component with health journey styling
-  </Text>
+// Web example
+const WebExample = () => (
+  <>
+    <Text variant="heading1" color="brand.primary">Heading Text</Text>
+    <Text variant="body" color="neutral.gray900">Regular body text with standard styling.</Text>
+    <Text 
+      variant="caption" 
+      color="neutral.gray600"
+      numberOfLines={1} // Truncates text after 1 line
+    >
+      This is a caption text that will be truncated if it gets too long for a single line.
+    </Text>
+  </>
 );
 
-// Mobile (React Native)
-import { Text } from '@design-system/primitives';
-
-const MyComponent = () => (
-  <Text 
-    fontSize="md"
-    fontWeight="bold"
-    color="journeys.health.primary"
-    textAlign="center"
-    lineHeight="base"
-    letterSpacing="normal"
-    numberOfLines={2}
-  >
-    This is a text component with health journey styling
-  </Text>
+// React Native example
+const MobileExample = () => (
+  <>
+    <Text variant="heading1" color="brand.primary">Heading Text</Text>
+    <Text variant="body" color="neutral.gray900">Regular body text with standard styling.</Text>
+    <Text 
+      variant="caption" 
+      color="neutral.gray600"
+      numberOfLines={1} // Works the same on mobile
+    >
+      This is a caption text that will be truncated if it gets too long for a single line.
+    </Text>
+  </>
 );
 ```
 
 ### Stack
 
-A layout component that arranges children with consistent spacing.
+Implements flex container with responsive spacing and gap support for easy vertical or horizontal layouts.
 
-```tsx
-// Web (React)
+```jsx
 import { Stack, Box, Text } from '@design-system/primitives';
 
-const MyComponent = () => (
-  <Stack 
-    direction="column"
-    spacing="md"
-    align="center"
-    justify="center"
-    wrap="nowrap"
-  >
-    <Box backgroundColor="journeys.health.primary" padding="md">
-      <Text color="neutral.white">Item 1</Text>
+// Vertical stack (default)
+const VerticalStackExample = () => (
+  <Stack spacing="md">
+    <Box padding="sm" backgroundColor="journeys.health.primary">
+      <Text color="white">Item 1</Text>
     </Box>
-    <Box backgroundColor="journeys.care.primary" padding="md">
-      <Text color="neutral.white">Item 2</Text>
+    <Box padding="sm" backgroundColor="journeys.care.primary">
+      <Text color="white">Item 2</Text>
     </Box>
-    <Box backgroundColor="journeys.plan.primary" padding="md">
-      <Text color="neutral.white">Item 3</Text>
+    <Box padding="sm" backgroundColor="journeys.plan.primary">
+      <Text color="white">Item 3</Text>
     </Box>
   </Stack>
 );
 
-// Mobile (React Native)
-import { Stack, Box, Text } from '@design-system/primitives';
-
-const MyComponent = () => (
-  <Stack 
-    direction="column"
-    spacing="md"
-    align="center"
-    justify="center"
-  >
-    <Box backgroundColor="journeys.health.primary" padding="md">
-      <Text color="neutral.white">Item 1</Text>
+// Horizontal stack
+const HorizontalStackExample = () => (
+  <Stack direction="row" spacing="md" alignItems="center">
+    <Box padding="sm" backgroundColor="journeys.health.primary">
+      <Text color="white">Item 1</Text>
     </Box>
-    <Box backgroundColor="journeys.care.primary" padding="md">
-      <Text color="neutral.white">Item 2</Text>
+    <Box padding="sm" backgroundColor="journeys.care.primary">
+      <Text color="white">Item 2</Text>
     </Box>
-    <Box backgroundColor="journeys.plan.primary" padding="md">
-      <Text color="neutral.white">Item 3</Text>
+    <Box padding="sm" backgroundColor="journeys.plan.primary">
+      <Text color="white">Item 3</Text>
     </Box>
   </Stack>
 );
@@ -290,109 +256,144 @@ const MyComponent = () => (
 
 ### Icon
 
-A component for rendering SVG icons with dynamic fills and accessibility support.
+Manages SVG icon rendering with dynamic fills and accessibility support.
 
-```tsx
-// Web (React)
-import { Icon } from '@design-system/primitives';
+```jsx
+import { Icon, Stack } from '@design-system/primitives';
 
-const MyComponent = () => (
-  <Icon 
-    name="heart"
-    size="md"
-    color="journeys.health.primary"
-    accessibilityLabel="Health icon"
-  />
-);
-
-// Mobile (React Native)
-import { Icon } from '@design-system/primitives';
-
-const MyComponent = () => (
-  <Icon 
-    name="heart"
-    size="md"
-    color="journeys.health.primary"
-    accessibilityLabel="Health icon"
-  />
+const IconExample = () => (
+  <Stack direction="row" spacing="md">
+    <Icon name="heart" size="md" color="semantic.error" />
+    <Icon name="calendar" size="md" color="journeys.care.primary" />
+    <Icon name="document" size="md" color="journeys.plan.primary" />
+    <Icon 
+      name="notification" 
+      size="lg" 
+      color="brand.primary"
+      accessibilityLabel="Notifications" // For screen readers
+    />
+  </Stack>
 );
 ```
 
 ### Touchable
 
-A cross-platform pressable element with consistent interaction states.
+Creates cross-platform pressable elements with consistent interaction states.
 
-```tsx
-// Web (React)
-import { Touchable, Text } from '@design-system/primitives';
+```jsx
+import { Touchable, Text, Icon } from '@design-system/primitives';
 
-const MyComponent = () => (
-  <Touchable 
-    onPress={() => console.log('Pressed')}
-    activeOpacity={0.8}
-    backgroundColor="journeys.care.primary"
-    padding="md"
-    borderRadius="md"
-    accessibilityLabel="Press me"
-    accessibilityHint="Activates the button"
-  >
-    <Text color="neutral.white">Press Me</Text>
-  </Touchable>
-);
-
-// Mobile (React Native)
-import { Touchable, Text } from '@design-system/primitives';
-
-const MyComponent = () => (
-  <Touchable 
-    onPress={() => console.log('Pressed')}
-    activeOpacity={0.8}
-    backgroundColor="journeys.care.primary"
-    padding="md"
-    borderRadius="md"
-    accessibilityLabel="Press me"
-    accessibilityHint="Activates the button"
-  >
-    <Text color="neutral.white">Press Me</Text>
-  </Touchable>
+const TouchableExample = () => (
+  <>
+    <Touchable 
+      onPress={() => console.log('Pressed!')}
+      backgroundColor="brand.primary"
+      paddingVertical="sm"
+      paddingHorizontal="md"
+      borderRadius="md"
+      pressedOpacity={0.8} // Opacity when pressed
+    >
+      <Text color="white">Press Me</Text>
+    </Touchable>
+    
+    <Touchable 
+      onPress={() => console.log('Icon pressed!')}
+      hitSlop={8} // Extends touch area by 8px in all directions
+      accessibilityLabel="Settings"
+      accessibilityRole="button"
+    >
+      <Icon name="settings" size="md" color="neutral.gray900" />
+    </Touchable>
+  </>
 );
 ```
 
 ## Integration with Design System
 
-The `@design-system/primitives` package serves as the foundation for the AUSTA SuperApp design system. Higher-level components in the `@austa/design-system` package are built using these primitives, ensuring consistency across the application.
+The `@design-system/primitives` package serves as the foundation for the main `@austa/design-system` package. All higher-level components in the design system are built using these primitives, ensuring consistency across the entire application.
 
-```tsx
-// Example of how a Button component in @austa/design-system might use primitives
-import { Touchable, Text } from '@design-system/primitives';
+```jsx
+// Example of how the design system uses primitives internally
+import { Box, Text, Touchable } from '@design-system/primitives';
 
-const Button = ({ children, variant = 'primary', journey = 'health', onPress, ...props }) => {
+// A Button component in the main design system might look like this
+const Button = ({ children, variant = 'primary', size = 'md', onPress, ...props }) => {
   const getBackgroundColor = () => {
-    if (variant === 'primary') {
-      return `journeys.${journey}.primary`;
+    switch (variant) {
+      case 'primary': return 'brand.primary';
+      case 'secondary': return 'brand.secondary';
+      case 'health': return 'journeys.health.primary';
+      case 'care': return 'journeys.care.primary';
+      case 'plan': return 'journeys.plan.primary';
+      default: return 'brand.primary';
     }
-    return 'neutral.white';
   };
-
-  const getTextColor = () => {
-    if (variant === 'primary') {
-      return 'neutral.white';
+  
+  const getPadding = () => {
+    switch (size) {
+      case 'sm': return { paddingVertical: 'xs', paddingHorizontal: 'sm' };
+      case 'md': return { paddingVertical: 'sm', paddingHorizontal: 'md' };
+      case 'lg': return { paddingVertical: 'md', paddingHorizontal: 'lg' };
+      default: return { paddingVertical: 'sm', paddingHorizontal: 'md' };
     }
-    return `journeys.${journey}.primary`;
   };
-
+  
   return (
     <Touchable
       backgroundColor={getBackgroundColor()}
-      padding="md"
       borderRadius="md"
+      {...getPadding()}
+      pressedOpacity={0.8}
       onPress={onPress}
       {...props}
     >
-      <Text color={getTextColor()} fontWeight="bold" textAlign="center">
+      <Text 
+        color="white" 
+        variant={size === 'sm' ? 'buttonSmall' : 'button'}
+        textAlign="center"
+      >
         {children}
       </Text>
     </Touchable>
+  );
+};
+```
+
+## Usage with Journey Context
+
+The primitives can be used alongside the `@austa/journey-context` package to create journey-specific UI components:
+
+```jsx
+import { Box, Text, Stack } from '@design-system/primitives';
+import { useHealthContext } from '@austa/journey-context';
+
+const HealthMetricDisplay = () => {
+  const { currentMetrics } = useHealthContext();
+  
+  return (
+    <Box 
+      backgroundColor="journeys.health.background"
+      padding="md"
+      borderRadius="md"
+    >
+      <Text variant="heading2" color="journeys.health.primary">Your Health Metrics</Text>
+      <Stack spacing="sm" marginTop="md">
+        {currentMetrics.map(metric => (
+          <Box 
+            key={metric.id}
+            backgroundColor="white"
+            padding="sm"
+            borderRadius="sm"
+            display="flex"
+            flexDirection="row"
+            justifyContent="space-between"
+          >
+            <Text variant="body">{metric.name}</Text>
+            <Text variant="body" fontWeight="bold">{metric.value} {metric.unit}</Text>
+          </Box>
+        ))}
+      </Stack>
+    </Box>
   );
 };
 ```
@@ -402,30 +403,29 @@ const Button = ({ children, variant = 'primary', journey = 'health', onPress, ..
 All components and tokens are fully typed with TypeScript, providing excellent developer experience with autocompletion and type checking.
 
 ```tsx
-import { Box, BoxProps, tokens } from '@design-system/primitives';
+import { Box, Text, tokens } from '@design-system/primitives';
 
-// Type-safe props
-const CustomBox = (props: BoxProps) => (
-  <Box {...props} />
+// TypeScript will enforce correct prop types
+const TypedExample = () => (
+  <Box 
+    padding="md" // Type-checked against available spacing tokens
+    backgroundColor="journeys.health.primary" // Type-checked against available color tokens
+    borderRadius="md" // Type-checked against available radius tokens
+  >
+    <Text 
+      variant="heading2" // Type-checked against available text variants
+      color="white" // Type-checked against available colors
+      numberOfLines={2} // Type-checked as number
+    >
+      TypeScript-powered Components
+    </Text>
+  </Box>
 );
-
-// Type-safe token access
-type ColorToken = keyof typeof tokens.colors;
-type SpacingToken = keyof typeof tokens.spacing;
 ```
-
-## Accessibility
-
-All primitive components are built with accessibility in mind, supporting WCAG 2.1 Level AA standards:
-
-- Proper contrast ratios in color tokens
-- Screen reader support via accessibilityLabel and accessibilityHint props
-- Keyboard navigation support for web components
-- Focus management utilities
 
 ## Contributing
 
-We welcome contributions to the primitives package! Please see [CONTRIBUTING.md](../CONTRIBUTING.md) for guidelines on how to contribute.
+We welcome contributions to the primitives package! Please see the main [CONTRIBUTING.md](../CONTRIBUTING.md) file for guidelines on how to contribute.
 
 ## License
 
