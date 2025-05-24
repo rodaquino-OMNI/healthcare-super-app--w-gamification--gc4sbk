@@ -1,12 +1,17 @@
 {
-  "name": "prettier-sdk-for-yarn-pnp",
-  "private": true,
-  "description": "Prettier SDK for Yarn PnP integration in the AUSTA SuperApp",
+  "name": "prettier-sdk-yarn-pnp",
   "version": "1.0.0",
+  "private": true,
+  "description": "Prettier SDK for Yarn's Plug'n'Play mode",
   "main": "index.js",
   "license": "UNLICENSED",
   "engines": {
     "node": ">=14.0.0"
   },
-  "dependencies": {}
+  "dependencies": {
+    "prettier": "3.2.5"
+  },
+  "peerDependencies": {
+    "prettier": "3.2.5"
+  }
 }
