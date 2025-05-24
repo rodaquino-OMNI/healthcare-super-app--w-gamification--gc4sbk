@@ -1,50 +1,31 @@
 /**
- * @file AuthAdapter.ts
- * @description Mobile-specific authentication adapter implementation
+ * Mobile Authentication Adapter
  * 
- * This adapter handles mobile-specific authentication concerns including:
+ * This adapter implements mobile-specific authentication functionality including:
  * - AsyncStorage-based token persistence
  * - Biometric authentication integration
- * - Automatic token refresh
  * - React Navigation integration
+ * - Automatic token refresh mechanisms
+ * - Enhanced error handling
+ * 
+ * @packageDocumentation
+ * @module @austa/journey-context/adapters/mobile
  */
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import jwtDecode from 'jwt-decode';
 import ReactNativeBiometrics, { BiometryTypes } from 'react-native-biometrics';
-import { Platform } from 'react-native';
-import { AuthSession, AuthState, JwtToken, JwtPayload } from '@austa/interfaces/auth';
-import { isAuthSession } from '@austa/interfaces/auth/session.types';
+import jwtDecode from 'jwt-decode';
+import { AuthSession, AuthState } from '@austa/interfaces/auth';
 
 /**
- * Storage keys for authentication-related data
+ * Storage key for persisting authentication session
  */
-const STORAGE_KEYS = {
-  /**
-   * Key for persisting authentication session
-   */
-  AUTH_SESSION: '@AUSTA:auth_session',
-  
-  /**
-   * Key for biometric authentication preference
-   */
-  BIOMETRIC_ENABLED: '@AUSTA:biometric_enabled',
-  
-  /**
-   * Key for storing the device ID
-   */
-  DEVICE_ID: '@AUSTA:device_id',
-  
-  /**
-   * Key for storing the biometric public key
-   */
-  BIOMETRIC_PUBLIC_KEY: '@AUSTA:biometric_public_key',
-  
-  /**
-   * Key for storing the last authentication method used
-   */
-  LAST_AUTH_METHOD: '@AUSTA:last_auth_method',
-};
+const AUTH_STORAGE_KEY = '@AUSTA:auth_session';
+
+/**
+ * Storage key for biometric authentication status
+ */
+const BIOMETRIC_ENABLED_KEY = '@AUSTA:biometric_enabled';
 
 /**
  * Buffer time (in ms) before token expiration when we should refresh
@@ -53,155 +34,261 @@ const STORAGE_KEYS = {
 const REFRESH_BUFFER_TIME = 5 * 60 * 1000;
 
 /**
- * Biometric prompt message
+ * Error types that can occur during authentication operations
  */
-const BIOMETRIC_PROMPT_MESSAGE = 'Authenticate to access your AUSTA account';
-
-/**
- * Authentication methods
- */
-enum AuthMethod {
-  PASSWORD = 'password',
-  BIOMETRIC = 'biometric',
-  SOCIAL = 'social',
-  SSO = 'sso',
-  OTP = 'otp',
+export enum AuthErrorType {
+  TOKEN_PERSISTENCE_FAILURE = 'TOKEN_PERSISTENCE_FAILURE',
+  TOKEN_RETRIEVAL_FAILURE = 'TOKEN_RETRIEVAL_FAILURE',
+  TOKEN_REFRESH_FAILURE = 'TOKEN_REFRESH_FAILURE',
+  BIOMETRIC_SETUP_FAILURE = 'BIOMETRIC_SETUP_FAILURE',
+  BIOMETRIC_AUTH_FAILURE = 'BIOMETRIC_AUTH_FAILURE',
+  BIOMETRIC_NOT_AVAILABLE = 'BIOMETRIC_NOT_AVAILABLE',
+  BIOMETRIC_NOT_ENROLLED = 'BIOMETRIC_NOT_ENROLLED',
+  NAVIGATION_FAILURE = 'NAVIGATION_FAILURE',
+  INVALID_CREDENTIALS = 'INVALID_CREDENTIALS',
+  NETWORK_FAILURE = 'NETWORK_FAILURE',
+  UNKNOWN_ERROR = 'UNKNOWN_ERROR'
 }
 
 /**
- * Mobile-specific authentication adapter
+ * Custom error class for authentication operations
  */
-export default class MobileAuthAdapter {
+export class AuthError extends Error {
+  type: AuthErrorType;
+  originalError?: Error;
+
+  constructor(type: AuthErrorType, message: string, originalError?: Error) {
+    super(message);
+    this.name = 'AuthError';
+    this.type = type;
+    this.originalError = originalError;
+  }
+}
+
+/**
+ * Options for authentication operations
+ */
+export interface AuthAdapterOptions {
+  /** Whether to enable biometric authentication */
+  enableBiometrics?: boolean;
+  /** Whether to automatically refresh tokens before expiration */
+  autoRefreshTokens?: boolean;
+  /** Custom storage key for auth session */
+  storageKey?: string;
+  /** Maximum retry attempts for token operations */
+  maxRetries?: number;
+  /** Whether to persist authentication state */
+  persistAuthentication?: boolean;
+  /** Callback for handling navigation after authentication */
+  onAuthStateChanged?: (state: AuthState) => void;
+}
+
+/**
+ * Default authentication options
+ */
+const DEFAULT_OPTIONS: AuthAdapterOptions = {
+  enableBiometrics: true,
+  autoRefreshTokens: true,
+  storageKey: AUTH_STORAGE_KEY,
+  maxRetries: 3,
+  persistAuthentication: true,
+};
+
+/**
+ * Biometric authentication configuration
+ */
+interface BiometricConfig {
+  isAvailable: boolean;
+  biometryType?: BiometryTypes;
+  enabled: boolean;
+}
+
+/**
+ * Authentication API interface for making auth requests
+ */
+interface AuthApi {
+  login: (email: string, password: string) => Promise<AuthSession>;
+  register: (userData: object) => Promise<AuthSession>;
+  verifyMfa: (code: string, tempToken: string) => Promise<AuthSession>;
+  refreshToken: () => Promise<AuthSession>;
+  socialLogin: (provider: string, tokenData: object) => Promise<AuthSession>;
+}
+
+/**
+ * Mobile-specific authentication adapter that implements AsyncStorage-based token persistence,
+ * biometric authentication integration, and React Navigation integration for authentication flows.
+ */
+export class AuthAdapter {
+  private options: AuthAdapterOptions;
+  private biometrics: ReactNativeBiometrics;
+  private biometricConfig: BiometricConfig;
   private refreshTimerId: NodeJS.Timeout | null = null;
-  private rnBiometrics: ReactNativeBiometrics;
-  private biometricKeysExist: boolean = false;
-  private biometricType: BiometryTypes | undefined;
-  
+  private authState: AuthState = { session: null, status: 'loading' };
+  private authApi: AuthApi;
+
   /**
-   * Creates a new instance of the mobile authentication adapter
+   * Creates a new AuthAdapter instance
+   * @param authApi Authentication API implementation
+   * @param options Configuration options for the adapter
    */
-  constructor() {
-    // Configure biometrics with appropriate options for the platform
-    const biometricOptions = {
-      allowDeviceCredentials: true // Allow fallback to device PIN/pattern/password
+  constructor(authApi: AuthApi, options: AuthAdapterOptions = {}) {
+    this.options = { ...DEFAULT_OPTIONS, ...options };
+    this.authApi = authApi;
+    this.biometrics = new ReactNativeBiometrics({ allowDeviceCredentials: true });
+    this.biometricConfig = {
+      isAvailable: false,
+      enabled: false
     };
-    
-    // On Android, we can use additional options
-    if (Platform.OS === 'android') {
-      Object.assign(biometricOptions, {
-        // Android-specific options can be added here
-      });
-    }
-    
-    this.rnBiometrics = new ReactNativeBiometrics(biometricOptions);
-    
-    // Initialize biometric capabilities
+
+    // Initialize biometric configuration
     this.initBiometrics();
   }
-  
+
   /**
-   * Initialize biometric capabilities
+   * Initializes biometric authentication capabilities
+   * @private
    */
   private async initBiometrics(): Promise<void> {
     try {
       // Check if biometrics are available on the device
-      const { available, biometryType } = await this.rnBiometrics.isSensorAvailable();
+      const { available, biometryType } = await this.biometrics.isSensorAvailable();
       
-      if (available) {
-        this.biometricType = biometryType;
-        
-        // Check if biometric keys already exist
-        const { keysExist } = await this.rnBiometrics.biometricKeysExist();
-        this.biometricKeysExist = keysExist;
-        
-        // If keys don't exist, create them when needed (during enableBiometricAuth)
-        
-        // Check if biometric auth is already enabled for this user
-        const isEnabled = await this.isBiometricAuthEnabled();
-        console.log(`Biometric authentication is ${isEnabled ? 'enabled' : 'not enabled'} for this user`);
-        console.log(`Biometric type available: ${biometryType}`);
-      } else {
-        console.log('Biometric authentication is not available on this device');
-      }
+      // Load biometric enabled status from storage
+      const enabledString = await AsyncStorage.getItem(BIOMETRIC_ENABLED_KEY);
+      const enabled = enabledString === 'true';
+      
+      this.biometricConfig = {
+        isAvailable: available,
+        biometryType,
+        enabled: available && enabled
+      };
     } catch (error) {
-      console.error('Error initializing biometrics:', error);
-      // Biometrics not available, continue without it
+      console.error('Failed to initialize biometrics:', error);
+      this.biometricConfig = {
+        isAvailable: false,
+        enabled: false
+      };
     }
   }
-  
+
   /**
-   * Load the saved authentication session from storage
+   * Loads the persisted authentication session from AsyncStorage
+   * @returns Promise that resolves with the loaded auth state
    */
-  public async loadPersistedSession(): Promise<AuthState> {
+  async loadPersistedSession(): Promise<AuthState> {
     try {
-      const sessionData = await AsyncStorage.getItem(STORAGE_KEYS.AUTH_SESSION);
+      const storageKey = this.options.storageKey || AUTH_STORAGE_KEY;
+      const sessionData = await AsyncStorage.getItem(storageKey);
       
       if (sessionData) {
-        try {
-          const session = JSON.parse(sessionData);
-          
-          // Validate the session object
-          if (!isAuthSession(session)) {
-            throw new Error('Invalid session format');
-          }
-          
-          // Check if the session is expired
-          const isExpired = session.expiresAt < Date.now();
-          
-          if (isExpired) {
-            // Try to refresh the token if expired
-            try {
-              const newSession = await this.refreshToken(session);
-              return { session: newSession, status: 'authenticated' };
-            } catch (error) {
-              // If refresh fails, clear the session
-              await AsyncStorage.removeItem(STORAGE_KEYS.AUTH_SESSION);
-              return { session: null, status: 'unauthenticated' };
+        const session = JSON.parse(sessionData) as AuthSession;
+        
+        // Check if the session is expired
+        const isExpired = session.expiresAt < Date.now();
+        
+        if (isExpired) {
+          // Try to refresh the token if expired
+          try {
+            if (this.options.autoRefreshTokens) {
+              await this.refreshToken();
+              return this.authState;
+            } else {
+              // If auto-refresh is disabled, clear the session
+              await this.clearSession();
+              this.updateAuthState({ session: null, status: 'unauthenticated' });
+              return this.authState;
             }
-          } else {
-            // Session is valid, set it
-            this.scheduleTokenRefresh(session.expiresAt);
-            return { session, status: 'authenticated' };
+          } catch (error) {
+            // If refresh fails, clear the session
+            await this.clearSession();
+            this.updateAuthState({ session: null, status: 'unauthenticated' });
+            return this.authState;
           }
-        } catch (error) {
-          // Error parsing the session data
-          console.error('Error parsing auth session:', error);
-          await AsyncStorage.removeItem(STORAGE_KEYS.AUTH_SESSION);
-          return { session: null, status: 'unauthenticated' };
+        } else {
+          // Session is valid, set it
+          this.updateAuthState({ session, status: 'authenticated' });
+          
+          // Schedule token refresh if enabled
+          if (this.options.autoRefreshTokens) {
+            this.scheduleTokenRefresh(session.expiresAt);
+          }
+          
+          return this.authState;
         }
       } else {
         // No session found
-        return { session: null, status: 'unauthenticated' };
+        this.updateAuthState({ session: null, status: 'unauthenticated' });
+        return this.authState;
       }
     } catch (error) {
       console.error('Error loading auth session:', error);
-      return { session: null, status: 'unauthenticated' };
+      this.updateAuthState({ session: null, status: 'unauthenticated' });
+      
+      throw new AuthError(
+        AuthErrorType.TOKEN_RETRIEVAL_FAILURE,
+        'Failed to load authentication session from storage',
+        error as Error
+      );
     }
   }
 
   /**
-   * Persist the authentication session to storage
+   * Persists the authentication session to AsyncStorage
+   * @param session Authentication session to persist
+   * @returns Promise that resolves when the operation completes
    */
-  public async persistSession(session: AuthSession | null): Promise<void> {
+  async persistSession(session: AuthSession | null): Promise<void> {
+    if (!this.options.persistAuthentication) {
+      return;
+    }
+    
     try {
+      const storageKey = this.options.storageKey || AUTH_STORAGE_KEY;
+      
       if (session) {
-        await AsyncStorage.setItem(STORAGE_KEYS.AUTH_SESSION, JSON.stringify(session));
+        await AsyncStorage.setItem(storageKey, JSON.stringify(session));
       } else {
-        await AsyncStorage.removeItem(STORAGE_KEYS.AUTH_SESSION);
+        await AsyncStorage.removeItem(storageKey);
       }
     } catch (error) {
       console.error('Error persisting auth session:', error);
-      throw new Error('Failed to persist authentication session');
+      
+      throw new AuthError(
+        AuthErrorType.TOKEN_PERSISTENCE_FAILURE,
+        'Failed to persist authentication session to storage',
+        error as Error
+      );
     }
   }
 
   /**
-   * Schedule a token refresh before expiration
+   * Clears the persisted authentication session from AsyncStorage
+   * @returns Promise that resolves when the operation completes
    */
-  public scheduleTokenRefresh(expiresAt: number): void {
+  async clearSession(): Promise<void> {
+    try {
+      const storageKey = this.options.storageKey || AUTH_STORAGE_KEY;
+      await AsyncStorage.removeItem(storageKey);
+    } catch (error) {
+      console.error('Error clearing auth session:', error);
+      
+      throw new AuthError(
+        AuthErrorType.TOKEN_PERSISTENCE_FAILURE,
+        'Failed to clear authentication session from storage',
+        error as Error
+      );
+    }
+  }
+
+  /**
+   * Schedules a token refresh before expiration
+   * @param expiresAt Timestamp when the token expires
+   */
+  private scheduleTokenRefresh(expiresAt: number): void {
     // Clear any existing refresh timer
     if (this.refreshTimerId) {
       clearTimeout(this.refreshTimerId);
+      this.refreshTimerId = null;
     }
     
     // Calculate when to refresh (5 minutes before expiration)
@@ -211,10 +298,7 @@ export default class MobileAuthAdapter {
     if (timeUntilRefresh > 0) {
       this.refreshTimerId = setTimeout(async () => {
         try {
-          const currentSession = await this.getSession();
-          if (currentSession) {
-            await this.refreshToken(currentSession);
-          }
+          await this.refreshToken();
         } catch (error) {
           console.error('Auto token refresh failed:', error);
           // If refresh fails during auto-refresh, we'll keep the current session
@@ -225,182 +309,147 @@ export default class MobileAuthAdapter {
   }
 
   /**
-   * Get the current session from storage
+   * Updates the authentication state and notifies listeners
+   * @param newState New authentication state
    */
-  private async getSession(): Promise<AuthSession | null> {
-    try {
-      const sessionData = await AsyncStorage.getItem(STORAGE_KEYS.AUTH_SESSION);
-      if (sessionData) {
-        const session = JSON.parse(sessionData);
-        if (isAuthSession(session)) {
-          return session;
-        }
-      }
-      return null;
-    } catch (error) {
-      console.error('Error getting session:', error);
-      return null;
+  private updateAuthState(newState: AuthState): void {
+    this.authState = newState;
+    
+    // Notify listeners if callback is provided
+    if (this.options.onAuthStateChanged) {
+      this.options.onAuthStateChanged(newState);
     }
   }
 
   /**
-   * Refresh the authentication token
+   * Signs in with email and password
+   * @param email User email
+   * @param password User password
+   * @returns Promise that resolves with the authentication session
    */
-  public async refreshToken(session: AuthSession): Promise<AuthSession> {
+  async signIn(email: string, password: string): Promise<AuthSession> {
     try {
-      // Call the refresh token API
-      const response = await fetch('https://api.austa.health/auth/refresh', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Device-Id': await this.getDeviceId(),
-          'X-Platform': Platform.OS,
-        },
-        body: JSON.stringify({
-          refreshToken: session.refreshToken,
-        }),
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.message || 'Token refresh failed');
-      }
-
-      const data = await response.json();
-      const newSession: AuthSession = {
-        accessToken: data.accessToken,
-        refreshToken: data.refreshToken,
-        expiresAt: Date.now() + (data.expiresIn * 1000),
-      };
-
-      // Persist the new session
-      await this.persistSession(newSession);
+      this.updateAuthState({ ...this.authState, status: 'loading' });
       
-      // Schedule the next token refresh
-      this.scheduleTokenRefresh(newSession.expiresAt);
+      const session = await this.authApi.login(email, password);
+      this.updateAuthState({ session, status: 'authenticated' });
       
-      return newSession;
-    } catch (error) {
-      console.error('Token refresh error:', error);
-      throw error;
-    }
-  }
-  
-  /**
-   * Get a unique device identifier
-   * This is used for security tracking and device management
-   */
-  private async getDeviceId(): Promise<string> {
-    try {
-      // Try to get the stored device ID
-      const storedId = await AsyncStorage.getItem(STORAGE_KEYS.DEVICE_ID);
-      
-      if (storedId) {
-        return storedId;
+      // Persist session if enabled
+      if (this.options.persistAuthentication) {
+        await this.persistSession(session);
       }
       
-      // Generate a new device ID if none exists
-      const newId = `${Platform.OS}-${Date.now()}-${Math.random().toString(36).substring(2, 15)}`;
-      await AsyncStorage.setItem(STORAGE_KEYS.DEVICE_ID, newId);
-      
-      return newId;
-    } catch (error) {
-      console.error('Error getting device ID:', error);
-      // Fallback to a temporary ID if storage fails
-      return `temp-${Platform.OS}-${Date.now()}`;
-    }
-  }
-
-  /**
-   * Sign in with email and password
-   */
-  public async signIn(email: string, password: string): Promise<AuthSession> {
-    try {
-      // Call the login API
-      const response = await fetch('https://api.austa.health/auth/login', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Device-Id': await this.getDeviceId(),
-          'X-Platform': Platform.OS,
-        },
-        body: JSON.stringify({
-          email,
-          password,
-        }),
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.message || 'Sign in failed');
+      // Schedule token refresh if enabled
+      if (this.options.autoRefreshTokens) {
+        this.scheduleTokenRefresh(session.expiresAt);
       }
-
-      const data = await response.json();
-      const session: AuthSession = {
-        accessToken: data.accessToken,
-        refreshToken: data.refreshToken,
-        expiresAt: Date.now() + (data.expiresIn * 1000),
-      };
-
-      // Persist the session
-      await this.persistSession(session);
-      
-      // Record the authentication method used
-      await AsyncStorage.setItem(STORAGE_KEYS.LAST_AUTH_METHOD, AuthMethod.PASSWORD);
-      
-      // Schedule token refresh
-      this.scheduleTokenRefresh(session.expiresAt);
       
       return session;
     } catch (error) {
-      console.error('Sign in error:', error);
-      throw error;
+      this.updateAuthState({ session: null, status: 'unauthenticated' });
+      
+      throw new AuthError(
+        AuthErrorType.INVALID_CREDENTIALS,
+        'Failed to sign in with the provided credentials',
+        error as Error
+      );
     }
   }
 
   /**
-   * Register a new user
+   * Signs in using biometric authentication
+   * @returns Promise that resolves with the authentication session
    */
-  public async signUp(userData: object): Promise<AuthSession> {
+  async signInWithBiometrics(): Promise<AuthSession> {
+    // Check if biometrics are available and enabled
+    if (!this.biometricConfig.isAvailable) {
+      throw new AuthError(
+        AuthErrorType.BIOMETRIC_NOT_AVAILABLE,
+        'Biometric authentication is not available on this device'
+      );
+    }
+    
+    if (!this.biometricConfig.enabled) {
+      throw new AuthError(
+        AuthErrorType.BIOMETRIC_NOT_ENROLLED,
+        'Biometric authentication is not enabled for this user'
+      );
+    }
+    
     try {
-      // Call the register API
-      const response = await fetch('https://api.austa.health/auth/register', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(userData),
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || 'Sign up failed');
-      }
-
-      const data = await response.json();
-      const session: AuthSession = {
-        accessToken: data.accessToken,
-        refreshToken: data.refreshToken,
-        expiresAt: Date.now() + (data.expiresIn * 1000),
-      };
-
-      // Persist the session
-      await this.persistSession(session);
+      this.updateAuthState({ ...this.authState, status: 'loading' });
       
-      // Schedule token refresh
-      this.scheduleTokenRefresh(session.expiresAt);
+      // Prompt for biometric authentication
+      const { success } = await this.biometrics.simplePrompt({
+        promptMessage: 'Authenticate to continue',
+        cancelButtonText: 'Cancel'
+      });
+      
+      if (!success) {
+        this.updateAuthState({ session: null, status: 'unauthenticated' });
+        throw new AuthError(
+          AuthErrorType.BIOMETRIC_AUTH_FAILURE,
+          'Biometric authentication failed or was canceled'
+        );
+      }
+      
+      // If biometric authentication succeeds, try to refresh the token
+      const session = await this.refreshToken();
+      return session;
+    } catch (error) {
+      this.updateAuthState({ session: null, status: 'unauthenticated' });
+      
+      if (error instanceof AuthError) {
+        throw error;
+      }
+      
+      throw new AuthError(
+        AuthErrorType.BIOMETRIC_AUTH_FAILURE,
+        'Biometric authentication failed',
+        error as Error
+      );
+    }
+  }
+
+  /**
+   * Registers a new user
+   * @param userData User registration data
+   * @returns Promise that resolves with the authentication session
+   */
+  async signUp(userData: object): Promise<AuthSession> {
+    try {
+      this.updateAuthState({ ...this.authState, status: 'loading' });
+      
+      const session = await this.authApi.register(userData);
+      this.updateAuthState({ session, status: 'authenticated' });
+      
+      // Persist session if enabled
+      if (this.options.persistAuthentication) {
+        await this.persistSession(session);
+      }
+      
+      // Schedule token refresh if enabled
+      if (this.options.autoRefreshTokens) {
+        this.scheduleTokenRefresh(session.expiresAt);
+      }
       
       return session;
     } catch (error) {
-      console.error('Sign up error:', error);
-      throw error;
+      this.updateAuthState({ session: null, status: 'unauthenticated' });
+      
+      throw new AuthError(
+        AuthErrorType.UNKNOWN_ERROR,
+        'Failed to register new user',
+        error as Error
+      );
     }
   }
 
   /**
-   * Sign out the current user
+   * Signs out the current user
+   * @returns Promise that resolves when sign out is complete
    */
-  public async signOut(): Promise<void> {
+  async signOut(): Promise<void> {
     try {
       // Clear any scheduled token refresh
       if (this.refreshTimerId) {
@@ -408,104 +457,238 @@ export default class MobileAuthAdapter {
         this.refreshTimerId = null;
       }
       
-      // Remove session from storage
-      await AsyncStorage.removeItem(STORAGE_KEYS.AUTH_SESSION);
+      // Clear session from storage
+      await this.clearSession();
       
-      // Record the logout event
-      await AsyncStorage.setItem(STORAGE_KEYS.LAST_AUTH_METHOD, 'none');
+      // Update state
+      this.updateAuthState({ session: null, status: 'unauthenticated' });
     } catch (error) {
       console.error('Sign out error:', error);
-      throw error;
+      
+      throw new AuthError(
+        AuthErrorType.UNKNOWN_ERROR,
+        'Failed to sign out',
+        error as Error
+      );
     }
   }
 
   /**
-   * Handle MFA verification
+   * Handles MFA verification
+   * @param code MFA verification code
+   * @param tempToken Temporary token from initial authentication
+   * @returns Promise that resolves with the authentication session
    */
-  public async handleMfaVerification(code: string, tempToken: string): Promise<AuthSession> {
+  async verifyMfa(code: string, tempToken: string): Promise<AuthSession> {
     try {
-      // Call the MFA verification API
-      const response = await fetch('https://api.austa.health/auth/verify-mfa', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          code,
-          tempToken,
-        }),
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || 'MFA verification failed');
-      }
-
-      const data = await response.json();
-      const session: AuthSession = {
-        accessToken: data.accessToken,
-        refreshToken: data.refreshToken,
-        expiresAt: Date.now() + (data.expiresIn * 1000),
-      };
-
-      // Persist the session
-      await this.persistSession(session);
+      this.updateAuthState({ ...this.authState, status: 'loading' });
       
-      // Schedule token refresh
-      this.scheduleTokenRefresh(session.expiresAt);
+      const session = await this.authApi.verifyMfa(code, tempToken);
+      this.updateAuthState({ session, status: 'authenticated' });
+      
+      // Persist session if enabled
+      if (this.options.persistAuthentication) {
+        await this.persistSession(session);
+      }
+      
+      // Schedule token refresh if enabled
+      if (this.options.autoRefreshTokens) {
+        this.scheduleTokenRefresh(session.expiresAt);
+      }
       
       return session;
     } catch (error) {
-      console.error('MFA verification error:', error);
-      throw error;
+      this.updateAuthState({ session: null, status: 'unauthenticated' });
+      
+      throw new AuthError(
+        AuthErrorType.UNKNOWN_ERROR,
+        'Failed to verify MFA code',
+        error as Error
+      );
     }
   }
 
   /**
-   * Handle social login (OAuth)
+   * Handles social login (OAuth)
+   * @param provider Social provider (e.g., 'google', 'facebook')
+   * @param tokenData Token data from the OAuth provider
+   * @returns Promise that resolves with the authentication session
    */
-  public async handleSocialLogin(provider: string, tokenData: object): Promise<AuthSession> {
+  async socialLogin(provider: string, tokenData: object): Promise<AuthSession> {
     try {
-      // Call the social login API
-      const response = await fetch(`https://api.austa.health/auth/social/${provider}`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(tokenData),
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || 'Social login failed');
-      }
-
-      const data = await response.json();
-      const session: AuthSession = {
-        accessToken: data.accessToken,
-        refreshToken: data.refreshToken,
-        expiresAt: Date.now() + (data.expiresIn * 1000),
-      };
-
-      // Persist the session
-      await this.persistSession(session);
+      this.updateAuthState({ ...this.authState, status: 'loading' });
       
-      // Schedule token refresh
-      this.scheduleTokenRefresh(session.expiresAt);
+      const session = await this.authApi.socialLogin(provider, tokenData);
+      this.updateAuthState({ session, status: 'authenticated' });
+      
+      // Persist session if enabled
+      if (this.options.persistAuthentication) {
+        await this.persistSession(session);
+      }
+      
+      // Schedule token refresh if enabled
+      if (this.options.autoRefreshTokens) {
+        this.scheduleTokenRefresh(session.expiresAt);
+      }
       
       return session;
     } catch (error) {
-      console.error('Social login error:', error);
-      throw error;
+      this.updateAuthState({ session: null, status: 'unauthenticated' });
+      
+      throw new AuthError(
+        AuthErrorType.UNKNOWN_ERROR,
+        'Failed to authenticate with social provider',
+        error as Error
+      );
     }
   }
 
   /**
-   * Get user information from token
+   * Refreshes the authentication token
+   * @returns Promise that resolves with the refreshed authentication session
    */
-  public getUserFromToken(token: string): JwtPayload | null {
+  async refreshToken(): Promise<AuthSession> {
     try {
-      return jwtDecode<JwtPayload>(token);
+      // Only attempt refresh if we have a session
+      if (!this.authState.session) {
+        throw new Error('No session to refresh');
+      }
+      
+      const newSession = await this.authApi.refreshToken();
+      this.updateAuthState({ session: newSession, status: 'authenticated' });
+      
+      // Persist session if enabled
+      if (this.options.persistAuthentication) {
+        await this.persistSession(newSession);
+      }
+      
+      // Schedule the next token refresh if enabled
+      if (this.options.autoRefreshTokens) {
+        this.scheduleTokenRefresh(newSession.expiresAt);
+      }
+      
+      return newSession;
+    } catch (error) {
+      // On refresh failure, user must re-authenticate
+      this.updateAuthState({ session: null, status: 'unauthenticated' });
+      
+      throw new AuthError(
+        AuthErrorType.TOKEN_REFRESH_FAILURE,
+        'Failed to refresh authentication token',
+        error as Error
+      );
+    }
+  }
+
+  /**
+   * Enables biometric authentication for the current user
+   * @returns Promise that resolves when biometric authentication is enabled
+   */
+  async enableBiometrics(): Promise<void> {
+    // Check if biometrics are available
+    if (!this.biometricConfig.isAvailable) {
+      throw new AuthError(
+        AuthErrorType.BIOMETRIC_NOT_AVAILABLE,
+        'Biometric authentication is not available on this device'
+      );
+    }
+    
+    try {
+      // Prompt for biometric authentication to confirm
+      const { success } = await this.biometrics.simplePrompt({
+        promptMessage: 'Authenticate to enable biometric login',
+        cancelButtonText: 'Cancel'
+      });
+      
+      if (!success) {
+        throw new AuthError(
+          AuthErrorType.BIOMETRIC_AUTH_FAILURE,
+          'Biometric authentication failed or was canceled'
+        );
+      }
+      
+      // Store biometric enabled status
+      await AsyncStorage.setItem(BIOMETRIC_ENABLED_KEY, 'true');
+      
+      // Update biometric config
+      this.biometricConfig.enabled = true;
+    } catch (error) {
+      if (error instanceof AuthError) {
+        throw error;
+      }
+      
+      throw new AuthError(
+        AuthErrorType.BIOMETRIC_SETUP_FAILURE,
+        'Failed to enable biometric authentication',
+        error as Error
+      );
+    }
+  }
+
+  /**
+   * Disables biometric authentication for the current user
+   * @returns Promise that resolves when biometric authentication is disabled
+   */
+  async disableBiometrics(): Promise<void> {
+    try {
+      // Remove biometric enabled status
+      await AsyncStorage.removeItem(BIOMETRIC_ENABLED_KEY);
+      
+      // Update biometric config
+      this.biometricConfig.enabled = false;
+    } catch (error) {
+      throw new AuthError(
+        AuthErrorType.UNKNOWN_ERROR,
+        'Failed to disable biometric authentication',
+        error as Error
+      );
+    }
+  }
+
+  /**
+   * Checks if biometric authentication is available on the device
+   * @returns Promise that resolves with biometric availability information
+   */
+  async isBiometricsAvailable(): Promise<{ available: boolean; biometryType?: BiometryTypes }> {
+    try {
+      const { available, biometryType } = await this.biometrics.isSensorAvailable();
+      return { available, biometryType };
+    } catch (error) {
+      console.error('Error checking biometrics availability:', error);
+      return { available: false };
+    }
+  }
+
+  /**
+   * Checks if biometric authentication is enabled for the current user
+   * @returns Promise that resolves with whether biometrics are enabled
+   */
+  async isBiometricsEnabled(): Promise<boolean> {
+    try {
+      const enabledString = await AsyncStorage.getItem(BIOMETRIC_ENABLED_KEY);
+      return enabledString === 'true';
+    } catch (error) {
+      console.error('Error checking biometrics enabled status:', error);
+      return false;
+    }
+  }
+
+  /**
+   * Gets the current authentication state
+   * @returns Current authentication state
+   */
+  getAuthState(): AuthState {
+    return this.authState;
+  }
+
+  /**
+   * Gets user information from token
+   * @param token JWT token
+   * @returns Decoded token payload
+   */
+  getUserFromToken(token: string): any {
+    try {
+      return jwtDecode(token);
     } catch (error) {
       console.error('Error decoding token:', error);
       return null;
@@ -513,217 +696,9 @@ export default class MobileAuthAdapter {
   }
 
   /**
-   * Check if biometric authentication is available
+   * Cleans up resources used by the adapter
    */
-  public async isBiometricAuthAvailable(): Promise<boolean> {
-    try {
-      const { available } = await this.rnBiometrics.isSensorAvailable();
-      return available;
-    } catch (error) {
-      console.error('Error checking biometric availability:', error);
-      return false;
-    }
-  }
-
-  /**
-   * Get the type of biometric authentication available
-   */
-  public getBiometricType(): BiometryTypes | undefined {
-    return this.biometricType;
-  }
-
-  /**
-   * Enable biometric authentication for the current user
-   */
-  public async enableBiometricAuth(): Promise<boolean> {
-    try {
-      // Check if biometrics are available
-      const isAvailable = await this.isBiometricAuthAvailable();
-      if (!isAvailable) {
-        throw new Error('Biometric authentication is not available on this device');
-      }
-
-      // Create biometric keys if they don't exist
-      if (!this.biometricKeysExist) {
-        const { publicKey } = await this.rnBiometrics.createKeys();
-        this.biometricKeysExist = true;
-        
-        // Store the public key for reference
-        await AsyncStorage.setItem(STORAGE_KEYS.BIOMETRIC_PUBLIC_KEY, publicKey);
-        
-        // Here you could send the public key to your server for verification
-        // during future biometric authentication attempts
-        console.log('Generated public key for biometric authentication:', publicKey);
-      }
-
-      // Store the user's preference for biometric authentication
-      await AsyncStorage.setItem(STORAGE_KEYS.BIOMETRIC_ENABLED, 'true');
-      
-      return true;
-    } catch (error) {
-      console.error('Error enabling biometric authentication:', error);
-      return false;
-    }
-  }
-
-  /**
-   * Disable biometric authentication for the current user
-   */
-  public async disableBiometricAuth(): Promise<boolean> {
-    try {
-      // Remove the user's preference for biometric authentication
-      await AsyncStorage.setItem(STORAGE_KEYS.BIOMETRIC_ENABLED, 'false');
-      
-      return true;
-    } catch (error) {
-      console.error('Error disabling biometric authentication:', error);
-      return false;
-    }
-  }
-
-  /**
-   * Check if biometric authentication is enabled
-   */
-  public async isBiometricAuthEnabled(): Promise<boolean> {
-    try {
-      const enabled = await AsyncStorage.getItem(STORAGE_KEYS.BIOMETRIC_ENABLED);
-      return enabled === 'true';
-    } catch (error) {
-      console.error('Error checking if biometric auth is enabled:', error);
-      return false;
-    }
-  }
-
-  /**
-   * Authenticate using biometrics
-   */
-  public async authenticateWithBiometrics(): Promise<AuthSession | null> {
-    try {
-      // Check if biometric authentication is enabled
-      const isEnabled = await this.isBiometricAuthEnabled();
-      if (!isEnabled) {
-        throw new Error('Biometric authentication is not enabled');
-      }
-
-      // Check if biometrics are available
-      const isAvailable = await this.isBiometricAuthAvailable();
-      if (!isAvailable) {
-        throw new Error('Biometric authentication is not available on this device');
-      }
-
-      // Get the current session
-      const currentSession = await this.getSession();
-      if (!currentSession) {
-        throw new Error('No active session found');
-      }
-
-      // Get biometric prompt message based on the type of biometric available
-      const promptMessage = this.getBiometricPromptMessage();
-
-      // Prompt for biometric authentication
-      const { success } = await this.rnBiometrics.simplePrompt({
-        promptMessage,
-        cancelButtonText: 'Cancel',
-        // On Android, we can customize the prompt further
-        ...(Platform.OS === 'android' ? {
-          confirmationRequired: true
-        } : {})
-      });
-
-      if (!success) {
-        throw new Error('Biometric authentication failed or was cancelled');
-      }
-
-      // If the session is expired, refresh it
-      if (currentSession.expiresAt < Date.now()) {
-        return await this.refreshToken(currentSession);
-      }
-
-      // Return the current session
-      return currentSession;
-    } catch (error) {
-      console.error('Biometric authentication error:', error);
-      return null;
-    }
-  }
-  
-  /**
-   * Get the appropriate biometric prompt message based on the available biometric type
-   */
-  private getBiometricPromptMessage(): string {
-    if (this.biometricType === BiometryTypes.FaceID) {
-      return 'Authenticate with Face ID to access your AUSTA account';
-    } else if (this.biometricType === BiometryTypes.TouchID) {
-      return 'Authenticate with Touch ID to access your AUSTA account';
-    } else if (this.biometricType === BiometryTypes.Biometrics) {
-      // Generic biometrics (usually Android)
-      return 'Authenticate with biometrics to access your AUSTA account';
-    }
-    
-    // Default message
-    return BIOMETRIC_PROMPT_MESSAGE;
-  }
-
-  /**
-   * Create a cryptographic signature using biometrics
-   * This can be used for secure operations that require additional verification
-   * 
-   * This is a more secure form of biometric authentication as it uses the device's
-   * secure hardware to create a cryptographic signature that can be verified by the server.
-   * This prevents replay attacks and provides stronger security than simple biometric prompts.
-   */
-  public async createSignatureWithBiometrics(payload: string): Promise<string | null> {
-    try {
-      // Check if biometric authentication is enabled
-      const isEnabled = await this.isBiometricAuthEnabled();
-      if (!isEnabled) {
-        throw new Error('Biometric authentication is not enabled');
-      }
-
-      // Check if biometrics are available
-      const isAvailable = await this.isBiometricAuthAvailable();
-      if (!isAvailable) {
-        throw new Error('Biometric authentication is not available on this device');
-      }
-      
-      // Check if keys exist, create them if they don't
-      if (!this.biometricKeysExist) {
-        const { publicKey } = await this.rnBiometrics.createKeys();
-        this.biometricKeysExist = true;
-        
-        // Here you would typically send the public key to your server
-        // for verification during future biometric authentication attempts
-        console.log('Generated new public key for biometric authentication:', publicKey);
-        
-        // Store the public key for reference
-        await AsyncStorage.setItem('@AUSTA:biometric_public_key', publicKey);
-      }
-
-      // Get biometric prompt message based on the type of biometric available
-      const promptMessage = this.getBiometricPromptMessage();
-
-      // Create a signature with biometric authentication
-      const { success, signature } = await this.rnBiometrics.createSignature({
-        promptMessage,
-        payload,
-        cancelButtonText: 'Cancel',
-      });
-
-      if (!success || !signature) {
-        throw new Error('Biometric signature creation failed or was cancelled');
-      }
-
-      return signature;
-    } catch (error) {
-      console.error('Biometric signature error:', error);
-      return null;
-    }
-  }
-
-  /**
-   * Clean up resources when the adapter is no longer needed
-   */
-  public cleanup(): void {
+  cleanup(): void {
     // Clear any scheduled token refresh
     if (this.refreshTimerId) {
       clearTimeout(this.refreshTimerId);
