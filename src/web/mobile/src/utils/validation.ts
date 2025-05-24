@@ -7,28 +7,19 @@
  */
 
 import { z } from 'zod'; // v3.22.4
-import { i18n } from 'i18next'; // latest
-import { useTranslation } from 'react-i18next'; // latest
-import { 
-  claimValidationSchema, 
-  userValidationSchema, 
-  isValidCPF, 
-  isNotEmpty,
-  useClaimValidationSchema,
-  useUserValidationSchema,
-} from '@austa/interfaces/common/validation';
-import { 
-  healthMetricValidationSchema,
-  useHealthMetricValidationSchema,
-} from '@austa/interfaces/health/validation';
-import {
-  appointmentValidationSchema,
-  useAppointmentValidationSchema,
-} from '@austa/interfaces/care/validation';
-import {
-  benefitValidationSchema,
-  useBenefitValidationSchema,
-} from '@austa/interfaces/plan/validation';
+import { useTranslation } from 'react-i18next';
+
+// Import validation schemas from @austa/interfaces instead of shared utils directly
+import { ValidationMessages, ValidationUtils, isValidCPF, isNotEmpty } from '@austa/interfaces/common/validation';
+
+// Import journey-specific validation schemas
+import { claimValidationSchema } from '@austa/interfaces/plan/claims.validation';
+import { userValidationSchema } from '@austa/interfaces/auth/user.validation';
+import { healthMetricValidationSchema } from '@austa/interfaces/health/metric';
+import { appointmentValidationSchema } from '@austa/interfaces/care/appointment';
+
+// Import hooks from journey-context
+import { useJourneyContext } from '@austa/journey-context';
 
 /**
  * Maximum allowed file sizes for different file types (in bytes)
@@ -49,15 +40,16 @@ export const ALLOWED_FILE_TYPES = {
 };
 
 /**
- * Hook that extends the shared claim validation schema with mobile-specific validations
+ * Hook that provides the claim validation schema with mobile-specific validations
  * 
  * @returns A Zod schema for validating claim submissions on mobile
  */
 export const useMobileClaimValidationSchema = () => {
-  const baseSchema = useClaimValidationSchema();
+  // Get the journey context to access plan-specific state if needed
+  const { plan } = useJourneyContext();
   
   // Extend the base schema with mobile-specific validations
-  return baseSchema.extend({
+  return claimValidationSchema.extend({
     // Add optional GPS location for mobile claim submissions
     location: z.object({
       latitude: z.number().optional(),
@@ -67,15 +59,16 @@ export const useMobileClaimValidationSchema = () => {
 };
 
 /**
- * Hook that extends the shared user validation schema with mobile-specific validations
+ * Hook that provides the user validation schema with mobile-specific validations
  * 
  * @returns A Zod schema for validating user data on mobile
  */
 export const useMobileUserValidationSchema = () => {
-  const baseSchema = useUserValidationSchema();
+  // Get the journey context to access auth-specific state if needed
+  const { auth } = useJourneyContext();
   
   // Extend the base schema with mobile-specific validations
-  return baseSchema.extend({
+  return userValidationSchema.extend({
     deviceId: z.string().optional(),
     pushNotificationToken: z.string().optional(),
     biometricEnabled: z.boolean().optional(),
@@ -83,47 +76,52 @@ export const useMobileUserValidationSchema = () => {
 };
 
 /**
- * Hook that extends the shared health metric validation schema with mobile-specific validations
+ * Hook that provides the health metric validation schema with mobile-specific validations
  * 
  * @returns A Zod schema for validating health metrics on mobile
  */
 export const useMobileHealthMetricValidationSchema = () => {
-  const baseSchema = useHealthMetricValidationSchema();
+  // Get the journey context to access health-specific state if needed
+  const { health } = useJourneyContext();
   
   // Extend the base schema with mobile-specific validations
-  return baseSchema.extend({
-    deviceSource: z.string().optional(),
-    syncTimestamp: z.date().optional(),
+  return healthMetricValidationSchema.extend({
+    // Add device source information for metrics recorded on mobile
+    deviceSource: z.object({
+      deviceId: z.string().optional(),
+      deviceName: z.string().optional(),
+      deviceType: z.string().optional(),
+    }).optional(),
+    // Add location data for metrics that may include GPS information
+    location: z.object({
+      latitude: z.number().optional(),
+      longitude: z.number().optional(),
+    }).optional(),
   });
 };
 
 /**
- * Hook that extends the shared appointment validation schema with mobile-specific validations
+ * Hook that provides the appointment validation schema with mobile-specific validations
  * 
  * @returns A Zod schema for validating appointments on mobile
  */
 export const useMobileAppointmentValidationSchema = () => {
-  const baseSchema = useAppointmentValidationSchema();
+  // Get the journey context to access care-specific state if needed
+  const { care } = useJourneyContext();
   
   // Extend the base schema with mobile-specific validations
-  return baseSchema.extend({
-    reminderEnabled: z.boolean().optional(),
-    calendarSynced: z.boolean().optional(),
-  });
-};
-
-/**
- * Hook that extends the shared benefit validation schema with mobile-specific validations
- * 
- * @returns A Zod schema for validating benefits on mobile
- */
-export const useMobileBenefitValidationSchema = () => {
-  const baseSchema = useBenefitValidationSchema();
-  
-  // Extend the base schema with mobile-specific validations
-  return baseSchema.extend({
-    notificationsEnabled: z.boolean().optional(),
-    favorited: z.boolean().optional(),
+  return appointmentValidationSchema.extend({
+    // Add reminder preferences specific to mobile
+    reminderPreferences: z.object({
+      pushNotification: z.boolean().default(true),
+      reminderTime: z.number().min(0).max(24 * 60).default(30), // minutes before appointment
+    }).optional(),
+    // Add location data for in-person appointments
+    location: z.object({
+      latitude: z.number().optional(),
+      longitude: z.number().optional(),
+      address: z.string().optional(),
+    }).optional(),
   });
 };
 
@@ -294,7 +292,7 @@ export const formatBrazilianPhone = (phone: string): string => {
  * @returns True if valid, false otherwise
  */
 export const validateEmail = (email: string): boolean => {
-  // Basic email validation using Zod
+  // Use Zod's email validation
   const result = z.string().email().safeParse(email);
   return result.success;
 };
@@ -614,7 +612,6 @@ export default {
   useMobileUserValidationSchema,
   useMobileHealthMetricValidationSchema,
   useMobileAppointmentValidationSchema,
-  useMobileBenefitValidationSchema,
   
   // Mobile-specific utilities
   formatCPF,
