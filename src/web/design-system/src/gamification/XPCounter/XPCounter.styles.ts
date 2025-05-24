@@ -1,25 +1,28 @@
 import styled from 'styled-components';
-import { JourneyType } from '@austa/interfaces/themes';
-import { spacing, typography, colors } from '@design-system/primitives';
+import { JourneyId } from '@austa/journey-context/types';
+
+type JourneyProps = {
+  journey?: JourneyId;
+};
 
 export const XPContainer = styled.div`
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  margin: ${spacing.sm} 0;
+  margin: ${({ theme }) => theme.spacing.sm} 0;
 `;
 
-export const XPLabel = styled.span<{ journey?: JourneyType }>`
-  font-size: ${typography.fontSize.lg};
-  font-weight: ${typography.fontWeight.bold};
-  color: ${({ journey, theme }) => 
-    journey ? theme.colors.journeys[journey].primary : colors.brand.primary};
+export const XPLabel = styled.span<JourneyProps>`
+  font-size: ${({ theme }) => theme.typography.fontSize.lg};
+  font-weight: ${({ theme }) => theme.typography.fontWeight.bold};
+  color: ${({ theme, journey }) => 
+    journey ? theme.colors.journeys[journey].primary : theme.colors.brand.primary};
   display: flex;
   align-items: center;
 `;
 
 export const XPRemaining = styled.span`
-  font-size: ${typography.fontSize.sm};
-  color: ${colors.neutral.gray600};
-  margin-top: ${spacing.xs};
+  font-size: ${({ theme }) => theme.typography.fontSize.sm};
+  color: ${({ theme }) => theme.colors.neutral.gray600};
+  margin-top: ${({ theme }) => theme.spacing.xs};
 `;
