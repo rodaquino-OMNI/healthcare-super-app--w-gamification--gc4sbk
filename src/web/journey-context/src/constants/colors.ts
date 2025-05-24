@@ -1,123 +1,65 @@
 /**
- * Journey-specific color definitions for the AUSTA SuperApp.
- * 
- * This file centralizes all color constants used for journey-based theming
- * across both web and mobile platforms. It provides semantic color mappings
- * and theme variants (light/dark) for each journey.
- * 
- * The color system is organized into:
- * - Base colors: Core hex values for each journey
- * - Semantic mappings: Functional color assignments (primary, secondary, etc.)
- * - Theme variants: Light and dark mode color schemes
+ * @file colors.ts
+ * @description Defines journey-specific color schemes and theming values for consistent UI rendering
+ * across the AUSTA SuperApp. Contains color hex codes, semantic color mappings, and theme
+ * configurations for each journey (Health, Care, Plan).
  */
 
+import { JourneyId, JOURNEY_IDS, JourneyTheme } from '../types';
+
 /**
- * Base color hex values for each journey
+ * Base color constants
+ * Raw hex values for all colors used in the application
  */
 export const BASE_COLORS = {
-  // Health Journey (Green palette)
-  health: {
-    green50: '#F0FFF4',   // Lightest green - backgrounds
-    green100: '#DCFCE7',  // Very light green - hover states
-    green200: '#BBF7D0',  // Light green - borders, dividers
-    green300: '#86EFAC',  // Medium-light green - secondary elements
-    green400: '#4ADE80',  // Medium green - active states
-    green500: '#0ACF83',  // Primary green - main brand color
-    green600: '#05A66A',  // Medium-dark green - secondary brand color
-    green700: '#00875A',  // Dark green - accent color
-    green800: '#005C3E',  // Very dark green - text on light backgrounds
-    green900: '#004D34',  // Darkest green - text on light backgrounds
-  },
+  // Brand colors
+  brandPrimary: '#3772FF',
+  brandSecondary: '#5096FF',
+  brandTertiary: '#A9C4FF',
   
-  // Care Journey (Orange palette)
-  care: {
-    orange50: '#FFF8F0',  // Lightest orange - backgrounds
-    orange100: '#FFEDD5',  // Very light orange - hover states
-    orange200: '#FED7AA',  // Light orange - borders, dividers
-    orange300: '#FDBA74',  // Medium-light orange - secondary elements
-    orange400: '#FB923C',  // Medium orange - active states
-    orange500: '#FF8C42',  // Primary orange - main brand color
-    orange600: '#F17C3A',  // Medium-dark orange - secondary brand color
-    orange700: '#E55A00',  // Dark orange - accent color
-    orange800: '#C2410C',  // Very dark orange - text on light backgrounds
-    orange900: '#9A3412',  // Darkest orange - text on light backgrounds
-  },
+  // Journey-specific colors
+  healthPrimary: '#00B383',
+  healthSecondary: '#4DDBBA',
+  healthTertiary: '#B3F0E0',
   
-  // Plan Journey (Blue palette)
-  plan: {
-    blue50: '#F0F8FF',    // Lightest blue - backgrounds
-    blue100: '#E0F2FE',   // Very light blue - hover states
-    blue200: '#BAE6FD',   // Light blue - borders, dividers
-    blue300: '#7DD3FC',   // Medium-light blue - secondary elements
-    blue400: '#38BDF8',   // Medium blue - active states
-    blue500: '#3A86FF',   // Primary blue - main brand color
-    blue600: '#2D6FD9',   // Medium-dark blue - secondary brand color
-    blue700: '#0057E7',   // Dark blue - accent color
-    blue800: '#1E40AF',   // Very dark blue - text on light backgrounds
-    blue900: '#1E3A8A',   // Darkest blue - text on light backgrounds
-  },
+  carePrimary: '#FF8C42',
+  careSecondary: '#FFAD75',
+  careTertiary: '#FFD1AD',
   
-  // Neutral colors (shared across journeys)
-  neutral: {
-    white: '#FFFFFF',      // Pure white
-    gray50: '#F9FAFB',     // Nearly white
-    gray100: '#F5F5F5',    // Very light gray
-    gray200: '#EEEEEE',    // Light gray
-    gray300: '#E0E0E0',    // Light-medium gray
-    gray400: '#BDBDBD',    // Medium gray
-    gray500: '#9E9E9E',    // Medium gray
-    gray600: '#757575',    // Medium-dark gray
-    gray700: '#616161',    // Dark gray
-    gray800: '#424242',    // Very dark gray
-    gray900: '#212121',    // Nearly black
-    black: '#000000',      // Pure black
-  },
+  planPrimary: '#3772FF',
+  planSecondary: '#5096FF',
+  planTertiary: '#A9C4FF',
   
-  // Semantic colors (shared across journeys)
-  semantic: {
-    success: '#00C853',    // Success states, confirmations
-    warning: '#FFD600',    // Warning states, alerts
-    error: '#FF3B30',      // Error states, destructive actions
-    info: '#0066CC',       // Informational states
-  }
+  // Semantic colors
+  success: '#00B383',
+  warning: '#FFB054',
+  error: '#FF5454',
+  info: '#5096FF',
+  
+  // Neutral colors
+  white: '#FFFFFF',
+  gray100: '#F8F9FA',
+  gray200: '#E9ECEF',
+  gray300: '#DEE2E6',
+  gray400: '#CED4DA',
+  gray500: '#ADB5BD',
+  gray600: '#6C757D',
+  gray700: '#495057',
+  gray800: '#343A40',
+  gray900: '#212529',
+  black: '#000000',
 };
 
 /**
- * Journey IDs used for referencing journeys throughout the application
+ * Extended theme interface with additional properties for the design system
  */
-export const JOURNEY_IDS = {
-  HEALTH: 'health',
-  CARE: 'care',
-  PLAN: 'plan'
-};
-
-/**
- * Type definition for journey IDs
- */
-export type JourneyId = typeof JOURNEY_IDS[keyof typeof JOURNEY_IDS];
-
-/**
- * Type definition for theme modes
- */
-export type ThemeMode = 'light' | 'dark';
-
-/**
- * Type definition for semantic color mapping
- */
-export interface SemanticColors {
-  primary: string;
-  secondary: string;
-  accent: string;
-  background: string;
+export interface ThemeColors extends JourneyTheme {
+  tertiary: string;
   surface: string;
-  text: {
-    primary: string;
-    secondary: string;
-    disabled: string;
-    inverse: string;
-  };
+  textSecondary: string;
   border: string;
   divider: string;
+  disabled: string;
   success: string;
   warning: string;
   error: string;
@@ -125,175 +67,221 @@ export interface SemanticColors {
 }
 
 /**
- * Type definition for journey theme colors
+ * Light theme color definitions
  */
-export interface JourneyThemeColors {
-  light: SemanticColors;
-  dark: SemanticColors;
-}
-
-/**
- * Type definition for all journey themes
- */
-export interface JourneyThemes {
-  [JOURNEY_IDS.HEALTH]: JourneyThemeColors;
-  [JOURNEY_IDS.CARE]: JourneyThemeColors;
-  [JOURNEY_IDS.PLAN]: JourneyThemeColors;
-}
-
-/**
- * Semantic color mappings for each journey and theme mode
- */
-export const JOURNEY_THEMES: JourneyThemes = {
-  // Health Journey Theme
+export const LIGHT_THEME_COLORS: Record<JourneyId, ThemeColors> = {
   [JOURNEY_IDS.HEALTH]: {
-    // Light theme for Health Journey
-    light: {
-      primary: BASE_COLORS.health.green500,
-      secondary: BASE_COLORS.health.green600,
-      accent: BASE_COLORS.health.green700,
-      background: BASE_COLORS.health.green50,
-      surface: BASE_COLORS.neutral.white,
-      text: {
-        primary: BASE_COLORS.neutral.gray900,
-        secondary: BASE_COLORS.neutral.gray700,
-        disabled: BASE_COLORS.neutral.gray400,
-        inverse: BASE_COLORS.neutral.white,
-      },
-      border: BASE_COLORS.health.green200,
-      divider: BASE_COLORS.neutral.gray200,
-      success: BASE_COLORS.semantic.success,
-      warning: BASE_COLORS.semantic.warning,
-      error: BASE_COLORS.semantic.error,
-      info: BASE_COLORS.semantic.info,
-    },
-    // Dark theme for Health Journey
-    dark: {
-      primary: BASE_COLORS.health.green500,
-      secondary: BASE_COLORS.health.green400,
-      accent: BASE_COLORS.health.green300,
-      background: BASE_COLORS.neutral.gray900,
-      surface: BASE_COLORS.neutral.gray800,
-      text: {
-        primary: BASE_COLORS.neutral.white,
-        secondary: BASE_COLORS.neutral.gray300,
-        disabled: BASE_COLORS.neutral.gray600,
-        inverse: BASE_COLORS.neutral.gray900,
-      },
-      border: BASE_COLORS.health.green700,
-      divider: BASE_COLORS.neutral.gray700,
-      success: BASE_COLORS.semantic.success,
-      warning: BASE_COLORS.semantic.warning,
-      error: BASE_COLORS.semantic.error,
-      info: BASE_COLORS.semantic.info,
-    },
+    primary: BASE_COLORS.healthPrimary,
+    secondary: BASE_COLORS.healthSecondary,
+    tertiary: BASE_COLORS.healthTertiary,
+    accent: BASE_COLORS.healthSecondary,
+    background: BASE_COLORS.white,
+    surface: BASE_COLORS.gray100,
+    text: BASE_COLORS.gray900,
+    textSecondary: BASE_COLORS.gray700,
+    border: BASE_COLORS.gray300,
+    divider: BASE_COLORS.gray200,
+    disabled: BASE_COLORS.gray400,
+    success: BASE_COLORS.success,
+    warning: BASE_COLORS.warning,
+    error: BASE_COLORS.error,
+    info: BASE_COLORS.info,
   },
-  
-  // Care Journey Theme
   [JOURNEY_IDS.CARE]: {
-    // Light theme for Care Journey
-    light: {
-      primary: BASE_COLORS.care.orange500,
-      secondary: BASE_COLORS.care.orange600,
-      accent: BASE_COLORS.care.orange700,
-      background: BASE_COLORS.care.orange50,
-      surface: BASE_COLORS.neutral.white,
-      text: {
-        primary: BASE_COLORS.neutral.gray900,
-        secondary: BASE_COLORS.neutral.gray700,
-        disabled: BASE_COLORS.neutral.gray400,
-        inverse: BASE_COLORS.neutral.white,
-      },
-      border: BASE_COLORS.care.orange200,
-      divider: BASE_COLORS.neutral.gray200,
-      success: BASE_COLORS.semantic.success,
-      warning: BASE_COLORS.semantic.warning,
-      error: BASE_COLORS.semantic.error,
-      info: BASE_COLORS.semantic.info,
-    },
-    // Dark theme for Care Journey
-    dark: {
-      primary: BASE_COLORS.care.orange500,
-      secondary: BASE_COLORS.care.orange400,
-      accent: BASE_COLORS.care.orange300,
-      background: BASE_COLORS.neutral.gray900,
-      surface: BASE_COLORS.neutral.gray800,
-      text: {
-        primary: BASE_COLORS.neutral.white,
-        secondary: BASE_COLORS.neutral.gray300,
-        disabled: BASE_COLORS.neutral.gray600,
-        inverse: BASE_COLORS.neutral.gray900,
-      },
-      border: BASE_COLORS.care.orange700,
-      divider: BASE_COLORS.neutral.gray700,
-      success: BASE_COLORS.semantic.success,
-      warning: BASE_COLORS.semantic.warning,
-      error: BASE_COLORS.semantic.error,
-      info: BASE_COLORS.semantic.info,
-    },
+    primary: BASE_COLORS.carePrimary,
+    secondary: BASE_COLORS.careSecondary,
+    tertiary: BASE_COLORS.careTertiary,
+    accent: BASE_COLORS.careSecondary,
+    background: BASE_COLORS.white,
+    surface: BASE_COLORS.gray100,
+    text: BASE_COLORS.gray900,
+    textSecondary: BASE_COLORS.gray700,
+    border: BASE_COLORS.gray300,
+    divider: BASE_COLORS.gray200,
+    disabled: BASE_COLORS.gray400,
+    success: BASE_COLORS.success,
+    warning: BASE_COLORS.warning,
+    error: BASE_COLORS.error,
+    info: BASE_COLORS.info,
   },
-  
-  // Plan Journey Theme
   [JOURNEY_IDS.PLAN]: {
-    // Light theme for Plan Journey
-    light: {
-      primary: BASE_COLORS.plan.blue500,
-      secondary: BASE_COLORS.plan.blue600,
-      accent: BASE_COLORS.plan.blue700,
-      background: BASE_COLORS.plan.blue50,
-      surface: BASE_COLORS.neutral.white,
-      text: {
-        primary: BASE_COLORS.neutral.gray900,
-        secondary: BASE_COLORS.neutral.gray700,
-        disabled: BASE_COLORS.neutral.gray400,
-        inverse: BASE_COLORS.neutral.white,
-      },
-      border: BASE_COLORS.plan.blue200,
-      divider: BASE_COLORS.neutral.gray200,
-      success: BASE_COLORS.semantic.success,
-      warning: BASE_COLORS.semantic.warning,
-      error: BASE_COLORS.semantic.error,
-      info: BASE_COLORS.semantic.info,
-    },
-    // Dark theme for Plan Journey
-    dark: {
-      primary: BASE_COLORS.plan.blue500,
-      secondary: BASE_COLORS.plan.blue400,
-      accent: BASE_COLORS.plan.blue300,
-      background: BASE_COLORS.neutral.gray900,
-      surface: BASE_COLORS.neutral.gray800,
-      text: {
-        primary: BASE_COLORS.neutral.white,
-        secondary: BASE_COLORS.neutral.gray300,
-        disabled: BASE_COLORS.neutral.gray600,
-        inverse: BASE_COLORS.neutral.gray900,
-      },
-      border: BASE_COLORS.plan.blue700,
-      divider: BASE_COLORS.neutral.gray700,
-      success: BASE_COLORS.semantic.success,
-      warning: BASE_COLORS.semantic.warning,
-      error: BASE_COLORS.semantic.error,
-      info: BASE_COLORS.semantic.info,
-    },
+    primary: BASE_COLORS.planPrimary,
+    secondary: BASE_COLORS.planSecondary,
+    tertiary: BASE_COLORS.planTertiary,
+    accent: BASE_COLORS.planSecondary,
+    background: BASE_COLORS.white,
+    surface: BASE_COLORS.gray100,
+    text: BASE_COLORS.gray900,
+    textSecondary: BASE_COLORS.gray700,
+    border: BASE_COLORS.gray300,
+    divider: BASE_COLORS.gray200,
+    disabled: BASE_COLORS.gray400,
+    success: BASE_COLORS.success,
+    warning: BASE_COLORS.warning,
+    error: BASE_COLORS.error,
+    info: BASE_COLORS.info,
   },
 };
 
 /**
- * Helper function to get journey colors based on journey ID and theme mode
- * @param journeyId - The ID of the journey
- * @param mode - The theme mode (light or dark)
- * @returns The semantic colors for the specified journey and theme mode
+ * Dark theme color definitions
  */
-export const getJourneyColors = (journeyId: JourneyId, mode: ThemeMode = 'light'): SemanticColors => {
-  return JOURNEY_THEMES[journeyId][mode];
+export const DARK_THEME_COLORS: Record<JourneyId, ThemeColors> = {
+  [JOURNEY_IDS.HEALTH]: {
+    primary: BASE_COLORS.healthPrimary,
+    secondary: BASE_COLORS.healthSecondary,
+    tertiary: BASE_COLORS.healthTertiary,
+    accent: BASE_COLORS.healthSecondary,
+    background: BASE_COLORS.gray900,
+    surface: BASE_COLORS.gray800,
+    text: BASE_COLORS.gray100,
+    textSecondary: BASE_COLORS.gray400,
+    border: BASE_COLORS.gray700,
+    divider: BASE_COLORS.gray800,
+    disabled: BASE_COLORS.gray600,
+    success: BASE_COLORS.success,
+    warning: BASE_COLORS.warning,
+    error: BASE_COLORS.error,
+    info: BASE_COLORS.info,
+  },
+  [JOURNEY_IDS.CARE]: {
+    primary: BASE_COLORS.carePrimary,
+    secondary: BASE_COLORS.careSecondary,
+    tertiary: BASE_COLORS.careTertiary,
+    accent: BASE_COLORS.careSecondary,
+    background: BASE_COLORS.gray900,
+    surface: BASE_COLORS.gray800,
+    text: BASE_COLORS.gray100,
+    textSecondary: BASE_COLORS.gray400,
+    border: BASE_COLORS.gray700,
+    divider: BASE_COLORS.gray800,
+    disabled: BASE_COLORS.gray600,
+    success: BASE_COLORS.success,
+    warning: BASE_COLORS.warning,
+    error: BASE_COLORS.error,
+    info: BASE_COLORS.info,
+  },
+  [JOURNEY_IDS.PLAN]: {
+    primary: BASE_COLORS.planPrimary,
+    secondary: BASE_COLORS.planSecondary,
+    tertiary: BASE_COLORS.planTertiary,
+    accent: BASE_COLORS.planSecondary,
+    background: BASE_COLORS.gray900,
+    surface: BASE_COLORS.gray800,
+    text: BASE_COLORS.gray100,
+    textSecondary: BASE_COLORS.gray400,
+    border: BASE_COLORS.gray700,
+    divider: BASE_COLORS.gray800,
+    disabled: BASE_COLORS.gray600,
+    success: BASE_COLORS.success,
+    warning: BASE_COLORS.warning,
+    error: BASE_COLORS.error,
+    info: BASE_COLORS.info,
+  },
 };
 
 /**
- * Simple color mapping for backward compatibility with existing code
- * Maps to the primary colors of each journey in light mode
+ * Opacity values for consistent transparency across the application
  */
-export const JOURNEY_COLORS = {
-  [JOURNEY_IDS.HEALTH]: BASE_COLORS.health.green500, // #0ACF83
-  [JOURNEY_IDS.CARE]: BASE_COLORS.care.orange500,   // #FF8C42
-  [JOURNEY_IDS.PLAN]: BASE_COLORS.plan.blue500,     // #3A86FF
+export const OPACITY = {
+  disabled: 0.5,
+  hover: 0.8,
+  active: 0.6,
+  overlay: 0.5,
+  subtle: 0.1,
+  medium: 0.3,
+  high: 0.7,
+};
+
+/**
+ * Helper function to get theme colors based on journey ID and theme mode
+ * @param journeyId - The ID of the current journey
+ * @param isDarkMode - Whether dark mode is enabled
+ * @returns Theme colors for the specified journey and theme mode
+ */
+export const getJourneyColors = (
+  journeyId: JourneyId,
+  isDarkMode = false
+): ThemeColors => {
+  const themeColors = isDarkMode ? DARK_THEME_COLORS : LIGHT_THEME_COLORS;
+  return themeColors[journeyId];
+};
+
+/**
+ * Helper function to get a color with opacity
+ * @param color - The base color (hex)
+ * @param opacity - The opacity value (0-1)
+ * @returns The color with opacity applied
+ */
+export const getColorWithOpacity = (color: string, opacity: number): string => {
+  // Convert hex to RGB
+  const r = parseInt(color.slice(1, 3), 16);
+  const g = parseInt(color.slice(3, 5), 16);
+  const b = parseInt(color.slice(5, 7), 16);
+  
+  // Return rgba string
+  return `rgba(${r}, ${g}, ${b}, ${opacity})`;
+};
+
+/**
+ * Semantic color mapping for consistent usage across the application
+ */
+export const SEMANTIC_COLORS = {
+  success: BASE_COLORS.success,
+  warning: BASE_COLORS.warning,
+  error: BASE_COLORS.error,
+  info: BASE_COLORS.info,
+};
+
+/**
+ * Brand colors for non-journey-specific UI elements
+ */
+export const BRAND_COLORS = {
+  primary: BASE_COLORS.brandPrimary,
+  secondary: BASE_COLORS.brandSecondary,
+  tertiary: BASE_COLORS.brandTertiary,
+};
+
+/**
+ * Journey-specific primary colors for quick access
+ */
+export const JOURNEY_PRIMARY_COLORS: Record<JourneyId, string> = {
+  [JOURNEY_IDS.HEALTH]: BASE_COLORS.healthPrimary,
+  [JOURNEY_IDS.CARE]: BASE_COLORS.carePrimary,
+  [JOURNEY_IDS.PLAN]: BASE_COLORS.planPrimary,
+};
+
+/**
+ * Journey-specific secondary colors for quick access
+ */
+export const JOURNEY_SECONDARY_COLORS: Record<JourneyId, string> = {
+  [JOURNEY_IDS.HEALTH]: BASE_COLORS.healthSecondary,
+  [JOURNEY_IDS.CARE]: BASE_COLORS.careSecondary,
+  [JOURNEY_IDS.PLAN]: BASE_COLORS.planSecondary,
+};
+
+/**
+ * Journey-specific tertiary colors for quick access
+ */
+export const JOURNEY_TERTIARY_COLORS: Record<JourneyId, string> = {
+  [JOURNEY_IDS.HEALTH]: BASE_COLORS.healthTertiary,
+  [JOURNEY_IDS.CARE]: BASE_COLORS.careTertiary,
+  [JOURNEY_IDS.PLAN]: BASE_COLORS.planTertiary,
+};
+
+/**
+ * Neutral colors for UI elements
+ */
+export const NEUTRAL_COLORS = {
+  white: BASE_COLORS.white,
+  gray100: BASE_COLORS.gray100,
+  gray200: BASE_COLORS.gray200,
+  gray300: BASE_COLORS.gray300,
+  gray400: BASE_COLORS.gray400,
+  gray500: BASE_COLORS.gray500,
+  gray600: BASE_COLORS.gray600,
+  gray700: BASE_COLORS.gray700,
+  gray800: BASE_COLORS.gray800,
+  gray900: BASE_COLORS.gray900,
+  black: BASE_COLORS.black,
 };
