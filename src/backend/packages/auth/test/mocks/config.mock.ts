@@ -1,183 +1,169 @@
-/**
- * @file Mock ConfigService for Auth Package Tests
- * @description Provides a configurable mock implementation of NestJS ConfigService
- * for use in auth package tests. This mock simulates configuration retrieval without
- * depending on actual environment variables or configuration files.
- */
-
-import { Injectable } from '@nestjs/common';
-import { JwtConfigOptions } from '../../src/providers/jwt/jwt.config';
+import { Algorithm } from 'jsonwebtoken';
 import { OAuthProviderType } from '../../src/providers/oauth/interfaces';
-import { get, has, set } from 'lodash';
 
 /**
- * Interface for ConfigService get method options
+ * Mock implementation of the ConfigService for testing auth package components
+ * Provides predefined configuration values without depending on environment variables
  */
-interface ConfigGetOptions {
-  /**
-   * If true, attempts to infer the type of the property
-   */
-  infer?: boolean;
-}
-
-/**
- * Default JWT configuration for testing
- */
-const DEFAULT_JWT_CONFIG: JwtConfigOptions = {
-  secret: 'test-jwt-secret-key',
-  accessTokenExpiration: '1h',
-  refreshTokenExpiration: '7d',
-  issuer: 'austa-test',
-  audience: 'test-users',
-  algorithms: ['HS256'],
-  ignoreExpiration: false,
-  clockTolerance: 0,
-  includeJwtId: true,
-};
-
-/**
- * Default OAuth configuration for testing
- */
-const DEFAULT_OAUTH_CONFIG = {
-  google: {
-    clientId: 'test-google-client-id',
-    clientSecret: 'test-google-client-secret',
-    callbackURL: 'http://localhost:3000/auth/google/callback',
-    scope: ['email', 'profile'],
-  },
-  facebook: {
-    clientId: 'test-facebook-client-id',
-    clientSecret: 'test-facebook-client-secret',
-    callbackURL: 'http://localhost:3000/auth/facebook/callback',
-    scope: ['email', 'public_profile'],
-  },
-  apple: {
-    clientId: 'test-apple-client-id',
-    clientSecret: 'test-apple-client-secret',
-    teamId: 'test-apple-team-id',
-    keyId: 'test-apple-key-id',
-    privateKey: 'test-apple-private-key',
-    callbackURL: 'http://localhost:3000/auth/apple/callback',
-    scope: ['email', 'name'],
-  },
-};
-
-/**
- * Default database authentication configuration for testing
- */
-const DEFAULT_DB_AUTH_CONFIG = {
-  usernameField: 'email',
-  passwordField: 'password',
-  passwordMinLength: 8,
-  passwordMaxLength: 100,
-  passwordHashRounds: 10,
-  loginAttempts: {
-    maxAttempts: 5,
-    windowMs: 15 * 60 * 1000, // 15 minutes
-    blockDurationMs: 30 * 60 * 1000, // 30 minutes
-  },
-};
-
-/**
- * Default configuration values for auth testing
- */
-const DEFAULT_CONFIG = {
-  jwt: DEFAULT_JWT_CONFIG,
-  oauth: DEFAULT_OAUTH_CONFIG,
-  dbAuth: DEFAULT_DB_AUTH_CONFIG,
-  environment: {
-    nodeEnv: 'test',
-    port: 3000,
-    host: 'localhost',
-  },
-};
-
-/**
- * Mock implementation of the ConfigService for auth package tests
- * 
- * This mock provides predefined configuration values for auth-specific settings
- * like JWT secrets, token expiration, and OAuth credentials. It allows tests to
- * override these values as needed.
- *
- * @implements NestJS ConfigService interface
- */
-@Injectable()
 export class ConfigServiceMock {
-  private config: Record<string, any>;
+  private config: Record<string, any> = {
+    // JWT Configuration
+    jwt: {
+      secret: 'test-jwt-secret',
+      publicKey: '-----BEGIN PUBLIC KEY-----\nMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAu1SU1LfVLPHCozMxH2Mo\n4lgOEePzNm0tRgeLezV6ffAt0gunVTLw7onLRnrq0/IzW7yWR7QkrmBL7jTKEn5u\n+qKhbwKfBstIs+bMY2Zkp18gnTxKLxoS2tFczGkPLPgizskuemMghRniWaoLcyeh\nkd3qqGElvW/VDL5AaWTg0nLVkjRo9z+40RQzuVaE8AkAFmxZzow3x+VJYKdjykkJ\n0iT9wCS0DRTXu269V264Vf/3jvredZiKRkgwlL9xNAwxXFg0x/XFw005UWVRIkdg\ncKWTjpBP2dPwVZ4WWC+9aGVd+Gyn1o0CLelf4rEjGoXbAAEgAqeGUxrcIlbjXfbc\nmwIDAQAB\n-----END PUBLIC KEY-----',
+      privateKey: '-----BEGIN PRIVATE KEY-----\nMIIEvwIBADANBgkqhkiG9w0BAQEFAASCBKkwggSlAgEAAoIBAQC7VJTUt9Us8cKj\nMzEfYyjiWA4R4/M2bS1GB4t7NXp98C3SC6dVMvDuictGeurT8jNbvJZHtCSuYEvu\nNMoSfm76oqFvAp8Gy0iz5sxjZmSnXyCdPEovGhLa0VzMaQ8s+CLOyS56YyCFGeJZ\nqgtzJ6GR3eqoYSW9b9UMvkBpZODSctWSNGj3P7jRFDO5VoTwCQAWbFnOjDfH5Ulg\np2PKSQnSJP3AJLQNFNe7br1XbrhV//eO+t51mIpGSDCUv3E0DDFcWDTH9cXDTTlR\nZVEiR2BwpZOOkE/Z0/BVnhZYL71oZV34bKfWjQIt6V/isSMahdsAASACp4ZTGtwi\nVuNd9tybAgMBAAECggEBAKTmjaS6tkK8BlPXClTQ2vpz/N6uxDeS35mXpqasqskV\nlaAidgg/sWqpjXDbXr93otIMLlWsM+X0CqMDgSXKejLS2jx4GDjI1ZTXg++0AMJ8\nsJ74pWzVDOfmCEQ/7wXs3+cbnXhKriO8Z036q92Qc1+N87SI38nkGa0ABH9CN83H\nmQqt4fB7UdHzuIRe/me2PGhIq5ZBzj6h3BpoPGzEP+x3l9YmK8t/1cN0pqI+dQwY\ndgfGjackLu/2qH80MCF7IyQaseZUOJyKrCLtSD/Iixv/hzDEUPfOCjFDgTpzf3cw\nta8+oE4wHCo1iI1/4TlPkwmXx4qSXtmw4aQPz7IDQvECgYEA8KNThCO2gsC2I9PQ\nDM/8Cw0O983WCDY+oi+7JPiNAJwv5DYBqEZB1QYdj06YD16XlC/HAZMsMku1na2T\nN0driwenQQWzoev3g2S7gRDoS/FCJSI3jJ+kjgtaA7Qmzlgk1TxODN+G1H91HW7t\n0l7VnL27IWyYo2qRRK3jzxqUiPUCgYEAx0oQs2reBQGMVZnApD1jeq7n4MvNLcPv\nt8b/eU9iUv6Y4Mj0Suo/AU8lYZXm8ubbqAlwz2VSVunD2tOplHyMUrtCtObAfVDU\nAhCndKaA9gApgfb3xw1IKbuQ1u4IF1FJl3VtumfQn//LiH1B3rXhcdyo3/vIttEk\n48RakUKClU8CgYEAzV7W3COOlDDcQd935DdtKBFRAPRPAlspQUnzMi5eSHMD/ISL\nDY5IiQHbIH83D4bvXq0X7qQoSBSNP7Dvv3HYuqMhf0DaegrlBuJllFVVq9qPVRnK\nxt1Il2HgxOBvbhOT+9in1BzA+YJ99UzC85O0Qz06A+CmtHEy4aZ2kj5hHjECgYEA\nmNS4+A8Fkss8Js1RieK2LniBxMgmYml3pfVLKGnzmng7H2+cwPLhPIzIuwytXywh\n2bzbsYEfYx3EoEVgMEpPhoarQnYPukrJO4gwE2o5Te6T5mJSZGlQJQj9q4ZB2Dfz\net6INsK0oG8XVGXSpQvQh3RUYekCZQkBBFcpqWpbIEsCgYAnM3DQf3FJoSnXaMhr\nVBIovic5l0xFkEHskAjFTevO86Fsz1C2aSeRKSqGFoOQ0tmJzBEs1R6KqnHInicD\nTQrKhArgLXX4v3CddjfTRJkFWDbE/CkvKZNOrcf1nhaGCPspRJj2KUkj1Fhl9Cnc\ndn/RsYEONbwQSjIfMPkvxF+8HQ==\n-----END PRIVATE KEY-----',
+      accessTokenExpiration: '15m',
+      refreshTokenExpiration: '7d',
+      issuer: 'test-issuer',
+      audience: 'test-audience',
+      algorithm: 'RS256' as Algorithm,
+      includeIssueTime: true,
+      useHttpOnlyCookies: false,
+      cookieOptions: {
+        domain: 'localhost',
+        path: '/',
+        secure: false,
+        sameSite: 'lax' as 'strict' | 'lax' | 'none',
+      },
+    },
+    
+    // OAuth Configuration
+    oauth: {
+      // Google OAuth Configuration
+      google: {
+        clientID: 'test-google-client-id',
+        clientSecret: 'test-google-client-secret',
+        callbackURL: 'http://localhost:3000/auth/google/callback',
+        scope: ['profile', 'email'],
+        includeGrantedScopes: true,
+        hostedDomain: '',
+        includeProfile: true,
+      },
+      
+      // Facebook OAuth Configuration
+      facebook: {
+        clientID: 'test-facebook-client-id',
+        clientSecret: 'test-facebook-client-secret',
+        callbackURL: 'http://localhost:3000/auth/facebook/callback',
+        scope: ['email', 'public_profile'],
+        profileFields: ['id', 'displayName', 'photos', 'email'],
+        enableProof: true,
+      },
+      
+      // Apple OAuth Configuration
+      apple: {
+        clientID: 'test.apple.client.id',
+        clientSecret: 'test-apple-client-secret',
+        callbackURL: 'http://localhost:3000/auth/apple/callback',
+        scope: ['name', 'email'],
+        teamID: 'test-team-id',
+        keyID: 'test-key-id',
+        privateKeyLocation: './test-private-key.p8',
+      },
+    },
+    
+    // Auth Service Configuration
+    auth: {
+      // Password policy
+      password: {
+        minLength: 8,
+        requireUppercase: true,
+        requireLowercase: true,
+        requireNumbers: true,
+        requireSpecialChars: true,
+        maxHistory: 5,
+      },
+      
+      // Multi-factor authentication
+      mfa: {
+        enabled: true,
+        issuer: 'AUSTA SuperApp',
+        codeLength: 6,
+        validityDuration: 300, // seconds
+        maxAttempts: 3,
+      },
+      
+      // Session configuration
+      session: {
+        maxConcurrentSessions: 5,
+        inactivityTimeout: 30, // minutes
+        absoluteTimeout: 24, // hours
+      },
+      
+      // Rate limiting
+      rateLimit: {
+        loginAttempts: 5,
+        loginWindow: 15, // minutes
+        passwordResetAttempts: 3,
+        passwordResetWindow: 60, // minutes
+      },
+    },
+    
+    // Journey-specific auth configuration
+    journeys: {
+      health: {
+        requiredRoles: ['user', 'health_user'],
+        defaultPermissions: ['health:read', 'health:write'],
+        jwtIssuer: 'austa-health-journey',
+      },
+      care: {
+        requiredRoles: ['user', 'care_user'],
+        defaultPermissions: ['care:read', 'care:write'],
+        jwtIssuer: 'austa-care-journey',
+      },
+      plan: {
+        requiredRoles: ['user', 'plan_user'],
+        defaultPermissions: ['plan:read', 'plan:write'],
+        jwtIssuer: 'austa-plan-journey',
+      },
+    },
+  };
 
   /**
-   * Creates a new ConfigServiceMock instance
-   * @param initialConfig Optional initial configuration to override defaults
+   * Constructor that allows overriding default configuration values
+   * @param overrides Optional configuration overrides for testing specific scenarios
    */
-  constructor(initialConfig: Record<string, any> = {}) {
-    this.config = { ...DEFAULT_CONFIG };
-    
-    // Apply any initial configuration overrides
-    Object.entries(initialConfig).forEach(([key, value]) => {
-      this.set(key, value);
-    });
+  constructor(overrides: Record<string, any> = {}) {
+    this.config = this.mergeDeep(this.config, overrides);
   }
 
   /**
    * Gets a configuration value by key
-   * @param propertyPath Path to the configuration property
-   * @param options Optional configuration options
-   * @returns The configuration value, or undefined if not found
+   * @param key Configuration key in dot notation (e.g., 'jwt.secret')
+   * @returns The configuration value or undefined if not found
    */
-  get<T = any>(propertyPath: string, options?: ConfigGetOptions): T | undefined {
-    return get(this.config, propertyPath);
-  }
-  
-  /**
-   * Gets a configuration value by key with a default value if not found
-   * @param propertyPath Path to the configuration property
-   * @param defaultValue Default value to return if the property is not found
-   * @returns The configuration value, or the default value if not found
-   */
-  getOrDefault<T = any>(propertyPath: string, defaultValue: T): T {
-    const value = this.get<T>(propertyPath);
-    return value === undefined ? defaultValue : value;
+  get<T = any>(key: string): T {
+    return this.getValueByPath(this.config, key);
   }
 
   /**
-   * Sets a configuration value
-   * @param propertyPath Path to the configuration property
-   * @param value Value to set
+   * Gets a required configuration value by key
+   * Throws an error if the configuration value is not found
+   * @param key Configuration key in dot notation (e.g., 'jwt.secret')
+   * @returns The configuration value
+   * @throws Error if the configuration value is not found
    */
-  set(propertyPath: string, value: any): void {
-    set(this.config, propertyPath, value);
+  getOrThrow<T = any>(key: string): T {
+    const value = this.getValueByPath(this.config, key);
+    if (value === undefined) {
+      throw new Error(`Configuration key '${key}' not found`);
+    }
+    return value;
   }
 
   /**
-   * Checks if a configuration property exists
-   * @param propertyPath Path to the configuration property
-   * @returns True if the property exists, false otherwise
+   * Gets JWT configuration for a specific journey
+   * @param journeyName Name of the journey (health, care, plan)
+   * @returns Journey-specific JWT configuration
    */
-  has(propertyPath: string): boolean {
-    return has(this.config, propertyPath);
-  }
-
-  /**
-   * Gets the entire configuration object
-   * @returns The complete configuration object
-   */
-  getConfig(): Record<string, any> {
-    return { ...this.config };
-  }
-
-  /**
-   * Resets the configuration to default values
-   */
-  reset(): void {
-    this.config = { ...DEFAULT_CONFIG };
-  }
-
-  /**
-   * Gets JWT configuration
-   * @returns JWT configuration
-   */
-  getJwtConfig(): JwtConfigOptions {
-    return this.get<JwtConfigOptions>('jwt');
+  getJourneyJwtConfig(journeyName: 'health' | 'care' | 'plan') {
+    const baseConfig = this.get<Record<string, any>>('jwt');
+    const journeyConfig = this.get<Record<string, any>>(`journeys.${journeyName}`);
+    
+    return {
+      ...baseConfig,
+      issuer: journeyConfig.jwtIssuer || `austa-${journeyName}-journey`,
+    };
   }
 
   /**
@@ -185,94 +171,186 @@ export class ConfigServiceMock {
    * @param provider OAuth provider type
    * @returns Provider-specific OAuth configuration
    */
-  getOAuthConfig(provider: OAuthProviderType): Record<string, any> {
+  getOAuthConfig(provider: OAuthProviderType) {
     return this.get<Record<string, any>>(`oauth.${provider}`);
   }
 
   /**
-   * Gets database authentication configuration
-   * @returns Database authentication configuration
+   * Updates configuration values for testing specific scenarios
+   * @param updates Configuration updates in the same structure as the original config
    */
-  getDbAuthConfig(): Record<string, any> {
-    return this.get<Record<string, any>>('dbAuth');
+  updateConfig(updates: Record<string, any>) {
+    this.config = this.mergeDeep(this.config, updates);
   }
 
   /**
-   * Creates a pre-configured ConfigServiceMock instance for JWT testing
-   * @param overrides Optional JWT configuration overrides
-   * @returns ConfigServiceMock instance
+   * Resets configuration to default values
    */
-  static forJwtTesting(overrides: Partial<JwtConfigOptions> = {}): ConfigServiceMock {
-    const mock = new ConfigServiceMock();
-    mock.set('jwt', { ...DEFAULT_JWT_CONFIG, ...overrides });
-    return mock;
+  resetConfig() {
+    this.config = {
+      jwt: {
+        secret: 'test-jwt-secret',
+        publicKey: '-----BEGIN PUBLIC KEY-----\nMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAu1SU1LfVLPHCozMxH2Mo\n4lgOEePzNm0tRgeLezV6ffAt0gunVTLw7onLRnrq0/IzW7yWR7QkrmBL7jTKEn5u\n+qKhbwKfBstIs+bMY2Zkp18gnTxKLxoS2tFczGkPLPgizskuemMghRniWaoLcyeh\nkd3qqGElvW/VDL5AaWTg0nLVkjRo9z+40RQzuVaE8AkAFmxZzow3x+VJYKdjykkJ\n0iT9wCS0DRTXu269V264Vf/3jvredZiKRkgwlL9xNAwxXFg0x/XFw005UWVRIkdg\ncKWTjpBP2dPwVZ4WWC+9aGVd+Gyn1o0CLelf4rEjGoXbAAEgAqeGUxrcIlbjXfbc\nmwIDAQAB\n-----END PUBLIC KEY-----',
+        privateKey: '-----BEGIN PRIVATE KEY-----\nMIIEvwIBADANBgkqhkiG9w0BAQEFAASCBKkwggSlAgEAAoIBAQC7VJTUt9Us8cKj\nMzEfYyjiWA4R4/M2bS1GB4t7NXp98C3SC6dVMvDuictGeurT8jNbvJZHtCSuYEvu\nNMoSfm76oqFvAp8Gy0iz5sxjZmSnXyCdPEovGhLa0VzMaQ8s+CLOyS56YyCFGeJZ\nqgtzJ6GR3eqoYSW9b9UMvkBpZODSctWSNGj3P7jRFDO5VoTwCQAWbFnOjDfH5Ulg\np2PKSQnSJP3AJLQNFNe7br1XbrhV//eO+t51mIpGSDCUv3E0DDFcWDTH9cXDTTlR\nZVEiR2BwpZOOkE/Z0/BVnhZYL71oZV34bKfWjQIt6V/isSMahdsAASACp4ZTGtwi\nVuNd9tybAgMBAAECggEBAKTmjaS6tkK8BlPXClTQ2vpz/N6uxDeS35mXpqasqskV\nlaAidgg/sWqpjXDbXr93otIMLlWsM+X0CqMDgSXKejLS2jx4GDjI1ZTXg++0AMJ8\nsJ74pWzVDOfmCEQ/7wXs3+cbnXhKriO8Z036q92Qc1+N87SI38nkGa0ABH9CN83H\nmQqt4fB7UdHzuIRe/me2PGhIq5ZBzj6h3BpoPGzEP+x3l9YmK8t/1cN0pqI+dQwY\ndgfGjackLu/2qH80MCF7IyQaseZUOJyKrCLtSD/Iixv/hzDEUPfOCjFDgTpzf3cw\nta8+oE4wHCo1iI1/4TlPkwmXx4qSXtmw4aQPz7IDQvECgYEA8KNThCO2gsC2I9PQ\nDM/8Cw0O983WCDY+oi+7JPiNAJwv5DYBqEZB1QYdj06YD16XlC/HAZMsMku1na2T\nN0driwenQQWzoev3g2S7gRDoS/FCJSI3jJ+kjgtaA7Qmzlgk1TxODN+G1H91HW7t\n0l7VnL27IWyYo2qRRK3jzxqUiPUCgYEAx0oQs2reBQGMVZnApD1jeq7n4MvNLcPv\nt8b/eU9iUv6Y4Mj0Suo/AU8lYZXm8ubbqAlwz2VSVunD2tOplHyMUrtCtObAfVDU\nAhCndKaA9gApgfb3xw1IKbuQ1u4IF1FJl3VtumfQn//LiH1B3rXhcdyo3/vIttEk\n48RakUKClU8CgYEAzV7W3COOlDDcQd935DdtKBFRAPRPAlspQUnzMi5eSHMD/ISL\nDY5IiQHbIH83D4bvXq0X7qQoSBSNP7Dvv3HYuqMhf0DaegrlBuJllFVVq9qPVRnK\nxt1Il2HgxOBvbhOT+9in1BzA+YJ99UzC85O0Qz06A+CmtHEy4aZ2kj5hHjECgYEA\nmNS4+A8Fkss8Js1RieK2LniBxMgmYml3pfVLKGnzmng7H2+cwPLhPIzIuwytXywh\n2bzbsYEfYx3EoEVgMEpPhoarQnYPukrJO4gwE2o5Te6T5mJSZGlQJQj9q4ZB2Dfz\net6INsK0oG8XVGXSpQvQh3RUYekCZQkBBFcpqWpbIEsCgYAnM3DQf3FJoSnXaMhr\nVBIovic5l0xFkEHskAjFTevO86Fsz1C2aSeRKSqGFoOQ0tmJzBEs1R6KqnHInicD\nTQrKhArgLXX4v3CddjfTRJkFWDbE/CkvKZNOrcf1nhaGCPspRJj2KUkj1Fhl9Cnc\ndn/RsYEONbwQSjIfMPkvxF+8HQ==\n-----END PRIVATE KEY-----',
+        accessTokenExpiration: '15m',
+        refreshTokenExpiration: '7d',
+        issuer: 'test-issuer',
+        audience: 'test-audience',
+        algorithm: 'RS256' as Algorithm,
+        includeIssueTime: true,
+        useHttpOnlyCookies: false,
+        cookieOptions: {
+          domain: 'localhost',
+          path: '/',
+          secure: false,
+          sameSite: 'lax' as 'strict' | 'lax' | 'none',
+        },
+      },
+      oauth: {
+        google: {
+          clientID: 'test-google-client-id',
+          clientSecret: 'test-google-client-secret',
+          callbackURL: 'http://localhost:3000/auth/google/callback',
+          scope: ['profile', 'email'],
+          includeGrantedScopes: true,
+          hostedDomain: '',
+          includeProfile: true,
+        },
+        facebook: {
+          clientID: 'test-facebook-client-id',
+          clientSecret: 'test-facebook-client-secret',
+          callbackURL: 'http://localhost:3000/auth/facebook/callback',
+          scope: ['email', 'public_profile'],
+          profileFields: ['id', 'displayName', 'photos', 'email'],
+          enableProof: true,
+        },
+        apple: {
+          clientID: 'test.apple.client.id',
+          clientSecret: 'test-apple-client-secret',
+          callbackURL: 'http://localhost:3000/auth/apple/callback',
+          scope: ['name', 'email'],
+          teamID: 'test-team-id',
+          keyID: 'test-key-id',
+          privateKeyLocation: './test-private-key.p8',
+        },
+      },
+      auth: {
+        password: {
+          minLength: 8,
+          requireUppercase: true,
+          requireLowercase: true,
+          requireNumbers: true,
+          requireSpecialChars: true,
+          maxHistory: 5,
+        },
+        mfa: {
+          enabled: true,
+          issuer: 'AUSTA SuperApp',
+          codeLength: 6,
+          validityDuration: 300,
+          maxAttempts: 3,
+        },
+        session: {
+          maxConcurrentSessions: 5,
+          inactivityTimeout: 30,
+          absoluteTimeout: 24,
+        },
+        rateLimit: {
+          loginAttempts: 5,
+          loginWindow: 15,
+          passwordResetAttempts: 3,
+          passwordResetWindow: 60,
+        },
+      },
+      journeys: {
+        health: {
+          requiredRoles: ['user', 'health_user'],
+          defaultPermissions: ['health:read', 'health:write'],
+          jwtIssuer: 'austa-health-journey',
+        },
+        care: {
+          requiredRoles: ['user', 'care_user'],
+          defaultPermissions: ['care:read', 'care:write'],
+          jwtIssuer: 'austa-care-journey',
+        },
+        plan: {
+          requiredRoles: ['user', 'plan_user'],
+          defaultPermissions: ['plan:read', 'plan:write'],
+          jwtIssuer: 'austa-plan-journey',
+        },
+      },
+    };
   }
 
   /**
-   * Creates a pre-configured ConfigServiceMock instance for OAuth testing
-   * @param provider OAuth provider type
-   * @param overrides Optional provider-specific configuration overrides
-   * @returns ConfigServiceMock instance
+   * Helper method to get a value from a nested object using a dot-notation path
+   * @param obj Object to get value from
+   * @param path Path to the value in dot notation (e.g., 'jwt.secret')
+   * @returns The value at the specified path or undefined if not found
    */
-  static forOAuthTesting(
-    provider: OAuthProviderType,
-    overrides: Record<string, any> = {}
-  ): ConfigServiceMock {
-    const mock = new ConfigServiceMock();
-    const providerConfig = { ...DEFAULT_OAUTH_CONFIG[provider], ...overrides };
-    mock.set(`oauth.${provider}`, providerConfig);
-    return mock;
-  }
-
-  /**
-   * Creates a pre-configured ConfigServiceMock instance for database authentication testing
-   * @param overrides Optional database authentication configuration overrides
-   * @returns ConfigServiceMock instance
-   */
-  static forDbAuthTesting(overrides: Record<string, any> = {}): ConfigServiceMock {
-    const mock = new ConfigServiceMock();
-    mock.set('dbAuth', { ...DEFAULT_DB_AUTH_CONFIG, ...overrides });
-    return mock;
-  }
-  
-  /**
-   * Creates a pre-configured ConfigServiceMock instance with custom configuration
-   * @param config Custom configuration object
-   * @returns ConfigServiceMock instance
-   */
-  static forCustomTesting(config: Record<string, any>): ConfigServiceMock {
-    return new ConfigServiceMock(config);
-  }
-  
-  /**
-   * Creates a pre-configured ConfigServiceMock instance for journey-specific testing
-   * @param journey Journey type ('health', 'care', or 'plan')
-   * @param overrides Optional journey-specific configuration overrides
-   * @returns ConfigServiceMock instance
-   */
-  static forJourneyTesting(
-    journey: 'health' | 'care' | 'plan',
-    overrides: Record<string, any> = {}
-  ): ConfigServiceMock {
-    const mock = new ConfigServiceMock();
+  private getValueByPath(obj: Record<string, any>, path: string): any {
+    const keys = path.split('.');
+    let result = obj;
     
-    // Apply journey-specific JWT overrides if provided
-    if (overrides.jwt) {
-      const jwtConfig = mock.getJwtConfig();
-      if (!jwtConfig.journeyOverrides) {
-        jwtConfig.journeyOverrides = {};
+    for (const key of keys) {
+      if (result === undefined || result === null) {
+        return undefined;
       }
-      jwtConfig.journeyOverrides[journey] = overrides.jwt;
-      mock.set('jwt', jwtConfig);
+      result = result[key];
     }
     
-    // Apply other journey-specific overrides
-    Object.entries(overrides)
-      .filter(([key]) => key !== 'jwt')
-      .forEach(([key, value]) => {
-        mock.set(`${journey}.${key}`, value);
-      });
+    return result;
+  }
+
+  /**
+   * Deep merges two objects
+   * @param target Target object
+   * @param source Source object
+   * @returns Merged object
+   */
+  private mergeDeep(target: Record<string, any>, source: Record<string, any>): Record<string, any> {
+    const output = { ...target };
     
-    return mock;
+    if (this.isObject(target) && this.isObject(source)) {
+      Object.keys(source).forEach(key => {
+        if (this.isObject(source[key])) {
+          if (!(key in target)) {
+            Object.assign(output, { [key]: source[key] });
+          } else {
+            output[key] = this.mergeDeep(target[key], source[key]);
+          }
+        } else {
+          Object.assign(output, { [key]: source[key] });
+        }
+      });
+    }
+    
+    return output;
+  }
+
+  /**
+   * Checks if a value is an object
+   * @param item Value to check
+   * @returns True if the value is an object, false otherwise
+   */
+  private isObject(item: any): boolean {
+    return item && typeof item === 'object' && !Array.isArray(item);
   }
 }
+
+/**
+ * Creates a ConfigServiceMock instance with default values
+ * @returns ConfigServiceMock instance
+ */
+export const createConfigServiceMock = () => {
+  return new ConfigServiceMock();
+};
+
+/**
+ * Creates a ConfigServiceMock instance with custom overrides
+ * @param overrides Configuration overrides
+ * @returns ConfigServiceMock instance with overrides applied
+ */
+export const createConfigServiceMockWithOverrides = (overrides: Record<string, any>) => {
+  return new ConfigServiceMock(overrides);
+};
