@@ -1,119 +1,138 @@
 /**
  * @file context.types.ts
- * @description TypeScript interface definitions for journey context providers and hooks.
- * These types establish the contract for how journey context state is structured,
+ * @description Type definitions for journey context providers and hooks.
+ * This file establishes the contract for how journey context state is structured,
  * accessed, and modified across both web and mobile platforms.
  */
 
 import { ReactNode } from 'react';
 
 /**
- * Represents the possible journey IDs in the application.
- * These IDs are used to identify and switch between different user journeys.
+ * Common props interface for JourneyProvider components across platforms
  */
-export type JourneyId = 'health' | 'care' | 'plan';
-
-/**
- * Common props interface for journey provider components across platforms.
- * @template T Optional additional props that can be extended by platform-specific providers
- */
-export interface JourneyProviderProps<T = {}> {
-  /** React children to be wrapped by the provider */
+export interface JourneyProviderProps {
+  /**
+   * Child components that will have access to the journey context
+   */
   children: ReactNode;
-  /** Optional initial journey ID */
-  initialJourney?: JourneyId;
-  /** Any additional props needed by platform-specific implementations */
-  ...T;
+
+  /**
+   * Optional initial journey ID to set
+   */
+  initialJourney?: string;
 }
 
 /**
- * Base journey context properties shared across all platforms.
- * This interface defines the minimum contract that all journey contexts must implement.
+ * Base journey context properties shared across platforms
  */
 export interface BaseJourneyContextType {
-  /** Indicates if the journey context has been initialized */
+  /**
+   * Indicates whether the journey context has been initialized
+   */
   isInitialized: boolean;
-  /** Indicates if a journey transition is in progress */
+
+  /**
+   * Indicates whether a journey transition is in progress
+   */
   isTransitioning: boolean;
+
+  /**
+   * Error state for journey context operations
+   */
+  error?: Error | null;
 }
 
 /**
- * Web-specific journey context properties.
- * Extends the base context with web-specific functionality.
+ * Web-specific journey context properties
  */
 export interface WebJourneyContextType extends BaseJourneyContextType {
-  /** The current journey ID */
-  currentJourney: JourneyId;
-  /** Function to set the current journey */
-  setCurrentJourney: (journeyId: JourneyId) => void;
-  /** The full data for the current journey */
+  /**
+   * The current journey ID
+   */
+  currentJourney: string;
+  
+  /**
+   * Function to set the current journey
+   * @param journeyId The ID of the journey to set as current
+   */
+  setCurrentJourney: (journeyId: string) => void;
+  
+  /**
+   * The full data for the current journey
+   */
   journeyData?: {
-    id: JourneyId;
+    id: string;
     name: string;
-    description: string;
-    icon: string;
     path: string;
+    icon: string;
     color: string;
   };
 }
 
 /**
- * Mobile-specific journey context properties.
- * Extends the base context with mobile-specific functionality.
+ * Mobile-specific journey context properties
  */
 export interface MobileJourneyContextType extends BaseJourneyContextType {
-  /** The current journey ID (named 'journey' in mobile implementation) */
-  journey: JourneyId;
-  /** Function to set the current journey */
-  setJourney: (journey: JourneyId) => void;
+  /**
+   * The current journey ID
+   */
+  journey: string;
+  
+  /**
+   * Function to set the current journey
+   * @param journey The ID of the journey to set as current
+   */
+  setJourney: (journey: string) => void;
 }
 
 /**
- * Platform-specific journey context type.
- * This type adapts based on the platform (web or mobile) to provide the appropriate context interface.
- * @template T The platform-specific context type (WebJourneyContextType or MobileJourneyContextType)
+ * Generic journey context type that adapts based on platform
+ * T is a platform discriminator that defaults to 'web'
  */
-export type PlatformJourneyContextType<T> = T extends 'web' ? WebJourneyContextType : MobileJourneyContextType;
+export type JourneyContextType<T extends 'web' | 'mobile' = 'web'> = 
+  T extends 'web' ? WebJourneyContextType : MobileJourneyContextType;
 
 /**
- * Generic journey context type that can be used across the application.
- * This type allows components to work with journey context regardless of platform.
- * @template P The platform identifier ('web' | 'mobile')
- */
-export type JourneyContextType<P extends 'web' | 'mobile' = 'web'> = PlatformJourneyContextType<P>;
-
-/**
- * Interface for journey-specific data that can be stored and retrieved.
- * This provides a consistent structure for journey data across the application.
+ * Type for journey data object
  */
 export interface JourneyData {
-  /** Unique identifier for the journey */
-  id: JourneyId;
-  /** Display name of the journey */
+  /**
+   * Unique identifier for the journey
+   */
+  id: string;
+  
+  /**
+   * Display name of the journey
+   */
   name: string;
-  /** Brief description of the journey */
-  description: string;
-  /** Icon identifier for the journey */
-  icon: string;
-  /** Navigation path for the journey */
+  
+  /**
+   * Navigation path for the journey
+   */
   path: string;
-  /** Primary color associated with the journey */
+  
+  /**
+   * Icon identifier for the journey
+   */
+  icon: string;
+  
+  /**
+   * Primary color for the journey theme
+   */
   color: string;
-  /** Additional metadata specific to each journey */
-  metadata?: Record<string, unknown>;
+  
+  /**
+   * Optional additional journey-specific properties
+   */
+  [key: string]: any;
 }
 
 /**
- * Interface for journey transition options.
- * Provides configuration for how transitions between journeys should behave.
+ * Type for journey ID constants
  */
-export interface JourneyTransitionOptions {
-  /** Whether to animate the transition between journeys */
-  animate?: boolean;
-  /** Duration of the transition animation in milliseconds */
-  duration?: number;
-  /** Whether to persist the previous journey's state */
-  persistState?: boolean;
-  /** Callback function to execute after the transition completes */
-  onComplete?: () => void;
+export interface JourneyIds {
+  HEALTH: string;
+  CARE: string;
+  PLAN: string;
+  [key: string]: string;
 }
