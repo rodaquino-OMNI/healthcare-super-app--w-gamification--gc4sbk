@@ -1,70 +1,24 @@
 /**
- * Care Journey Interfaces
+ * Central barrel file for Care journey interfaces and types
  * 
- * This barrel file re-exports all interfaces and enums for the Care journey in the AUSTA SuperApp.
- * It provides a unified entry point for importing care-related TypeScript types throughout the application.
- * 
- * @module care
+ * This file re-exports all Care journey interfaces and enums from the AUSTA SuperApp.
+ * It provides a unified entry point for importing care-related TypeScript types
+ * throughout the application, maintaining backward compatibility with existing code
+ * while implementing the new modular folder structure.
  */
 
-// Core types
+// Re-export appointment-related types
+export type { Appointment } from './appointment';
 export { AppointmentType, AppointmentStatus } from './types';
 
-// Appointment interfaces
-export { 
-  Appointment,
-  AppointmentProviderInfo,
-  AppointmentLocation 
-} from './appointment';
+// Re-export medication-related types
+export type { Medication } from './medication';
 
-// Medication interfaces and enums
-export {
-  Medication,
-  MedicationFrequency,
-  MedicationForm,
-  MedicationStatus,
-  MedicationTime,
-  MedicationReminder,
-  MedicationAdherence
-} from './medication';
+// Re-export telemedicine-related types
+export type { TelemedicineSession } from './telemedicine-session';
 
-// Provider interfaces and enums
-export {
-  Provider,
-  GeoCoordinates,
-  ProviderAddress,
-  TimeSlot,
-  WeekDay,
-  DailyAvailability,
-  TelemedicineServiceType,
-  TelemedicineCapability,
-  ProviderSpecialty,
-  ProviderType,
-  ProviderEducation,
-  ProviderCertification,
-  HospitalAffiliation
-} from './provider';
+// Re-export treatment plan-related types
+export type { TreatmentPlan } from './treatment-plan';
 
-// Telemedicine interfaces and enums
-export {
-  TelemedicineSession,
-  TelemedicineConnectionStatus,
-  TelemedicineSessionStage,
-  TelemedicineParticipant
-} from './telemedicine-session';
-
-// Treatment plan interfaces and enums
-export {
-  TreatmentPlan,
-  TreatmentPlanItem,
-  TreatmentItemStatus,
-  TreatmentItemType,
-  TreatmentFrequency
-} from './treatment-plan';
-
-// Type aliases for common ID types
-export type AppointmentId = string;
-export type MedicationId = string;
-export type ProviderId = string;
-export type TelemedicineSessionId = string;
-export type TreatmentPlanId = string;
+// Re-export provider-related types
+export type { Provider } from './provider';
