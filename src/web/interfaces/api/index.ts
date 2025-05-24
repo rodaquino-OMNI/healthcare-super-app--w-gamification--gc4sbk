@@ -1,78 +1,56 @@
 /**
- * @file index.ts
- * @description Central export file for all API interface types in the AUSTA SuperApp.
+ * @austa/interfaces/api
  * 
- * This file collects and re-exports all API interface types from across the
- * application, providing a single point of import for components and services
- * that need these types. It organizes exports by domain (journey) and protocol
- * to maintain a clear structure while ensuring consistent usage patterns.
+ * Centralizes and re-exports all API interface types from the AUSTA SuperApp,
+ * providing a single import point for frontend components and services.
+ * 
+ * This file is the main entry point for all API-related TypeScript interfaces
+ * used throughout the application, organized by journey and protocol.
  */
 
-// Protocol-specific API types
-import * as GraphQL from './graphql.types';
-import * as REST from './rest.types';
-import * as WebSocket from './websocket.types';
+// Protocol-specific types
+export * from './graphql.types';
+export * from './rest.types';
+export * from './websocket.types';
 
 // Common API types
-import * as Request from './request.types';
-import * as Response from './response.types';
-import * as Error from './error.types';
+export * from './request.types';
+export * from './response.types';
+export * from './error.types';
 
-// Journey-specific API types
-import * as Auth from './auth.api';
-import * as Health from './health.api';
-import * as Care from './care.api';
-import * as Plan from './plan.api';
-import * as Gamification from './gamification.api';
+// Journey-specific API interfaces
 
-// Re-export all types with namespaces
-export {
-  // Protocol-specific API types
-  GraphQL,
-  REST,
-  WebSocket,
-  
-  // Common API types
-  Request,
-  Response,
-  Error,
-  
-  // Journey-specific API types
-  Auth,
-  Health,
-  Care,
-  Plan,
-  Gamification
-};
+/**
+ * Authentication API interfaces
+ * 
+ * Includes login, registration, token refresh, password reset, and MFA operations
+ */
+export * as Auth from './auth.api';
 
-// Export common types directly for convenience
-export type {
-  // Common request types
-  PaginationParams,
-  FilterParams,
-  SortParams,
-  RequestEnvelope,
-  RequestContext
-} from './request.types';
+/**
+ * Health Journey API interfaces
+ * 
+ * Covers health metrics, medical events, health goals, and device connections
+ */
+export * as Health from './health.api';
 
-// Common response types
-export type {
-  ApiResponse,
-  PaginatedResponse,
-  ResponseEnvelope,
-  SuccessResponse,
-  ErrorResponse
-} from './response.types';
+/**
+ * Care Journey API interfaces
+ * 
+ * Covers appointments, medications, telemedicine sessions, and treatment plans
+ */
+export * as Care from './care.api';
 
-// Common error types
-export {
-  ErrorCode,
-  ErrorType,
-  ErrorSeverity
-} from './error.types';
+/**
+ * Plan Journey API interfaces
+ * 
+ * Covers insurance plans, claims, coverage, and benefits
+ */
+export * as Plan from './plan.api';
 
-export type {
-  ApiError,
-  ValidationError,
-  FieldError
-} from './error.types';
+/**
+ * Gamification API interfaces
+ * 
+ * Covers achievements, quests, rewards, and game profiles
+ */
+export * as Gamification from './gamification.api';
