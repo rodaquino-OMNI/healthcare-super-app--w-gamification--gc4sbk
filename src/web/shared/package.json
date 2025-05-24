@@ -10,8 +10,8 @@
     "@emotion/react": "11.11.1",
     "@emotion/styled": "11.11.0",
     "@hookform/resolvers": "3.3.4",
-    "@mui/icons-material": "5.11.16",
-    "@mui/material": "5.13.6",
+    "@mui/icons-material": "5.15.12",
+    "@mui/material": "5.15.12",
     "@reduxjs/toolkit": "2.1.0",
     "@tanstack/react-query": "5.25.0",
     "@types/react-redux": "7.1.25",
@@ -33,7 +33,6 @@
     "react-ga4": "2.1.0",
     "react-hook-form": "7.51.0",
     "react-i18next": "13.0.0",
-    "react-native": "0.71.8",
     "react-redux": "8.1.1",
     "react-router-dom": "6.21.1",
     "recharts": "2.12.2",
@@ -83,7 +82,8 @@
   "scripts": {
     "lint": "eslint . --ext .ts,.tsx",
     "typecheck": "tsc --noEmit",
-    "test": "jest"
+    "test": "jest",
+    "build": "tsc --build"
   },
   "overrides": {
     "postcss": "8.4.31",
@@ -93,14 +93,20 @@
   },
   "resolutions": {
     "postcss": "8.4.31",
-    "webpack": "5.88.2",
-    "terser": "5.24.0",
+    "webpack": "5.90.3",
+    "terser": "5.27.2",
     "node-fetch": "2.7.0",
     "shelljs": "0.8.5",
     "minimist": "1.2.8",
     "minimatch": "3.1.2",
     "semver": "6.11.2",
     "ws": "8.16.0",
+    "react": "18.2.0",
+    "react-dom": "18.2.0",
+    "react-native": "0.71.8",
+    "@types/react": "18.2.14",
+    "@types/react-dom": "18.2.6",
+    "typescript": "5.3.3",
     "@sentry/nextjs": {
       "@sentry/core": {
         "follow-redirects": "1.15.4"
@@ -108,6 +114,10 @@
     }
   },
   "workspaces": {
-    "nohoist": ["**/@austa/interfaces", "**/@design-system/primitives", "**/@austa/journey-context"]
+    "nohoist": [
+      "**/@austa/interfaces",
+      "**/@design-system/primitives",
+      "**/@austa/journey-context"
+    ]
   }
 }
