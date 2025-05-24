@@ -1,18 +1,14 @@
 /**
- * Type declarations for @austa/journey-context package
+ * Type definitions for @austa/journey-context package
  * 
- * This file provides ambient type declarations for the journey context package,
- * ensuring proper module resolution and type checking. It defines types for
- * context values, provider props, and hook return types for the health, care,
- * and plan journeys.
+ * This file provides ambient type declarations for the @austa/journey-context package,
+ * ensuring proper module resolution and type checking.
  */
 
 declare module '@austa/journey-context' {
   import { ReactNode } from 'react';
 
-  /**
-   * Journey Types
-   */
+  // Journey Types
   export type JourneyId = 'health' | 'care' | 'plan';
 
   export const JOURNEY_IDS: {
@@ -35,9 +31,7 @@ declare module '@austa/journey-context' {
     preferredOrder?: JourneyId[];
   }
 
-  /**
-   * Platform Types
-   */
+  // Platform Types
   export type Platform = 'web' | 'mobile';
 
   export interface PlatformContextMap<T> {
@@ -56,20 +50,19 @@ declare module '@austa/journey-context' {
   export type PlatformJourneyState<P extends Platform, T> = 
     PlatformJourneyStateMap<T>[P];
 
-  /**
-   * Context Types
-   */
+  // Context Types
   export interface JourneyProviderProps {
     children: ReactNode;
-    initialJourney?: JourneyId;
+    platform: Platform;
     config?: JourneyConfig;
   }
 
   export interface BaseJourneyContextType {
-    currentJourney: Journey;
+    currentJourney: Journey | null;
     setCurrentJourney: (journeyId: JourneyId) => void;
-    availableJourneys: Journey[];
     isJourneyAvailable: (journeyId: JourneyId) => boolean;
+    getJourneyById: (journeyId: JourneyId) => Journey | undefined;
+    availableJourneys: Journey[];
   }
 
   export interface WebJourneyContextType<T = any> extends BaseJourneyContextType {
@@ -85,9 +78,7 @@ declare module '@austa/journey-context' {
   export type JourneyContextType<P extends Platform = 'web', T = any> = 
     PlatformJourneyContextType<P, T>;
 
-  /**
-   * Auth Types
-   */
+  // Auth Types
   export interface AuthSession {
     accessToken: string;
     refreshToken: string;
@@ -95,169 +86,132 @@ declare module '@austa/journey-context' {
     userId: string;
   }
 
-  export type AuthStatus = 'idle' | 'loading' | 'authenticated' | 'unauthenticated' | 'error';
+  export type AuthStatus = 'authenticated' | 'unauthenticated' | 'loading';
 
   export interface UserProfile {
     id: string;
     email: string;
     name: string;
-    avatar?: string;
+    avatarUrl?: string;
     preferences?: Record<string, any>;
   }
 
-  export interface AuthContextType {
+  export interface UseAuthResult {
     session: AuthSession | null;
     status: AuthStatus;
     user: UserProfile | null;
-    login: (email: string, password: string) => Promise<void>;
+    login: (email: string, password: string) => Promise<AuthSession>;
     logout: () => Promise<void>;
     register: (email: string, password: string, name: string) => Promise<void>;
     getProfile: () => Promise<UserProfile>;
     updateProfile: (data: Partial<UserProfile>) => Promise<UserProfile>;
+    isLoading: boolean;
     error: Error | null;
   }
 
-  /**
-   * Gamification Types
-   */
+  // Gamification Types
+  export interface GameProfile {
+    userId: string;
+    level: number;
+    xp: number;
+    xpToNextLevel: number;
+    achievements: Achievement[];
+    quests: Quest[];
+    rewards: Reward[];
+  }
+
   export interface Achievement {
     id: string;
     title: string;
     description: string;
+    journeyId: JourneyId | null;
     icon: string;
-    points: number;
+    xpReward: number;
     progress: number;
-    completed: boolean;
+    isCompleted: boolean;
     completedAt?: string;
-    journeyId?: JourneyId;
   }
 
   export interface Quest {
     id: string;
     title: string;
     description: string;
+    journeyId: JourneyId | null;
     icon: string;
-    points: number;
+    xpReward: number;
     progress: number;
-    completed: boolean;
-    completedAt?: string;
+    isCompleted: boolean;
     expiresAt?: string;
-    journeyId?: JourneyId;
+    completedAt?: string;
     steps: QuestStep[];
   }
 
   export interface QuestStep {
     id: string;
-    title: string;
-    completed: boolean;
-    completedAt?: string;
+    description: string;
+    isCompleted: boolean;
   }
 
   export interface Reward {
     id: string;
     title: string;
     description: string;
+    journeyId: JourneyId | null;
     icon: string;
     cost: number;
-    available: boolean;
-    claimed: boolean;
-    claimedAt?: string;
-    expiresAt?: string;
+    isRedeemed: boolean;
+    redeemedAt?: string;
   }
 
-  export interface GameProfile {
-    id: string;
-    userId: string;
-    level: number;
-    points: number;
-    totalPoints: number;
-    pointsToNextLevel: number;
-  }
-
-  export interface GamificationEvent {
-    type: string;
-    journeyId: JourneyId;
-    userId: string;
-    metadata?: Record<string, any>;
-  }
-
-  export interface GamificationContextType {
+  export interface UseGamificationResult {
     gameProfile: GameProfile | null;
     achievements: Achievement[];
     quests: Quest[];
     rewards: Reward[];
-    loading: boolean;
+    triggerEvent: (eventType: string, eventData: Record<string, any>) => Promise<void>;
+    isAchievementCompleted: (achievementId: string) => boolean;
+    isQuestCompleted: (questId: string) => boolean;
+    getAchievementProgress: (achievementId: string) => number;
+    getQuestProgress: (questId: string) => number;
+    isLoading: boolean;
     error: Error | null;
-    triggerEvent: (event: GamificationEvent) => Promise<void>;
-    checkAchievementStatus: (achievementId: string) => {
-      completed: boolean;
-      progress: number;
-    };
-    checkQuestStatus: (questId: string) => {
-      completed: boolean;
-      progress: number;
-      steps: { id: string; completed: boolean }[];
-    };
-    calculateProgress: (current: number, total: number) => number;
-    refreshProfile: () => Promise<void>;
   }
 
-  /**
-   * Notification Types
-   */
+  // Notification Types
   export interface Notification {
     id: string;
     title: string;
     message: string;
-    type: 'achievement' | 'quest' | 'reward' | 'system' | 'journey';
-    read: boolean;
+    journeyId: JourneyId | null;
+    type: 'achievement' | 'quest' | 'system' | 'journey';
+    isRead: boolean;
     createdAt: string;
-    journeyId?: JourneyId;
-    metadata?: Record<string, any>;
+    data?: Record<string, any>;
   }
 
-  export interface NotificationContextType {
+  export interface UseNotificationResult {
     notifications: Notification[];
-    loading: boolean;
-    error: Error | null;
     unreadCount: number;
-    fetchNotifications: () => Promise<void>;
     markAsRead: (notificationId: string) => Promise<void>;
     markAllAsRead: () => Promise<void>;
     deleteNotification: (notificationId: string) => Promise<void>;
-    clearNotifications: () => Promise<void>;
+    refreshNotifications: () => Promise<void>;
+    isLoading: boolean;
+    error: Error | null;
   }
 
-  /**
-   * Storage Types
-   */
-  export interface StorageHook {
-    getItem: <T>(key: string) => T | null;
-    setItem: <T>(key: string, value: T) => void;
-    removeItem: (key: string) => void;
-    clear: () => void;
-  }
+  // Journey Context Hooks
+  export function useAuth(): UseAuthResult;
+  export function useJourney<T = any>(platform?: Platform): JourneyContextType<typeof platform, T>;
+  export function useGamification(): UseGamificationResult;
+  export function useNotification(): UseNotificationResult;
 
-  /**
-   * Providers
-   */
-  export const JourneyProvider: React.FC<JourneyProviderProps>;
-  export const AuthProvider: React.FC<{ children: ReactNode }>;
-  export const GamificationProvider: React.FC<{ children: ReactNode }>;
-  export const NotificationProvider: React.FC<{ children: ReactNode }>;
+  // Journey Context Providers
+  export function AuthProvider(props: { children: ReactNode }): JSX.Element;
+  export function JourneyProvider(props: JourneyProviderProps): JSX.Element;
+  export function GamificationProvider(props: { children: ReactNode }): JSX.Element;
+  export function NotificationProvider(props: { children: ReactNode }): JSX.Element;
 
-  /**
-   * Hooks
-   */
-  export function useJourney<T = any>(): JourneyContextType<'web', T>;
-  export function useAuth(): AuthContextType;
-  export function useGamification(): GamificationContextType;
-  export function useNotification(): NotificationContextType;
-  export function useStorage(): StorageHook;
-
-  /**
-   * Constants
-   */
-  export const ALL_JOURNEYS: Journey[];
-  export const DEFAULT_JOURNEY: JourneyId;
+  // Combined Provider
+  export function JourneyContextProvider(props: JourneyProviderProps & { children: ReactNode }): JSX.Element;
 }
