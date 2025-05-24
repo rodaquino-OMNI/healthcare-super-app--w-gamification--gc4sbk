@@ -1,363 +1,511 @@
 /**
- * Routes constant definitions for the AUSTA SuperApp
- * 
- * This file provides a centralized repository of all route constants used for navigation
- * throughout the application, organized by journey. It supports both web and mobile platforms
- * through platform-agnostic route definitions with platform-specific adapters.
+ * Routes constant definitions for the AUSTA SuperApp.
+ * This file provides a unified, platform-agnostic approach to route definitions
+ * that works across both web (path-based) and mobile (name-based) platforms.
  */
 
-/**
- * Journey names used for navigation and context
- */
-export const JOURNEY_NAMES = {
-  HEALTH: 'Minha Saúde',
-  CARE: 'Cuidar-me Agora',
-  PLAN: 'Meu Plano & Benefícios'
-};
+import { JourneyId, JOURNEY_IDS } from '../types';
 
 /**
- * Platform types supported by the application
- */
-export enum Platform {
-  WEB = 'web',
-  MOBILE = 'mobile'
-}
-
-/**
- * Interface for route configuration with platform-specific paths
+ * Route configuration interface for platform-agnostic route definitions
  */
 export interface RouteConfig {
   /** Web path for the route (e.g., '/health/dashboard') */
-  web: string;
+  path: string;
   /** Mobile screen name for the route (e.g., 'HealthDashboard') */
-  mobile: string;
-  /** Optional parameters that this route accepts */
-  params?: string[];
+  screen: string;
+  /** Whether this route requires authentication */
+  requiresAuth: boolean;
+  /** The journey this route belongs to (null for universal routes) */
+  journeyId: JourneyId | null;
 }
 
 /**
- * Type for route parameters used in navigation
+ * Route parameter interface for dynamic route segments
  */
-export type RouteParams = Record<string, string | number>;
+export interface RouteParams {
+  [key: string]: string | number;
+}
 
 /**
- * Application routes for navigation and routing configuration
+ * Universal routes that are not specific to any journey
  */
-export const ROUTES = {
-  // Universal routes
+export const UNIVERSAL_ROUTES = {
   HOME: {
-    web: '/',
-    mobile: 'Home'
+    path: '/',
+    screen: 'Home',
+    requiresAuth: true,
+    journeyId: null,
   } as RouteConfig,
   
   AUTH: {
-    web: '/auth',
-    mobile: 'Auth'
+    path: '/auth',
+    screen: 'Auth',
+    requiresAuth: false,
+    journeyId: null,
   } as RouteConfig,
   
-  AUTH_LOGIN: {
-    web: '/auth/login',
-    mobile: 'AuthLogin'
+  LOGIN: {
+    path: '/auth/login',
+    screen: 'AuthLogin',
+    requiresAuth: false,
+    journeyId: null,
   } as RouteConfig,
   
-  AUTH_REGISTER: {
-    web: '/auth/register',
-    mobile: 'AuthRegister'
+  REGISTER: {
+    path: '/auth/register',
+    screen: 'AuthRegister',
+    requiresAuth: false,
+    journeyId: null,
   } as RouteConfig,
   
-  AUTH_FORGOT_PASSWORD: {
-    web: '/auth/forgot-password',
-    mobile: 'AuthForgotPassword'
+  FORGOT_PASSWORD: {
+    path: '/auth/forgot-password',
+    screen: 'AuthForgotPassword',
+    requiresAuth: false,
+    journeyId: null,
   } as RouteConfig,
   
-  AUTH_MFA: {
-    web: '/auth/mfa',
-    mobile: 'AuthMFA'
+  MFA: {
+    path: '/auth/mfa',
+    screen: 'AuthMFA',
+    requiresAuth: false,
+    journeyId: null,
   } as RouteConfig,
   
   ACHIEVEMENTS: {
-    web: '/achievements',
-    mobile: 'Achievements'
+    path: '/achievements',
+    screen: 'Achievements',
+    requiresAuth: true,
+    journeyId: null,
   } as RouteConfig,
   
   NOTIFICATIONS: {
-    web: '/notifications',
-    mobile: 'Notifications'
+    path: '/notifications',
+    screen: 'Notifications',
+    requiresAuth: true,
+    journeyId: null,
   } as RouteConfig,
   
   PROFILE: {
-    web: '/profile',
-    mobile: 'Profile'
+    path: '/profile',
+    screen: 'Profile',
+    requiresAuth: true,
+    journeyId: null,
   } as RouteConfig,
   
   SETTINGS: {
-    web: '/settings',
-    mobile: 'Settings'
+    path: '/settings',
+    screen: 'Settings',
+    requiresAuth: true,
+    journeyId: null,
   } as RouteConfig,
+};
 
-  // Health Journey routes
-  HEALTH: {
-    ROOT: {
-      web: '/health',
-      mobile: 'Health'
-    } as RouteConfig,
-    
-    DASHBOARD: {
-      web: '/health/dashboard',
-      mobile: 'HealthDashboard'
-    } as RouteConfig,
-    
-    MEDICAL_HISTORY: {
-      web: '/health/history',
-      mobile: 'HealthMedicalHistory'
-    } as RouteConfig,
-    
-    HEALTH_GOALS: {
-      web: '/health/goals',
-      mobile: 'HealthGoals'
-    } as RouteConfig,
-    
-    DEVICE_CONNECTION: {
-      web: '/health/devices',
-      mobile: 'HealthDeviceConnection'
-    } as RouteConfig,
-    
-    METRIC_DETAIL: {
-      web: '/health/metrics/:id',
-      mobile: 'HealthMetricDetail',
-      params: ['id']
-    } as RouteConfig,
-    
-    HEALTH_INSIGHTS: {
-      web: '/health/insights',
-      mobile: 'HealthInsights'
-    } as RouteConfig,
-  },
+/**
+ * Health Journey routes ("My Health")
+ */
+export const HEALTH_ROUTES = {
+  ROOT: {
+    path: '/health',
+    screen: 'HealthDashboard',
+    requiresAuth: true,
+    journeyId: JOURNEY_IDS.HEALTH,
+  } as RouteConfig,
+  
+  DASHBOARD: {
+    path: '/health/dashboard',
+    screen: 'HealthDashboard',
+    requiresAuth: true,
+    journeyId: JOURNEY_IDS.HEALTH,
+  } as RouteConfig,
+  
+  MEDICAL_HISTORY: {
+    path: '/health/history',
+    screen: 'HealthMedicalHistory',
+    requiresAuth: true,
+    journeyId: JOURNEY_IDS.HEALTH,
+  } as RouteConfig,
+  
+  HEALTH_GOALS: {
+    path: '/health/goals',
+    screen: 'HealthGoals',
+    requiresAuth: true,
+    journeyId: JOURNEY_IDS.HEALTH,
+  } as RouteConfig,
+  
+  DEVICE_CONNECTION: {
+    path: '/health/devices',
+    screen: 'HealthDeviceConnection',
+    requiresAuth: true,
+    journeyId: JOURNEY_IDS.HEALTH,
+  } as RouteConfig,
+  
+  METRIC_DETAIL: {
+    path: '/health/metrics/:id',
+    screen: 'HealthMetricDetail',
+    requiresAuth: true,
+    journeyId: JOURNEY_IDS.HEALTH,
+  } as RouteConfig,
+  
+  HEALTH_INSIGHTS: {
+    path: '/health/insights',
+    screen: 'HealthInsights',
+    requiresAuth: true,
+    journeyId: JOURNEY_IDS.HEALTH,
+  } as RouteConfig,
+};
 
-  // Care Journey routes
-  CARE: {
-    ROOT: {
-      web: '/care',
-      mobile: 'Care'
-    } as RouteConfig,
-    
-    SYMPTOM_CHECKER: {
-      web: '/care/symptoms',
-      mobile: 'CareSymptomChecker'
-    } as RouteConfig,
-    
-    APPOINTMENTS: {
-      web: '/care/appointments',
-      mobile: 'CareAppointments'
-    } as RouteConfig,
-    
-    APPOINTMENT_DETAIL: {
-      web: '/care/appointments/:id',
-      mobile: 'CareAppointmentDetail',
-      params: ['id']
-    } as RouteConfig,
-    
-    APPOINTMENT_BOOKING: {
-      web: '/care/appointments/book',
-      mobile: 'CareAppointmentBooking'
-    } as RouteConfig,
-    
-    TELEMEDICINE: {
-      web: '/care/telemedicine',
-      mobile: 'CareTelemedicine'
-    } as RouteConfig,
-    
-    TELEMEDICINE_SESSION: {
-      web: '/care/telemedicine/:id',
-      mobile: 'CareTelemedicineSession',
-      params: ['id']
-    } as RouteConfig,
-    
-    MEDICATIONS: {
-      web: '/care/medications',
-      mobile: 'CareMedicationTracking'
-    } as RouteConfig,
-    
-    MEDICATION_DETAIL: {
-      web: '/care/medications/:id',
-      mobile: 'CareMedicationDetail',
-      params: ['id']
-    } as RouteConfig,
-    
-    TREATMENT_PLANS: {
-      web: '/care/treatment-plans',
-      mobile: 'CareTreatmentPlans'
-    } as RouteConfig,
-    
-    TREATMENT_PLAN_DETAIL: {
-      web: '/care/treatment-plans/:id',
-      mobile: 'CareTreatmentPlanDetail',
-      params: ['id']
-    } as RouteConfig,
-  },
+/**
+ * Care Journey routes ("Care Now")
+ */
+export const CARE_ROUTES = {
+  ROOT: {
+    path: '/care',
+    screen: 'CareDashboard',
+    requiresAuth: true,
+    journeyId: JOURNEY_IDS.CARE,
+  } as RouteConfig,
+  
+  DASHBOARD: {
+    path: '/care/dashboard',
+    screen: 'CareDashboard',
+    requiresAuth: true,
+    journeyId: JOURNEY_IDS.CARE,
+  } as RouteConfig,
+  
+  SYMPTOM_CHECKER: {
+    path: '/care/symptoms',
+    screen: 'CareSymptomChecker',
+    requiresAuth: true,
+    journeyId: JOURNEY_IDS.CARE,
+  } as RouteConfig,
+  
+  APPOINTMENTS: {
+    path: '/care/appointments',
+    screen: 'CareAppointments',
+    requiresAuth: true,
+    journeyId: JOURNEY_IDS.CARE,
+  } as RouteConfig,
+  
+  APPOINTMENT_DETAIL: {
+    path: '/care/appointments/:id',
+    screen: 'CareAppointmentDetail',
+    requiresAuth: true,
+    journeyId: JOURNEY_IDS.CARE,
+  } as RouteConfig,
+  
+  APPOINTMENT_BOOKING: {
+    path: '/care/appointments/book',
+    screen: 'CareAppointmentBooking',
+    requiresAuth: true,
+    journeyId: JOURNEY_IDS.CARE,
+  } as RouteConfig,
+  
+  TELEMEDICINE: {
+    path: '/care/telemedicine',
+    screen: 'CareTelemedicine',
+    requiresAuth: true,
+    journeyId: JOURNEY_IDS.CARE,
+  } as RouteConfig,
+  
+  TELEMEDICINE_SESSION: {
+    path: '/care/telemedicine/:id',
+    screen: 'CareTelemedicineSession',
+    requiresAuth: true,
+    journeyId: JOURNEY_IDS.CARE,
+  } as RouteConfig,
+  
+  MEDICATIONS: {
+    path: '/care/medications',
+    screen: 'CareMedicationTracking',
+    requiresAuth: true,
+    journeyId: JOURNEY_IDS.CARE,
+  } as RouteConfig,
+  
+  MEDICATION_DETAIL: {
+    path: '/care/medications/:id',
+    screen: 'CareMedicationDetail',
+    requiresAuth: true,
+    journeyId: JOURNEY_IDS.CARE,
+  } as RouteConfig,
+  
+  TREATMENT_PLANS: {
+    path: '/care/treatment-plans',
+    screen: 'CareTreatmentPlans',
+    requiresAuth: true,
+    journeyId: JOURNEY_IDS.CARE,
+  } as RouteConfig,
+  
+  TREATMENT_PLAN_DETAIL: {
+    path: '/care/treatment-plans/:id',
+    screen: 'CareTreatmentPlanDetail',
+    requiresAuth: true,
+    journeyId: JOURNEY_IDS.CARE,
+  } as RouteConfig,
+};
 
-  // Plan Journey routes
-  PLAN: {
-    ROOT: {
-      web: '/plan',
-      mobile: 'PlanDashboard'
-    } as RouteConfig,
-    
-    COVERAGE: {
-      web: '/plan/coverage',
-      mobile: 'PlanCoverage'
-    } as RouteConfig,
-    
-    DIGITAL_CARD: {
-      web: '/plan/card',
-      mobile: 'PlanDigitalCard'
-    } as RouteConfig,
-    
-    CLAIMS: {
-      web: '/plan/claims',
-      mobile: 'PlanClaims'
-    } as RouteConfig,
-    
-    CLAIM_SUBMISSION: {
-      web: '/plan/claims/submit',
-      mobile: 'PlanClaimSubmission'
-    } as RouteConfig,
-    
-    CLAIM_DETAIL: {
-      web: '/plan/claims/:id',
-      mobile: 'PlanClaimDetail',
-      params: ['id']
-    } as RouteConfig,
-    
-    COST_SIMULATOR: {
-      web: '/plan/simulator',
-      mobile: 'PlanCostSimulator'
-    } as RouteConfig,
-    
-    BENEFITS: {
-      web: '/plan/benefits',
-      mobile: 'PlanBenefits'
-    } as RouteConfig,
-    
-    BENEFIT_DETAIL: {
-      web: '/plan/benefits/:id',
-      mobile: 'PlanBenefitDetail',
-      params: ['id']
-    } as RouteConfig,
-  },
+/**
+ * Plan Journey routes ("My Plan & Benefits")
+ */
+export const PLAN_ROUTES = {
+  ROOT: {
+    path: '/plan',
+    screen: 'PlanDashboard',
+    requiresAuth: true,
+    journeyId: JOURNEY_IDS.PLAN,
+  } as RouteConfig,
+  
+  DASHBOARD: {
+    path: '/plan/dashboard',
+    screen: 'PlanDashboard',
+    requiresAuth: true,
+    journeyId: JOURNEY_IDS.PLAN,
+  } as RouteConfig,
+  
+  COVERAGE: {
+    path: '/plan/coverage',
+    screen: 'PlanCoverage',
+    requiresAuth: true,
+    journeyId: JOURNEY_IDS.PLAN,
+  } as RouteConfig,
+  
+  DIGITAL_CARD: {
+    path: '/plan/card',
+    screen: 'PlanDigitalCard',
+    requiresAuth: true,
+    journeyId: JOURNEY_IDS.PLAN,
+  } as RouteConfig,
+  
+  CLAIMS: {
+    path: '/plan/claims',
+    screen: 'PlanClaims',
+    requiresAuth: true,
+    journeyId: JOURNEY_IDS.PLAN,
+  } as RouteConfig,
+  
+  CLAIM_SUBMISSION: {
+    path: '/plan/claims/submit',
+    screen: 'PlanClaimSubmission',
+    requiresAuth: true,
+    journeyId: JOURNEY_IDS.PLAN,
+  } as RouteConfig,
+  
+  CLAIM_DETAIL: {
+    path: '/plan/claims/:id',
+    screen: 'PlanClaimDetail',
+    requiresAuth: true,
+    journeyId: JOURNEY_IDS.PLAN,
+  } as RouteConfig,
+  
+  COST_SIMULATOR: {
+    path: '/plan/simulator',
+    screen: 'PlanCostSimulator',
+    requiresAuth: true,
+    journeyId: JOURNEY_IDS.PLAN,
+  } as RouteConfig,
+  
+  BENEFITS: {
+    path: '/plan/benefits',
+    screen: 'PlanBenefits',
+    requiresAuth: true,
+    journeyId: JOURNEY_IDS.PLAN,
+  } as RouteConfig,
+  
+  BENEFIT_DETAIL: {
+    path: '/plan/benefits/:id',
+    screen: 'PlanBenefitDetail',
+    requiresAuth: true,
+    journeyId: JOURNEY_IDS.PLAN,
+  } as RouteConfig,
+};
 
+/**
+ * Combined routes object with all routes organized by journey
+ */
+export const ROUTES = {
+  ...UNIVERSAL_ROUTES,
+  HEALTH: HEALTH_ROUTES,
+  CARE: CARE_ROUTES,
+  PLAN: PLAN_ROUTES,
+  
   /**
-   * Generates a route path for the specified platform with optional parameters
-   * 
-   * @param route - The route configuration object
-   * @param platform - The target platform (web or mobile)
-   * @param params - Optional parameters to include in the route
-   * @returns The platform-specific route path with parameters
-   * 
-   * @example
-   * // Returns '/health/metrics/123' for web
-   * getRoutePath(ROUTES.HEALTH.METRIC_DETAIL, Platform.WEB, { id: '123' })
-   * 
-   * // Returns 'HealthMetricDetail' with params for mobile
-   * getRoutePath(ROUTES.HEALTH.METRIC_DETAIL, Platform.MOBILE, { id: '123' })
+   * Generates a route path with parameters for web navigation
+   * @param route The route configuration or path string
+   * @param params Optional parameters to replace in the route path
+   * @returns The fully qualified route path with parameters replaced
    */
-  getRoutePath: (route: RouteConfig, platform: Platform, params?: RouteParams): string => {
-    if (!params) {
-      return platform === Platform.WEB ? route.web : route.mobile;
+  getRoutePath: (route: RouteConfig | string, params?: RouteParams): string => {
+    const path = typeof route === 'string' ? route : route.path;
+    
+    if (!params) return path;
+    
+    let result = path;
+    Object.entries(params).forEach(([key, value]) => {
+      result = result.replace(`:${key}`, String(value));
+    });
+    
+    return result;
+  },
+  
+  /**
+   * Gets the screen name for mobile navigation
+   * @param route The route configuration
+   * @returns The screen name for React Navigation
+   */
+  getScreenName: (route: RouteConfig): string => {
+    return route.screen;
+  },
+  
+  /**
+   * Determines if a route belongs to a specific journey
+   * @param route The route configuration or path string
+   * @param journeyId The journey ID to check against
+   * @returns True if the route belongs to the specified journey
+   */
+  isJourneyRoute: (route: RouteConfig | string, journeyId: JourneyId): boolean => {
+    if (typeof route === 'string') {
+      // Check path prefix for string routes
+      const journeyPath = `/${journeyId.toLowerCase()}`;
+      return route.startsWith(journeyPath);
     }
     
-    if (platform === Platform.WEB) {
-      let path = route.web;
-      Object.entries(params).forEach(([key, value]) => {
-        path = path.replace(`:${key}`, value.toString());
-      });
-      return path;
-    } else {
-      // For mobile, we return the screen name - params will be passed separately in navigation
-      return route.mobile;
-    }
+    return route.journeyId === journeyId;
   },
-
+  
   /**
-   * Extracts parameters from a route path
-   * 
-   * @param routeConfig - The route configuration
-   * @param path - The actual path to extract parameters from
-   * @returns Object containing extracted parameters
-   * 
-   * @example
-   * // Returns { id: '123' }
-   * extractParamsFromPath(ROUTES.HEALTH.METRIC_DETAIL, '/health/metrics/123')
+   * Gets the journey ID from a route path
+   * @param path The route path
+   * @returns The journey ID or null if not a journey route
    */
-  extractParamsFromPath: (routeConfig: RouteConfig, path: string): RouteParams => {
-    if (!routeConfig.params || routeConfig.params.length === 0) {
-      return {};
-    }
-
-    const params: RouteParams = {};
-    const pathTemplate = routeConfig.web;
-    const pathParts = path.split('/');
-    const templateParts = pathTemplate.split('/');
-
-    for (let i = 0; i < templateParts.length; i++) {
-      const part = templateParts[i];
-      if (part.startsWith(':')) {
-        const paramName = part.substring(1);
-        if (i < pathParts.length) {
-          params[paramName] = pathParts[i];
-        }
-      }
-    }
-
-    return params;
+  getJourneyFromPath: (path: string): JourneyId | null => {
+    if (path.startsWith('/health')) return JOURNEY_IDS.HEALTH;
+    if (path.startsWith('/care')) return JOURNEY_IDS.CARE;
+    if (path.startsWith('/plan')) return JOURNEY_IDS.PLAN;
+    return null;
   },
-
+  
   /**
-   * Determines if a path belongs to a specific journey
-   * 
-   * @param path - The path to check
-   * @param journey - The journey to check against ('health', 'care', or 'plan')
-   * @returns True if the path belongs to the specified journey
-   * 
-   * @example
-   * // Returns true
-   * isJourneyPath('/health/metrics', 'health')
-   */
-  isJourneyPath: (path: string, journey: 'health' | 'care' | 'plan'): boolean => {
-    return path.startsWith(`/${journey}`);
-  },
-
-  /**
-   * Gets the journey name based on the current path
-   * 
-   * @param path - The current path
-   * @returns The journey name or default app name
-   * 
-   * @example
-   * // Returns 'Minha Saúde'
-   * getJourneyTitle('/health/dashboard')
+   * Gets a localized journey title from a route path
+   * @param path The route path
+   * @returns The localized journey title or default app name
    */
   getJourneyTitle: (path: string): string => {
-    if (path.startsWith('/health')) return JOURNEY_NAMES.HEALTH;
-    if (path.startsWith('/care')) return JOURNEY_NAMES.CARE;
-    if (path.startsWith('/plan')) return JOURNEY_NAMES.PLAN;
-    return 'AUSTA SuperApp';
+    const journeyId = ROUTES.getJourneyFromPath(path);
+    if (!journeyId) return 'AUSTA SuperApp';
+    
+    // These would typically come from a localization file or constants
+    switch (journeyId) {
+      case JOURNEY_IDS.HEALTH:
+        return 'Minha Saúde';
+      case JOURNEY_IDS.CARE:
+        return 'Cuidar-me Agora';
+      case JOURNEY_IDS.PLAN:
+        return 'Meu Plano & Benefícios';
+      default:
+        return 'AUSTA SuperApp';
+    }
   },
-
+  
   /**
-   * Gets the journey color based on the current path
-   * 
-   * @param path - The current path
-   * @returns The journey color key ('health', 'care', 'plan', or 'default')
-   * 
-   * @example
-   * // Returns 'health'
-   * getJourneyColor('/health/dashboard')
+   * Gets all routes for a specific journey
+   * @param journeyId The journey ID
+   * @returns An object containing all routes for the specified journey
    */
-  getJourneyColor: (path: string): 'health' | 'care' | 'plan' | 'default' => {
-    if (path.startsWith('/health')) return 'health';
-    if (path.startsWith('/care')) return 'care';
-    if (path.startsWith('/plan')) return 'plan';
-    return 'default';
+  getJourneyRoutes: (journeyId: JourneyId): Record<string, RouteConfig> => {
+    switch (journeyId) {
+      case JOURNEY_IDS.HEALTH:
+        return HEALTH_ROUTES;
+      case JOURNEY_IDS.CARE:
+        return CARE_ROUTES;
+      case JOURNEY_IDS.PLAN:
+        return PLAN_ROUTES;
+      default:
+        return {};
+    }
+  },
+  
+  /**
+   * Gets the root route for a specific journey
+   * @param journeyId The journey ID
+   * @returns The root route configuration for the specified journey
+   */
+  getJourneyRootRoute: (journeyId: JourneyId): RouteConfig => {
+    switch (journeyId) {
+      case JOURNEY_IDS.HEALTH:
+        return HEALTH_ROUTES.ROOT;
+      case JOURNEY_IDS.CARE:
+        return CARE_ROUTES.ROOT;
+      case JOURNEY_IDS.PLAN:
+        return PLAN_ROUTES.ROOT;
+      default:
+        return UNIVERSAL_ROUTES.HOME;
+    }
+  },
+  
+  /**
+   * Determines if a route requires authentication
+   * @param route The route configuration or path string
+   * @returns True if the route requires authentication
+   */
+  requiresAuth: (route: RouteConfig | string): boolean => {
+    if (typeof route === 'string') {
+      // Check all routes to find a match
+      const allRoutes = [
+        ...Object.values(UNIVERSAL_ROUTES),
+        ...Object.values(HEALTH_ROUTES),
+        ...Object.values(CARE_ROUTES),
+        ...Object.values(PLAN_ROUTES),
+      ];
+      
+      const matchingRoute = allRoutes.find(r => r.path === route);
+      return matchingRoute ? matchingRoute.requiresAuth : true; // Default to requiring auth
+    }
+    
+    return route.requiresAuth;
+  },
+  
+  /**
+   * Finds a route configuration by path
+   * @param path The route path to find
+   * @returns The matching route configuration or undefined if not found
+   */
+  findRouteByPath: (path: string): RouteConfig | undefined => {
+    const allRoutes = [
+      ...Object.values(UNIVERSAL_ROUTES),
+      ...Object.values(HEALTH_ROUTES),
+      ...Object.values(CARE_ROUTES),
+      ...Object.values(PLAN_ROUTES),
+    ];
+    
+    // Handle dynamic routes by checking for path patterns
+    return allRoutes.find(route => {
+      if (route.path === path) return true;
+      
+      // Check if this is a dynamic route with parameters
+      if (route.path.includes(':')) {
+        const routePattern = route.path.replace(/:[^/]+/g, '[^/]+');
+        const regex = new RegExp(`^${routePattern}$`);
+        return regex.test(path);
+      }
+      
+      return false;
+    });
+  },
+  
+  /**
+   * Finds a route configuration by screen name
+   * @param screenName The screen name to find
+   * @returns The matching route configuration or undefined if not found
+   */
+  findRouteByScreen: (screenName: string): RouteConfig | undefined => {
+    const allRoutes = [
+      ...Object.values(UNIVERSAL_ROUTES),
+      ...Object.values(HEALTH_ROUTES),
+      ...Object.values(CARE_ROUTES),
+      ...Object.values(PLAN_ROUTES),
+    ];
+    
+    return allRoutes.find(route => route.screen === screenName);
   },
 };
