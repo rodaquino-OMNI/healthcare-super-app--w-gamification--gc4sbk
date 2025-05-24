@@ -1,134 +1,112 @@
 /**
- * Journey Storage Factory
- * 
- * This module provides a factory function that creates the appropriate IJourneyStorage
- * implementation based on the runtime platform. It determines if the code is running
- * in a web or mobile environment and instantiates either WebJourneyStorage or
- * MobileJourneyStorage accordingly.
- * 
- * The factory supports configuration options for customizing storage behavior per platform.
+ * Factory for creating the appropriate IJourneyStorage implementation
+ * based on the runtime platform (web or mobile).
  */
 
 import { Platform } from 'react-native';
-import { IJourneyStorage, StorageOptions } from './interface';
-import { WebJourneyStorage } from './web';
-import { MobileJourneyStorage } from './mobile';
+import type { IJourneyStorage } from './interface';
+import type { StorageOptions } from './types';
+
+// Forward declarations of implementations to avoid circular dependencies
+// These will be dynamically imported when needed
+declare const WebJourneyStorage: {
+  new (options?: StorageOptions): IJourneyStorage;
+};
+
+declare const MobileJourneyStorage: {
+  new (options?: StorageOptions): IJourneyStorage;
+};
 
 /**
- * Platform detection options
+ * Configuration options for the storage factory
  */
-export interface PlatformDetectionOptions {
+export interface StorageFactoryOptions extends StorageOptions {
   /**
-   * Force a specific platform regardless of detection
-   * Useful for testing or specific environments
+   * Force a specific platform implementation regardless of runtime detection
+   * Useful for testing or specific override scenarios
    */
-  forcePlatform?: 'web' | 'mobile' | null;
-  
-  /**
-   * Custom platform detection function
-   * If provided, this function will be used instead of the default detection logic
-   */
-  detectPlatform?: () => 'web' | 'mobile';
+  forcePlatform?: 'web' | 'mobile';
 }
 
 /**
- * Factory options for creating a journey storage instance
- */
-export interface JourneyStorageFactoryOptions extends StorageOptions, PlatformDetectionOptions {}
-
-/**
- * Detects the current platform (web or mobile)
- * 
- * @returns The detected platform: 'web' or 'mobile'
+ * Detects whether the code is running in a web browser or React Native environment
+ * @returns 'web' if running in a browser, 'mobile' if running in React Native
  */
 export function detectPlatform(): 'web' | 'mobile' {
-  // First try using React Native's Platform API
+  // Primary detection using React Native's Platform API
   try {
-    // If Platform.OS is defined, we're in a React Native environment
-    if (Platform && Platform.OS) {
+    if (Platform.OS === 'web') {
+      return 'web';
+    } else if (Platform.OS === 'ios' || Platform.OS === 'android') {
       return 'mobile';
     }
   } catch (e) {
-    // Platform is not available, continue with other detection methods
+    // Platform API not available, fall back to feature detection
   }
-  
-  // Check for React Native environment using navigator.product
-  // This is a fallback for environments where Platform API might not be available
-  if (
-    typeof navigator !== 'undefined' && 
-    navigator.product === 'ReactNative'
-  ) {
+
+  // Fallback detection using global objects
+  if (typeof document !== 'undefined') {
+    return 'web';
+  } else if (typeof navigator !== 'undefined' && navigator.product === 'ReactNative') {
     return 'mobile';
   }
-  
-  // Check for window object (browser environment)
-  if (typeof window !== 'undefined' && typeof document !== 'undefined') {
-    return 'web';
-  }
-  
-  // Default to web for server-side rendering environments
-  // This ensures Next.js SSR doesn't break
+
+  // Default to web if detection fails
+  console.warn('Platform detection failed, defaulting to web storage implementation');
   return 'web';
 }
 
 /**
- * Creates a platform-appropriate journey storage implementation
- * 
- * @param options - Configuration options for the storage implementation
- * @returns An implementation of IJourneyStorage for the current platform
+ * Creates the appropriate IJourneyStorage implementation based on the runtime platform
+ * @param options Configuration options for the storage implementation
+ * @returns An instance of IJourneyStorage appropriate for the current platform
  */
-export function createJourneyStorage(options: JourneyStorageFactoryOptions = {}): IJourneyStorage {
-  // Determine which platform to use
-  const platform = options.forcePlatform || 
-    (options.detectPlatform ? options.detectPlatform() : detectPlatform());
-  
-  // Extract storage-specific options (excluding platform detection options)
-  const storageOptions: StorageOptions = {
-    namespace: options.namespace,
-    defaultExpiration: options.defaultExpiration,
-    encryptionKey: options.encryptionKey,
-    useSessionStorage: options.useSessionStorage,
-    persistenceLevel: options.persistenceLevel
-  };
-  
-  // Create the appropriate storage implementation
-  switch (platform) {
-    case 'mobile':
-      return new MobileJourneyStorage(storageOptions);
-    case 'web':
-    default:
-      return new WebJourneyStorage(storageOptions);
+export async function createJourneyStorage(options?: StorageFactoryOptions): Promise<IJourneyStorage> {
+  const platform = options?.forcePlatform || detectPlatform();
+
+  try {
+    if (platform === 'web') {
+      // Dynamically import the web implementation to avoid circular dependencies
+      const { WebJourneyStorage } = await import('./web');
+      return new WebJourneyStorage(options);
+    } else {
+      // Dynamically import the mobile implementation to avoid circular dependencies
+      const { MobileJourneyStorage } = await import('./mobile');
+      return new MobileJourneyStorage(options);
+    }
+  } catch (error) {
+    console.error(`Failed to create storage implementation for platform: ${platform}`, error);
+    throw new Error(`Failed to initialize journey storage for platform: ${platform}`);
   }
 }
 
 /**
- * Determines if the current environment is a web browser
- * Utility function for conditional logic based on platform
- * 
- * @returns True if running in a web browser, false otherwise
+ * Synchronous version of createJourneyStorage that doesn't use dynamic imports
+ * This is useful for contexts where async initialization isn't possible
+ * Note: This requires both implementations to be bundled
+ * @param options Configuration options for the storage implementation
+ * @returns An instance of IJourneyStorage appropriate for the current platform
  */
-export function isWebBrowser(): boolean {
-  return detectPlatform() === 'web';
+export function createJourneyStorageSync(options?: StorageFactoryOptions): IJourneyStorage {
+  const platform = options?.forcePlatform || detectPlatform();
+
+  try {
+    if (platform === 'web') {
+      // Require the web implementation
+      // Note: This relies on the bundler to include the implementation
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const { WebJourneyStorage } = require('./web');
+      return new WebJourneyStorage(options);
+    } else {
+      // Require the mobile implementation
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const { MobileJourneyStorage } = require('./mobile');
+      return new MobileJourneyStorage(options);
+    }
+  } catch (error) {
+    console.error(`Failed to create storage implementation for platform: ${platform}`, error);
+    throw new Error(`Failed to initialize journey storage for platform: ${platform}`);
+  }
 }
 
-/**
- * Determines if the current environment is React Native
- * Utility function for conditional logic based on platform
- * 
- * @returns True if running in React Native, false otherwise
- */
-export function isReactNative(): boolean {
-  return detectPlatform() === 'mobile';
-}
-
-/**
- * Select a value based on the current platform
- * Similar to Platform.select but works across both web and mobile
- * 
- * @param obj - An object with platform-specific values
- * @returns The value for the current platform or undefined if not found
- */
-export function selectByPlatform<T>(obj: { web?: T; mobile?: T; default?: T }): T | undefined {
-  const platform = detectPlatform();
-  return obj[platform] || obj.default;
-}
+export default createJourneyStorage;
