@@ -15,6 +15,9 @@ export { useAuth } from './useAuth';
 // Journey hook - Manages navigation and state between different user journeys
 export { useJourney } from './useJourney';
 
+// Journey theme hook - Provides journey-specific theme colors for UI components
+export { useJourneyTheme } from './useJourneyTheme';
+
 // Gamification hook - Processes user actions and assigns points/achievements based on rules
 export { useGamification } from './useGamification';
 
@@ -27,6 +30,7 @@ export { useStorage } from './useStorage';
 // Export types for better developer experience
 export type { UseAuthReturn } from './useAuth';
 export type { UseJourneyReturn } from './useJourney';
+export type { UseJourneyThemeReturn } from './useJourneyTheme';
 export type { UseGamificationReturn } from './useGamification';
 export type { UseNotificationReturn } from './useNotification';
 export type { UseStorageReturn } from './useStorage';
