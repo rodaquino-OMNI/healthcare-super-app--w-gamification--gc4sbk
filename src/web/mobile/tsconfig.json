@@ -1,8 +1,8 @@
 {
   "extends": "../tsconfig.json",
   "compilerOptions": {
-    "target": "es2020",
-    "lib": ["es2020", "dom"],
+    "target": "es2018",
+    "lib": ["es2018", "dom"],
     "allowJs": true,
     "skipLibCheck": true,
     "strict": true,
@@ -35,7 +35,7 @@
       "@austa/interfaces/*": ["../interfaces/*"],
       "@austa/journey-context": ["../journey-context/src"],
       "@austa/journey-context/*": ["../journey-context/src/*"],
-      "@shared/*": ["../shared/*"]
+      "shared/*": ["../shared/*"]
     },
     "noImplicitAny": true,
     "noImplicitReturns": true,
