@@ -1,312 +1,383 @@
-import { LoggerService } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import { OAuthProfile, OAuthToken } from '../../src/providers/oauth/interfaces';
-import { OAuthProviderMock } from './oauth-provider.mock';
+/**
+ * @file Facebook OAuth Provider Mock
+ * @description Mock implementation of the Facebook OAuth provider that extends the base OAuth provider mock.
+ * This mock simulates Facebook-specific authentication behavior with predefined test profiles and token responses.
+ * It enables testing of Facebook login flows without requiring actual Facebook API credentials or network connectivity.
+ */
+
+import { BaseOAuthProviderMock } from './oauth-provider.mock';
+import { FacebookOAuthConfig, FacebookProfile, OAuthToken } from '../../src/providers/oauth/interfaces';
 
 /**
- * Mock implementation of the Facebook OAuth provider for testing.
- * Extends the base OAuth provider mock with Facebook-specific functionality.
+ * Mock implementation of the Facebook OAuth provider
+ * Simulates Facebook-specific authentication behavior for testing
  */
-export class FacebookProviderMock extends OAuthProviderMock {
+export class FacebookOAuthProviderMock extends BaseOAuthProviderMock {
   /**
-   * Predefined Facebook user profiles for testing different scenarios.
+   * Provider name
    */
-  private readonly predefinedProfiles = {
-    /**
-     * Standard user with all information provided.
-     */
-    standard: {
-      id: '1234567890',
+  readonly providerName = 'facebook';
+
+  /**
+   * Facebook-specific configuration
+   */
+  protected config: FacebookOAuthConfig;
+
+  /**
+   * Creates an instance of FacebookOAuthProviderMock
+   * @param config - Mock configuration for the Facebook provider
+   */
+  constructor(config?: Partial<FacebookOAuthConfig>) {
+    // Create default Facebook OAuth configuration for testing
+    const defaultConfig: FacebookOAuthConfig = {
+      clientID: 'test_facebook_app_id',
+      clientSecret: 'test_facebook_app_secret',
+      callbackURL: 'https://austa.app/auth/facebook/callback',
+      profileFields: ['id', 'displayName', 'name', 'emails', 'photos', 'gender', 'birthday'],
+      enableProof: true,
+      scope: ['email', 'public_profile'],
+    };
+
+    super({ ...defaultConfig, ...config });
+    this.config = { ...defaultConfig, ...config } as FacebookOAuthConfig;
+  }
+
+  /**
+   * Initializes test data for Facebook authentication scenarios
+   */
+  protected initializeTestData(): void {
+    // Standard user with all profile information
+    this.testProfiles['standard'] = {
+      id: 'facebook_user_123456',
       provider: 'facebook',
-      displayName: 'John Doe',
+      email: 'user@example.com',
+      emailVerified: true,
       firstName: 'John',
       lastName: 'Doe',
-      email: 'john.doe@example.com',
-      emailVerified: true,
-      picture: 'https://graph.facebook.com/1234567890/picture?type=large',
+      displayName: 'John Doe',
       gender: 'male',
-      locale: 'en_US',
-      timezone: -5,
-      _raw: '{"id":"1234567890","name":"John Doe","first_name":"John","last_name":"Doe","email":"john.doe@example.com","picture":{"data":{"height":200,"is_silhouette":false,"url":"https://graph.facebook.com/1234567890/picture?type=large","width":200}},"gender":"male","locale":"en_US","timezone":-5}',
-      _json: {
-        id: '1234567890',
+      birthday: '01/01/1990',
+      profileUrl: 'https://facebook.com/john.doe',
+      photos: [
+        { value: 'https://graph.facebook.com/facebook_user_123456/picture?type=large' }
+      ],
+      emails: [
+        { value: 'user@example.com', type: 'account' }
+      ],
+      name: {
+        familyName: 'Doe',
+        givenName: 'John',
+        middleName: '',
+      },
+      _raw: JSON.stringify({
+        id: 'facebook_user_123456',
+        email: 'user@example.com',
         name: 'John Doe',
         first_name: 'John',
         last_name: 'Doe',
-        email: 'john.doe@example.com',
+        gender: 'male',
+        birthday: '01/01/1990',
         picture: {
           data: {
-            height: 200,
-            is_silhouette: false,
-            url: 'https://graph.facebook.com/1234567890/picture?type=large',
-            width: 200
+            url: 'https://graph.facebook.com/facebook_user_123456/picture?type=large',
+            is_silhouette: false
           }
-        },
+        }
+      }),
+      _json: {
+        id: 'facebook_user_123456',
+        email: 'user@example.com',
+        name: 'John Doe',
+        first_name: 'John',
+        last_name: 'Doe',
         gender: 'male',
-        locale: 'en_US',
-        timezone: -5
-      }
-    },
+        birthday: '01/01/1990',
+        picture: {
+          data: {
+            url: 'https://graph.facebook.com/facebook_user_123456/picture?type=large',
+            is_silhouette: false
+          }
+        }
+      },
+    };
 
-    /**
-     * User with minimal profile information.
-     */
-    minimal: {
-      id: '9876543210',
+    // User with limited profile information (no email)
+    this.testProfiles['limited'] = {
+      id: 'facebook_user_789012',
       provider: 'facebook',
       displayName: 'Jane Smith',
       firstName: 'Jane',
       lastName: 'Smith',
-      email: 'jane.smith@example.com',
-      emailVerified: true,
-      picture: 'https://graph.facebook.com/9876543210/picture?type=large',
-      _raw: '{"id":"9876543210","name":"Jane Smith","first_name":"Jane","last_name":"Smith","email":"jane.smith@example.com","picture":{"data":{"height":200,"is_silhouette":false,"url":"https://graph.facebook.com/9876543210/picture?type=large","width":200}}}',
-      _json: {
-        id: '9876543210',
+      gender: 'female',
+      photos: [
+        { value: 'https://graph.facebook.com/facebook_user_789012/picture?type=large' }
+      ],
+      name: {
+        familyName: 'Smith',
+        givenName: 'Jane',
+        middleName: '',
+      },
+      _raw: JSON.stringify({
+        id: 'facebook_user_789012',
         name: 'Jane Smith',
         first_name: 'Jane',
         last_name: 'Smith',
-        email: 'jane.smith@example.com',
+        gender: 'female',
         picture: {
           data: {
-            height: 200,
-            is_silhouette: false,
-            url: 'https://graph.facebook.com/9876543210/picture?type=large',
-            width: 200
+            url: 'https://graph.facebook.com/facebook_user_789012/picture?type=large',
+            is_silhouette: false
           }
         }
-      }
-    },
-
-    /**
-     * User without email (privacy settings restricted).
-     */
-    noEmail: {
-      id: '5555555555',
-      provider: 'facebook',
-      displayName: 'Alex Privacy',
-      firstName: 'Alex',
-      lastName: 'Privacy',
-      emailVerified: false,
-      picture: 'https://graph.facebook.com/5555555555/picture?type=large',
-      gender: 'non_binary',
-      locale: 'en_US',
-      _raw: '{"id":"5555555555","name":"Alex Privacy","first_name":"Alex","last_name":"Privacy","picture":{"data":{"height":200,"is_silhouette":false,"url":"https://graph.facebook.com/5555555555/picture?type=large","width":200}},"gender":"non_binary","locale":"en_US"}',
+      }),
       _json: {
-        id: '5555555555',
-        name: 'Alex Privacy',
-        first_name: 'Alex',
-        last_name: 'Privacy',
+        id: 'facebook_user_789012',
+        name: 'Jane Smith',
+        first_name: 'Jane',
+        last_name: 'Smith',
+        gender: 'female',
         picture: {
           data: {
-            height: 200,
-            is_silhouette: false,
-            url: 'https://graph.facebook.com/5555555555/picture?type=large',
-            width: 200
+            url: 'https://graph.facebook.com/facebook_user_789012/picture?type=large',
+            is_silhouette: false
           }
-        },
-        gender: 'non_binary',
-        locale: 'en_US'
-      }
-    },
+        }
+      },
+    };
 
-    /**
-     * User with default silhouette picture (no profile photo).
-     */
-    defaultPicture: {
-      id: '1111111111',
+    // User with minimal profile information
+    this.testProfiles['minimal'] = {
+      id: 'facebook_user_345678',
       provider: 'facebook',
-      displayName: 'Sam Default',
-      firstName: 'Sam',
-      lastName: 'Default',
-      email: 'sam.default@example.com',
-      emailVerified: true,
-      picture: 'https://graph.facebook.com/1111111111/picture?type=large',
-      locale: 'pt_BR',
-      _raw: '{"id":"1111111111","name":"Sam Default","first_name":"Sam","last_name":"Default","email":"sam.default@example.com","picture":{"data":{"height":200,"is_silhouette":true,"url":"https://graph.facebook.com/1111111111/picture?type=large","width":200}},"locale":"pt_BR"}',
-      _json: {
-        id: '1111111111',
-        name: 'Sam Default',
-        first_name: 'Sam',
-        last_name: 'Default',
-        email: 'sam.default@example.com',
+      displayName: 'FB User',
+      photos: [
+        { value: 'https://graph.facebook.com/facebook_user_345678/picture?type=large' }
+      ],
+      _raw: JSON.stringify({
+        id: 'facebook_user_345678',
+        name: 'FB User',
         picture: {
           data: {
-            height: 200,
-            is_silhouette: true,
-            url: 'https://graph.facebook.com/1111111111/picture?type=large',
-            width: 200
+            url: 'https://graph.facebook.com/facebook_user_345678/picture?type=large',
+            is_silhouette: true
           }
-        },
-        locale: 'pt_BR'
-      }
-    }
-  };
+        }
+      }),
+      _json: {
+        id: 'facebook_user_345678',
+        name: 'FB User',
+        picture: {
+          data: {
+            url: 'https://graph.facebook.com/facebook_user_345678/picture?type=large',
+            is_silhouette: true
+          }
+        }
+      },
+    };
 
-  /**
-   * Constructor for the Facebook provider mock.
-   * @param logger Mock logger service
-   * @param configService Mock config service
-   */
-  constructor(
-    protected readonly logger: LoggerService,
-    protected readonly configService: ConfigService,
-  ) {
-    super(logger, configService);
-    this.initializeMockData();
+    // Create test tokens for each profile
+    this.createTestTokensForProfiles();
   }
 
   /**
-   * Initializes mock data with predefined profiles and tokens.
+   * Creates test tokens for each predefined profile
    */
-  private initializeMockData(): void {
-    // Add predefined profiles to mock profiles
-    Object.entries(this.predefinedProfiles).forEach(([key, profile]) => {
-      this.addMockProfile(`facebook_token_${key}`, profile as OAuthProfile);
-      
-      // Create corresponding mock tokens for each profile
-      this.addMockToken(`facebook_code_${key}`, {
-        access_token: `facebook_access_token_${key}`,
-        token_type: 'Bearer',
-        expires_in: 3600,
-        issued_at: new Date().toISOString(),
-        expires_at: Math.floor(Date.now() / 1000) + 3600
-      });
-    });
-  }
-
-  /**
-   * Simulates Facebook token validation by checking against the debug_token endpoint.
-   * This is a mock implementation for testing purposes.
-   * @param accessToken The Facebook access token to validate
-   * @param userId The Facebook user ID to validate against
-   * @returns A boolean indicating whether the token is valid
-   */
-  async validateFacebookToken(accessToken: string, userId: string): Promise<boolean> {
-    this.logger.debug(`[FacebookProviderMock] Validating Facebook token: ${accessToken} for user: ${userId}`);
-    
-    if (this.shouldFailValidation) {
-      this.logger.debug('[FacebookProviderMock] Token validation failed (simulated)');
-      return false;
-    }
-
-    // Check if the token exists in our mock profiles
-    const isValidToken = Object.keys(this.mockProfiles).some(token => {
-      const profile = this.mockProfiles[token];
-      return token.includes(accessToken) && profile.id === userId;
+  private createTestTokensForProfiles(): void {
+    // Create tokens for each profile
+    Object.keys(this.testProfiles).forEach(profileId => {
+      const tokenId = `facebook_${profileId}`;
+      this.testTokens[tokenId] = {
+        accessToken: `facebook_access_token_${profileId}`,
+        refreshToken: `facebook_refresh_token_${profileId}`,
+        idToken: undefined, // Facebook doesn't use ID tokens
+        tokenType: 'Bearer',
+        expiresIn: 3600,
+        scope: 'email,public_profile',
+      };
     });
 
-    if (!isValidToken) {
-      this.logger.debug('[FacebookProviderMock] Token not found or user ID mismatch');
-      return false;
-    }
+    // Add a special expired token
+    this.testTokens['expired'] = {
+      accessToken: 'facebook_expired_token',
+      refreshToken: 'facebook_expired_refresh_token',
+      idToken: undefined,
+      tokenType: 'Bearer',
+      expiresIn: -3600, // Negative value to indicate expiration
+      scope: 'email,public_profile',
+    };
 
-    this.logger.debug('[FacebookProviderMock] Token validated successfully');
-    return true;
-  }
-
-  /**
-   * Simulates the Facebook debug_token endpoint response.
-   * @param accessToken The Facebook access token to debug
-   * @returns A mock debug_token response or null if validation fails
-   */
-  async getDebugTokenInfo(accessToken: string): Promise<Record<string, any> | null> {
-    this.logger.debug(`[FacebookProviderMock] Getting debug token info: ${accessToken}`);
-    
-    if (this.shouldFailValidation) {
-      this.logger.debug('[FacebookProviderMock] Debug token failed (simulated)');
-      return null;
-    }
-
-    // Find the profile associated with this token
-    const tokenKey = Object.keys(this.mockProfiles).find(key => key.includes(accessToken));
-    if (!tokenKey) {
-      this.logger.debug('[FacebookProviderMock] Token not found in mock profiles');
-      return null;
-    }
-
-    const profile = this.mockProfiles[tokenKey];
-    const appId = this.configService.get<string>('FACEBOOK_APP_ID') || 'mock_app_id';
-    const now = Math.floor(Date.now() / 1000);
-    const expiresAt = now + 3600; // 1 hour from now
-
-    return {
-      data: {
-        app_id: appId,
-        type: 'USER',
-        application: 'AUSTA SuperApp',
-        data_access_expires_at: expiresAt + 86400 * 60, // 60 days from now
-        expires_at: expiresAt,
-        is_valid: true,
-        issued_at: now - 60, // Issued 1 minute ago
-        scopes: ['email', 'public_profile'],
-        user_id: profile.id,
-        granular_scopes: [
-          { scope: 'email', target_ids: [] },
-          { scope: 'public_profile', target_ids: [] }
-        ]
-      }
+    // Add a special invalid token
+    this.testTokens['invalid'] = {
+      accessToken: 'facebook_invalid_token',
+      refreshToken: 'facebook_invalid_refresh_token',
+      idToken: undefined,
+      tokenType: 'Bearer',
+      expiresIn: 3600,
+      scope: 'email,public_profile',
     };
   }
 
   /**
-   * Gets a predefined profile by key.
-   * @param key The key of the predefined profile
-   * @returns The profile or undefined if not found
+   * Simulates validating a Facebook access token
+   * @param token - The access token to validate
+   * @returns The validated user profile
+   * @throws Error if token validation fails
    */
-  getPredefinedProfile(key: keyof typeof this.predefinedProfiles): OAuthProfile | undefined {
-    return this.predefinedProfiles[key] as OAuthProfile;
-  }
-
-  /**
-   * Gets a mock token for a predefined profile by key.
-   * @param key The key of the predefined profile
-   * @returns The token or null if not found
-   */
-  getMockTokenForPredefinedProfile(key: keyof typeof this.predefinedProfiles): OAuthToken | null {
-    return this.mockTokens[`facebook_code_${key}`] || null;
-  }
-
-  /**
-   * Simulates the Facebook login flow for a predefined profile.
-   * @param key The key of the predefined profile to use
-   * @returns An object containing the authorization code and access token
-   */
-  simulateFacebookLogin(key: keyof typeof this.predefinedProfiles): {
-    authorizationCode: string;
-    accessToken: string;
-    userId: string;
-  } | null {
-    const profile = this.getPredefinedProfile(key);
-    const token = this.getMockTokenForPredefinedProfile(key);
-    
-    if (!profile || !token) {
-      return null;
+  async validateToken(token: string): Promise<FacebookProfile> {
+    // Special case for expired token
+    if (token === this.testTokens['expired']?.accessToken) {
+      const error = new Error('Token expired') as Error & { name: string };
+      error.name = 'TokenExpiredError';
+      throw error;
     }
 
-    return {
-      authorizationCode: `facebook_code_${key}`,
-      accessToken: token.access_token,
-      userId: profile.id,
-    };
+    // Special case for invalid token
+    if (token === this.testTokens['invalid']?.accessToken) {
+      throw new Error('Invalid access token or user ID mismatch');
+    }
+
+    // Use the base implementation for other tokens
+    return super.validateToken(token) as Promise<FacebookProfile>;
   }
 
   /**
-   * Simulates the Facebook Graph API response for a user profile.
-   * @param userId The Facebook user ID
-   * @returns A mock Graph API response or null if user not found
+   * Simulates exchanging an authorization code for Facebook tokens
+   * @param code - The authorization code to exchange
+   * @returns The OAuth tokens from Facebook
+   * @throws Error if code exchange fails
    */
-  async getGraphApiProfile(userId: string): Promise<Record<string, any> | null> {
-    this.logger.debug(`[FacebookProviderMock] Getting Graph API profile for user: ${userId}`);
-    
-    // Find the profile with the matching user ID
-    const profile = Object.values(this.predefinedProfiles).find(p => p.id === userId);
+  async exchangeCodeForToken(code: string): Promise<OAuthToken> {
+    // Check if this is a special test code
+    if (code === 'invalid_code') {
+      throw new Error('Invalid authorization code');
+    }
+
+    if (code === 'server_error') {
+      throw new Error('Facebook server error');
+    }
+
+    // Map profile codes to tokens
+    if (code.startsWith('profile_')) {
+      const profileId = code.replace('profile_', '');
+      const tokenId = `facebook_${profileId}`;
+      if (this.testTokens[tokenId]) {
+        return this.testTokens[tokenId];
+      }
+    }
+
+    // Use the base implementation for other codes
+    return super.exchangeCodeForToken(code);
+  }
+
+  /**
+   * Simulates refreshing a Facebook access token
+   * @param refreshToken - The refresh token to use
+   * @returns The new OAuth tokens from Facebook
+   * @throws Error if token refresh fails
+   */
+  async refreshToken(refreshToken: string): Promise<OAuthToken> {
+    // Check if this is a special test refresh token
+    if (refreshToken === 'invalid_refresh') {
+      throw new Error('Invalid refresh token');
+    }
+
+    if (refreshToken === 'server_error_refresh') {
+      throw new Error('Facebook server error during refresh');
+    }
+
+    // Use the base implementation for other refresh tokens
+    return super.refreshToken(refreshToken);
+  }
+
+  /**
+   * Simulates validating a Facebook access token with the Graph API
+   * @param accessToken - The access token to validate
+   * @param userId - The Facebook user ID to validate against
+   * @returns A promise that resolves if the token is valid
+   * @throws Error if token validation fails
+   */
+  async validateAccessToken(accessToken: string, userId: string): Promise<void> {
+    // Special case for expired token
+    if (accessToken === this.testTokens['expired']?.accessToken) {
+      throw new Error('Token expired');
+    }
+
+    // Special case for invalid token
+    if (accessToken === this.testTokens['invalid']?.accessToken) {
+      throw new Error('Invalid access token or user ID mismatch');
+    }
+
+    // Check if this is one of our test tokens
+    const tokenId = this.getTokenId(accessToken);
+    if (!tokenId) {
+      throw new Error('Invalid access token');
+    }
+
+    // Check if the user ID matches the token
+    const profile = this.testProfiles[tokenId.replace('facebook_', '')];
+    if (profile && profile.id !== userId) {
+      throw new Error('User ID mismatch');
+    }
+
+    // Token is valid
+    return Promise.resolve();
+  }
+
+  /**
+   * Gets a test profile by scenario name
+   * @param scenario - The scenario name ('standard', 'limited', 'minimal')
+   * @returns The test profile for the scenario
+   */
+  getProfileByScenario(scenario: 'standard' | 'limited' | 'minimal'): FacebookProfile {
+    return this.testProfiles[scenario] as FacebookProfile;
+  }
+
+  /**
+   * Gets a test token by scenario name
+   * @param scenario - The scenario name ('standard', 'limited', 'minimal', 'expired', 'invalid')
+   * @returns The test token for the scenario
+   */
+  getTokenByScenario(scenario: 'standard' | 'limited' | 'minimal' | 'expired' | 'invalid'): OAuthToken {
+    const tokenId = ['expired', 'invalid'].includes(scenario) ? scenario : `facebook_${scenario}`;
+    return this.testTokens[tokenId];
+  }
+
+  /**
+   * Creates a test authorization code for a specific profile scenario
+   * @param scenario - The profile scenario to create a code for
+   * @returns A test authorization code
+   */
+  createAuthorizationCode(scenario: 'standard' | 'limited' | 'minimal'): string {
+    return `profile_${scenario}`;
+  }
+
+  /**
+   * Simulates a Facebook Graph API response for a user profile
+   * @param userId - The Facebook user ID
+   * @returns A mock Graph API response
+   */
+  simulateGraphApiResponse(userId: string): Record<string, any> {
+    // Find the profile by ID
+    const profile = Object.values(this.testProfiles).find(p => p.id === userId);
     if (!profile) {
-      this.logger.debug('[FacebookProviderMock] User not found in predefined profiles');
-      return null;
+      throw new Error('User not found');
     }
 
-    // Return the _json property which contains the Graph API response format
-    return profile._json as Record<string, any>;
+    // Return a mock Graph API response based on the profile
+    return {
+      id: profile.id,
+      name: profile.displayName,
+      first_name: profile.firstName,
+      last_name: profile.lastName,
+      email: profile.email,
+      gender: profile.gender,
+      birthday: profile.birthday,
+      picture: {
+        data: {
+          url: profile.photos?.[0]?.value || `https://graph.facebook.com/${profile.id}/picture?type=large`,
+          is_silhouette: !profile.photos || profile.photos.length === 0
+        }
+      }
+    };
   }
 }
