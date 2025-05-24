@@ -1,221 +1,379 @@
 /**
- * Web implementation of the IJourneyStorage interface using localStorage and sessionStorage
- * Provides methods to persist, retrieve, and remove journey state with proper serialization,
- * error handling, and optional expiration support.
+ * @file Web Journey Storage Implementation
+ * @description Implements the IJourneyStorage interface for web browsers using localStorage and sessionStorage
  */
+
+import { StorageOptions, StorageResult, StorageError, StorageValue } from './types';
+import { IJourneyStorage } from './interface';
 
 /**
- * Storage options for configuring storage behavior
+ * Web-specific storage implementation options
  */
-interface StorageOptions {
+export interface WebStorageOptions extends StorageOptions {
   /**
-   * Whether to use session storage instead of local storage
-   * - true: Data persists only for the current session (sessionStorage)
-   * - false: Data persists across sessions (localStorage)
+   * Use sessionStorage instead of localStorage for all operations
    * @default false
    */
-  session?: boolean;
+  useSessionStorage?: boolean;
 
   /**
-   * Expiration time in milliseconds
-   * If provided, the stored data will be considered expired after this time
+   * Default expiration time in milliseconds for items that don't specify their own
+   * @default undefined (no expiration)
    */
-  expiresIn?: number;
+  defaultExpirationMs?: number;
 }
 
 /**
- * Stored item wrapper with metadata
+ * Internal structure for stored items with metadata
  */
-interface StoredItem<T> {
+interface StoredItem<T = any> {
   /**
    * The actual data being stored
    */
   data: T;
 
   /**
-   * When the data was stored (timestamp)
-   */
-  storedAt: number;
-
-  /**
-   * When the data expires (timestamp), if applicable
+   * Optional expiration timestamp in milliseconds since epoch
    */
   expiresAt?: number;
+
+  /**
+   * Timestamp when the item was stored
+   */
+  storedAt: number;
 }
 
 /**
- * Result of a storage operation
- */
-interface StorageResult<T> {
-  /**
-   * Whether the operation was successful
-   */
-  success: boolean;
-
-  /**
-   * The data retrieved, if applicable
-   */
-  data?: T;
-
-  /**
-   * Error message if the operation failed
-   */
-  error?: string;
-}
-
-/**
- * Interface for journey storage operations
- */
-interface IJourneyStorage {
-  /**
-   * Stores data with the given key
-   * @param key - The key to store the data under
-   * @param data - The data to store
-   * @param options - Storage options
-   * @returns A promise that resolves to the result of the operation
-   */
-  persist<T>(key: string, data: T, options?: StorageOptions): Promise<StorageResult<T>>;
-
-  /**
-   * Retrieves data for the given key
-   * @param key - The key to retrieve data for
-   * @returns A promise that resolves to the result of the operation
-   */
-  retrieve<T>(key: string): Promise<StorageResult<T>>;
-
-  /**
-   * Removes data for the given key
-   * @param key - The key to remove data for
-   * @returns A promise that resolves to the result of the operation
-   */
-  remove(key: string): Promise<StorageResult<void>>;
-}
-
-/**
- * Web implementation of the IJourneyStorage interface
- * Uses localStorage for persistent storage and sessionStorage for session storage
+ * Implementation of IJourneyStorage for web browsers using localStorage/sessionStorage
  */
 export class WebJourneyStorage implements IJourneyStorage {
+  private storage: Storage;
+  private options: WebStorageOptions;
+
   /**
-   * Stores data with the given key
-   * @param key - The key to store the data under
-   * @param data - The data to store
-   * @param options - Storage options
-   * @returns A promise that resolves to the result of the operation
+   * Creates a new WebJourneyStorage instance
+   * @param options Configuration options
    */
-  async persist<T>(key: string, data: T, options?: StorageOptions): Promise<StorageResult<T>> {
+  constructor(options: WebStorageOptions = {}) {
+    this.options = {
+      useSessionStorage: false,
+      ...options
+    };
+
+    // Determine which storage to use based on options and availability
+    if (typeof window === 'undefined') {
+      throw new Error('WebJourneyStorage requires a browser environment with window object');
+    }
+
     try {
-      // Create the stored item with metadata
-      const now = Date.now();
-      const storedItem: StoredItem<T> = {
-        data,
-        storedAt: now,
-      };
-
-      // Add expiration if specified
-      if (options?.expiresIn) {
-        storedItem.expiresAt = now + options.expiresIn;
-      }
-
-      // Serialize the data
-      const serializedData = JSON.stringify(storedItem);
-
-      // Determine which storage to use
-      const storage = options?.session ? sessionStorage : localStorage;
-
-      // Store the data
-      storage.setItem(key, serializedData);
-
-      return { success: true, data };
+      // Use the specified storage or fall back to localStorage
+      this.storage = this.options.useSessionStorage ? window.sessionStorage : window.localStorage;
+      
+      // Verify storage is working by testing a write/read operation
+      const testKey = `__storage_test_${Date.now()}`;
+      this.storage.setItem(testKey, 'test');
+      this.storage.removeItem(testKey);
     } catch (error) {
-      // Handle storage errors (e.g., quota exceeded, private browsing mode)
-      const errorMessage = error instanceof Error ? error.message : 'Unknown storage error';
-      console.error(`Failed to persist data for key ${key}:`, errorMessage);
-      return { success: false, error: errorMessage };
+      console.error('Storage not available:', error);
+      throw new Error('Web storage is not available in this browser environment');
     }
   }
 
   /**
-   * Retrieves data for the given key
-   * @param key - The key to retrieve data for
-   * @returns A promise that resolves to the result of the operation
+   * Stores a value with the specified key
+   * @param key The key to store the value under
+   * @param value The value to store
+   * @param options Storage options including expiration
+   * @returns A promise that resolves with the result of the operation
    */
-  async retrieve<T>(key: string): Promise<StorageResult<T>> {
+  async set<T>(key: string, value: T, options?: StorageOptions): Promise<StorageResult<T>> {
     try {
-      // Try localStorage first
-      let serializedData = localStorage.getItem(key);
+      // Create the stored item with metadata
+      const storedItem: StoredItem<T> = {
+        data: value,
+        storedAt: Date.now()
+      };
 
-      // If not found in localStorage, try sessionStorage
-      if (!serializedData) {
-        serializedData = sessionStorage.getItem(key);
+      // Set expiration if specified in options or constructor
+      const expirationMs = options?.expirationMs ?? this.options.defaultExpirationMs;
+      if (expirationMs) {
+        storedItem.expiresAt = Date.now() + expirationMs;
       }
 
-      // If not found in either storage, return null
-      if (!serializedData) {
-        return { success: false, error: 'Item not found' };
+      // Serialize and store the item
+      const serialized = JSON.stringify(storedItem);
+      this.storage.setItem(key, serialized);
+
+      return {
+        success: true,
+        data: value
+      };
+    } catch (error) {
+      // Handle storage errors (e.g., quota exceeded)
+      const storageError: StorageError = {
+        code: 'STORAGE_ERROR',
+        message: error instanceof Error ? error.message : 'Unknown storage error',
+        originalError: error
+      };
+
+      console.error(`Failed to store item with key '${key}':`, error);
+      
+      return {
+        success: false,
+        error: storageError
+      };
+    }
+  }
+
+  /**
+   * Retrieves a value by key
+   * @param key The key to retrieve
+   * @returns A promise that resolves with the result of the operation
+   */
+  async get<T>(key: string): Promise<StorageResult<T>> {
+    try {
+      // Get the serialized item from storage
+      const serialized = this.storage.getItem(key);
+      
+      // If the key doesn't exist, return null
+      if (serialized === null) {
+        return {
+          success: true,
+          data: null as unknown as T
+        };
       }
 
       // Parse the stored item
-      const storedItem = JSON.parse(serializedData) as StoredItem<T>;
-
+      const storedItem = JSON.parse(serialized) as StoredItem<T>;
+      
       // Check if the item has expired
       if (storedItem.expiresAt && storedItem.expiresAt < Date.now()) {
         // Remove the expired item
-        this.remove(key);
-        return { success: false, error: 'Item expired' };
+        this.storage.removeItem(key);
+        
+        return {
+          success: true,
+          data: null as unknown as T
+        };
       }
 
-      return { success: true, data: storedItem.data };
+      // Return the data
+      return {
+        success: true,
+        data: storedItem.data
+      };
     } catch (error) {
       // Handle parsing errors
-      const errorMessage = error instanceof Error ? error.message : 'Unknown retrieval error';
-      console.error(`Failed to retrieve data for key ${key}:`, errorMessage);
-      return { success: false, error: errorMessage };
+      const storageError: StorageError = {
+        code: 'STORAGE_ERROR',
+        message: error instanceof Error ? error.message : 'Unknown storage error',
+        originalError: error
+      };
+
+      console.error(`Failed to retrieve item with key '${key}':`, error);
+      
+      return {
+        success: false,
+        error: storageError
+      };
     }
   }
 
   /**
-   * Removes data for the given key
-   * @param key - The key to remove data for
-   * @returns A promise that resolves to the result of the operation
+   * Removes a value by key
+   * @param key The key to remove
+   * @returns A promise that resolves with the result of the operation
    */
   async remove(key: string): Promise<StorageResult<void>> {
     try {
-      // Remove from both storages to ensure it's completely removed
-      localStorage.removeItem(key);
-      sessionStorage.removeItem(key);
-      return { success: true };
+      this.storage.removeItem(key);
+      
+      return {
+        success: true,
+        data: undefined
+      };
     } catch (error) {
-      // Handle removal errors
-      const errorMessage = error instanceof Error ? error.message : 'Unknown removal error';
-      console.error(`Failed to remove data for key ${key}:`, errorMessage);
-      return { success: false, error: errorMessage };
+      // Handle storage errors
+      const storageError: StorageError = {
+        code: 'STORAGE_ERROR',
+        message: error instanceof Error ? error.message : 'Unknown storage error',
+        originalError: error
+      };
+
+      console.error(`Failed to remove item with key '${key}':`, error);
+      
+      return {
+        success: false,
+        error: storageError
+      };
     }
   }
 
   /**
-   * Checks if the browser supports storage APIs
-   * @returns Whether storage is supported
+   * Checks if a key exists in storage
+   * @param key The key to check
+   * @returns A promise that resolves with a boolean indicating if the key exists
    */
-  private isStorageSupported(): boolean {
+  async has(key: string): Promise<boolean> {
     try {
-      // Check if localStorage is available
-      const testKey = '__storage_test__';
-      localStorage.setItem(testKey, testKey);
-      localStorage.removeItem(testKey);
+      // Get the serialized item from storage
+      const serialized = this.storage.getItem(key);
+      
+      // If the key doesn't exist, return false
+      if (serialized === null) {
+        return false;
+      }
+
+      // Parse the stored item to check expiration
+      const storedItem = JSON.parse(serialized) as StoredItem;
+      
+      // Check if the item has expired
+      if (storedItem.expiresAt && storedItem.expiresAt < Date.now()) {
+        // Remove the expired item
+        this.storage.removeItem(key);
+        return false;
+      }
+
+      return true;
+    } catch (error) {
+      console.error(`Error checking if key '${key}' exists:`, error);
+      return false;
+    }
+  }
+
+  /**
+   * Clears all stored values
+   * @returns A promise that resolves with the result of the operation
+   */
+  async clear(): Promise<StorageResult<void>> {
+    try {
+      this.storage.clear();
+      
+      return {
+        success: true,
+        data: undefined
+      };
+    } catch (error) {
+      // Handle storage errors
+      const storageError: StorageError = {
+        code: 'STORAGE_ERROR',
+        message: error instanceof Error ? error.message : 'Unknown storage error',
+        originalError: error
+      };
+
+      console.error('Failed to clear storage:', error);
+      
+      return {
+        success: false,
+        error: storageError
+      };
+    }
+  }
+
+  /**
+   * Gets all keys in storage
+   * @returns A promise that resolves with an array of keys
+   */
+  async keys(): Promise<string[]> {
+    try {
+      const keys: string[] = [];
+      
+      // Iterate through all keys in storage
+      for (let i = 0; i < this.storage.length; i++) {
+        const key = this.storage.key(i);
+        if (key !== null) {
+          keys.push(key);
+        }
+      }
+      
+      return keys;
+    } catch (error) {
+      console.error('Failed to get storage keys:', error);
+      return [];
+    }
+  }
+
+  /**
+   * Removes all expired items from storage
+   * @returns A promise that resolves with the number of items removed
+   */
+  async cleanExpired(): Promise<number> {
+    try {
+      const keys = await this.keys();
+      let removedCount = 0;
+      
+      // Check each key for expiration
+      for (const key of keys) {
+        const serialized = this.storage.getItem(key);
+        
+        if (serialized !== null) {
+          try {
+            const storedItem = JSON.parse(serialized) as StoredItem;
+            
+            // Remove if expired
+            if (storedItem.expiresAt && storedItem.expiresAt < Date.now()) {
+              this.storage.removeItem(key);
+              removedCount++;
+            }
+          } catch (parseError) {
+            // Skip items that can't be parsed
+            console.warn(`Could not parse stored item with key '${key}':`, parseError);
+          }
+        }
+      }
+      
+      return removedCount;
+    } catch (error) {
+      console.error('Failed to clean expired items:', error);
+      return 0;
+    }
+  }
+
+  /**
+   * Gets the size of all stored data in bytes
+   * @returns A promise that resolves with the size in bytes
+   */
+  async getSize(): Promise<number> {
+    try {
+      let totalSize = 0;
+      
+      // Calculate size of all items
+      for (let i = 0; i < this.storage.length; i++) {
+        const key = this.storage.key(i);
+        
+        if (key !== null) {
+          const value = this.storage.getItem(key) || '';
+          // Each character in JS is 2 bytes (UTF-16)
+          totalSize += (key.length + value.length) * 2;
+        }
+      }
+      
+      return totalSize;
+    } catch (error) {
+      console.error('Failed to calculate storage size:', error);
+      return 0;
+    }
+  }
+
+  /**
+   * Checks if web storage is available in the current environment
+   * @returns True if storage is available, false otherwise
+   */
+  static isAvailable(): boolean {
+    if (typeof window === 'undefined') {
+      return false;
+    }
+
+    try {
+      // Try to use localStorage as a test
+      const testKey = `__storage_test_${Date.now()}`;
+      window.localStorage.setItem(testKey, 'test');
+      window.localStorage.removeItem(testKey);
       return true;
     } catch (e) {
       return false;
     }
   }
 }
-
-/**
- * Creates a new instance of WebJourneyStorage
- * @returns A new WebJourneyStorage instance
- */
-export const createWebJourneyStorage = (): IJourneyStorage => {
-  return new WebJourneyStorage();
-};
 
 export default WebJourneyStorage;
