@@ -1,299 +1,419 @@
 /**
- * @file GamificationAdapter.ts
- * @description Web-specific implementation for gamification features that handles browser-based
- * event triggering, achievement tracking, and progress calculation. This adapter implements
- * the fetch API for event processing and provides browser-optimized methods for gamification interactions.
+ * Web-specific Gamification Adapter
+ * 
+ * This adapter implements browser-based event triggering, achievement tracking,
+ * and progress calculation for gamification features. It provides a unified interface
+ * for interacting with the gamification system from web applications.
  */
 
-import { 
-  GamificationEventType, 
-  BaseGamificationEvent, 
-  EventResponse,
-  JourneyType
-} from '@austa/interfaces/gamification/events';
-import { GameProfile } from '@austa/interfaces/gamification/profiles';
+import {
+  GamificationEvent,
+  GamificationEventType,
+  EventProcessingResponse,
+  BaseGamificationEvent
+} from '@austa/interfaces/gamification';
 
 /**
- * Error class for gamification-related errors
+ * Configuration options for the GamificationAdapter
+ */
+export interface GamificationAdapterConfig {
+  /** Base URL for gamification API endpoints */
+  apiBaseUrl: string;
+  /** Custom fetch implementation (optional) */
+  fetchImplementation?: typeof fetch;
+  /** Timeout for API requests in milliseconds (default: 10000) */
+  requestTimeoutMs?: number;
+  /** Whether to enable debug logging (default: false) */
+  enableDebugLogging?: boolean;
+}
+
+/**
+ * Error class for gamification-specific errors
  */
 export class GamificationError extends Error {
-  public readonly code: string;
-  public readonly httpStatus?: number;
-  
-  constructor(message: string, code: string = 'GAMIFICATION_ERROR', httpStatus?: number) {
+  /** HTTP status code if applicable */
+  statusCode?: number;
+  /** Original error that caused this error */
+  originalError?: Error;
+  /** Additional error details */
+  details?: Record<string, any>;
+
+  constructor(message: string, options?: {
+    statusCode?: number;
+    originalError?: Error;
+    details?: Record<string, any>;
+  }) {
     super(message);
     this.name = 'GamificationError';
-    this.code = code;
-    this.httpStatus = httpStatus;
-    
-    // Ensures proper prototype chain for instanceof checks
-    Object.setPrototypeOf(this, GamificationError.prototype);
+    this.statusCode = options?.statusCode;
+    this.originalError = options?.originalError;
+    this.details = options?.details;
   }
 }
 
 /**
- * Web-specific implementation of the Gamification adapter
+ * Web-specific implementation of the Gamification Adapter
  * Handles browser-based event triggering, achievement tracking, and progress calculation
  */
 class GamificationAdapter {
-  private readonly API_BASE_URL = '/api/gamification';
-  private readonly EVENTS_ENDPOINT = '/events';
-  private readonly PROFILE_ENDPOINT = '/profile';
-  
+  private apiBaseUrl: string;
+  private fetchImpl: typeof fetch;
+  private requestTimeoutMs: number;
+  private enableDebugLogging: boolean;
+
   /**
-   * Triggers a gamification event on the server
-   * @param userId - The ID of the user triggering the event
-   * @param eventType - The type of event being triggered (e.g., "COMPLETE_HEALTH_CHECK")
-   * @param journeyType - The journey context for the event
-   * @param eventData - Additional data related to the event
-   * @returns Promise that resolves with the event response when the event is processed
-   * @throws GamificationError if the event cannot be triggered
+   * Creates a new instance of the GamificationAdapter
+   * @param config Configuration options for the adapter
    */
-  public async triggerGamificationEvent(
-    userId: string,
-    eventType: GamificationEventType,
-    journeyType: JourneyType,
-    eventData?: Record<string, any>
-  ): Promise<EventResponse> {
-    // Ensure the user is authenticated
-    if (!userId) {
+  constructor(config: GamificationAdapterConfig) {
+    this.apiBaseUrl = config.apiBaseUrl.endsWith('/')
+      ? config.apiBaseUrl.slice(0, -1)
+      : config.apiBaseUrl;
+    this.fetchImpl = config.fetchImplementation || fetch;
+    this.requestTimeoutMs = config.requestTimeoutMs || 10000;
+    this.enableDebugLogging = config.enableDebugLogging || false;
+  }
+
+  /**
+   * Logs debug messages if debug logging is enabled
+   * @param message Message to log
+   * @param data Additional data to log
+   */
+  private logDebug(message: string, data?: any): void {
+    if (this.enableDebugLogging) {
+      console.debug(`[GamificationAdapter] ${message}`, data);
+    }
+  }
+
+  /**
+   * Creates a timeout promise that rejects after the specified time
+   * @param ms Timeout in milliseconds
+   * @returns Promise that rejects after the timeout
+   */
+  private createTimeoutPromise(ms: number): Promise<never> {
+    return new Promise((_, reject) => {
+      setTimeout(() => {
+        reject(new GamificationError(`Request timed out after ${ms}ms`));
+      }, ms);
+    });
+  }
+
+  /**
+   * Performs a fetch request with timeout
+   * @param url URL to fetch
+   * @param options Fetch options
+   * @returns Promise with the fetch response
+   */
+  private async fetchWithTimeout(
+    url: string,
+    options: RequestInit
+  ): Promise<Response> {
+    try {
+      const fetchPromise = this.fetchImpl(url, options);
+      const timeoutPromise = this.createTimeoutPromise(this.requestTimeoutMs);
+
+      // Race between the fetch and the timeout
+      return await Promise.race([fetchPromise, timeoutPromise]);
+    } catch (error) {
+      // Handle network errors and timeouts
+      if (error instanceof Error) {
+        // Check if it's a network error
+        if (error.name === 'TypeError' && error.message.includes('network')) {
+          throw new GamificationError('Network error: Unable to connect to the gamification service', {
+            originalError: error
+          });
+        }
+        // If it's already a GamificationError (like our timeout), just rethrow it
+        if (error instanceof GamificationError) {
+          throw error;
+        }
+      }
+      // For any other errors, wrap them in a GamificationError
+      throw new GamificationError('Failed to communicate with gamification service', {
+        originalError: error instanceof Error ? error : new Error(String(error))
+      });
+    }
+  }
+
+  /**
+   * Processes the API response and handles errors
+   * @param response Fetch response object
+   * @returns Promise with the parsed response data
+   */
+  private async processResponse<T>(response: Response): Promise<T> {
+    // Check if the response is OK (status in the range 200-299)
+    if (!response.ok) {
+      let errorDetails: Record<string, any> = {};
+      
+      try {
+        // Try to parse the error response as JSON
+        errorDetails = await response.json();
+      } catch {
+        // If parsing fails, use the status text
+        errorDetails = { message: response.statusText };
+      }
+
       throw new GamificationError(
-        'User must be authenticated to trigger gamification events',
-        'UNAUTHENTICATED',
-        401
+        `API error: ${errorDetails.message || response.statusText}`,
+        {
+          statusCode: response.status,
+          details: errorDetails
+        }
       );
     }
-    
+
     try {
-      // Create a unique event ID
-      const eventId = this.generateEventId();
-      
-      // Create the event payload
-      const event: BaseGamificationEvent = {
-        id: eventId,
-        type: eventType,
-        journey: journeyType,
-        userId,
-        timestamp: new Date().toISOString(),
-        payload: eventData || {}
-      };
-      
-      // Make an API call to trigger the event with fetch API
-      const response = await fetch(`${this.API_BASE_URL}${this.EVENTS_ENDPOINT}`, {
+      // Parse the response as JSON
+      return await response.json() as T;
+    } catch (error) {
+      throw new GamificationError('Failed to parse API response', {
+        originalError: error instanceof Error ? error : new Error('Unknown parsing error')
+      });
+    }
+  }
+
+  /**
+   * Triggers a gamification event on the server
+   * @param userId User ID for whom to trigger the event
+   * @param eventType Type of event to trigger
+   * @param eventData Additional data related to the event
+   * @returns Promise with the event processing response
+   */
+  public async triggerEvent(
+    userId: string,
+    eventType: GamificationEventType,
+    eventData?: Record<string, any>
+  ): Promise<EventProcessingResponse> {
+    if (!userId) {
+      throw new GamificationError('User ID is required to trigger gamification events');
+    }
+
+    this.logDebug('Triggering event', { userId, eventType, eventData });
+
+    // Create the event payload
+    const event: Partial<BaseGamificationEvent> = {
+      type: eventType,
+      userId,
+      timestamp: new Date().toISOString(),
+      journey: this.determineJourneyFromEventType(eventType),
+      client: {
+        platform: 'web',
+        version: process.env.NEXT_PUBLIC_APP_VERSION || 'unknown'
+      }
+    };
+
+    // Add the event-specific payload
+    const fullEvent: GamificationEvent = {
+      ...event,
+      payload: eventData || {}
+    } as GamificationEvent;
+
+    try {
+      const url = `${this.apiBaseUrl}/gamification/events`;
+      const response = await this.fetchWithTimeout(url, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Accept': 'application/json'
         },
-        credentials: 'include', // Include cookies for authentication
-        body: JSON.stringify(event),
+        body: JSON.stringify(fullEvent),
+        credentials: 'include' // Include cookies for authentication
       });
-      
-      // Handle HTTP errors
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new GamificationError(
-          `Failed to trigger gamification event: ${errorText || response.statusText}`,
-          'API_ERROR',
-          response.status
-        );
+
+      const result = await this.processResponse<EventProcessingResponse>(response);
+      this.logDebug('Event processed successfully', result);
+      return result;
+    } catch (error) {
+      // If it's already a GamificationError, just rethrow it
+      if (error instanceof GamificationError) {
+        this.logDebug('Error triggering event', error);
+        throw error;
       }
-      
-      // Parse and return the response
-      const eventResponse: EventResponse = await response.json();
-      return eventResponse;
-      
-    } catch (err) {
-      // Handle network errors
-      if (err instanceof TypeError && err.message.includes('fetch')) {
-        throw new GamificationError(
-          'Network error while triggering gamification event. Please check your connection.',
-          'NETWORK_ERROR'
-        );
-      }
-      
-      // Re-throw GamificationError instances
-      if (err instanceof GamificationError) {
-        throw err;
-      }
-      
-      // Handle other errors
-      console.error('Error triggering gamification event:', err);
-      throw new GamificationError(
-        err instanceof Error ? err.message : 'Failed to trigger gamification event',
-        'UNKNOWN_ERROR'
+
+      // Otherwise, wrap it in a GamificationError
+      const gamificationError = new GamificationError(
+        'Failed to trigger gamification event',
+        { originalError: error instanceof Error ? error : new Error(String(error)) }
       );
+      
+      this.logDebug('Error triggering event', gamificationError);
+      throw gamificationError;
     }
   }
-  
+
   /**
-   * Fetches the user's gamification profile
-   * @param userId - The ID of the user
-   * @returns Promise that resolves with the user's game profile
-   * @throws GamificationError if the profile cannot be fetched
+   * Determines the journey from the event type
+   * @param eventType Type of gamification event
+   * @returns Journey identifier (health, care, plan, or system)
    */
-  public async fetchGameProfile(userId: string): Promise<GameProfile> {
-    // Ensure the user is authenticated
-    if (!userId) {
-      throw new GamificationError(
-        'User must be authenticated to fetch gamification profile',
-        'UNAUTHENTICATED',
-        401
-      );
+  private determineJourneyFromEventType(
+    eventType: GamificationEventType
+  ): 'health' | 'care' | 'plan' | 'system' {
+    // Health journey events
+    if (
+      eventType === GamificationEventType.HEALTH_METRIC_RECORDED ||
+      eventType === GamificationEventType.HEALTH_GOAL_CREATED ||
+      eventType === GamificationEventType.HEALTH_GOAL_COMPLETED ||
+      eventType === GamificationEventType.HEALTH_GOAL_PROGRESS ||
+      eventType === GamificationEventType.DEVICE_CONNECTED ||
+      eventType === GamificationEventType.HEALTH_INSIGHT_VIEWED ||
+      eventType === GamificationEventType.HEALTH_REPORT_GENERATED
+    ) {
+      return 'health';
     }
-    
-    try {
-      // Make an API call to fetch the profile
-      const response = await fetch(`${this.API_BASE_URL}${this.PROFILE_ENDPOINT}/${userId}`, {
-        method: 'GET',
-        headers: {
-          'Accept': 'application/json'
-        },
-        credentials: 'include', // Include cookies for authentication
-      });
-      
-      // Handle HTTP errors
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new GamificationError(
-          `Failed to fetch gamification profile: ${errorText || response.statusText}`,
-          'API_ERROR',
-          response.status
-        );
-      }
-      
-      // Parse and return the profile
-      const profile: GameProfile = await response.json();
-      return profile;
-      
-    } catch (err) {
-      // Handle network errors
-      if (err instanceof TypeError && err.message.includes('fetch')) {
-        throw new GamificationError(
-          'Network error while fetching gamification profile. Please check your connection.',
-          'NETWORK_ERROR'
-        );
-      }
-      
-      // Re-throw GamificationError instances
-      if (err instanceof GamificationError) {
-        throw err;
-      }
-      
-      // Handle other errors
-      console.error('Error fetching gamification profile:', err);
-      throw new GamificationError(
-        err instanceof Error ? err.message : 'Failed to fetch gamification profile',
-        'UNKNOWN_ERROR'
-      );
+
+    // Care journey events
+    if (
+      eventType === GamificationEventType.APPOINTMENT_BOOKED ||
+      eventType === GamificationEventType.APPOINTMENT_COMPLETED ||
+      eventType === GamificationEventType.MEDICATION_ADDED ||
+      eventType === GamificationEventType.MEDICATION_TAKEN ||
+      eventType === GamificationEventType.TELEMEDICINE_SESSION_STARTED ||
+      eventType === GamificationEventType.TELEMEDICINE_SESSION_COMPLETED ||
+      eventType === GamificationEventType.SYMPTOM_CHECKED ||
+      eventType === GamificationEventType.PROVIDER_RATED
+    ) {
+      return 'care';
     }
+
+    // Plan journey events
+    if (
+      eventType === GamificationEventType.PLAN_VIEWED ||
+      eventType === GamificationEventType.BENEFIT_EXPLORED ||
+      eventType === GamificationEventType.CLAIM_SUBMITTED ||
+      eventType === GamificationEventType.CLAIM_APPROVED ||
+      eventType === GamificationEventType.DOCUMENT_UPLOADED ||
+      eventType === GamificationEventType.COVERAGE_CHECKED
+    ) {
+      return 'plan';
+    }
+
+    // Default to system for gamification-specific events
+    return 'system';
   }
-  
+
   /**
-   * Checks if the user has unlocked a specific achievement
-   * @param gameProfile - The user's game profile
-   * @param achievementId - ID of the achievement to check
-   * @returns boolean indicating if the achievement is unlocked
+   * Checks if a specific achievement is unlocked for a user
+   * @param achievements Array of user achievements
+   * @param achievementId ID of the achievement to check
+   * @returns Boolean indicating if the achievement is unlocked
    */
-  public hasAchievement(gameProfile: GameProfile | undefined, achievementId: string): boolean {
-    if (!gameProfile?.achievements) return false;
+  public hasAchievement(
+    achievements: Array<{ id: string; unlocked: boolean }> | undefined,
+    achievementId: string
+  ): boolean {
+    if (!achievements) return false;
     
-    const achievement = gameProfile.achievements.find(a => a.id === achievementId);
+    const achievement = achievements.find(a => a.id === achievementId);
     return achievement ? achievement.unlocked : false;
   }
-  
+
   /**
-   * Checks if the user has completed a specific quest
-   * @param gameProfile - The user's game profile
-   * @param questId - ID of the quest to check
-   * @returns boolean indicating if the quest is completed
+   * Checks if a specific quest is completed for a user
+   * @param quests Array of user quests
+   * @param questId ID of the quest to check
+   * @returns Boolean indicating if the quest is completed
    */
-  public isQuestCompleted(gameProfile: GameProfile | undefined, questId: string): boolean {
-    if (!gameProfile?.quests) return false;
+  public isQuestCompleted(
+    quests: Array<{ id: string; completed: boolean }> | undefined,
+    questId: string
+  ): boolean {
+    if (!quests) return false;
     
-    const quest = gameProfile.quests.find(q => q.id === questId);
+    const quest = quests.find(q => q.id === questId);
     return quest ? quest.completed : false;
   }
-  
+
   /**
    * Calculates the progress percentage for an achievement
-   * @param gameProfile - The user's game profile
-   * @param achievementId - ID of the achievement
-   * @returns number between 0-100 representing completion percentage
+   * @param achievements Array of user achievements
+   * @param achievementId ID of the achievement
+   * @returns Number between 0-100 representing completion percentage
    */
-  public getAchievementProgress(gameProfile: GameProfile | undefined, achievementId: string): number {
-    if (!gameProfile?.achievements) return 0;
+  public getAchievementProgress(
+    achievements: Array<{ id: string; unlocked: boolean; progress: number; total: number }> | undefined,
+    achievementId: string
+  ): number {
+    if (!achievements) return 0;
     
-    const achievement = gameProfile.achievements.find(a => a.id === achievementId);
+    const achievement = achievements.find(a => a.id === achievementId);
     if (!achievement) return 0;
     
     if (achievement.unlocked) return 100;
     
-    // Browser-optimized calculation with proper rounding
-    return Math.min(100, Math.max(0, Math.round((achievement.progress / achievement.total) * 100)));
+    // Ensure we don't divide by zero and the progress is within bounds
+    if (achievement.total <= 0) return 0;
+    const progress = Math.max(0, Math.min(achievement.progress, achievement.total));
+    
+    return Math.round((progress / achievement.total) * 100);
   }
-  
+
   /**
    * Calculates the progress percentage for a quest
-   * @param gameProfile - The user's game profile
-   * @param questId - ID of the quest
-   * @returns number between 0-100 representing completion percentage
+   * @param quests Array of user quests
+   * @param questId ID of the quest
+   * @returns Number between 0-100 representing completion percentage
    */
-  public getQuestProgress(gameProfile: GameProfile | undefined, questId: string): number {
-    if (!gameProfile?.quests) return 0;
+  public getQuestProgress(
+    quests: Array<{ id: string; completed: boolean; progress: number; total: number }> | undefined,
+    questId: string
+  ): number {
+    if (!quests) return 0;
     
-    const quest = gameProfile.quests.find(q => q.id === questId);
+    const quest = quests.find(q => q.id === questId);
     if (!quest) return 0;
     
     if (quest.completed) return 100;
     
-    // Browser-optimized calculation with proper rounding and bounds checking
-    return Math.min(100, Math.max(0, Math.round((quest.progress / quest.total) * 100)));
+    // Ensure we don't divide by zero and the progress is within bounds
+    if (quest.total <= 0) return 0;
+    const progress = Math.max(0, Math.min(quest.progress, quest.total));
+    
+    return Math.round((progress / quest.total) * 100);
   }
-  
+
   /**
-   * Generates a unique event ID using browser-specific APIs
-   * @returns A unique string ID for the event
+   * Retrieves the user's gamification profile
+   * @param userId User ID to retrieve the profile for
+   * @returns Promise with the user's gamification profile
    */
-  private generateEventId(): string {
-    // Use browser's crypto API for better randomness if available
-    if (window.crypto && window.crypto.randomUUID) {
-      return window.crypto.randomUUID();
+  public async getGameProfile(userId: string): Promise<any> {
+    if (!userId) {
+      throw new GamificationError('User ID is required to retrieve gamification profile');
     }
-    
-    // Fallback to timestamp + random number if crypto API is not available
-    return `${Date.now()}-${Math.random().toString(36).substring(2, 15)}`;
-  }
-  
-  /**
-   * Checks if the browser is online
-   * @returns boolean indicating if the browser is online
-   */
-  public isOnline(): boolean {
-    return navigator.onLine;
-  }
-  
-  /**
-   * Registers event listeners for online/offline status changes
-   * @param onOnline - Callback function to execute when the browser goes online
-   * @param onOffline - Callback function to execute when the browser goes offline
-   * @returns A cleanup function to remove the event listeners
-   */
-  public registerConnectivityListeners(
-    onOnline: () => void,
-    onOffline: () => void
-  ): () => void {
-    window.addEventListener('online', onOnline);
-    window.addEventListener('offline', onOffline);
-    
-    // Return a cleanup function
-    return () => {
-      window.removeEventListener('online', onOnline);
-      window.removeEventListener('offline', onOffline);
-    };
+
+    this.logDebug('Retrieving game profile', { userId });
+
+    try {
+      const url = `${this.apiBaseUrl}/gamification/profiles/${userId}`;
+      const response = await this.fetchWithTimeout(url, {
+        method: 'GET',
+        headers: {
+          'Accept': 'application/json'
+        },
+        credentials: 'include' // Include cookies for authentication
+      });
+
+      const result = await this.processResponse<any>(response);
+      this.logDebug('Profile retrieved successfully', result);
+      return result;
+    } catch (error) {
+      // If it's already a GamificationError, just rethrow it
+      if (error instanceof GamificationError) {
+        this.logDebug('Error retrieving game profile', error);
+        throw error;
+      }
+
+      // Otherwise, wrap it in a GamificationError
+      const gamificationError = new GamificationError(
+        'Failed to retrieve gamification profile',
+        { originalError: error instanceof Error ? error : new Error(String(error)) }
+      );
+      
+      this.logDebug('Error retrieving game profile', gamificationError);
+      throw gamificationError;
+    }
   }
 }
 
-// Export a singleton instance of the adapter
-const gamificationAdapter = new GamificationAdapter();
-export default gamificationAdapter;
+export default GamificationAdapter;
