@@ -1,60 +1,36 @@
 /**
- * Health Journey Interfaces Barrel File
- * 
- * This file serves as the central export point for all Health journey interfaces,
- * types, and validation schemas in the AUSTA SuperApp. It provides a unified entry
- * point for importing health-related TypeScript types throughout the application.
- * 
- * This barrel file maintains backward compatibility with existing code while
- * implementing the new modular folder structure, allowing for more maintainable
- * and organized code.
- *
- * @package @austa/interfaces
+ * @file Health Interfaces Index
+ * @description Central barrel file that re-exports all Health journey interfaces and schemas from the AUSTA SuperApp.
+ * It provides a unified entry point for importing health-related TypeScript types and validation schemas.
  */
 
-// Re-export everything from the types module
-export {
+// Re-export all types from the health module
+export * from './types';
+export * from './metric';
+export * from './goal';
+export * from './device';
+export * from './event';
+
+// For backward compatibility with existing code
+import { HealthMetricType } from './types';
+import { HealthMetric, healthMetricSchema } from './metric';
+import { HealthGoal, healthGoalSchema } from './goal';
+import { DeviceConnection, deviceConnectionSchema } from './device';
+import { MedicalEvent, medicalEventSchema } from './event';
+
+// Re-export as a namespace for backward compatibility
+export const Health = {
   HealthMetricType,
-  isHealthMetricType,
-  HealthMetricTypeValue,
-  HEALTH_METRIC_DISPLAY_NAMES,
-  HEALTH_METRIC_UNITS
-} from './types';
-
-// Re-export everything from the metric module
-export {
-  HealthMetric,
   healthMetricSchema,
-  CreateHealthMetricInput,
-  createHealthMetricSchema
-} from './metric';
-
-// Re-export everything from the event module
-export {
-  MedicalEventType,
-  MedicalEvent,
-  medicalEventSchema,
-  ValidatedMedicalEvent
-} from './event';
-
-// Re-export everything from the goal module
-export {
-  HealthGoalType,
-  HealthGoalStatus,
-  HealthGoal,
   healthGoalSchema,
-  CreateHealthGoalInput,
-  createHealthGoalSchema,
-  UpdateHealthGoalInput,
-  updateHealthGoalSchema,
-  HealthGoalAchievement
-} from './goal';
-
-// Re-export everything from the device module
-export {
-  DeviceType,
-  ConnectionState,
-  DeviceConnection,
   deviceConnectionSchema,
-  ValidatedDeviceConnection
-} from './device';
+  medicalEventSchema,
+};
+
+// Type collection for easier imports
+export type HealthTypes = {
+  HealthMetric: HealthMetric;
+  HealthGoal: HealthGoal;
+  DeviceConnection: DeviceConnection;
+  MedicalEvent: MedicalEvent;
+};
