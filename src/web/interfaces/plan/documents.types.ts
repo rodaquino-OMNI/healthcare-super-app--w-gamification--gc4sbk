@@ -1,80 +1,100 @@
 /**
- * @file Plan Document Types
+ * @file Document Types
  * @description Defines TypeScript interfaces for documents associated with insurance claims within the Plan journey.
- * These interfaces establish the data structure for files uploaded as part of claim submissions, such as receipts,
- * prescriptions, or medical reports.
+ * These interfaces establish the data structure for files uploaded as part of claim submissions, such as
+ * receipts, prescriptions, or medical reports. They are used by claim submission forms and document display components.
  */
 
-import { Claim } from '@austa/interfaces/plan/claims.types';
-
-/**
- * Document types supported by the Plan journey for claim submissions
- */
-export type DocumentType = 
-  | 'receipt' 
-  | 'prescription' 
-  | 'medical_report' 
-  | 'referral' 
-  | 'invoice' 
-  | 'explanation_of_benefits' 
-  | 'other';
+import { Claim } from './claims.types';
 
 /**
  * Represents a document associated with an insurance claim.
  * 
- * Documents are files uploaded by users as supporting evidence for their insurance claims,
- * such as receipts, medical reports, or prescriptions. Each document has a unique identifier,
- * a type classification, a file path pointing to the stored file, and metadata about when it was uploaded.
+ * Documents are files uploaded by users as supporting evidence for insurance claims,
+ * such as receipts, medical reports, prescriptions, or other relevant documentation.
+ * Each document has a unique identifier, type classification, file storage path, and timestamp.
  * 
- * @see Claim - Documents are typically associated with a Claim through the Claim.documents property
+ * @example
+ * ```typescript
+ * const receipt: Document = {
+ *   id: 'doc-123',
+ *   type: 'receipt',
+ *   filePath: '/storage/claims/doc-123.pdf',
+ *   uploadedAt: new Date('2023-05-15T10:30:00Z')
+ * };
+ * ```
+ * 
+ * @see Claim - Documents are typically associated with a specific insurance claim
  */
 export interface Document {
-  /** Unique identifier for the document */
+  /**
+   * Unique identifier for the document
+   */
   id: string;
   
-  /** Classification of the document (e.g., receipt, prescription, medical report) */
-  type: DocumentType;
+  /**
+   * Classification of the document (e.g., 'receipt', 'prescription', 'medical_report', 'invoice')
+   */
+  type: string;
   
-  /** Path to the stored file in the system */
+  /**
+   * Storage path where the document file is located
+   * This is typically a relative path within the application's storage system
+   */
   filePath: string;
   
-  /** ISO 8601 timestamp when the document was uploaded */
-  uploadedAt: string;
-  
-  /** Optional description provided by the user */
-  description?: string;
-  
-  /** File size in bytes */
-  fileSize?: number;
-  
-  /** MIME type of the document */
-  mimeType?: string;
+  /**
+   * Timestamp when the document was uploaded to the system
+   * Stored as an ISO date string in the database but typed as Date for frontend usage
+   */
+  uploadedAt: Date | string;
 }
 
 /**
- * Represents the response from the document upload API
+ * Represents the type of document that can be uploaded for a claim
+ * Used for validation and UI display purposes
  */
-export interface DocumentUploadResponse {
-  /** The created document object */
-  document: Document;
-  
-  /** Whether the upload was successful */
-  success: boolean;
-  
-  /** Any error message if the upload failed */
-  error?: string;
-}
+export type DocumentType = 
+  | 'receipt'
+  | 'prescription'
+  | 'medical_report'
+  | 'invoice'
+  | 'referral'
+  | 'explanation_of_benefits'
+  | 'other';
 
 /**
- * Represents the request to upload a new document
+ * Represents metadata about a document without the actual file content
+ * Used for document listings and previews
  */
-export interface DocumentUploadRequest {
-  /** The type of document being uploaded */
+export interface DocumentMetadata {
+  /**
+   * Unique identifier for the document
+   */
+  id: string;
+  
+  /**
+   * Classification of the document
+   */
   type: DocumentType;
   
-  /** The claim ID this document is associated with */
-  claimId: string;
+  /**
+   * Original filename as uploaded by the user
+   */
+  filename: string;
   
-  /** Optional description of the document */
-  description?: string;
+  /**
+   * Size of the document file in bytes
+   */
+  fileSize: number;
+  
+  /**
+   * MIME type of the document file
+   */
+  mimeType: string;
+  
+  /**
+   * Timestamp when the document was uploaded
+   */
+  uploadedAt: Date | string;
 }
