@@ -12,65 +12,51 @@ export const ROLES_KEY = 'roles';
  * role-based access control across the AUSTA SuperApp's journey-specific endpoints.
  * 
  * It supports both core roles (like 'admin', 'user') and journey-specific roles
- * that follow the format 'journey:permission' (e.g., 'health:viewer', 'care:provider').
+ * (like 'health:viewer', 'care:provider', 'plan:manager').
  * 
  * @param roles - Array of role names required for access (if user has ANY of these roles, access is granted)
  * @returns A method or class decorator that attaches role metadata
  * 
- * @example Core Roles
+ * @example
  * // Require 'admin' role to access this endpoint
  * @Roles('admin')
  * @Get('users')
  * getUsers() { ... }
  * 
- * @example Health Journey Roles
- * // Require 'health:manager' OR 'health:admin' roles to access this endpoint
- * @Roles('health:manager', 'health:admin')
+ * @example
+ * // Require 'admin' OR 'health:manager' roles to access this endpoint
+ * @Roles('admin', 'health:manager')
  * @Get('health-metrics')
  * getHealthMetrics() { ... }
  * 
- * // Health journey-specific roles include:
- * // - health:viewer - Can view health data but not modify
- * // - health:editor - Can view and edit health data
- * // - health:manager - Can manage health goals and insights
- * // - health:admin - Full access to health journey features
- * 
- * @example Care Journey Roles
- * // Require 'care:provider' role to access this endpoint
- * @Roles('care:provider')
- * @Get('appointments')
- * getAppointments() { ... }
- * 
- * // Care journey-specific roles include:
- * // - care:viewer - Can view care information but not modify
- * // - care:scheduler - Can schedule and manage appointments
- * // - care:provider - Healthcare provider with access to patient data
- * // - care:admin - Full access to care journey features
- * 
- * @example Plan Journey Roles
- * // Require 'plan:manager' role to access this endpoint
- * @Roles('plan:manager')
- * @Get('claims')
- * getClaims() { ... }
- * 
- * // Plan journey-specific roles include:
- * // - plan:viewer - Can view plan and benefits information
- * // - plan:member - Can submit claims and access member benefits
- * // - plan:manager - Can manage plan configurations and approvals
- * // - plan:admin - Full access to plan journey features
- * 
- * @example Controller-Level Application
+ * @example
  * // Apply to all routes in a controller
  * @Roles('admin')
  * @Controller('admin')
  * export class AdminController { ... }
  * 
- * @example Multiple Role Types
- * // Require 'admin' OR any journey admin role
- * @Roles('admin', 'health:admin', 'care:admin', 'plan:admin')
- * @Get('system-status')
- * getSystemStatus() { ... }
+ * @example
+ * // Health Journey: Require health journey manager role
+ * @Roles('health:manager')
+ * @Get('health/metrics/admin')
+ * getHealthMetricsAdmin() { ... }
+ * 
+ * @example
+ * // Care Journey: Require care journey provider role
+ * @Roles('care:provider')
+ * @Get('care/appointments')
+ * getProviderAppointments() { ... }
+ * 
+ * @example
+ * // Plan Journey: Require plan journey admin role
+ * @Roles('plan:admin')
+ * @Post('plan/benefits')
+ * createBenefit() { ... }
+ * 
+ * @example
+ * // Multiple journey roles: Require either health viewer OR care viewer role
+ * @Roles('health:viewer', 'care:viewer')
+ * @Get('patient/summary')
+ * getPatientSummary() { ... }
  */
 export const Roles = (...roles: string[]) => SetMetadata(ROLES_KEY, roles);
-
-// Export named constants and functions for better compatibility with barrel imports
