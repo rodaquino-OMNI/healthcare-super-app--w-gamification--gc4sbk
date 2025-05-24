@@ -6,23 +6,17 @@
 
 import React, { createContext, useContext, useState, useEffect, useMemo, ReactNode } from 'react';
 
-// Import interfaces from the interfaces package
+// Import platform-specific adapters
+import { GamificationAdapter } from '../adapters';
+import { AuthAdapter } from '../adapters';
+
+// Import interfaces
 import { 
   GameProfile, 
-  Achievement, 
-  Quest,
+  GamificationEvent, 
   GamificationEventType,
-  BaseGamificationEvent,
-  EventResponse,
-  JourneyType
+  EventProcessingResponse 
 } from '@austa/interfaces/gamification';
-
-// Import hooks and utilities
-import { useAuth } from '../hooks/useAuth';
-import { detectPlatform } from '../utils/platformDetection';
-
-// Import platform-specific adapters (will be dynamically loaded)
-import { getAdapter } from '../adapters';
 
 /**
  * Interface defining the shape of the Gamification Context
@@ -39,7 +33,7 @@ interface GamificationContextType {
   error: Error | null;
   
   /** Triggers a gamification event (e.g., completing a task, reaching a milestone) */
-  triggerGamificationEvent: (eventType: GamificationEventType, journey: JourneyType, eventData?: any) => Promise<EventResponse | undefined>;
+  triggerGamificationEvent: (eventType: GamificationEventType, eventData?: any) => Promise<EventProcessingResponse | undefined>;
   
   /** Checks if a specific achievement is unlocked */
   hasAchievement: (achievementId: string) => boolean;
@@ -52,12 +46,9 @@ interface GamificationContextType {
   
   /** Returns the progress percentage for a quest */
   getQuestProgress: (questId: string) => number;
-  
-  /** Refreshes the game profile data */
+
+  /** Refreshes the gamification profile data */
   refreshGameProfile: () => Promise<void>;
-  
-  /** Resets any error state */
-  resetError: () => void;
 }
 
 // Create the context with a default value of null
@@ -69,39 +60,27 @@ const GamificationContext = createContext<GamificationContextType | null>(null);
 interface GamificationProviderProps {
   /** Child components that will have access to the gamification context */
   children: ReactNode;
-  
-  /** Optional initial game profile for testing or SSR */
-  initialGameProfile?: GameProfile;
 }
 
 /**
  * Provider component for the Gamification context
  * Makes gamification data and functionality available throughout the application
  */
-export const GamificationProvider: React.FC<GamificationProviderProps> = ({ 
-  children,
-  initialGameProfile
-}) => {
-  // Get the user ID from the auth context
-  const { userId } = useAuth();
+export const GamificationProvider: React.FC<GamificationProviderProps> = ({ children }) => {
+  // Get the user ID from the auth adapter
+  const userId = AuthAdapter.getUserId();
   
   // State for the game profile
-  const [gameProfile, setGameProfile] = useState<GameProfile | undefined>(initialGameProfile);
+  const [gameProfile, setGameProfile] = useState<GameProfile | undefined>(undefined);
   
-  // State for tracking loading state
-  const [isLoading, setIsLoading] = useState<boolean>(!initialGameProfile);
+  // State for tracking loading status
+  const [isLoading, setIsLoading] = useState<boolean>(true);
   
   // State for tracking errors
   const [error, setError] = useState<Error | null>(null);
-  
-  // Determine the current platform
-  const platform = detectPlatform();
-  
-  // Get the platform-specific gamification adapter
-  const gamificationAdapter = useMemo(() => getAdapter('gamification', platform), [platform]);
-  
+
   /**
-   * Fetches the user's game profile from the appropriate platform-specific API
+   * Fetches the user's game profile from the API
    */
   const fetchGameProfile = async (): Promise<void> => {
     // Don't try to fetch if there's no user ID
@@ -110,49 +89,40 @@ export const GamificationProvider: React.FC<GamificationProviderProps> = ({
       setIsLoading(false);
       return;
     }
-    
+
     setIsLoading(true);
     try {
       // Use the platform-specific adapter to fetch the profile
-      const profile = await gamificationAdapter.getGameProfile(userId);
+      const profile = await GamificationAdapter.getGameProfile(userId);
       setGameProfile(profile);
       setError(null);
     } catch (err) {
+      console.error('Error fetching game profile:', err);
       const fetchError = err instanceof Error ? err : new Error('Failed to fetch game profile');
-      console.error('Error fetching game profile:', fetchError);
       setError(fetchError);
     } finally {
       setIsLoading(false);
     }
   };
-  
+
   /**
-   * Refreshes the game profile data
-   * Can be called manually to update the profile after events
+   * Refreshes the gamification profile data
+   * This can be called after events to ensure the UI reflects the latest state
    */
   const refreshGameProfile = async (): Promise<void> => {
     await fetchGameProfile();
   };
   
   /**
-   * Resets any error state
-   */
-  const resetError = (): void => {
-    setError(null);
-  };
-  
-  /**
    * Triggers a gamification event on the server
-   * @param eventType - The type of event being triggered (e.g., "COMPLETE_HEALTH_CHECK")
-   * @param journey - The journey context for the event (HEALTH, CARE, PLAN, SYSTEM)
+   * @param eventType - The type of event being triggered (e.g., "HEALTH_METRIC_RECORDED")
    * @param eventData - Additional data related to the event
-   * @returns Promise that resolves with the event response when the event is processed
+   * @returns Promise that resolves with the event processing response
    */
   const triggerGamificationEvent = async (
     eventType: GamificationEventType, 
-    journey: JourneyType, 
     eventData?: any
-  ): Promise<EventResponse | undefined> => {
+  ): Promise<EventProcessingResponse | undefined> => {
     // Ensure the user is authenticated
     if (!userId) {
       const authError = new Error('User must be authenticated to trigger gamification events');
@@ -161,43 +131,53 @@ export const GamificationProvider: React.FC<GamificationProviderProps> = ({
     }
     
     try {
-      // Create the event object
-      const event: BaseGamificationEvent = {
-        id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      // Use the platform-specific adapter to trigger the event
+      const response = await GamificationAdapter.triggerEvent({
         type: eventType,
-        journey,
         userId,
         timestamp: new Date().toISOString(),
-        payload: eventData || {}
-      };
-      
-      // Use the platform-specific adapter to trigger the event
-      const response = await gamificationAdapter.triggerEvent(event);
-      
-      // Clear any previous errors
-      setError(null);
+        journey: getJourneyFromEventType(eventType),
+        payload: eventData,
+      });
       
       // Refresh the game profile to reflect any changes
       await refreshGameProfile();
       
-      return response;
+      // Clear any previous errors
+      setError(null);
       
+      return response;
     } catch (err) {
       // Log and set the error
       console.error('Error triggering gamification event:', err);
       const eventError = err instanceof Error ? err : new Error('Failed to trigger gamification event');
       setError(eventError);
-      
-      // Implement retry logic for failed events
-      try {
-        // Wait a short time and try again
-        await new Promise(resolve => setTimeout(resolve, 1000));
-        return await gamificationAdapter.retryEvent(eventType, journey, userId, eventData);
-      } catch (retryErr) {
-        // If retry fails, queue the event for later processing
-        await gamificationAdapter.queueEventForSync(eventType, journey, userId, eventData);
-        return undefined;
-      }
+      return Promise.reject(eventError);
+    }
+  };
+  
+  /**
+   * Determines the journey from the event type
+   * @param eventType - The type of gamification event
+   * @returns The journey associated with the event type
+   */
+  const getJourneyFromEventType = (eventType: GamificationEventType): 'health' | 'care' | 'plan' | 'system' => {
+    if (eventType.startsWith('HEALTH_')) {
+      return 'health';
+    } else if (eventType.startsWith('APPOINTMENT_') || 
+               eventType.startsWith('MEDICATION_') || 
+               eventType.startsWith('TELEMEDICINE_') || 
+               eventType === GamificationEventType.SYMPTOM_CHECKED || 
+               eventType === GamificationEventType.PROVIDER_RATED) {
+      return 'care';
+    } else if (eventType.startsWith('PLAN_') || 
+               eventType.startsWith('BENEFIT_') || 
+               eventType.startsWith('CLAIM_') || 
+               eventType === GamificationEventType.DOCUMENT_UPLOADED || 
+               eventType === GamificationEventType.COVERAGE_CHECKED) {
+      return 'plan';
+    } else {
+      return 'system';
     }
   };
   
@@ -222,7 +202,7 @@ export const GamificationProvider: React.FC<GamificationProviderProps> = ({
     if (!gameProfile?.quests) return false;
     
     const quest = gameProfile.quests.find(q => q.id === questId);
-    return quest ? quest.status === 'completed' : false;
+    return quest ? quest.completed : false;
   };
   
   /**
@@ -237,7 +217,13 @@ export const GamificationProvider: React.FC<GamificationProviderProps> = ({
     if (!achievement) return 0;
     
     if (achievement.unlocked) return 100;
-    return achievement.progress.percentage;
+    
+    // If the achievement has progress tracking
+    if (typeof achievement.progress === 'number' && typeof achievement.total === 'number') {
+      return Math.round((achievement.progress / achievement.total) * 100);
+    }
+    
+    return 0;
   };
   
   /**
@@ -251,13 +237,24 @@ export const GamificationProvider: React.FC<GamificationProviderProps> = ({
     const quest = gameProfile.quests.find(q => q.id === questId);
     if (!quest) return 0;
     
-    if (quest.status === 'completed') return 100;
-    return Math.round((quest.progress / quest.total) * 100);
+    if (quest.completed) return 100;
+    
+    // If the quest has progress tracking
+    if (typeof quest.progress === 'number' && typeof quest.total === 'number') {
+      return Math.round((quest.progress / quest.total) * 100);
+    }
+    
+    return 0;
   };
   
-  // Fetch the game profile when the user ID changes
+  // Fetch the game profile when the component mounts or when the user ID changes
   useEffect(() => {
     fetchGameProfile();
+  }, [userId]);
+  
+  // Reset error when user ID changes
+  useEffect(() => {
+    setError(null);
   }, [userId]);
   
   // Create the context value
@@ -271,7 +268,6 @@ export const GamificationProvider: React.FC<GamificationProviderProps> = ({
     getAchievementProgress,
     getQuestProgress,
     refreshGameProfile,
-    resetError,
   }), [gameProfile, isLoading, error, userId]);
   
   return (
@@ -293,11 +289,11 @@ export const GamificationProvider: React.FC<GamificationProviderProps> = ({
  * 
  * // Trigger a gamification event when user completes a health check
  * const completeHealthCheck = async () => {
- *   await triggerGamificationEvent(
- *     GamificationEventType.HEALTH_METRIC_RECORDED,
- *     JourneyType.HEALTH,
- *     { metricType: 'bloodPressure', value: 120, unit: 'mmHg' }
- *   );
+ *   await triggerGamificationEvent(GamificationEventType.HEALTH_METRIC_RECORDED, { 
+ *     metricType: 'bloodPressure',
+ *     value: 120,
+ *     unit: 'mmHg'
+ *   });
  * };
  */
 export const useGamification = (): GamificationContextType => {
