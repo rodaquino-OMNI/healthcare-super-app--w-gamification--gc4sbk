@@ -2,7 +2,7 @@
  * @file Plan API Interfaces
  * @description Defines TypeScript interfaces for the Plan journey API, including request/response types
  * for insurance plans, claims, coverage, and benefits. These interfaces ensure type safety for all
- * Plan journey operations and provide proper document handling for insurance claims.
+ * Plan journey operations and maintain data integrity for insurance-related functionality.
  */
 
 import { 
@@ -14,836 +14,493 @@ import {
   CoverageType, 
   Plan, 
   PlanType 
-} from '../plan';
+} from '../common';
 
 /**
- * Namespace for Plan journey API interfaces
+ * Document types that can be uploaded for claims
  */
-export namespace PlanAPI {
-  /**
-   * Common request parameters
-   */
-  export interface RequestParams {
-    /**
-     * Optional user ID for admin operations
-     */
-    userId?: string;
-  }
+export enum ClaimDocumentType {
+  RECEIPT = 'receipt',
+  INVOICE = 'invoice',
+  MEDICAL_REPORT = 'medical_report',
+  PRESCRIPTION = 'prescription',
+  REFERRAL = 'referral',
+  EXPLANATION_OF_BENEFITS = 'explanation_of_benefits',
+  OTHER = 'other'
+}
 
-  /**
-   * Document related interfaces
-   */
-  export namespace Documents {
-    /**
-     * Document types that can be uploaded for claims
-     */
-    export type DocumentType = 
-      | 'invoice' 
-      | 'receipt' 
-      | 'medical_report' 
-      | 'prescription' 
-      | 'referral' 
-      | 'explanation_of_benefits' 
-      | 'other';
+/**
+ * Document upload metadata
+ */
+export interface DocumentUploadMetadata {
+  type: ClaimDocumentType;
+  description?: string;
+  relatedDate?: string; // ISO date string
+  tags?: string[];
+}
 
-    /**
-     * Document metadata
-     */
-    export interface DocumentMetadata {
-      /**
-       * Type of document
-       */
-      type: DocumentType;
-      
-      /**
-       * Original filename
-       */
-      filename: string;
-      
-      /**
-       * MIME type of the document
-       */
-      mimeType: string;
-      
-      /**
-       * Size of the document in bytes
-       */
-      size: number;
-      
-      /**
-       * Additional metadata specific to the document type
-       */
-      additionalInfo?: Record<string, any>;
-    }
+/**
+ * Document upload response
+ */
+export interface DocumentUploadResponse {
+  id: string;
+  type: ClaimDocumentType;
+  filePath: string;
+  uploadedAt: string;
+  fileSize: number;
+  mimeType: string;
+  status: 'processing' | 'ready' | 'error';
+  errorMessage?: string;
+}
 
-    /**
-     * Document upload request
-     */
-    export interface UploadRequest {
-      /**
-       * Claim ID to associate the document with
-       */
-      claimId: string;
-      
-      /**
-       * Document metadata
-       */
-      metadata: DocumentMetadata;
-      
-      /**
-       * File data (handled by REST API, not included in the actual request type)
-       */
-      file?: File;
-    }
+/**
+ * Base interface for paginated requests
+ */
+export interface PaginatedRequest {
+  page?: number;
+  limit?: number;
+  sortBy?: string;
+  sortOrder?: 'asc' | 'desc';
+}
 
-    /**
-     * Document upload response
-     */
-    export interface UploadResponse {
-      /**
-       * Generated document ID
-       */
-      id: string;
-      
-      /**
-       * Server-generated file path
-       */
-      filePath: string;
-      
-      /**
-       * Timestamp of upload
-       */
-      uploadedAt: string;
-      
-      /**
-       * Document metadata
-       */
-      metadata: DocumentMetadata;
-    }
+/**
+ * Base interface for paginated responses
+ */
+export interface PaginatedResponse<T> {
+  data: T[];
+  meta: {
+    currentPage: number;
+    totalPages: number;
+    totalItems: number;
+    itemsPerPage: number;
+  };
+}
 
-    /**
-     * Document deletion request
-     */
-    export interface DeleteRequest {
-      /**
-       * Document ID to delete
-       */
-      documentId: string;
-      
-      /**
-       * Claim ID the document belongs to
-       */
-      claimId: string;
-    }
+// ==================== PLAN API INTERFACES ====================
 
-    /**
-     * Document deletion response
-     */
-    export interface DeleteResponse {
-      /**
-       * Success status
-       */
-      success: boolean;
-      
-      /**
-       * Deleted document ID
-       */
-      documentId: string;
-    }
-  }
+/**
+ * Request to fetch user's plans
+ */
+export interface GetUserPlansRequest extends PaginatedRequest {
+  status?: 'active' | 'expired' | 'all';
+  type?: PlanType;
+}
 
-  /**
-   * Plan related interfaces
-   */
-  export namespace Plans {
-    /**
-     * Get plan request
-     */
-    export interface GetPlanRequest extends RequestParams {
-      /**
-       * Plan ID to retrieve
-       */
-      planId: string;
-      
-      /**
-       * Whether to include related entities
-       */
-      includeRelated?: {
-        /**
-         * Include coverage details
-         */
-        coverages?: boolean;
-        
-        /**
-         * Include benefits
-         */
-        benefits?: boolean;
-        
-        /**
-         * Include claims
-         */
-        claims?: boolean;
-      };
-    }
+/**
+ * Response for user's plans
+ */
+export interface GetUserPlansResponse extends PaginatedResponse<Plan> {}
 
-    /**
-     * Get plan response
-     */
-    export interface GetPlanResponse {
-      /**
-       * Plan details
-       */
-      plan: Plan;
-    }
+/**
+ * Request to fetch a specific plan
+ */
+export interface GetPlanRequest {
+  planId: string;
+}
 
-    /**
-     * List plans request
-     */
-    export interface ListPlansRequest extends RequestParams {
-      /**
-       * Pagination parameters
-       */
-      pagination?: {
-        /**
-         * Page number (0-based)
-         */
-        page: number;
-        
-        /**
-         * Items per page
-         */
-        pageSize: number;
-      };
-      
-      /**
-       * Filtering options
-       */
-      filters?: {
-        /**
-         * Filter by plan type
-         */
-        type?: PlanType;
-        
-        /**
-         * Filter by active status (based on validity dates)
-         */
-        active?: boolean;
-      };
-    }
+/**
+ * Response for a specific plan
+ */
+export interface GetPlanResponse {
+  plan: Plan;
+}
 
-    /**
-     * List plans response
-     */
-    export interface ListPlansResponse {
-      /**
-       * List of plans
-       */
-      plans: Plan[];
-      
-      /**
-       * Pagination metadata
-       */
-      pagination: {
-        /**
-         * Total number of plans
-         */
-        totalCount: number;
-        
-        /**
-         * Total number of pages
-         */
-        totalPages: number;
-        
-        /**
-         * Current page (0-based)
-         */
-        currentPage: number;
-      };
-    }
-  }
+/**
+ * Request to update plan details
+ * (Only certain fields can be updated by the user)
+ */
+export interface UpdatePlanRequest {
+  planId: string;
+  nickname?: string;
+  notes?: string;
+  contactPreferences?: {
+    email?: boolean;
+    sms?: boolean;
+    push?: boolean;
+  };
+}
 
-  /**
-   * Coverage related interfaces
-   */
-  export namespace Coverages {
-    /**
-     * Get coverage request
-     */
-    export interface GetCoverageRequest extends RequestParams {
-      /**
-       * Coverage ID to retrieve
-       */
-      coverageId: string;
-    }
+/**
+ * Response for plan update
+ */
+export interface UpdatePlanResponse {
+  plan: Plan;
+}
 
-    /**
-     * Get coverage response
-     */
-    export interface GetCoverageResponse {
-      /**
-       * Coverage details
-       */
-      coverage: Coverage;
-    }
+// ==================== COVERAGE API INTERFACES ====================
 
-    /**
-     * List coverages request
-     */
-    export interface ListCoveragesRequest extends RequestParams {
-      /**
-       * Plan ID to list coverages for
-       */
-      planId: string;
-      
-      /**
-       * Filtering options
-       */
-      filters?: {
-        /**
-         * Filter by coverage type
-         */
-        type?: CoverageType;
-      };
-    }
+/**
+ * Request to fetch coverages for a plan
+ */
+export interface GetCoveragesRequest extends PaginatedRequest {
+  planId: string;
+  type?: CoverageType;
+}
 
-    /**
-     * List coverages response
-     */
-    export interface ListCoveragesResponse {
-      /**
-       * List of coverages
-       */
-      coverages: Coverage[];
-    }
+/**
+ * Response for coverages
+ */
+export interface GetCoveragesResponse extends PaginatedResponse<Coverage> {}
 
-    /**
-     * Coverage details for cost simulation
-     */
-    export interface CoverageDetails {
-      /**
-       * Coverage ID
-       */
-      id: string;
-      
-      /**
-       * Coverage type
-       */
-      type: CoverageType;
-      
-      /**
-       * Coverage details
-       */
-      details: string;
-      
-      /**
-       * Co-payment amount (if applicable)
-       */
-      coPayment?: number;
-      
-      /**
-       * Deductible amount (if applicable)
-       */
-      deductible?: number;
-      
-      /**
-       * Coverage percentage (0-100)
-       */
-      coveragePercentage?: number;
-    }
-  }
+/**
+ * Request to fetch a specific coverage
+ */
+export interface GetCoverageRequest {
+  coverageId: string;
+}
 
-  /**
-   * Benefit related interfaces
-   */
-  export namespace Benefits {
-    /**
-     * Get benefit request
-     */
-    export interface GetBenefitRequest extends RequestParams {
-      /**
-       * Benefit ID to retrieve
-       */
-      benefitId: string;
-    }
+/**
+ * Response for a specific coverage
+ */
+export interface GetCoverageResponse {
+  coverage: Coverage;
+}
 
-    /**
-     * Get benefit response
-     */
-    export interface GetBenefitResponse {
-      /**
-       * Benefit details
-       */
-      benefit: Benefit;
-    }
+// ==================== BENEFIT API INTERFACES ====================
 
-    /**
-     * List benefits request
-     */
-    export interface ListBenefitsRequest extends RequestParams {
-      /**
-       * Plan ID to list benefits for
-       */
-      planId: string;
-    }
+/**
+ * Request to fetch benefits for a plan
+ */
+export interface GetBenefitsRequest extends PaginatedRequest {
+  planId: string;
+  type?: string;
+  used?: boolean; // Filter for used/unused benefits
+}
 
-    /**
-     * List benefits response
-     */
-    export interface ListBenefitsResponse {
-      /**
-       * List of benefits
-       */
-      benefits: Benefit[];
-    }
+/**
+ * Response for benefits
+ */
+export interface GetBenefitsResponse extends PaginatedResponse<Benefit> {}
 
-    /**
-     * Benefit usage tracking
-     */
-    export interface BenefitUsage {
-      /**
-       * Benefit ID
-       */
-      benefitId: string;
-      
-      /**
-       * Usage amount or count
-       */
-      used: number;
-      
-      /**
-       * Total available amount or count
-       */
-      total: number;
-      
-      /**
-       * Usage period start date
-       */
-      periodStart: string;
-      
-      /**
-       * Usage period end date
-       */
-      periodEnd: string;
-    }
+/**
+ * Request to fetch a specific benefit
+ */
+export interface GetBenefitRequest {
+  benefitId: string;
+}
 
-    /**
-     * Get benefit usage request
-     */
-    export interface GetBenefitUsageRequest extends RequestParams {
-      /**
-       * Benefit ID to get usage for
-       */
-      benefitId: string;
-    }
+/**
+ * Response for a specific benefit
+ */
+export interface GetBenefitResponse {
+  benefit: Benefit;
+}
 
-    /**
-     * Get benefit usage response
-     */
-    export interface GetBenefitUsageResponse {
-      /**
-       * Benefit usage details
-       */
-      usage: BenefitUsage;
-    }
-  }
+/**
+ * Request to update benefit usage
+ */
+export interface UpdateBenefitUsageRequest {
+  benefitId: string;
+  usage: string;
+}
 
-  /**
-   * Claim related interfaces
-   */
-  export namespace Claims {
-    /**
-     * Create claim request
-     */
-    export interface CreateClaimRequest extends RequestParams {
-      /**
-       * Plan ID to create claim for
-       */
-      planId: string;
-      
-      /**
-       * Type of claim
-       */
-      type: ClaimType;
-      
-      /**
-       * Claim amount
-       */
-      amount: number;
-      
-      /**
-       * Service date
-       */
-      serviceDate: string;
-      
-      /**
-       * Provider information
-       */
-      provider: {
-        /**
-         * Provider name
-         */
-        name: string;
-        
-        /**
-         * Provider ID (if available)
-         */
-        providerId?: string;
-        
-        /**
-         * Provider contact information
-         */
-        contact?: {
-          /**
-           * Phone number
-           */
-          phone?: string;
-          
-          /**
-           * Email address
-           */
-          email?: string;
-        };
-      };
-      
-      /**
-       * Claim description
-       */
-      description?: string;
-      
-      /**
-       * Initial documents to attach (document uploads handled separately)
-       */
-      documentIds?: string[];
-    }
+/**
+ * Response for benefit usage update
+ */
+export interface UpdateBenefitUsageResponse {
+  benefit: Benefit;
+}
 
-    /**
-     * Create claim response
-     */
-    export interface CreateClaimResponse {
-      /**
-       * Created claim
-       */
-      claim: Claim;
-      
-      /**
-       * Document upload URLs for any pending documents
-       */
-      documentUploadUrls?: Record<string, string>;
-    }
+// ==================== CLAIM API INTERFACES ====================
 
-    /**
-     * Get claim request
-     */
-    export interface GetClaimRequest extends RequestParams {
-      /**
-       * Claim ID to retrieve
-       */
-      claimId: string;
-    }
+/**
+ * Request to fetch claims for a plan
+ */
+export interface GetClaimsRequest extends PaginatedRequest {
+  planId: string;
+  status?: ClaimStatus;
+  type?: ClaimType;
+  startDate?: string; // ISO date string
+  endDate?: string; // ISO date string
+}
 
-    /**
-     * Get claim response
-     */
-    export interface GetClaimResponse {
-      /**
-       * Claim details
-       */
-      claim: Claim;
-    }
+/**
+ * Response for claims
+ */
+export interface GetClaimsResponse extends PaginatedResponse<Claim> {}
 
-    /**
-     * List claims request
-     */
-    export interface ListClaimsRequest extends RequestParams {
-      /**
-       * Plan ID to list claims for
-       */
-      planId?: string;
-      
-      /**
-       * Pagination parameters
-       */
-      pagination?: {
-        /**
-         * Page number (0-based)
-         */
-        page: number;
-        
-        /**
-         * Items per page
-         */
-        pageSize: number;
-      };
-      
-      /**
-       * Filtering options
-       */
-      filters?: {
-        /**
-         * Filter by claim status
-         */
-        status?: ClaimStatus | ClaimStatus[];
-        
-        /**
-         * Filter by claim type
-         */
-        type?: ClaimType | ClaimType[];
-        
-        /**
-         * Filter by date range
-         */
-        dateRange?: {
-          /**
-           * Start date (inclusive)
-           */
-          from?: string;
-          
-          /**
-           * End date (inclusive)
-           */
-          to?: string;
-        };
-      };
-      
-      /**
-       * Sorting options
-       */
-      sort?: {
-        /**
-         * Field to sort by
-         */
-        field: 'submittedAt' | 'amount' | 'status';
-        
-        /**
-         * Sort direction
-         */
-        direction: 'asc' | 'desc';
-      };
-    }
+/**
+ * Request to fetch a specific claim
+ */
+export interface GetClaimRequest {
+  claimId: string;
+}
 
-    /**
-     * List claims response
-     */
-    export interface ListClaimsResponse {
-      /**
-       * List of claims
-       */
-      claims: Claim[];
-      
-      /**
-       * Pagination metadata
-       */
-      pagination: {
-        /**
-         * Total number of claims
-         */
-        totalCount: number;
-        
-        /**
-         * Total number of pages
-         */
-        totalPages: number;
-        
-        /**
-         * Current page (0-based)
-         */
-        currentPage: number;
-      };
-    }
+/**
+ * Response for a specific claim
+ */
+export interface GetClaimResponse {
+  claim: Claim;
+}
 
-    /**
-     * Update claim request
-     */
-    export interface UpdateClaimRequest extends RequestParams {
-      /**
-       * Claim ID to update
-       */
-      claimId: string;
-      
-      /**
-       * Updated claim amount (if applicable)
-       */
-      amount?: number;
-      
-      /**
-       * Updated claim description (if applicable)
-       */
-      description?: string;
-      
-      /**
-       * Additional information requested by insurer
-       */
-      additionalInformation?: string;
-    }
+/**
+ * Request to create a new claim
+ */
+export interface CreateClaimRequest {
+  planId: string;
+  type: ClaimType;
+  amount: number;
+  serviceDate: string; // ISO date string
+  providerName?: string;
+  providerNPI?: string; // National Provider Identifier
+  diagnosis?: string;
+  notes?: string;
+  documentIds?: string[]; // IDs of previously uploaded documents
+}
 
-    /**
-     * Update claim response
-     */
-    export interface UpdateClaimResponse {
-      /**
-       * Updated claim
-       */
-      claim: Claim;
-    }
+/**
+ * Response for claim creation
+ */
+export interface CreateClaimResponse {
+  claim: Claim;
+  nextSteps?: string[];
+}
 
-    /**
-     * Cancel claim request
-     */
-    export interface CancelClaimRequest extends RequestParams {
-      /**
-       * Claim ID to cancel
-       */
-      claimId: string;
-      
-      /**
-       * Reason for cancellation
-       */
-      reason: string;
-    }
+/**
+ * Request to update an existing claim
+ */
+export interface UpdateClaimRequest {
+  claimId: string;
+  amount?: number;
+  providerName?: string;
+  providerNPI?: string;
+  diagnosis?: string;
+  notes?: string;
+  documentIds?: string[];
+}
 
-    /**
-     * Cancel claim response
-     */
-    export interface CancelClaimResponse {
-      /**
-       * Success status
-       */
-      success: boolean;
-      
-      /**
-       * Cancelled claim ID
-       */
-      claimId: string;
-    }
-  }
+/**
+ * Response for claim update
+ */
+export interface UpdateClaimResponse {
+  claim: Claim;
+}
 
-  /**
-   * Cost simulator related interfaces
-   */
-  export namespace CostSimulator {
-    /**
-     * Procedure cost simulation request
-     */
-    export interface SimulateCostRequest extends RequestParams {
-      /**
-       * Plan ID to simulate cost for
-       */
-      planId: string;
-      
-      /**
-       * Procedure code (CPT/HCPCS)
-       */
-      procedureCode?: string;
-      
-      /**
-       * Procedure description (if code not available)
-       */
-      procedureDescription?: string;
-      
-      /**
-       * Provider information
-       */
-      provider?: {
-        /**
-         * Provider ID
-         */
-        providerId?: string;
-        
-        /**
-         * Provider name
-         */
-        name?: string;
-        
-        /**
-         * Whether the provider is in-network
-         */
-        inNetwork?: boolean;
-      };
-      
-      /**
-       * Estimated procedure cost (if known)
-       */
-      estimatedCost?: number;
-      
-      /**
-       * Coverage type for the procedure
-       */
-      coverageType?: CoverageType;
-    }
+/**
+ * Request to cancel a claim
+ */
+export interface CancelClaimRequest {
+  claimId: string;
+  reason: string;
+}
 
-    /**
-     * Cost breakdown
-     */
-    export interface CostBreakdown {
-      /**
-       * Total procedure cost
-       */
-      totalCost: number;
-      
-      /**
-       * Amount covered by insurance
-       */
-      coveredAmount: number;
-      
-      /**
-       * Patient responsibility
-       */
-      patientResponsibility: {
-        /**
-         * Deductible amount
-         */
-        deductible: number;
-        
-        /**
-         * Co-payment amount
-         */
-        coPayment: number;
-        
-        /**
-         * Co-insurance amount
-         */
-        coInsurance: number;
-        
-        /**
-         * Total patient responsibility
-         */
-        total: number;
-      };
-      
-      /**
-       * Applied coverage details
-       */
-      appliedCoverage: PlanAPI.Coverages.CoverageDetails;
-    }
+/**
+ * Response for claim cancellation
+ */
+export interface CancelClaimResponse {
+  success: boolean;
+  message: string;
+}
 
-    /**
-     * Procedure cost simulation response
-     */
-    export interface SimulateCostResponse {
-      /**
-       * Cost breakdown
-       */
-      costBreakdown: CostBreakdown;
-      
-      /**
-       * Alternate scenarios (e.g., in-network vs out-of-network)
-       */
-      alternateScenarios?: {
-        /**
-         * Scenario name
-         */
-        name: string;
-        
-        /**
-         * Scenario description
-         */
-        description: string;
-        
-        /**
-         * Cost breakdown for this scenario
-         */
-        costBreakdown: CostBreakdown;
-      }[];
-    }
-  }
+/**
+ * Request to add documents to a claim
+ */
+export interface AddClaimDocumentsRequest {
+  claimId: string;
+  documentIds: string[];
+}
+
+/**
+ * Response for adding documents to a claim
+ */
+export interface AddClaimDocumentsResponse {
+  claim: Claim;
+}
+
+/**
+ * Request to remove a document from a claim
+ */
+export interface RemoveClaimDocumentRequest {
+  claimId: string;
+  documentId: string;
+}
+
+/**
+ * Response for removing a document from a claim
+ */
+export interface RemoveClaimDocumentResponse {
+  claim: Claim;
+}
+
+/**
+ * Request to submit additional information for a claim
+ */
+export interface SubmitAdditionalClaimInfoRequest {
+  claimId: string;
+  information: string;
+  documentIds?: string[];
+}
+
+/**
+ * Response for submitting additional information
+ */
+export interface SubmitAdditionalClaimInfoResponse {
+  claim: Claim;
+  status: ClaimStatus;
+}
+
+/**
+ * Request to get claim status history
+ */
+export interface GetClaimStatusHistoryRequest {
+  claimId: string;
+}
+
+/**
+ * Claim status history entry
+ */
+export interface ClaimStatusHistoryEntry {
+  status: ClaimStatus;
+  timestamp: string;
+  notes?: string;
+  updatedBy?: string;
+}
+
+/**
+ * Response for claim status history
+ */
+export interface GetClaimStatusHistoryResponse {
+  claimId: string;
+  history: ClaimStatusHistoryEntry[];
+}
+
+/**
+ * Request to get claim documents
+ */
+export interface GetClaimDocumentsRequest {
+  claimId: string;
+}
+
+/**
+ * Response for claim documents
+ */
+export interface GetClaimDocumentsResponse {
+  claimId: string;
+  documents: DocumentUploadResponse[];
+}
+
+// ==================== DOCUMENT API INTERFACES ====================
+
+/**
+ * Request to upload a document
+ * Note: This is typically handled via multipart/form-data
+ * and not directly as JSON
+ */
+export interface UploadDocumentRequest {
+  file: File; // Browser File object
+  metadata: DocumentUploadMetadata;
+}
+
+/**
+ * Response for document upload
+ */
+export interface UploadDocumentResponse {
+  document: DocumentUploadResponse;
+}
+
+/**
+ * Request to get document details
+ */
+export interface GetDocumentRequest {
+  documentId: string;
+}
+
+/**
+ * Response for document details
+ */
+export interface GetDocumentResponse {
+  document: DocumentUploadResponse;
+}
+
+/**
+ * Request to update document metadata
+ */
+export interface UpdateDocumentMetadataRequest {
+  documentId: string;
+  metadata: Partial<DocumentUploadMetadata>;
+}
+
+/**
+ * Response for document metadata update
+ */
+export interface UpdateDocumentMetadataResponse {
+  document: DocumentUploadResponse;
+}
+
+/**
+ * Request to delete a document
+ */
+export interface DeleteDocumentRequest {
+  documentId: string;
+}
+
+/**
+ * Response for document deletion
+ */
+export interface DeleteDocumentResponse {
+  success: boolean;
+  message: string;
+}
+
+// ==================== NOTIFICATION PREFERENCES INTERFACES ====================
+
+/**
+ * Plan journey notification types
+ */
+export enum PlanNotificationType {
+  CLAIM_STATUS_CHANGE = 'claim_status_change',
+  CLAIM_ADDITIONAL_INFO_REQUIRED = 'claim_additional_info_required',
+  CLAIM_PAYMENT_PROCESSED = 'claim_payment_processed',
+  PLAN_EXPIRATION_REMINDER = 'plan_expiration_reminder',
+  BENEFIT_USAGE_REMINDER = 'benefit_usage_reminder'
+}
+
+/**
+ * Request to update plan notification preferences
+ */
+export interface UpdatePlanNotificationPreferencesRequest {
+  userId: string;
+  preferences: {
+    [key in PlanNotificationType]?: {
+      email?: boolean;
+      sms?: boolean;
+      push?: boolean;
+      inApp?: boolean;
+    };
+  };
+}
+
+/**
+ * Response for plan notification preferences update
+ */
+export interface UpdatePlanNotificationPreferencesResponse {
+  preferences: {
+    [key in PlanNotificationType]: {
+      email: boolean;
+      sms: boolean;
+      push: boolean;
+      inApp: boolean;
+    };
+  };
+}
+
+/**
+ * Request to get plan notification preferences
+ */
+export interface GetPlanNotificationPreferencesRequest {
+  userId: string;
+}
+
+/**
+ * Response for plan notification preferences
+ */
+export interface GetPlanNotificationPreferencesResponse {
+  preferences: {
+    [key in PlanNotificationType]: {
+      email: boolean;
+      sms: boolean;
+      push: boolean;
+      inApp: boolean;
+    };
+  };
 }
