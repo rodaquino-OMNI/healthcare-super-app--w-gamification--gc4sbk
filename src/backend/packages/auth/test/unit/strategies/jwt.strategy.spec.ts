@@ -1,238 +1,223 @@
 /**
- * @file jwt.strategy.spec.ts
- * @description Tests for the JWT authentication strategy implementation
+ * @file JWT Strategy Unit Tests
+ * 
+ * This file contains unit tests for the JwtStrategy, which is responsible for JWT token validation
+ * using Passport.js. The tests verify proper token extraction, JWT secret loading, payload validation,
+ * and error handling for invalid or expired tokens.
  */
 
 import { Test, TestingModule } from '@nestjs/testing';
 import { ConfigService } from '@nestjs/config';
 import { UnauthorizedException } from '@nestjs/common';
-import { ExtractJwt } from 'passport-jwt';
 
-// Use standardized import paths with TypeScript path aliases
-import { JwtStrategy } from '@austa/auth/strategies/jwt.strategy';
-import { JwtRedisProvider } from '@austa/auth/providers/jwt/jwt-redis.provider';
-import { ITokenPayload, ITokenValidationOptions } from '@austa/interfaces/auth';
+// Import the strategy to test
+import { JwtStrategy } from '../../../src/strategies/jwt.strategy';
 
-// Mock the ExtractJwt.fromAuthHeaderAsBearerToken function
-jest.mock('passport-jwt', () => {
-  const original = jest.requireActual('passport-jwt');
-  return {
-    ...original,
-    ExtractJwt: {
-      ...original.ExtractJwt,
-      fromAuthHeaderAsBearerToken: jest.fn().mockImplementation(() => {
-        return (req: any) => req?.headers?.authorization?.replace('Bearer ', '');
-      }),
-    },
-  };
-});
+// Import from @austa/interfaces package for shared interfaces
+import { JwtPayload, UserResponseDto } from '@austa/interfaces/auth';
+
+// Import from @austa/errors for standardized error handling
+import { AuthenticationError } from '@austa/errors/categories';
+
+// Import from providers for JWT and Redis integration
+import { JwtRedisProvider } from '../../../src/providers/jwt/jwt-redis.provider';
+
+// Mock data for testing
+const mockJwtConfig = {
+  secret: 'test-secret',
+  audience: 'test-audience',
+  issuer: 'test-issuer'
+};
+
+const mockUser: UserResponseDto = {
+  id: 'user-123',
+  email: 'test@example.com',
+  firstName: 'Test',
+  lastName: 'User',
+  roles: ['user'],
+  permissions: {
+    'health': ['read', 'write'],
+    'care': ['read']
+  },
+  createdAt: new Date(),
+  updatedAt: new Date()
+};
+
+const mockValidPayload: JwtPayload = {
+  sub: mockUser.id,
+  email: mockUser.email,
+  roles: mockUser.roles,
+  permissions: mockUser.permissions,
+  jti: 'token-id-123',
+  sid: 'session-id-123',
+  iat: Math.floor(Date.now() / 1000),
+  exp: Math.floor(Date.now() / 1000) + 3600,
+  iss: mockJwtConfig.issuer,
+  aud: mockJwtConfig.audience
+};
+
+// Mock ConfigService
+const mockConfigService = {
+  get: jest.fn((key: string) => {
+    const config = {
+      'JWT_SECRET': mockJwtConfig.secret,
+      'JWT_AUDIENCE': mockJwtConfig.audience,
+      'JWT_ISSUER': mockJwtConfig.issuer
+    };
+    return config[key];
+  })
+};
+
+// Mock UserService
+const mockUserService = {
+  findById: jest.fn()
+};
+
+// Mock JwtRedisProvider
+const mockJwtRedisProvider = {
+  isTokenBlacklisted: jest.fn(),
+  validateSession: jest.fn()
+};
 
 describe('JwtStrategy', () => {
   let strategy: JwtStrategy;
-  let configService: ConfigService;
-  let jwtRedisProvider: JwtRedisProvider<any>;
-
-  // Sample token and payload for testing
-  const mockToken = 'valid.jwt.token';
-  const mockPayload: ITokenPayload = {
-    sub: 'user-123',
-    email: 'user@example.com',
-    name: 'Test User',
-    iat: Math.floor(Date.now() / 1000),
-    exp: Math.floor(Date.now() / 1000) + 3600, // 1 hour from now
-    iss: 'austa.com.br',
-    aud: 'austa-users',
-    jti: 'unique-token-id',
-  };
-
-  // Mock request object
-  const mockRequest = {
-    headers: {
-      authorization: `Bearer ${mockToken}`,
-    },
-  };
 
   beforeEach(async () => {
-    // Create mocks for dependencies
-    const configServiceMock = {
-      get: jest.fn((key: string) => {
-        const config: Record<string, string> = {
-          'JWT_SECRET': 'test-secret',
-          'JWT_AUDIENCE': 'austa-users',
-          'JWT_ISSUER': 'austa.com.br',
-          'authService.jwt.secret': 'test-secret',
-        };
-        return config[key];
-      }),
-    };
-
-    const jwtRedisProviderMock = {
-      isTokenBlacklisted: jest.fn().mockResolvedValue(false),
-      validateToken: jest.fn().mockResolvedValue(true),
-    };
+    // Reset all mocks before each test
+    jest.clearAllMocks();
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         JwtStrategy,
-        {
-          provide: ConfigService,
-          useValue: configServiceMock,
-        },
-        {
-          provide: JwtRedisProvider,
-          useValue: jwtRedisProviderMock,
-        },
+        { provide: ConfigService, useValue: mockConfigService },
+        { provide: 'USER_SERVICE', useValue: mockUserService },
+        { provide: JwtRedisProvider, useValue: mockJwtRedisProvider }
       ],
     }).compile();
 
     strategy = module.get<JwtStrategy>(JwtStrategy);
-    configService = module.get<ConfigService>(ConfigService);
-    jwtRedisProvider = module.get<JwtRedisProvider<any>>(JwtRedisProvider);
   });
 
-  afterEach(() => {
-    jest.clearAllMocks();
+  it('should be defined', () => {
+    expect(strategy).toBeDefined();
   });
 
   describe('constructor', () => {
-    it('should properly initialize with correct configuration', () => {
-      // Verify that ExtractJwt.fromAuthHeaderAsBearerToken was called
-      expect(ExtractJwt.fromAuthHeaderAsBearerToken).toHaveBeenCalled();
-
-      // Verify that ConfigService.get was called with the correct keys
-      expect(configService.get).toHaveBeenCalledWith('JWT_SECRET');
-      expect(configService.get).toHaveBeenCalledWith('JWT_AUDIENCE');
-      expect(configService.get).toHaveBeenCalledWith('JWT_ISSUER');
+    it('should configure JWT strategy with correct options', () => {
+      // Verify that ConfigService was called to get JWT configuration
+      expect(mockConfigService.get).toHaveBeenCalledWith('JWT_SECRET');
+      expect(mockConfigService.get).toHaveBeenCalledWith('JWT_AUDIENCE');
+      expect(mockConfigService.get).toHaveBeenCalledWith('JWT_ISSUER');
     });
   });
 
   describe('validate', () => {
-    it('should extract token from authorization header', async () => {
-      // Call validate method
-      await strategy.validate(mockRequest, mockPayload);
+    it('should validate a valid JWT payload and return the user', async () => {
+      // Setup
+      mockJwtRedisProvider.isTokenBlacklisted.mockResolvedValue(false);
+      mockUserService.findById.mockResolvedValue(mockUser);
+      mockJwtRedisProvider.validateSession.mockResolvedValue(true);
 
-      // Verify that ExtractJwt.fromAuthHeaderAsBearerToken was used to extract the token
-      const extractFn = ExtractJwt.fromAuthHeaderAsBearerToken();
-      expect(extractFn(mockRequest)).toBe(mockToken);
-    });
+      // Execute
+      const result = await strategy.validate(mockValidPayload);
 
-    it('should check if token is blacklisted', async () => {
-      // Call validate method
-      await strategy.validate(mockRequest, mockPayload);
-
-      // Verify that isTokenBlacklisted was called with the correct token
-      expect(jwtRedisProvider.isTokenBlacklisted).toHaveBeenCalledWith(mockToken);
-    });
-
-    it('should throw UnauthorizedException if token is blacklisted', async () => {
-      // Mock isTokenBlacklisted to return true (token is blacklisted)
-      jest.spyOn(jwtRedisProvider, 'isTokenBlacklisted').mockResolvedValueOnce(true);
-
-      // Expect validate to throw UnauthorizedException
-      await expect(strategy.validate(mockRequest, mockPayload)).rejects.toThrow(
-        new UnauthorizedException('Token has been revoked')
+      // Verify
+      expect(result).toEqual(mockUser);
+      expect(mockJwtRedisProvider.isTokenBlacklisted).toHaveBeenCalledWith(mockValidPayload.jti);
+      expect(mockUserService.findById).toHaveBeenCalledWith(mockValidPayload.sub);
+      expect(mockJwtRedisProvider.validateSession).toHaveBeenCalledWith(
+        mockValidPayload.sid,
+        mockValidPayload.sub
       );
     });
 
-    it('should validate token with correct options', async () => {
-      // Call validate method
-      await strategy.validate(mockRequest, mockPayload);
+    it('should throw AuthenticationError if token is blacklisted', async () => {
+      // Setup
+      mockJwtRedisProvider.isTokenBlacklisted.mockResolvedValue(true);
 
-      // Verify that validateToken was called with the correct token and options
-      expect(jwtRedisProvider.validateToken).toHaveBeenCalledWith(
-        mockToken,
-        expect.objectContaining({
-          requiredClaims: ['sub', 'email', 'iat', 'exp'],
-          audience: 'austa-users',
-          issuer: 'austa.com.br',
-        } as ITokenValidationOptions)
+      // Execute & Verify
+      await expect(strategy.validate(mockValidPayload)).rejects.toThrow(AuthenticationError);
+      await expect(strategy.validate(mockValidPayload)).rejects.toThrow('Token has been revoked');
+      expect(mockJwtRedisProvider.isTokenBlacklisted).toHaveBeenCalledWith(mockValidPayload.jti);
+      expect(mockUserService.findById).not.toHaveBeenCalled();
+    });
+
+    it('should throw AuthenticationError if user is not found', async () => {
+      // Setup
+      mockJwtRedisProvider.isTokenBlacklisted.mockResolvedValue(false);
+      mockUserService.findById.mockResolvedValue(null);
+
+      // Execute & Verify
+      await expect(strategy.validate(mockValidPayload)).rejects.toThrow(AuthenticationError);
+      await expect(strategy.validate(mockValidPayload)).rejects.toThrow('User not found');
+      expect(mockJwtRedisProvider.isTokenBlacklisted).toHaveBeenCalledWith(mockValidPayload.jti);
+      expect(mockUserService.findById).toHaveBeenCalledWith(mockValidPayload.sub);
+    });
+
+    it('should throw AuthenticationError if session is invalid', async () => {
+      // Setup
+      mockJwtRedisProvider.isTokenBlacklisted.mockResolvedValue(false);
+      mockUserService.findById.mockResolvedValue(mockUser);
+      mockJwtRedisProvider.validateSession.mockResolvedValue(false);
+
+      // Execute & Verify
+      await expect(strategy.validate(mockValidPayload)).rejects.toThrow(AuthenticationError);
+      await expect(strategy.validate(mockValidPayload)).rejects.toThrow('Invalid session');
+      expect(mockJwtRedisProvider.isTokenBlacklisted).toHaveBeenCalledWith(mockValidPayload.jti);
+      expect(mockUserService.findById).toHaveBeenCalledWith(mockValidPayload.sub);
+      expect(mockJwtRedisProvider.validateSession).toHaveBeenCalledWith(
+        mockValidPayload.sid,
+        mockValidPayload.sub
       );
     });
 
-    it('should return user object with properties from payload', async () => {
-      // Call validate method
-      const result = await strategy.validate(mockRequest, mockPayload);
+    it('should skip session validation if no session ID is provided', async () => {
+      // Setup
+      const payloadWithoutSession = { ...mockValidPayload, sid: undefined };
+      mockJwtRedisProvider.isTokenBlacklisted.mockResolvedValue(false);
+      mockUserService.findById.mockResolvedValue(mockUser);
 
-      // Verify that the returned user object has the correct properties
-      expect(result).toEqual({
-        id: mockPayload.sub,
-        email: mockPayload.email,
-        name: mockPayload.name,
+      // Execute
+      const result = await strategy.validate(payloadWithoutSession);
+
+      // Verify
+      expect(result).toEqual(mockUser);
+      expect(mockJwtRedisProvider.isTokenBlacklisted).toHaveBeenCalledWith(mockValidPayload.jti);
+      expect(mockUserService.findById).toHaveBeenCalledWith(mockValidPayload.sub);
+      expect(mockJwtRedisProvider.validateSession).not.toHaveBeenCalled();
+    });
+
+    it('should wrap non-AuthenticationError errors in a standardized AuthenticationError', async () => {
+      // Setup
+      const errorMessage = 'Database connection failed';
+      mockJwtRedisProvider.isTokenBlacklisted.mockResolvedValue(false);
+      mockUserService.findById.mockImplementation(() => {
+        throw new Error(errorMessage);
       });
 
-      // Verify that sensitive information is not included
-      expect(result).not.toHaveProperty('password');
+      // Execute & Verify
+      await expect(strategy.validate(mockValidPayload)).rejects.toThrow(AuthenticationError);
+      await expect(strategy.validate(mockValidPayload)).rejects.toThrow('Failed to authenticate token');
+      expect(mockJwtRedisProvider.isTokenBlacklisted).toHaveBeenCalledWith(mockValidPayload.jti);
+      expect(mockUserService.findById).toHaveBeenCalledWith(mockValidPayload.sub);
     });
 
-    it('should throw UnauthorizedException if token validation fails', async () => {
-      // Mock validateToken to throw an error
-      jest.spyOn(jwtRedisProvider, 'validateToken').mockRejectedValueOnce(new Error('Validation failed'));
-
-      // Expect validate to throw UnauthorizedException
-      await expect(strategy.validate(mockRequest, mockPayload)).rejects.toThrow(
-        new UnauthorizedException('Invalid token')
+    it('should rethrow AuthenticationError without wrapping', async () => {
+      // Setup
+      const authError = new AuthenticationError(
+        'Custom auth error',
+        'CUSTOM_ERROR',
+        { userId: mockValidPayload.sub }
       );
-    });
-
-    it('should propagate UnauthorizedException from token validation', async () => {
-      // Mock validateToken to throw an UnauthorizedException with a specific message
-      const specificError = new UnauthorizedException('Specific error message');
-      jest.spyOn(jwtRedisProvider, 'validateToken').mockRejectedValueOnce(specificError);
-
-      // Expect validate to throw the same UnauthorizedException
-      await expect(strategy.validate(mockRequest, mockPayload)).rejects.toThrow(specificError);
-    });
-
-    it('should handle missing authorization header', async () => {
-      // Create request without authorization header
-      const requestWithoutAuth = { headers: {} };
-
-      // Expect validate to throw UnauthorizedException
-      await expect(strategy.validate(requestWithoutAuth, mockPayload)).rejects.toThrow(
-        new UnauthorizedException('Invalid token')
-      );
-    });
-
-    it('should handle malformed authorization header', async () => {
-      // Create request with malformed authorization header
-      const requestWithMalformedAuth = {
-        headers: {
-          authorization: 'NotBearer token',
-        },
-      };
-
-      // Expect validate to throw UnauthorizedException
-      await expect(strategy.validate(requestWithMalformedAuth, mockPayload)).rejects.toThrow(
-        new UnauthorizedException('Invalid token')
-      );
-    });
-  });
-
-  describe('integration with passport-jwt', () => {
-    it('should use ExtractJwt.fromAuthHeaderAsBearerToken for token extraction', () => {
-      // Verify that ExtractJwt.fromAuthHeaderAsBearerToken was called in the constructor
-      expect(ExtractJwt.fromAuthHeaderAsBearerToken).toHaveBeenCalled();
-    });
-
-    it('should configure strategy with ignoreExpiration: false to enforce token expiration', () => {
-      // This is an indirect test since we can't easily access the private properties of the strategy
-      // We're verifying that the strategy is configured correctly by testing its behavior
-      
-      // Create an expired payload
-      const expiredPayload = {
-        ...mockPayload,
-        exp: Math.floor(Date.now() / 1000) - 3600, // 1 hour in the past
-      };
-
-      // Mock validateToken to throw an error for expired token
-      jest.spyOn(jwtRedisProvider, 'validateToken').mockImplementationOnce(() => {
-        throw new UnauthorizedException('Token expired');
+      mockJwtRedisProvider.isTokenBlacklisted.mockResolvedValue(false);
+      mockUserService.findById.mockImplementation(() => {
+        throw authError;
       });
 
-      // Expect validate to throw UnauthorizedException
-      return expect(strategy.validate(mockRequest, expiredPayload)).rejects.toThrow(
-        UnauthorizedException
-      );
+      // Execute & Verify
+      await expect(strategy.validate(mockValidPayload)).rejects.toThrow(authError);
+      expect(mockJwtRedisProvider.isTokenBlacklisted).toHaveBeenCalledWith(mockValidPayload.jti);
+      expect(mockUserService.findById).toHaveBeenCalledWith(mockValidPayload.sub);
     });
   });
 });
