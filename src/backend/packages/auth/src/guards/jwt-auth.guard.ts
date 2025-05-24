@@ -1,7 +1,7 @@
-import { Injectable, ExecutionContext, UnauthorizedException } from '@nestjs/common';
+import { Injectable, ExecutionContext } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
+import { BaseError, ValidationError } from '@austa/errors';
 import { LoggerService } from '@austa/logging';
-import { ValidationError, InvalidCredentialsError } from '@austa/errors/categories';
 
 /**
  * JWT Authentication Guard for protecting routes that require authentication.
@@ -11,38 +11,34 @@ import { ValidationError, InvalidCredentialsError } from '@austa/errors/categori
  * and is used across all journeys in the AUSTA SuperApp.
  * 
  * @example
- * // Health Journey: Protect a route that accesses health metrics
+ * // Use in a controller to protect a route in the Health journey
  * @UseGuards(JwtAuthGuard)
- * @Get('metrics/daily')
- * getDailyHealthMetrics(@Request() req) {
- *   // The user object is automatically added to the request by the guard
- *   const userId = req.user.id;
- *   return this.healthService.getDailyMetrics(userId);
+ * @Get('health/metrics')
+ * getHealthMetrics(@Request() req) {
+ *   return this.healthService.getMetricsForUser(req.user.id);
  * }
  * 
  * @example
- * // Care Journey: Protect an appointment booking endpoint
+ * // Use in a controller to protect a route in the Care journey
  * @UseGuards(JwtAuthGuard)
- * @Post('appointments')
- * bookAppointment(@Request() req, @Body() appointmentData: CreateAppointmentDto) {
- *   const userId = req.user.id;
- *   return this.appointmentService.create(userId, appointmentData);
+ * @Get('care/appointments')
+ * getAppointments(@Request() req) {
+ *   return this.appointmentService.getAppointmentsForUser(req.user.id);
  * }
  * 
  * @example
- * // Plan Journey: Protect a benefits endpoint
+ * // Use in a controller to protect a route in the Plan journey
  * @UseGuards(JwtAuthGuard)
- * @Get('benefits')
- * getUserBenefits(@Request() req) {
- *   const userId = req.user.id;
- *   return this.planService.getUserBenefits(userId);
+ * @Get('plan/benefits')
+ * getBenefits(@Request() req) {
+ *   return this.planService.getBenefitsForUser(req.user.id);
  * }
  */
 @Injectable()
 export class JwtAuthGuard extends AuthGuard('jwt') {
   constructor(private readonly logger: LoggerService) {
     super();
-    this.logger = logger.createLogger('JwtAuthGuard');
+    this.logger.setContext('JwtAuthGuard');
   }
 
   /**
@@ -51,35 +47,39 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
    * 
    * @param context - The execution context of the current request
    * @returns A boolean indicating if the request is authenticated
-   * @throws ValidationError or other appropriate error from @austa/errors if authentication fails
+   * @throws ValidationError if authentication fails with proper error context
    */
   async canActivate(context: ExecutionContext): Promise<boolean> {
     try {
       // Attempt to authenticate the request using the jwt strategy
-      const result = await super.canActivate(context) as boolean;
-      
-      if (result) {
-        const request = context.switchToHttp().getRequest();
-        this.logger.debug('Authentication successful', { userId: request.user?.id });
-      }
-      
-      return result;
+      return await super.canActivate(context) as boolean;
     } catch (error) {
-      // Log the authentication failure
-      this.logger.warn('Authentication failed', { error: error.message });
-      
-      // Transform errors to standardized error types from @austa/errors
-      if (error instanceof UnauthorizedException) {
-        throw new InvalidCredentialsError('Invalid token or user not found');
+      // Log the authentication failure with appropriate context
+      const req = context.switchToHttp().getRequest();
+      this.logger.warn(
+        `Authentication failed for request to ${req.path}`,
+        { 
+          path: req.path,
+          method: req.method,
+          ip: req.ip,
+          headers: {
+            'user-agent': req.headers['user-agent'],
+            'x-request-id': req.headers['x-request-id']
+          }
+        }
+      );
+
+      // Transform BaseError errors to maintain proper error context
+      if (error instanceof BaseError) {
+        throw error;
       }
       
-      // For other errors, maintain the original exception but log it
-      this.logger.error('Unexpected authentication error', { 
-        error: error.message,
-        stack: error.stack
+      // For other errors, transform to a standardized ValidationError
+      throw new ValidationError({
+        message: 'Authentication failed',
+        code: 'AUTH_INVALID_TOKEN',
+        details: { originalError: error.message }
       });
-      
-      throw error;
     }
   }
 
@@ -91,20 +91,26 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
    * @param user - The authenticated user if successful
    * @param info - Additional info about the authentication process
    * @returns The authenticated user if successful
-   * @throws InvalidCredentialsError if authentication fails
+   * @throws ValidationError with specific error context if authentication fails
    */
   handleRequest(err: Error, user: any, info: any): any {
-    // If authentication failed or no user was found, throw a standardized error
+    // If authentication failed or no user was found, throw a ValidationError
     if (err || !user) {
-      this.logger.warn('JWT validation failed in handleRequest', { 
-        errorMessage: err?.message,
-        info: info?.message
+      const errorMessage = err?.message || 'Invalid token or user not found';
+      const errorCode = 'AUTH_UNAUTHORIZED';
+      const errorDetails = { info: info?.message };
+      
+      this.logger.error(`Authentication error: ${errorMessage}`, { 
+        error: err?.message,
+        info: info?.message,
+        code: errorCode
       });
       
-      throw new InvalidCredentialsError(
-        'Invalid token or user not found',
-        { context: { info: info?.message } }
-      );
+      throw new ValidationError({
+        message: errorMessage,
+        code: errorCode,
+        details: errorDetails
+      });
     }
     
     // Return the authenticated user
