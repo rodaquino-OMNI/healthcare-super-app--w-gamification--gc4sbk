@@ -1,618 +1,658 @@
 /**
- * @file NotificationAdapter.ts
- * @description Web-specific notification adapter that handles browser notifications,
- * WebSocket connections for real-time updates, and notification storage in the browser environment.
+ * Web-specific notification adapter for the AUSTA SuperApp
+ * 
+ * This adapter handles browser notifications, WebSocket connections for real-time updates,
+ * and notification storage in the browser environment. It enables real-time notification
+ * delivery and persistence across web sessions.
+ * 
+ * @module @austa/journey-context/adapters/web/NotificationAdapter
  */
 
-import {
-  Notification,
-  NotificationFilter,
-  NotificationCount,
-  NotificationStatus,
+import { 
+  Notification, 
+  NotificationChannel, 
+  NotificationPriority, 
+  NotificationStatus, 
   NotificationType,
-  NotificationChannel,
-  NotificationPriority,
-  SendNotificationRequest
-} from '@austa/interfaces/notification/types';
+  NotificationPreference,
+  JourneyNotificationPreference,
+  createNotification,
+  shouldDeliverThroughChannel
+} from '@austa/interfaces/notification';
 
-// Storage keys
-const NOTIFICATION_STORAGE_KEY = 'austa_notifications';
-const NOTIFICATION_PERMISSION_KEY = 'austa_notification_permission';
+// Storage keys for notifications and preferences
+const STORAGE_KEYS = {
+  NOTIFICATIONS: '@austa/notifications',
+  NOTIFICATION_PREFERENCES: '@austa/notification_preferences',
+  JOURNEY_PREFERENCES: '@austa/journey_notification_preferences',
+  NOTIFICATION_PERMISSION: '@austa/notification_permission',
+};
 
 /**
- * Interface for the notification adapter methods
+ * Interface for the notification adapter configuration
  */
-export interface NotificationAdapter {
-  /**
-   * Retrieves notifications for a user
-   * @param userId - The ID of the user
-   * @returns A promise that resolves to an array of notifications
-   */
-  getNotifications: (userId: string) => Promise<Notification[]>;
-  
-  /**
-   * Marks a notification as read
-   * @param notificationId - The ID of the notification to mark as read
-   * @returns A promise that resolves when the operation is complete
-   */
-  markNotificationAsRead: (notificationId: string) => Promise<void>;
-  
-  /**
-   * Deletes a notification
-   * @param notificationId - The ID of the notification to delete
-   * @returns A promise that resolves when the operation is complete
-   */
-  deleteNotification: (notificationId: string) => Promise<void>;
-  
-  /**
-   * Gets notification counts by status
-   * @param userId - The ID of the user
-   * @returns A promise that resolves to notification counts
-   */
-  getNotificationCounts: (userId: string) => Promise<NotificationCount>;
-  
-  /**
-   * Filters notifications based on criteria
-   * @param userId - The ID of the user
-   * @param filter - The filter criteria
-   * @returns A promise that resolves to filtered notifications
-   */
-  filterNotifications: (userId: string, filter: NotificationFilter) => Promise<Notification[]>;
-
-  /**
-   * Requests permission for browser notifications
-   * @returns A promise that resolves with the permission status
-   */
-  requestNotificationPermission: () => Promise<boolean>;
-
-  /**
-   * Shows a browser notification
-   * @param notification - The notification to show
-   * @returns A promise that resolves when the operation is complete
-   */
-  showBrowserNotification: (notification: SendNotificationRequest) => Promise<void>;
-
-  /**
-   * Initializes the notification adapter
-   * @param onNotificationReceived - Callback for when a notification is received
-   * @param onNotificationOpened - Callback for when a notification is opened
-   * @returns A promise that resolves when initialization is complete
-   */
-  initialize: (
-    onNotificationReceived: (notification: Notification) => void,
-    onNotificationOpened: (notification: Notification) => void
-  ) => Promise<void>;
-
-  /**
-   * Connects to the WebSocket server for real-time notifications
-   * @param userId - The ID of the user to subscribe to notifications for
-   * @returns A promise that resolves when the connection is established
-   */
-  connectWebSocket: (userId: string) => Promise<void>;
-
-  /**
-   * Disconnects from the WebSocket server
-   * @returns A promise that resolves when the connection is closed
-   */
-  disconnectWebSocket: () => Promise<void>;
-
-  /**
-   * Cleans up the notification adapter resources
-   * @returns A promise that resolves when cleanup is complete
-   */
-  cleanup: () => Promise<void>;
+export interface NotificationAdapterConfig {
+  /** User ID for the current user */
+  userId: string;
+  /** WebSocket endpoint for real-time notifications */
+  websocketEndpoint: string;
+  /** Whether to enable debug logging */
+  debug?: boolean;
 }
 
 /**
- * Web implementation of the notification adapter
+ * Web-specific notification adapter for handling browser notifications,
+ * WebSocket connections, and notification storage in the browser environment.
  */
-class WebNotificationAdapter implements NotificationAdapter {
-  private socket: WebSocket | null = null;
-  private onNotificationReceivedCallback: ((notification: Notification) => void) | null = null;
-  private onNotificationOpenedCallback: ((notification: Notification) => void) | null = null;
-  private isInitialized = false;
-  private reconnectAttempts = 0;
-  private maxReconnectAttempts = 5;
-  private reconnectTimeout: NodeJS.Timeout | null = null;
-
+export class NotificationAdapter {
+  private userId: string;
+  private websocketEndpoint: string;
+  private debug: boolean;
+  private websocket: WebSocket | null = null;
+  private reconnectAttempts: number = 0;
+  private maxReconnectAttempts: number = 5;
+  private reconnectTimeout: number = 2000; // Start with 2 seconds
+  private reconnectTimer: number | null = null;
+  private notificationPermission: NotificationPermission | null = null;
+  
   /**
-   * Initializes the notification adapter
-   * @param onNotificationReceived - Callback for when a notification is received
-   * @param onNotificationOpened - Callback for when a notification is opened
-   * @returns A promise that resolves when initialization is complete
+   * Creates a new instance of the NotificationAdapter
+   * @param config Configuration options for the adapter
    */
-  public async initialize(
-    onNotificationReceived: (notification: Notification) => void,
-    onNotificationOpened: (notification: Notification) => void
-  ): Promise<void> {
-    if (this.isInitialized) {
+  constructor(config: NotificationAdapterConfig) {
+    this.userId = config.userId;
+    this.websocketEndpoint = config.websocketEndpoint;
+    this.debug = config.debug || false;
+    
+    // Initialize the adapter
+    this.initialize();
+  }
+  
+  /**
+   * Initializes the notification adapter by checking permissions and setting up WebSocket
+   */
+  private async initialize(): Promise<void> {
+    try {
+      // Check if browser supports notifications
+      if (!('Notification' in window)) {
+        if (this.debug) {
+          console.log('[NotificationAdapter] Browser does not support notifications');
+        }
+        return;
+      }
+      
+      // Load stored notification permission
+      await this.loadStoredPermission();
+      
+      // Connect to WebSocket for real-time updates
+      this.connectWebSocket();
+      
+      // Log initialization if debug is enabled
+      if (this.debug) {
+        console.log('[NotificationAdapter] Initialized with user ID:', this.userId);
+      }
+    } catch (error) {
+      console.error('[NotificationAdapter] Initialization error:', error);
+    }
+  }
+  
+  /**
+   * Loads the stored notification permission from localStorage
+   */
+  private async loadStoredPermission(): Promise<void> {
+    try {
+      const storedPermission = localStorage.getItem(STORAGE_KEYS.NOTIFICATION_PERMISSION);
+      
+      if (storedPermission) {
+        this.notificationPermission = storedPermission as NotificationPermission;
+      } else {
+        // Get the current permission state
+        this.notificationPermission = Notification.permission;
+        localStorage.setItem(STORAGE_KEYS.NOTIFICATION_PERMISSION, this.notificationPermission);
+      }
+      
+      if (this.debug) {
+        console.log('[NotificationAdapter] Loaded notification permission:', this.notificationPermission);
+      }
+    } catch (error) {
+      console.error('[NotificationAdapter] Error loading stored permission:', error);
+    }
+  }
+  
+  /**
+   * Connects to the WebSocket server for real-time notifications
+   */
+  private connectWebSocket(): void {
+    try {
+      // Close existing connection if any
+      if (this.websocket) {
+        this.websocket.close();
+      }
+      
+      // Create a new WebSocket connection with the user ID
+      const wsUrl = `${this.websocketEndpoint}?userId=${this.userId}`;
+      this.websocket = new WebSocket(wsUrl);
+      
+      // Set up event handlers
+      this.websocket.onopen = this.handleWebSocketOpen.bind(this);
+      this.websocket.onmessage = this.handleWebSocketMessage.bind(this);
+      this.websocket.onclose = this.handleWebSocketClose.bind(this);
+      this.websocket.onerror = this.handleWebSocketError.bind(this);
+      
+      if (this.debug) {
+        console.log('[NotificationAdapter] Connecting to WebSocket:', wsUrl);
+      }
+    } catch (error) {
+      console.error('[NotificationAdapter] Error connecting to WebSocket:', error);
+      this.scheduleReconnect();
+    }
+  }
+  
+  /**
+   * Handles WebSocket open event
+   */
+  private handleWebSocketOpen(event: Event): void {
+    // Reset reconnect attempts on successful connection
+    this.reconnectAttempts = 0;
+    
+    if (this.debug) {
+      console.log('[NotificationAdapter] WebSocket connection opened');
+    }
+  }
+  
+  /**
+   * Handles WebSocket message event
+   * @param event The message event
+   */
+  private async handleWebSocketMessage(event: MessageEvent): Promise<void> {
+    try {
+      if (this.debug) {
+        console.log('[NotificationAdapter] WebSocket message received:', event.data);
+      }
+      
+      // Parse the message data
+      const data = JSON.parse(event.data);
+      
+      // Handle different message types
+      switch (data.type) {
+        case 'notification':
+          // Process the notification
+          await this.processNotification(data.notification);
+          break;
+        case 'read_status':
+          // Update read status for a notification
+          await this.updateNotificationReadStatus(data.notificationId, data.status);
+          break;
+        default:
+          if (this.debug) {
+            console.log('[NotificationAdapter] Unknown message type:', data.type);
+          }
+          break;
+      }
+    } catch (error) {
+      console.error('[NotificationAdapter] Error handling WebSocket message:', error);
+    }
+  }
+  
+  /**
+   * Handles WebSocket close event
+   * @param event The close event
+   */
+  private handleWebSocketClose(event: CloseEvent): void {
+    if (this.debug) {
+      console.log('[NotificationAdapter] WebSocket connection closed:', event.code, event.reason);
+    }
+    
+    // Attempt to reconnect if the close was unexpected
+    if (event.code !== 1000) { // 1000 is normal closure
+      this.scheduleReconnect();
+    }
+  }
+  
+  /**
+   * Handles WebSocket error event
+   * @param event The error event
+   */
+  private handleWebSocketError(event: Event): void {
+    console.error('[NotificationAdapter] WebSocket error:', event);
+    
+    // The WebSocket will automatically close after an error
+    // The close handler will schedule a reconnect
+  }
+  
+  /**
+   * Schedules a reconnect attempt with exponential backoff
+   */
+  private scheduleReconnect(): void {
+    // Clear any existing reconnect timer
+    if (this.reconnectTimer !== null) {
+      window.clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+    
+    // Check if we've exceeded the maximum number of attempts
+    if (this.reconnectAttempts >= this.maxReconnectAttempts) {
+      if (this.debug) {
+        console.log('[NotificationAdapter] Maximum reconnect attempts reached');
+      }
       return;
     }
-
-    this.onNotificationReceivedCallback = onNotificationReceived;
-    this.onNotificationOpenedCallback = onNotificationOpened;
-
-    // Check if browser supports notifications
-    if (!('Notification' in window)) {
-      console.warn('This browser does not support desktop notifications');
+    
+    // Increment the reconnect attempts
+    this.reconnectAttempts++;
+    
+    // Calculate the backoff time with exponential increase
+    const backoff = this.reconnectTimeout * Math.pow(1.5, this.reconnectAttempts - 1);
+    
+    if (this.debug) {
+      console.log(`[NotificationAdapter] Scheduling reconnect in ${backoff}ms (attempt ${this.reconnectAttempts})`);
     }
-
-    this.isInitialized = true;
+    
+    // Schedule the reconnect
+    this.reconnectTimer = window.setTimeout(() => {
+      if (this.debug) {
+        console.log('[NotificationAdapter] Attempting to reconnect...');
+      }
+      this.connectWebSocket();
+    }, backoff);
   }
-
+  
   /**
-   * Cleans up the notification adapter resources
-   * @returns A promise that resolves when cleanup is complete
+   * Processes a notification received from the WebSocket
+   * @param notificationData The notification data
    */
-  public async cleanup(): Promise<void> {
-    // Disconnect WebSocket
-    await this.disconnectWebSocket();
-
-    // Clear callbacks
-    this.onNotificationReceivedCallback = null;
-    this.onNotificationOpenedCallback = null;
-    this.isInitialized = false;
-
-    // Clear reconnect timeout if any
-    if (this.reconnectTimeout) {
-      clearTimeout(this.reconnectTimeout);
-      this.reconnectTimeout = null;
+  private async processNotification(notificationData: any): Promise<void> {
+    try {
+      // Create a notification object
+      const notification = createNotification({
+        id: notificationData.id,
+        userId: this.userId,
+        type: notificationData.type as NotificationType,
+        title: notificationData.title,
+        body: notificationData.body,
+        channel: NotificationChannel.IN_APP,
+        priority: notificationData.priority as NotificationPriority,
+        data: notificationData.data,
+      });
+      
+      // Store the notification
+      await this.storeNotification(notification);
+      
+      // Show browser notification if appropriate
+      if (shouldDeliverThroughChannel(notification, NotificationChannel.PUSH) && 
+          this.notificationPermission === 'granted') {
+        this.showBrowserNotification(notification);
+      }
+      
+      // Process any actions required by the notification
+      await this.processNotificationActions(notification);
+    } catch (error) {
+      console.error('[NotificationAdapter] Error processing notification:', error);
     }
   }
-
+  
   /**
-   * Requests permission for browser notifications
-   * @returns A promise that resolves with the permission status
+   * Updates the read status of a notification
+   * @param notificationId The ID of the notification to update
+   * @param status The new status
+   */
+  private async updateNotificationReadStatus(notificationId: string, status: NotificationStatus): Promise<void> {
+    try {
+      // Get existing notifications
+      const notifications = await this.getStoredNotifications();
+      
+      // Find the notification to update
+      const notificationIndex = notifications.findIndex(n => n.id === notificationId);
+      
+      if (notificationIndex >= 0) {
+        // Update the notification status
+        notifications[notificationIndex] = {
+          ...notifications[notificationIndex],
+          status,
+          updatedAt: new Date(),
+        };
+        
+        // Store the updated notifications
+        localStorage.setItem(STORAGE_KEYS.NOTIFICATIONS, JSON.stringify(notifications));
+        
+        if (this.debug) {
+          console.log(`[NotificationAdapter] Updated notification ${notificationId} status to ${status}`);
+        }
+      }
+    } catch (error) {
+      console.error('[NotificationAdapter] Error updating notification status:', error);
+    }
+  }
+  
+  /**
+   * Shows a browser notification using the Notifications API
+   * @param notification The notification to show
+   */
+  private showBrowserNotification(notification: Notification): void {
+    try {
+      // Check if browser notifications are supported and permission is granted
+      if (!('Notification' in window) || this.notificationPermission !== 'granted') {
+        return;
+      }
+      
+      // Create options for the browser notification
+      const options: NotificationOptions = {
+        body: notification.body,
+        icon: '/icons/notification-icon.png', // Default icon
+        tag: notification.id, // Use the notification ID as the tag to prevent duplicates
+        data: notification,
+      };
+      
+      // Add journey-specific icon if available
+      if (notification.data?.journeyContext) {
+        const journey = notification.data.journeyContext as string;
+        options.icon = `/icons/${journey}-notification-icon.png`;
+      }
+      
+      // Add actions if available
+      if (notification.data?.actions) {
+        options.actions = (notification.data.actions as any[]).map(action => ({
+          action: action.type,
+          title: action.label,
+        }));
+      }
+      
+      // Create and show the browser notification
+      const browserNotification = new window.Notification(notification.title, options);
+      
+      // Add event listeners
+      browserNotification.onclick = (event) => this.handleBrowserNotificationClick(event, notification);
+      browserNotification.onclose = () => {
+        if (this.debug) {
+          console.log('[NotificationAdapter] Browser notification closed:', notification.id);
+        }
+      };
+      
+      if (this.debug) {
+        console.log('[NotificationAdapter] Showed browser notification:', notification.id);
+      }
+    } catch (error) {
+      console.error('[NotificationAdapter] Error showing browser notification:', error);
+    }
+  }
+  
+  /**
+   * Handles a click on a browser notification
+   * @param event The click event
+   * @param notification The notification that was clicked
+   */
+  private async handleBrowserNotificationClick(event: Event, notification: Notification): Promise<void> {
+    try {
+      // Mark the notification as read
+      await this.markNotificationAsRead(notification.id);
+      
+      // Get the action that was clicked (if any)
+      const action = (event as any).action;
+      
+      if (action) {
+        // Handle specific actions
+        await this.processNotificationAction(notification, action);
+      } else {
+        // Default action: navigate to the appropriate page
+        this.navigateToNotificationDestination(notification);
+      }
+    } catch (error) {
+      console.error('[NotificationAdapter] Error handling notification click:', error);
+    }
+  }
+  
+  /**
+   * Processes a notification action
+   * @param notification The notification
+   * @param action The action to process
+   */
+  private async processNotificationAction(notification: Notification, action: string): Promise<void> {
+    // Implementation depends on specific notification types and actions
+    if (this.debug) {
+      console.log('[NotificationAdapter] Processing action:', { notification, action });
+    }
+    
+    // Handle different actions based on notification type
+    switch (notification.type) {
+      case NotificationType.APPOINTMENT:
+        // Handle appointment actions (confirm, reschedule, cancel)
+        this.handleAppointmentAction(notification, action);
+        break;
+      case NotificationType.MEDICATION:
+        // Handle medication actions (taken, snooze, skip)
+        this.handleMedicationAction(notification, action);
+        break;
+      case NotificationType.CLAIM_STATUS:
+        // Handle claim actions (view, upload, appeal)
+        this.handleClaimAction(notification, action);
+        break;
+      default:
+        // Default handling for other notification types
+        this.navigateToNotificationDestination(notification);
+        break;
+    }
+  }
+  
+  /**
+   * Handles appointment-specific actions
+   * @param notification The appointment notification
+   * @param action The action to handle
+   */
+  private handleAppointmentAction(notification: Notification, action: string): void {
+    // Get the appointment data
+    const appointmentData = notification.data;
+    
+    // Handle different appointment actions
+    switch (action) {
+      case 'confirm':
+        // Navigate to appointment confirmation page
+        window.location.href = `/care/appointments/${appointmentData?.appointmentId}/confirm`;
+        break;
+      case 'reschedule':
+        // Navigate to appointment reschedule page
+        window.location.href = `/care/appointments/${appointmentData?.appointmentId}/reschedule`;
+        break;
+      case 'cancel':
+        // Navigate to appointment cancellation page
+        window.location.href = `/care/appointments/${appointmentData?.appointmentId}/cancel`;
+        break;
+      case 'join':
+        // Navigate to telemedicine session
+        if (appointmentData?.connectionDetails?.url) {
+          window.open(appointmentData.connectionDetails.url, '_blank');
+        }
+        break;
+      default:
+        // Default: navigate to appointment details
+        window.location.href = `/care/appointments/${appointmentData?.appointmentId}`;
+        break;
+    }
+  }
+  
+  /**
+   * Handles medication-specific actions
+   * @param notification The medication notification
+   * @param action The action to handle
+   */
+  private handleMedicationAction(notification: Notification, action: string): void {
+    // Get the medication data
+    const medicationData = notification.data;
+    
+    // Handle different medication actions
+    switch (action) {
+      case 'taken':
+        // Mark medication as taken
+        window.location.href = `/care/medications/${medicationData?.medicationId}/taken`;
+        break;
+      case 'snooze':
+        // Snooze the medication reminder
+        window.location.href = `/care/medications/${medicationData?.medicationId}/snooze`;
+        break;
+      case 'skip':
+        // Skip the medication dose
+        window.location.href = `/care/medications/${medicationData?.medicationId}/skip`;
+        break;
+      default:
+        // Default: navigate to medication details
+        window.location.href = `/care/medications/${medicationData?.medicationId}`;
+        break;
+    }
+  }
+  
+  /**
+   * Handles claim-specific actions
+   * @param notification The claim notification
+   * @param action The action to handle
+   */
+  private handleClaimAction(notification: Notification, action: string): void {
+    // Get the claim data
+    const claimData = notification.data;
+    
+    // Handle different claim actions
+    switch (action) {
+      case 'view':
+        // Navigate to claim details
+        window.location.href = `/plan/claims/${claimData?.claimId}`;
+        break;
+      case 'upload':
+        // Navigate to document upload page
+        window.location.href = `/plan/claims/${claimData?.claimId}/upload`;
+        break;
+      case 'appeal':
+        // Navigate to appeal form
+        window.location.href = `/plan/claims/${claimData?.claimId}/appeal`;
+        break;
+      case 'contact':
+        // Navigate to contact support page
+        window.location.href = '/plan/support';
+        break;
+      default:
+        // Default: navigate to claim details
+        window.location.href = `/plan/claims/${claimData?.claimId}`;
+        break;
+    }
+  }
+  
+  /**
+   * Navigates to the appropriate destination for a notification
+   * @param notification The notification to navigate to
+   */
+  private navigateToNotificationDestination(notification: Notification): void {
+    // Determine the destination based on notification type
+    switch (notification.type) {
+      case NotificationType.ACHIEVEMENT:
+        window.location.href = '/achievements';
+        break;
+      case NotificationType.LEVEL_UP:
+        window.location.href = '/profile';
+        break;
+      case NotificationType.APPOINTMENT:
+        window.location.href = `/care/appointments/${notification.data?.appointmentId}`;
+        break;
+      case NotificationType.MEDICATION:
+        window.location.href = `/care/medications/${notification.data?.medicationId}`;
+        break;
+      case NotificationType.HEALTH_GOAL:
+        window.location.href = `/health/goals/${notification.data?.goalId}`;
+        break;
+      case NotificationType.HEALTH_METRIC:
+        window.location.href = `/health/metrics/${notification.data?.metricId}`;
+        break;
+      case NotificationType.CLAIM_STATUS:
+        window.location.href = `/plan/claims/${notification.data?.claimId}`;
+        break;
+      case NotificationType.BENEFIT_UPDATE:
+        window.location.href = `/plan/benefits/${notification.data?.benefitId}`;
+        break;
+      case NotificationType.FEATURE_UPDATE:
+        window.location.href = '/whats-new';
+        break;
+      case NotificationType.SYSTEM:
+      default:
+        window.location.href = '/notifications';
+        break;
+    }
+  }
+  
+  /**
+   * Processes any actions required by the notification
+   * @param notification The notification to process
+   */
+  private async processNotificationActions(notification: Notification): Promise<void> {
+    // Implementation depends on specific notification types and required actions
+    // This is a placeholder for journey-specific notification processing
+    switch (notification.type) {
+      case NotificationType.ACHIEVEMENT:
+        // Process achievement notifications
+        break;
+      case NotificationType.APPOINTMENT:
+        // Process appointment notifications
+        break;
+      case NotificationType.HEALTH_METRIC:
+        // Process health metric notifications
+        break;
+      case NotificationType.CLAIM_STATUS:
+        // Process claim status notifications
+        break;
+      default:
+        // Default processing for other notification types
+        break;
+    }
+  }
+  
+  /**
+   * Requests permission to show browser notifications
+   * @returns A promise that resolves to true if permission is granted, false otherwise
    */
   public async requestNotificationPermission(): Promise<boolean> {
     try {
       // Check if browser supports notifications
       if (!('Notification' in window)) {
-        console.warn('This browser does not support desktop notifications');
+        if (this.debug) {
+          console.log('[NotificationAdapter] Browser does not support notifications');
+        }
         return false;
       }
-
-      // Check if we already have permission
-      if (Notification.permission === 'granted') {
-        localStorage.setItem(NOTIFICATION_PERMISSION_KEY, 'granted');
-        return true;
-      }
-
+      
       // Request permission
-      const permission = await Notification.requestPermission();
-      const granted = permission === 'granted';
-
-      if (granted) {
-        localStorage.setItem(NOTIFICATION_PERMISSION_KEY, 'granted');
+      const permission = await window.Notification.requestPermission();
+      
+      // Store the permission
+      this.notificationPermission = permission;
+      localStorage.setItem(STORAGE_KEYS.NOTIFICATION_PERMISSION, permission);
+      
+      if (this.debug) {
+        console.log('[NotificationAdapter] Notification permission:', permission);
       }
-
-      return granted;
+      
+      return permission === 'granted';
     } catch (error) {
-      console.error('Error requesting notification permission:', error);
+      console.error('[NotificationAdapter] Error requesting notification permission:', error);
       return false;
     }
   }
-
+  
   /**
-   * Shows a browser notification
-   * @param notification - The notification to show
-   * @returns A promise that resolves when the operation is complete
+   * Checks if browser notifications are supported
+   * @returns True if browser notifications are supported, false otherwise
    */
-  public async showBrowserNotification(notification: SendNotificationRequest): Promise<void> {
-    try {
-      // Check if browser supports notifications
-      if (!('Notification' in window)) {
-        console.warn('This browser does not support desktop notifications');
-        return;
-      }
-
-      // Check if we have permission
-      if (Notification.permission !== 'granted') {
-        const granted = await this.requestNotificationPermission();
-        if (!granted) {
-          console.warn('Notification permission not granted');
-          return;
-        }
-      }
-
-      // Create notification options
-      const options: NotificationOptions = {
-        body: notification.body,
-        icon: this.getIconForNotificationType(notification.type),
-        tag: notification.userId, // Use userId as tag to group notifications
-        data: {
-          id: Math.random().toString(36).substring(2, 15),
-          userId: notification.userId,
-          type: notification.type,
-          data: notification.data,
-          createdAt: new Date().toISOString(),
-        },
-      };
-
-      // Create and show the notification
-      const browserNotification = new Notification(notification.title, options);
-
-      // Handle notification click
-      browserNotification.onclick = () => {
-        // Focus on the window
-        window.focus();
-
-        // Convert to our notification format
-        const austaNotification = this.createNotificationFromBrowserNotification(
-          browserNotification,
-          notification
-        );
-
-        // Call the callback
-        if (this.onNotificationOpenedCallback) {
-          this.onNotificationOpenedCallback(austaNotification);
-        }
-
-        // Store the notification
-        this.storeNotification(austaNotification);
-
-        // Close the notification
-        browserNotification.close();
-      };
-
-      // Handle notification show
-      browserNotification.onshow = () => {
-        // Convert to our notification format
-        const austaNotification = this.createNotificationFromBrowserNotification(
-          browserNotification,
-          notification
-        );
-
-        // Call the callback
-        if (this.onNotificationReceivedCallback) {
-          this.onNotificationReceivedCallback(austaNotification);
-        }
-
-        // Store the notification
-        this.storeNotification(austaNotification);
-      };
-    } catch (error) {
-      console.error('Error showing browser notification:', error);
-      throw error;
-    }
+  public isNotificationSupported(): boolean {
+    return 'Notification' in window;
   }
-
+  
   /**
-   * Connects to the WebSocket server for real-time notifications
-   * @param userId - The ID of the user to subscribe to notifications for
-   * @returns A promise that resolves when the connection is established
+   * Gets the current notification permission status
+   * @returns The current notification permission status
    */
-  public async connectWebSocket(userId: string): Promise<void> {
-    return new Promise((resolve, reject) => {
-      try {
-        // Close existing connection if any
-        if (this.socket) {
-          this.socket.close();
-        }
-
-        // Reset reconnect attempts
-        this.reconnectAttempts = 0;
-
-        // Create WebSocket connection
-        // Use secure WebSocket if the page is served over HTTPS
-        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const host = window.location.host;
-        const wsUrl = `${protocol}//${host}/notifications/ws?userId=${userId}`;
-
-        this.socket = new WebSocket(wsUrl);
-
-        // Handle connection open
-        this.socket.onopen = () => {
-          console.log('WebSocket connection established');
-          resolve();
-        };
-
-        // Handle connection error
-        this.socket.onerror = (error) => {
-          console.error('WebSocket error:', error);
-          this.attemptReconnect(userId);
-          reject(error);
-        };
-
-        // Handle connection close
-        this.socket.onclose = () => {
-          console.log('WebSocket connection closed');
-          this.attemptReconnect(userId);
-        };
-
-        // Handle incoming messages
-        this.socket.onmessage = (event) => {
-          try {
-            const data = JSON.parse(event.data);
-            
-            // Check if it's a notification
-            if (data.type && data.userId) {
-              const notification: Notification = {
-                id: data.id || Math.random().toString(36).substring(2, 15),
-                userId: data.userId,
-                type: data.type,
-                title: data.title || '',
-                body: data.body || '',
-                channel: NotificationChannel.IN_APP,
-                status: NotificationStatus.DELIVERED,
-                priority: data.priority || NotificationPriority.MEDIUM,
-                data: data.data,
-                createdAt: data.createdAt || new Date().toISOString(),
-                updatedAt: data.updatedAt || new Date().toISOString(),
-              };
-
-              // Call the callback
-              if (this.onNotificationReceivedCallback) {
-                this.onNotificationReceivedCallback(notification);
-              }
-
-              // Store the notification
-              this.storeNotification(notification);
-
-              // Show browser notification if applicable
-              if (data.showBrowserNotification) {
-                this.showBrowserNotification({
-                  userId: notification.userId,
-                  type: notification.type,
-                  title: notification.title,
-                  body: notification.body,
-                  priority: notification.priority,
-                  data: notification.data,
-                });
-              }
-            }
-          } catch (error) {
-            console.error('Error processing WebSocket message:', error);
-          }
-        };
-      } catch (error) {
-        console.error('Error connecting to WebSocket:', error);
-        reject(error);
-      }
-    });
+  public getNotificationPermission(): NotificationPermission | null {
+    return this.notificationPermission;
   }
-
+  
   /**
-   * Disconnects from the WebSocket server
-   * @returns A promise that resolves when the connection is closed
+   * Stores a notification in localStorage for offline access
+   * @param notification The notification to store
    */
-  public async disconnectWebSocket(): Promise<void> {
-    return new Promise((resolve) => {
-      if (this.socket) {
-        // Clear reconnect timeout if any
-        if (this.reconnectTimeout) {
-          clearTimeout(this.reconnectTimeout);
-          this.reconnectTimeout = null;
-        }
-
-        // Close the connection
-        this.socket.close();
-        this.socket = null;
-      }
-      resolve();
-    });
-  }
-
-  /**
-   * Attempts to reconnect to the WebSocket server
-   * @param userId - The ID of the user to subscribe to notifications for
-   */
-  private attemptReconnect(userId: string): void {
-    // Clear existing timeout if any
-    if (this.reconnectTimeout) {
-      clearTimeout(this.reconnectTimeout);
-    }
-
-    // Check if we've reached the maximum number of attempts
-    if (this.reconnectAttempts >= this.maxReconnectAttempts) {
-      console.warn('Maximum reconnect attempts reached');
-      return;
-    }
-
-    // Increment reconnect attempts
-    this.reconnectAttempts++;
-
-    // Calculate backoff time (exponential backoff)
-    const backoffTime = Math.min(1000 * Math.pow(2, this.reconnectAttempts), 30000);
-
-    console.log(`Attempting to reconnect in ${backoffTime}ms (attempt ${this.reconnectAttempts})`);
-
-    // Set timeout for reconnection
-    this.reconnectTimeout = setTimeout(() => {
-      this.connectWebSocket(userId).catch((error) => {
-        console.error('Reconnection failed:', error);
-      });
-    }, backoffTime);
-  }
-
-  /**
-   * Retrieves notifications for a user
-   * @param userId - The ID of the user
-   * @returns A promise that resolves to an array of notifications
-   */
-  public async getNotifications(userId: string): Promise<Notification[]> {
-    try {
-      // Try to get notifications from localStorage
-      const storedNotifications = await this.getStoredNotifications();
-      
-      // Filter notifications for the specified user
-      return storedNotifications.filter(notification => notification.userId === userId);
-    } catch (error) {
-      console.error('Error getting notifications:', error);
-      return [];
-    }
-  }
-
-  /**
-   * Marks a notification as read
-   * @param notificationId - The ID of the notification to mark as read
-   * @returns A promise that resolves when the operation is complete
-   */
-  public async markNotificationAsRead(notificationId: string): Promise<void> {
-    try {
-      // Get stored notifications
-      const storedNotifications = await this.getStoredNotifications();
-      
-      // Find and update the notification
-      const updatedNotifications = storedNotifications.map(notification => {
-        if (notification.id === notificationId) {
-          return {
-            ...notification,
-            status: NotificationStatus.READ,
-            readAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString()
-          };
-        }
-        return notification;
-      });
-      
-      // Save the updated notifications
-      localStorage.setItem(NOTIFICATION_STORAGE_KEY, JSON.stringify(updatedNotifications));
-    } catch (error) {
-      console.error('Error marking notification as read:', error);
-      throw error;
-    }
-  }
-
-  /**
-   * Deletes a notification
-   * @param notificationId - The ID of the notification to delete
-   * @returns A promise that resolves when the operation is complete
-   */
-  public async deleteNotification(notificationId: string): Promise<void> {
-    try {
-      // Get stored notifications
-      const storedNotifications = await this.getStoredNotifications();
-      
-      // Filter out the notification to delete
-      const updatedNotifications = storedNotifications.filter(
-        notification => notification.id !== notificationId
-      );
-      
-      // Save the updated notifications
-      localStorage.setItem(NOTIFICATION_STORAGE_KEY, JSON.stringify(updatedNotifications));
-    } catch (error) {
-      console.error('Error deleting notification:', error);
-      throw error;
-    }
-  }
-
-  /**
-   * Gets notification counts by status
-   * @param userId - The ID of the user
-   * @returns A promise that resolves to notification counts
-   */
-  public async getNotificationCounts(userId: string): Promise<NotificationCount> {
-    try {
-      // Get notifications for the user
-      const notifications = await this.getNotifications(userId);
-      
-      // Count total and unread notifications
-      const total = notifications.length;
-      const unread = notifications.filter(
-        notification => notification.status === NotificationStatus.DELIVERED || 
-                        notification.status === NotificationStatus.SENT
-      ).length;
-      
-      // Count by type
-      const byType: Record<NotificationType, number> = {} as Record<NotificationType, number>;
-      
-      notifications.forEach(notification => {
-        const type = notification.type;
-        byType[type] = (byType[type] || 0) + 1;
-      });
-      
-      return { total, unread, byType };
-    } catch (error) {
-      console.error('Error getting notification counts:', error);
-      return { total: 0, unread: 0, byType: {} };
-    }
-  }
-
-  /**
-   * Filters notifications based on criteria
-   * @param userId - The ID of the user
-   * @param filter - The filter criteria
-   * @returns A promise that resolves to filtered notifications
-   */
-  public async filterNotifications(userId: string, filter: NotificationFilter): Promise<Notification[]> {
-    try {
-      // Get all notifications for the user
-      const notifications = await this.getNotifications(userId);
-      
-      // Apply filters
-      return notifications.filter(notification => {
-        // Filter by types
-        if (filter.types && filter.types.length > 0 && !filter.types.includes(notification.type)) {
-          return false;
-        }
-        
-        // Filter by status
-        if (filter.status && notification.status !== filter.status) {
-          return false;
-        }
-        
-        // Filter by channel
-        if (filter.channel && notification.channel !== filter.channel) {
-          return false;
-        }
-        
-        // Filter by read status
-        if (filter.read !== undefined) {
-          const isRead = notification.status === NotificationStatus.READ;
-          if (filter.read !== isRead) {
-            return false;
-          }
-        }
-        
-        // Filter by date range
-        if (filter.startDate) {
-          const startDate = new Date(filter.startDate).getTime();
-          const notificationDate = new Date(notification.createdAt).getTime();
-          if (notificationDate < startDate) {
-            return false;
-          }
-        }
-        
-        if (filter.endDate) {
-          const endDate = new Date(filter.endDate).getTime();
-          const notificationDate = new Date(notification.createdAt).getTime();
-          if (notificationDate > endDate) {
-            return false;
-          }
-        }
-        
-        return true;
-      });
-    } catch (error) {
-      console.error('Error filtering notifications:', error);
-      return [];
-    }
-  }
-
-  /**
-   * Gets all stored notifications from localStorage
-   * @returns A promise that resolves to an array of notifications
-   */
-  private async getStoredNotifications(): Promise<Notification[]> {
-    try {
-      const storedData = localStorage.getItem(NOTIFICATION_STORAGE_KEY);
-      if (!storedData) {
-        return [];
-      }
-      
-      return JSON.parse(storedData) as Notification[];
-    } catch (error) {
-      console.error('Error getting stored notifications:', error);
-      return [];
-    }
-  }
-
-  /**
-   * Stores a notification in localStorage
-   * @param notification - The notification to store
-   */
-  private async storeNotification(notification: Notification): Promise<void> {
+  public async storeNotification(notification: Notification): Promise<void> {
     try {
       // Get existing notifications
       const storedNotifications = await this.getStoredNotifications();
@@ -623,78 +663,333 @@ class WebNotificationAdapter implements NotificationAdapter {
       if (existingIndex >= 0) {
         // Update existing notification
         storedNotifications[existingIndex] = {
+          ...storedNotifications[existingIndex],
           ...notification,
-          updatedAt: new Date().toISOString()
+          updatedAt: new Date(),
         };
       } else {
         // Add new notification
         storedNotifications.push(notification);
       }
       
-      // Store updated notifications
-      localStorage.setItem(NOTIFICATION_STORAGE_KEY, JSON.stringify(storedNotifications));
+      // Sort notifications by priority and date
+      const sortedNotifications = this.sortNotificationsByPriorityAndDate(storedNotifications);
+      
+      // Store the updated notifications
+      localStorage.setItem(STORAGE_KEYS.NOTIFICATIONS, JSON.stringify(sortedNotifications));
+      
+      if (this.debug) {
+        console.log('[NotificationAdapter] Stored notification:', notification);
+      }
     } catch (error) {
-      console.error('Error storing notification:', error);
+      console.error('[NotificationAdapter] Error storing notification:', error);
     }
   }
-
+  
   /**
-   * Creates a notification from a browser notification
-   * @param browserNotification - The browser notification
-   * @param requestData - The original notification request data
-   * @returns The created notification
+   * Retrieves all stored notifications from localStorage
+   * @returns An array of stored notifications
    */
-  private createNotificationFromBrowserNotification(
-    browserNotification: Notification,
-    requestData: SendNotificationRequest
-  ): Notification {
-    // Extract data from the notification
-    const { id, userId, type, data } = browserNotification.data || {};
-    
-    // Create a new notification object
-    const notification: Notification = {
-      id: id || Math.random().toString(36).substring(2, 15),
-      userId: userId || requestData.userId,
-      type: type || requestData.type,
-      title: browserNotification.title || requestData.title,
-      body: browserNotification.body || requestData.body,
-      channel: NotificationChannel.PUSH,
-      status: NotificationStatus.DELIVERED,
-      priority: requestData.priority || NotificationPriority.MEDIUM,
-      data: data || requestData.data,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
-    
-    return notification;
+  public async getStoredNotifications(): Promise<Notification[]> {
+    try {
+      const notificationsJson = localStorage.getItem(STORAGE_KEYS.NOTIFICATIONS);
+      
+      if (!notificationsJson) {
+        return [];
+      }
+      
+      const notifications = JSON.parse(notificationsJson) as Notification[];
+      
+      // Convert date strings back to Date objects
+      return notifications.map(notification => ({
+        ...notification,
+        createdAt: new Date(notification.createdAt),
+        updatedAt: new Date(notification.updatedAt),
+      }));
+    } catch (error) {
+      console.error('[NotificationAdapter] Error getting stored notifications:', error);
+      return [];
+    }
   }
-
+  
   /**
-   * Gets the appropriate icon for a notification type
-   * @param type - The notification type
-   * @returns The URL of the icon
+   * Sorts notifications by priority (high to low) and date (newest first)
+   * @param notifications The notifications to sort
+   * @returns The sorted notifications
    */
-  private getIconForNotificationType(type: NotificationType): string {
-    // Default icon path
-    const defaultIcon = '/icons/notification-default.png';
-    
-    // Map notification types to icons
-    const iconMap: Record<NotificationType, string> = {
-      [NotificationType.SYSTEM]: '/icons/notification-system.png',
-      [NotificationType.ACHIEVEMENT]: '/icons/notification-achievement.png',
-      [NotificationType.LEVEL_UP]: '/icons/notification-level-up.png',
-      [NotificationType.APPOINTMENT]: '/icons/notification-appointment.png',
-      [NotificationType.MEDICATION]: '/icons/notification-medication.png',
-      [NotificationType.HEALTH_GOAL]: '/icons/notification-health-goal.png',
-      [NotificationType.HEALTH_METRIC]: '/icons/notification-health-metric.png',
-      [NotificationType.CLAIM_STATUS]: '/icons/notification-claim.png',
-      [NotificationType.BENEFIT_REMINDER]: '/icons/notification-benefit.png',
-    };
-    
-    return iconMap[type] || defaultIcon;
+  private sortNotificationsByPriorityAndDate(notifications: Notification[]): Notification[] {
+    return [...notifications].sort((a, b) => {
+      // First sort by priority (critical > high > medium > low)
+      const priorityOrder = {
+        [NotificationPriority.CRITICAL]: 0,
+        [NotificationPriority.HIGH]: 1,
+        [NotificationPriority.MEDIUM]: 2,
+        [NotificationPriority.LOW]: 3,
+      };
+      
+      const priorityDiff = priorityOrder[a.priority] - priorityOrder[b.priority];
+      
+      if (priorityDiff !== 0) {
+        return priorityDiff;
+      }
+      
+      // Then sort by date (newest first)
+      return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+    });
+  }
+  
+  /**
+   * Marks a notification as read
+   * @param notificationId The ID of the notification to mark as read
+   */
+  public async markNotificationAsRead(notificationId: string): Promise<void> {
+    try {
+      // Get existing notifications
+      const notifications = await this.getStoredNotifications();
+      
+      // Find the notification to update
+      const notificationIndex = notifications.findIndex(n => n.id === notificationId);
+      
+      if (notificationIndex >= 0) {
+        // Update the notification status
+        notifications[notificationIndex] = {
+          ...notifications[notificationIndex],
+          status: NotificationStatus.READ,
+          updatedAt: new Date(),
+        };
+        
+        // Store the updated notifications
+        localStorage.setItem(STORAGE_KEYS.NOTIFICATIONS, JSON.stringify(notifications));
+        
+        // Send read status to server via WebSocket if connected
+        this.sendReadStatusToServer(notificationId);
+        
+        if (this.debug) {
+          console.log('[NotificationAdapter] Marked notification as read:', notificationId);
+        }
+      }
+    } catch (error) {
+      console.error('[NotificationAdapter] Error marking notification as read:', error);
+    }
+  }
+  
+  /**
+   * Sends read status to the server via WebSocket
+   * @param notificationId The ID of the notification that was read
+   */
+  private sendReadStatusToServer(notificationId: string): void {
+    try {
+      if (this.websocket && this.websocket.readyState === WebSocket.OPEN) {
+        const message = JSON.stringify({
+          type: 'read_status',
+          notificationId,
+          userId: this.userId,
+        });
+        
+        this.websocket.send(message);
+        
+        if (this.debug) {
+          console.log('[NotificationAdapter] Sent read status to server:', notificationId);
+        }
+      }
+    } catch (error) {
+      console.error('[NotificationAdapter] Error sending read status to server:', error);
+    }
+  }
+  
+  /**
+   * Deletes a notification from storage
+   * @param notificationId The ID of the notification to delete
+   */
+  public async deleteNotification(notificationId: string): Promise<void> {
+    try {
+      // Get existing notifications
+      const notifications = await this.getStoredNotifications();
+      
+      // Filter out the notification to delete
+      const updatedNotifications = notifications.filter(n => n.id !== notificationId);
+      
+      // Store the updated notifications
+      localStorage.setItem(STORAGE_KEYS.NOTIFICATIONS, JSON.stringify(updatedNotifications));
+      
+      if (this.debug) {
+        console.log('[NotificationAdapter] Deleted notification:', notificationId);
+      }
+    } catch (error) {
+      console.error('[NotificationAdapter] Error deleting notification:', error);
+    }
+  }
+  
+  /**
+   * Gets the notification preferences for the current user
+   * @returns The user's notification preferences
+   */
+  public async getNotificationPreferences(): Promise<NotificationPreference | null> {
+    try {
+      const preferencesJson = localStorage.getItem(STORAGE_KEYS.NOTIFICATION_PREFERENCES);
+      
+      if (!preferencesJson) {
+        return null;
+      }
+      
+      const preferences = JSON.parse(preferencesJson) as NotificationPreference;
+      
+      // Convert date strings back to Date objects
+      return {
+        ...preferences,
+        updatedAt: new Date(preferences.updatedAt),
+      };
+    } catch (error) {
+      console.error('[NotificationAdapter] Error getting notification preferences:', error);
+      return null;
+    }
+  }
+  
+  /**
+   * Saves notification preferences for the current user
+   * @param preferences The notification preferences to save
+   */
+  public async saveNotificationPreferences(preferences: Omit<NotificationPreference, 'updatedAt'>): Promise<void> {
+    try {
+      const updatedPreferences: NotificationPreference = {
+        ...preferences,
+        updatedAt: new Date(),
+      };
+      
+      localStorage.setItem(STORAGE_KEYS.NOTIFICATION_PREFERENCES, JSON.stringify(updatedPreferences));
+      
+      if (this.debug) {
+        console.log('[NotificationAdapter] Saved notification preferences:', updatedPreferences);
+      }
+    } catch (error) {
+      console.error('[NotificationAdapter] Error saving notification preferences:', error);
+    }
+  }
+  
+  /**
+   * Gets the journey-specific notification preferences for the current user
+   * @param journeyId The journey ID
+   * @returns The journey-specific notification preferences
+   */
+  public async getJourneyNotificationPreferences(journeyId: 'health' | 'care' | 'plan'): Promise<JourneyNotificationPreference | null> {
+    try {
+      const preferencesJson = localStorage.getItem(`${STORAGE_KEYS.JOURNEY_PREFERENCES}_${journeyId}`);
+      
+      if (!preferencesJson) {
+        return null;
+      }
+      
+      const preferences = JSON.parse(preferencesJson) as JourneyNotificationPreference;
+      
+      // Convert date strings back to Date objects
+      return {
+        ...preferences,
+        updatedAt: new Date(preferences.updatedAt),
+      };
+    } catch (error) {
+      console.error('[NotificationAdapter] Error getting journey notification preferences:', error);
+      return null;
+    }
+  }
+  
+  /**
+   * Saves journey-specific notification preferences for the current user
+   * @param journeyId The journey ID
+   * @param preferences The journey-specific notification preferences to save
+   */
+  public async saveJourneyNotificationPreferences(
+    journeyId: 'health' | 'care' | 'plan',
+    preferences: Omit<JourneyNotificationPreference, 'userId' | 'journeyId' | 'updatedAt'>
+  ): Promise<void> {
+    try {
+      const updatedPreferences: JourneyNotificationPreference = {
+        ...preferences,
+        userId: this.userId,
+        journeyId,
+        updatedAt: new Date(),
+      };
+      
+      localStorage.setItem(
+        `${STORAGE_KEYS.JOURNEY_PREFERENCES}_${journeyId}`,
+        JSON.stringify(updatedPreferences)
+      );
+      
+      if (this.debug) {
+        console.log('[NotificationAdapter] Saved journey notification preferences:', {
+          journeyId,
+          preferences: updatedPreferences,
+        });
+      }
+    } catch (error) {
+      console.error('[NotificationAdapter] Error saving journey notification preferences:', error);
+    }
+  }
+  
+  /**
+   * Gets the count of unread notifications
+   * @returns The count of unread notifications
+   */
+  public async getUnreadCount(): Promise<number> {
+    try {
+      const notifications = await this.getStoredNotifications();
+      return notifications.filter(n => n.status !== NotificationStatus.READ).length;
+    } catch (error) {
+      console.error('[NotificationAdapter] Error getting unread count:', error);
+      return 0;
+    }
+  }
+  
+  /**
+   * Sends a ping message to the WebSocket server to keep the connection alive
+   */
+  public sendPing(): void {
+    try {
+      if (this.websocket && this.websocket.readyState === WebSocket.OPEN) {
+        const message = JSON.stringify({ type: 'ping' });
+        this.websocket.send(message);
+        
+        if (this.debug) {
+          console.log('[NotificationAdapter] Sent ping to server');
+        }
+      }
+    } catch (error) {
+      console.error('[NotificationAdapter] Error sending ping:', error);
+    }
+  }
+  
+  /**
+   * Cleans up the adapter by closing the WebSocket connection
+   */
+  public cleanup(): void {
+    try {
+      // Clear any reconnect timer
+      if (this.reconnectTimer !== null) {
+        window.clearTimeout(this.reconnectTimer);
+        this.reconnectTimer = null;
+      }
+      
+      // Close the WebSocket connection
+      if (this.websocket) {
+        this.websocket.close(1000, 'Cleanup');
+        this.websocket = null;
+      }
+      
+      if (this.debug) {
+        console.log('[NotificationAdapter] Cleaned up resources');
+      }
+    } catch (error) {
+      console.error('[NotificationAdapter] Error cleaning up:', error);
+    }
   }
 }
 
-// Create and export the singleton instance
-const webNotificationAdapter = new WebNotificationAdapter();
-export default webNotificationAdapter;
+/**
+ * Creates a notification adapter for the web platform
+ * @param config Configuration options for the adapter
+ * @returns A new NotificationAdapter instance
+ */
+export function createWebNotificationAdapter(config: NotificationAdapterConfig): NotificationAdapter {
+  return new NotificationAdapter(config);
+}
+
+export default NotificationAdapter;
