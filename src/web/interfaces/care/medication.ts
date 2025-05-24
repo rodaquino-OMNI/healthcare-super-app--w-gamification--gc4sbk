@@ -1,275 +1,518 @@
 /**
- * @file Medication interface for the AUSTA SuperApp Care journey
+ * Medication Interface
  * 
- * This file defines the Medication interface and related types for tracking medications,
- * dosage instructions, schedules, reminders, and adherence in the Care journey.
+ * Defines the Medication interface for the AUSTA SuperApp Care journey.
+ * This interface represents medications that users need to track, including
+ * properties for medication details, dosage instructions, schedule, reminders,
+ * and adherence tracking.
+ * 
+ * @example
+ * // Example of a medication object
+ * const medication: Medication = {
+ *   id: '123e4567-e89b-12d3-a456-426614174000',
+ *   userId: '123e4567-e89b-12d3-a456-426614174001',
+ *   name: 'Lisinopril',
+ *   genericName: 'Lisinopril',
+ *   strength: '10mg',
+ *   medicationType: MedicationType.TABLET,
+ *   prescribedBy: 'Dr. Maria Silva',
+ *   prescriptionDate: new Date('2023-05-15'),
+ *   instructions: 'Take with food in the morning',
+ *   purpose: 'Blood pressure control',
+ *   dosage: {
+ *     amount: 1,
+ *     unit: 'tablet',
+ *     frequency: {
+ *       times: 1,
+ *       period: FrequencyPeriod.DAY,
+ *     },
+ *     timing: [{
+ *       time: '08:00',
+ *       withFood: true,
+ *     }],
+ *   },
+ *   schedule: {
+ *     startDate: new Date('2023-05-16'),
+ *     endDate: new Date('2023-11-16'),
+ *     daysOfWeek: [1, 2, 3, 4, 5, 6, 7],
+ *     isIndefinite: false,
+ *   },
+ *   reminders: [{
+ *     id: '123e4567-e89b-12d3-a456-426614174002',
+ *     enabled: true,
+ *     time: '07:45',
+ *     channels: [NotificationChannel.PUSH, NotificationChannel.IN_APP],
+ *     priority: NotificationPriority.HIGH,
+ *     advanceNotice: 15,
+ *     snoozeOptions: [5, 10, 15],
+ *   }],
+ *   adherence: {
+ *     totalDoses: 180,
+ *     dosesTaken: 45,
+ *     lastTaken: new Date('2023-06-30T08:05:00Z'),
+ *     missedDoses: 2,
+ *     streak: 15,
+ *   },
+ *   sideEffects: ['Dry cough', 'Dizziness'],
+ *   interactions: ['Avoid potassium supplements', 'Limit alcohol consumption'],
+ *   notes: 'Experiencing mild dizziness in the morning after taking',
+ *   refills: {
+ *     total: 5,
+ *     remaining: 4,
+ *     lastRefillDate: new Date('2023-05-15'),
+ *     nextRefillDate: new Date('2023-06-15'),
+ *   },
+ *   pharmacy: {
+ *     name: 'Farmácia Central',
+ *     phone: '+55 11 3456-7890',
+ *     address: 'Av. Paulista, 1000, São Paulo, SP',
+ *   },
+ *   createdAt: new Date('2023-05-15T14:30:00Z'),
+ *   updatedAt: new Date('2023-06-30T08:05:00Z'),
+ * };
  */
 
-/**
- * Frequency type for medication schedules
- * Defines how often a medication should be taken
- */
-export enum MedicationFrequency {
-  /** Take once daily */
-  DAILY = 'DAILY',
-  /** Take twice daily (morning and evening) */
-  TWICE_DAILY = 'TWICE_DAILY',
-  /** Take three times daily (morning, afternoon, evening) */
-  THREE_TIMES_DAILY = 'THREE_TIMES_DAILY',
-  /** Take four times daily */
-  FOUR_TIMES_DAILY = 'FOUR_TIMES_DAILY',
-  /** Take every other day */
-  EVERY_OTHER_DAY = 'EVERY_OTHER_DAY',
-  /** Take weekly */
-  WEEKLY = 'WEEKLY',
-  /** Take monthly */
-  MONTHLY = 'MONTHLY',
-  /** Take as needed */
-  AS_NEEDED = 'AS_NEEDED',
-  /** Custom schedule defined in the schedule field */
-  CUSTOM = 'CUSTOM',
-}
+import { NotificationChannel, NotificationPriority } from '../notification/types';
 
 /**
- * Medication form/type
- * Describes the physical form of the medication
+ * Enum representing different types of medications
  */
-export enum MedicationForm {
-  /** Tablet to be swallowed */
-  TABLET = 'TABLET',
-  /** Capsule to be swallowed */
-  CAPSULE = 'CAPSULE',
-  /** Liquid to be swallowed */
-  LIQUID = 'LIQUID',
-  /** Topical application to skin */
-  TOPICAL = 'TOPICAL',
+export enum MedicationType {
+  /** Solid oral dose in tablet form */
+  TABLET = 'tablet',
+  
+  /** Solid oral dose in capsule form */
+  CAPSULE = 'capsule',
+  
+  /** Liquid oral medication */
+  LIQUID = 'liquid',
+  
+  /** Topical cream or ointment */
+  TOPICAL = 'topical',
+  
+  /** Medication delivered via injection */
+  INJECTION = 'injection',
+  
   /** Inhaled medication */
-  INHALER = 'INHALER',
-  /** Injection */
-  INJECTION = 'INJECTION',
-  /** Drops (eye, ear) */
-  DROPS = 'DROPS',
-  /** Spray (nasal, oral) */
-  SPRAY = 'SPRAY',
-  /** Patch applied to skin */
-  PATCH = 'PATCH',
-  /** Other forms not listed */
-  OTHER = 'OTHER',
+  INHALER = 'inhaler',
+  
+  /** Medication in patch form */
+  PATCH = 'patch',
+  
+  /** Medication in drop form (eye, ear) */
+  DROPS = 'drops',
+  
+  /** Medication in spray form */
+  SPRAY = 'spray',
+  
+  /** Other medication types not listed */
+  OTHER = 'other',
 }
 
 /**
- * Status of a medication in the user's regimen
+ * Enum representing frequency periods for medication dosing
  */
-export enum MedicationStatus {
-  /** Currently active medication */
-  ACTIVE = 'ACTIVE',
-  /** Medication that has been completed */
-  COMPLETED = 'COMPLETED',
-  /** Medication that has been discontinued */
-  DISCONTINUED = 'DISCONTINUED',
-  /** Medication that is on hold */
-  ON_HOLD = 'ON_HOLD',
+export enum FrequencyPeriod {
+  /** Once per day */
+  DAY = 'day',
+  
+  /** Once per week */
+  WEEK = 'week',
+  
+  /** Once per month */
+  MONTH = 'month',
+  
+  /** As needed */
+  AS_NEEDED = 'as_needed',
 }
 
 /**
- * Time of day for medication reminders
+ * Interface for medication dosage timing
  */
-export enum MedicationTime {
-  /** Morning reminder */
-  MORNING = 'MORNING',
-  /** Noon reminder */
-  NOON = 'NOON',
-  /** Afternoon reminder */
-  AFTERNOON = 'AFTERNOON',
-  /** Evening reminder */
-  EVENING = 'EVENING',
-  /** Bedtime reminder */
-  BEDTIME = 'BEDTIME',
+export interface DosageTiming {
+  /** Time of day to take the medication (24-hour format, HH:MM) */
+  time: string;
+  
+  /** Whether the medication should be taken with food */
+  withFood?: boolean;
+  
+  /** Whether the medication should be taken on an empty stomach */
+  onEmptyStomach?: boolean;
+  
+  /** Additional timing instructions */
+  instructions?: string;
 }
 
 /**
- * Reminder settings for medication
+ * Interface for medication dosage frequency
+ */
+export interface DosageFrequency {
+  /** Number of times to take the medication */
+  times: number;
+  
+  /** Period over which to take the medication */
+  period: FrequencyPeriod;
+  
+  /** Specific days of the week (1-7, where 1 is Monday) if period is WEEK */
+  specificDays?: number[];
+  
+  /** Specific dates of the month if period is MONTH */
+  specificDates?: number[];
+  
+  /** Maximum doses allowed in a 24-hour period for AS_NEEDED medications */
+  maxDosesPerDay?: number;
+  
+  /** Minimum hours between doses for AS_NEEDED medications */
+  minHoursBetweenDoses?: number;
+}
+
+/**
+ * Interface for medication dosage information
+ */
+export interface MedicationDosage {
+  /** Amount of medication per dose */
+  amount: number;
+  
+  /** Unit of measurement for the dose (tablet, ml, mg, etc.) */
+  unit: string;
+  
+  /** Frequency of medication dosing */
+  frequency: DosageFrequency;
+  
+  /** Specific timing details for each dose */
+  timing: DosageTiming[];
+  
+  /** Whether dosage can be adjusted by the user */
+  isAdjustable?: boolean;
+  
+  /** Additional dosage instructions */
+  instructions?: string;
+}
+
+/**
+ * Interface for medication schedule information
+ */
+export interface MedicationSchedule {
+  /** Date to start taking the medication */
+  startDate: Date;
+  
+  /** Date to stop taking the medication (if not indefinite) */
+  endDate?: Date;
+  
+  /** Days of the week to take the medication (1-7, where 1 is Monday) */
+  daysOfWeek?: number[];
+  
+  /** Whether the medication is to be taken indefinitely */
+  isIndefinite: boolean;
+  
+  /** Whether the schedule is currently active */
+  isActive?: boolean;
+  
+  /** Reason for pausing the schedule, if applicable */
+  pauseReason?: string;
+}
+
+/**
+ * Interface for medication reminder settings
  */
 export interface MedicationReminder {
   /** Unique identifier for the reminder */
   id: string;
+  
   /** Whether the reminder is enabled */
   enabled: boolean;
-  /** Time of day for the reminder */
-  time: MedicationTime | string;
-  /** Specific time for the reminder (ISO string or HH:MM format) */
-  specificTime?: string;
-  /** Days of the week for the reminder (0 = Sunday, 6 = Saturday) */
-  daysOfWeek?: number[];
-  /** Whether to send a notification for this reminder */
-  sendNotification: boolean;
-  /** Custom message for the notification */
-  notificationMessage?: string;
-  /** Notification ID for tracking in the notification system */
-  notificationId?: string;
+  
+  /** Time to send the reminder (24-hour format, HH:MM) */
+  time: string;
+  
+  /** Notification channels to use for the reminder */
+  channels: NotificationChannel[];
+  
+  /** Priority level for the reminder notification */
+  priority: NotificationPriority;
+  
+  /** Minutes before scheduled dose to send the reminder */
+  advanceNotice?: number;
+  
+  /** Available snooze durations in minutes */
+  snoozeOptions?: number[];
+  
+  /** Custom message for the reminder */
+  customMessage?: string;
+  
+  /** Whether to include medication instructions in the reminder */
+  includeInstructions?: boolean;
 }
 
 /**
- * Medication adherence tracking
+ * Interface for medication adherence tracking
  */
 export interface MedicationAdherence {
-  /** Date of the adherence record (ISO string) */
-  date: string;
-  /** Whether the medication was taken */
-  taken: boolean;
-  /** Time the medication was taken (ISO string) */
-  takenAt?: string;
-  /** Whether the medication was taken on time */
-  takenOnTime?: boolean;
-  /** Notes about the adherence (e.g., side effects, reasons for missing) */
-  notes?: string;
+  /** Total number of doses scheduled */
+  totalDoses: number;
+  
+  /** Number of doses taken */
+  dosesTaken: number;
+  
+  /** Date and time when the medication was last taken */
+  lastTaken?: Date;
+  
+  /** Number of doses missed */
+  missedDoses: number;
+  
+  /** Current streak of consecutive doses taken as scheduled */
+  streak: number;
+  
+  /** Adherence rate as a percentage (calculated) */
+  adherenceRate?: number;
+  
+  /** History of dose taking events */
+  history?: Array<{
+    /** Date and time the dose was taken or missed */
+    timestamp: Date;
+    /** Whether the dose was taken */
+    taken: boolean;
+    /** Reason for missing the dose, if applicable */
+    missedReason?: string;
+  }>;
 }
 
 /**
- * Medication interface for tracking medications in the Care journey
- * 
- * @example
- * // Regular daily medication with morning and evening reminders
- * const metformin: Medication = {
- *   id: '123',
- *   userId: 'user-456',
- *   name: 'Metformin',
- *   genericName: 'Metformin Hydrochloride',
- *   dosage: '500mg',
- *   form: MedicationForm.TABLET,
- *   instructions: 'Take with food to reduce stomach upset',
- *   frequency: MedicationFrequency.TWICE_DAILY,
- *   startDate: '2023-01-15',
- *   endDate: '2023-07-15',
- *   prescribedBy: 'Dr. Maria Silva',
- *   pharmacy: 'Farmácia São Paulo',
- *   status: MedicationStatus.ACTIVE,
- *   reminders: [
- *     {
- *       id: 'rem-1',
- *       enabled: true,
- *       time: MedicationTime.MORNING,
- *       specificTime: '08:00',
- *       sendNotification: true,
- *       notificationMessage: 'Time to take your Metformin with breakfast',
- *       notificationId: 'notif-123'
- *     },
- *     {
- *       id: 'rem-2',
- *       enabled: true,
- *       time: MedicationTime.EVENING,
- *       specificTime: '20:00',
- *       sendNotification: true,
- *       notificationMessage: 'Time to take your Metformin with dinner',
- *       notificationId: 'notif-124'
- *     }
- *   ],
- *   adherenceRecords: [
- *     {
- *       date: '2023-01-15',
- *       taken: true,
- *       takenAt: '2023-01-15T08:15:00Z',
- *       takenOnTime: true
- *     },
- *     {
- *       date: '2023-01-15',
- *       taken: true,
- *       takenAt: '2023-01-15T20:30:00Z',
- *       takenOnTime: false,
- *       notes: 'Took 30 minutes late due to dinner delay'
- *     }
- *   ]
- * };
- * 
- * @example
- * // As-needed pain medication with custom schedule
- * const painMedication: Medication = {
- *   id: '456',
- *   userId: 'user-456',
- *   name: 'Ibuprofen',
- *   genericName: 'Ibuprofen',
- *   dosage: '400mg',
- *   form: MedicationForm.TABLET,
- *   instructions: 'Take as needed for pain, not to exceed 3 tablets in 24 hours',
- *   frequency: MedicationFrequency.AS_NEEDED,
- *   startDate: '2023-02-10',
- *   prescribedBy: 'Dr. Carlos Mendes',
- *   status: MedicationStatus.ACTIVE,
- *   maxDailyDose: '1200mg',
- *   reminders: [],
- *   adherenceRecords: [
- *     {
- *       date: '2023-02-10',
- *       taken: true,
- *       takenAt: '2023-02-10T14:20:00Z',
- *       notes: 'Taken for headache'
- *     }
- *   ]
- * };
+ * Interface for medication refill information
+ */
+export interface MedicationRefill {
+  /** Total number of refills authorized */
+  total: number;
+  
+  /** Number of refills remaining */
+  remaining: number;
+  
+  /** Date of the last refill */
+  lastRefillDate?: Date;
+  
+  /** Expected date for the next refill */
+  nextRefillDate?: Date;
+  
+  /** Whether automatic refills are enabled */
+  autoRefill?: boolean;
+  
+  /** Number of days supply in each refill */
+  daysSupply?: number;
+  
+  /** Prescription number for refills */
+  prescriptionNumber?: string;
+}
+
+/**
+ * Interface for pharmacy information
+ */
+export interface Pharmacy {
+  /** Name of the pharmacy */
+  name: string;
+  
+  /** Phone number of the pharmacy */
+  phone?: string;
+  
+  /** Address of the pharmacy */
+  address?: string;
+  
+  /** Hours of operation */
+  hours?: string;
+  
+  /** Whether the pharmacy delivers */
+  delivers?: boolean;
+}
+
+/**
+ * Main interface for medication tracking in the Care journey
  */
 export interface Medication {
   /** Unique identifier for the medication */
   id: string;
-  /** User ID associated with this medication */
+  
+  /** ID of the user this medication belongs to */
   userId: string;
+  
   /** Name of the medication */
   name: string;
+  
   /** Generic name of the medication */
   genericName?: string;
-  /** Dosage amount (e.g., "500mg", "10ml") */
-  dosage: string;
-  /** Physical form of the medication */
-  form: MedicationForm;
+  
+  /** Strength of the medication (e.g., "10mg") */
+  strength?: string;
+  
+  /** Type of medication */
+  medicationType: MedicationType;
+  
+  /** Name of the prescribing healthcare provider */
+  prescribedBy?: string;
+  
+  /** Date the medication was prescribed */
+  prescriptionDate?: Date;
+  
   /** Special instructions for taking the medication */
   instructions?: string;
-  /** How often the medication should be taken */
-  frequency: MedicationFrequency;
-  /** Custom schedule details for CUSTOM frequency */
-  customSchedule?: string;
-  /** Date when medication regimen starts (ISO string) */
-  startDate: string;
-  /** Date when medication regimen ends (ISO string), if applicable */
-  endDate?: string;
-  /** Healthcare provider who prescribed the medication */
-  prescribedBy?: string;
-  /** Pharmacy where the prescription was filled */
-  pharmacy?: string;
-  /** Current status of the medication in the user's regimen */
-  status: MedicationStatus;
-  /** Reason for discontinuation if status is DISCONTINUED */
-  discontinuationReason?: string;
-  /** Maximum daily dose for AS_NEEDED medications */
-  maxDailyDose?: string;
-  /** Whether the medication is a controlled substance */
-  isControlled?: boolean;
-  /** Array of reminders for this medication */
-  reminders: MedicationReminder[];
-  /** Array of adherence records for this medication */
-  adherenceRecords?: MedicationAdherence[];
-  /** Notes about the medication */
-  notes?: string;
-  /** Image URL of the medication for visual identification */
-  imageUrl?: string;
-  /** Potential side effects of the medication */
+  
+  /** Medical purpose of the medication */
+  purpose?: string;
+  
+  /** Detailed dosage information */
+  dosage: MedicationDosage;
+  
+  /** Schedule for taking the medication */
+  schedule: MedicationSchedule;
+  
+  /** Reminder settings for the medication */
+  reminders?: MedicationReminder[];
+  
+  /** Adherence tracking information */
+  adherence?: MedicationAdherence;
+  
+  /** Reported side effects */
   sideEffects?: string[];
-  /** Potential interactions with other medications */
+  
+  /** Known drug interactions */
   interactions?: string[];
-  /** Whether the medication should be taken with food */
-  takeWithFood?: boolean;
-  /** Whether the medication should be taken with water */
-  takeWithWater?: boolean;
-  /** Whether the medication should be stored in a refrigerator */
-  refrigerate?: boolean;
-  /** Whether the medication is a refill */
-  isRefill?: boolean;
-  /** Number of refills remaining */
-  refillsRemaining?: number;
-  /** Date when the next refill is due (ISO string) */
-  nextRefillDate?: string;
-  /** Whether to send a notification for refill reminders */
-  sendRefillReminders?: boolean;
-  /** Days in advance to send refill reminders */
-  refillReminderDays?: number;
-  /** Treatment plan ID if this medication is part of a treatment plan */
-  treatmentPlanId?: string;
+  
+  /** Additional notes about the medication */
+  notes?: string;
+  
+  /** Refill information */
+  refills?: MedicationRefill;
+  
+  /** Pharmacy information */
+  pharmacy?: Pharmacy;
+  
+  /** Whether this is a prescription medication */
+  isPrescription?: boolean;
+  
+  /** Whether this medication is currently active */
+  isActive?: boolean;
+  
+  /** Date and time the medication was created */
+  createdAt: Date;
+  
+  /** Date and time the medication was last updated */
+  updatedAt: Date;
+}
+
+/**
+ * Type guard to check if a string is a valid MedicationType
+ * @param value - The string value to check
+ * @returns True if the value is a valid MedicationType
+ */
+export function isMedicationType(value: string): value is MedicationType {
+  return Object.values(MedicationType).includes(value as MedicationType);
+}
+
+/**
+ * Type guard to check if a string is a valid FrequencyPeriod
+ * @param value - The string value to check
+ * @returns True if the value is a valid FrequencyPeriod
+ */
+export function isFrequencyPeriod(value: string): value is FrequencyPeriod {
+  return Object.values(FrequencyPeriod).includes(value as FrequencyPeriod);
+}
+
+/**
+ * Calculates the adherence rate for a medication
+ * @param medication - The medication to calculate adherence for
+ * @returns The adherence rate as a percentage
+ */
+export function calculateAdherenceRate(medication: Medication): number {
+  if (!medication.adherence || medication.adherence.totalDoses === 0) {
+    return 0;
+  }
+  
+  return (medication.adherence.dosesTaken / medication.adherence.totalDoses) * 100;
+}
+
+/**
+ * Determines if a medication needs a refill soon (within the next 7 days)
+ * @param medication - The medication to check
+ * @returns True if the medication needs a refill soon
+ */
+export function needsRefillSoon(medication: Medication): boolean {
+  if (!medication.refills || !medication.refills.nextRefillDate) {
+    return false;
+  }
+  
+  const nextRefill = new Date(medication.refills.nextRefillDate);
+  const today = new Date();
+  const sevenDaysFromNow = new Date(today);
+  sevenDaysFromNow.setDate(today.getDate() + 7);
+  
+  return nextRefill <= sevenDaysFromNow && medication.refills.remaining > 0;
+}
+
+/**
+ * Creates a medication reminder notification data object
+ * @param medication - The medication to create a reminder for
+ * @param reminder - The specific reminder configuration
+ * @returns A medication reminder notification data object
+ */
+export function createMedicationReminderData(medication: Medication, reminder: MedicationReminder): {
+  medicationName: string;
+  dosage: {
+    amount: number;
+    unit: string;
+    instructions?: string;
+  };
+  scheduledTime: string;
+  isRecurring: boolean;
+  importance: 'low' | 'medium' | 'high';
+  actions: Array<{
+    type: 'taken' | 'snooze' | 'skip';
+    label: string;
+    url?: string;
+  }>;
+  currentStreak?: number;
+  isActive: boolean;
+} {
+  // Map notification priority to importance
+  let importance: 'low' | 'medium' | 'high' = 'medium';
+  switch (reminder.priority) {
+    case NotificationPriority.LOW:
+      importance = 'low';
+      break;
+    case NotificationPriority.MEDIUM:
+      importance = 'medium';
+      break;
+    case NotificationPriority.HIGH:
+    case NotificationPriority.CRITICAL:
+      importance = 'high';
+      break;
+  }
+  
+  return {
+    medicationName: medication.name,
+    dosage: {
+      amount: medication.dosage.amount,
+      unit: medication.dosage.unit,
+      instructions: medication.instructions,
+    },
+    scheduledTime: reminder.time,
+    isRecurring: medication.schedule.isIndefinite || !!medication.schedule.endDate,
+    importance,
+    actions: [
+      {
+        type: 'taken',
+        label: 'Mark as Taken',
+        url: `/care/medications/${medication.id}/taken`,
+      },
+      {
+        type: 'snooze',
+        label: 'Snooze',
+        url: `/care/medications/${medication.id}/snooze`,
+      },
+      {
+        type: 'skip',
+        label: 'Skip',
+        url: `/care/medications/${medication.id}/skip`,
+      },
+    ],
+    currentStreak: medication.adherence?.streak,
+    isActive: medication.isActive !== false && (medication.schedule.isActive !== false),
+  };
 }
