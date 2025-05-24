@@ -1,56 +1,60 @@
 /**
- * Core Type Definitions for Care Journey
- * 
- * This file defines the fundamental enum types used throughout the Care journey
- * in the AUSTA SuperApp. These enums provide type safety and standardization
- * for appointment management and care-related features.
- * 
- * @module care
+ * Core enum types for the Care journey in the AUSTA SuperApp.
+ * These enums provide type-safe categorization for appointments and their statuses.
  */
 
 /**
- * Defines the possible types of healthcare appointments in the system.
- * Used to categorize appointments based on their delivery method.
+ * Defines the types of appointments available in the Care journey.
+ * 
+ * @enum {string}
  */
 export enum AppointmentType {
   /**
-   * In-person appointment that occurs at a physical healthcare facility.
-   * Requires the patient to travel to the provider's location.
-   * Associated with location information including address and room number.
+   * In-person appointment at a healthcare provider's location.
+   * Requires physical presence of the patient.
    */
-  IN_PERSON = 'in-person',
+  IN_PERSON = 'IN_PERSON',
   
   /**
-   * Virtual appointment conducted via video conferencing technology.
-   * Allows patients to consult with healthcare providers remotely.
-   * Associated with a telemedicine session ID for connecting to the virtual meeting.
+   * Virtual appointment conducted via video consultation.
+   * Can be accessed from any location with internet connection.
    */
-  TELEMEDICINE = 'telemedicine'
+  VIRTUAL = 'VIRTUAL',
 }
 
 /**
- * Defines the possible statuses of healthcare appointments in the system.
- * Used to track the lifecycle of an appointment from creation to completion.
+ * Defines the possible statuses of an appointment in the Care journey.
+ * 
+ * @enum {string}
  */
 export enum AppointmentStatus {
   /**
-   * Appointment has been booked and confirmed but has not yet occurred.
-   * The default status when an appointment is first created.
-   * Appointments in this status can be cancelled or rescheduled.
+   * Appointment has been scheduled but has not yet occurred.
+   * Appears in upcoming appointments list.
    */
-  SCHEDULED = 'scheduled',
+  SCHEDULED = 'SCHEDULED',
   
   /**
-   * Appointment has successfully taken place.
-   * Indicates that the patient and provider have met and the consultation is finished.
-   * Appointments in this status cannot be modified or cancelled.
+   * Appointment is currently in progress.
+   * Only one appointment can be in this status at a time.
    */
-  COMPLETED = 'completed',
+  IN_PROGRESS = 'IN_PROGRESS',
   
   /**
-   * Appointment has been cancelled and will not take place as scheduled.
-   * Can be cancelled by either the patient, provider, or system.
-   * Cancelled appointments may include a reason for cancellation.
+   * Appointment has been successfully completed.
+   * Appears in appointment history.
    */
-  CANCELLED = 'cancelled'
+  COMPLETED = 'COMPLETED',
+  
+  /**
+   * Appointment has been cancelled by either the patient or provider.
+   * Requires cancellation reason to be recorded.
+   */
+  CANCELLED = 'CANCELLED',
+  
+  /**
+   * Patient did not attend the scheduled appointment.
+   * May affect future appointment scheduling privileges.
+   */
+  NO_SHOW = 'NO_SHOW',
 }
