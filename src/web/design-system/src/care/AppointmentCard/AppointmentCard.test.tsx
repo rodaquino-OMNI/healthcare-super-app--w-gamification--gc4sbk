@@ -2,16 +2,15 @@ import React from 'react';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { describe, it, expect } from '@jest/globals';
 import { AppointmentCard } from './AppointmentCard';
-import { Appointment, Provider } from '@austa/interfaces/care';
-import { AppointmentType, AppointmentStatus } from '@austa/interfaces/care/types';
+import { AppointmentType, AppointmentStatus, Provider } from '@austa/interfaces/care';
 
 describe('AppointmentCard', () => {
   // Mock data for testing
-  const mockAppointment: Appointment = {
+  const mockAppointment = {
     id: 'appointment-123',
     dateTime: '2023-04-15T14:30:00Z',
     type: AppointmentType.IN_PERSON,
-    status: AppointmentStatus.UPCOMING,
+    status: AppointmentStatus.SCHEDULED,
     reason: 'Annual check-up'
   };
 
@@ -19,9 +18,9 @@ describe('AppointmentCard', () => {
     id: 'provider-123',
     name: 'Dr. Ana Oliveira',
     specialty: 'Cardiologista',
-    imageUrl: 'https://example.com/doctor.jpg',
+    profileImageUrl: 'https://example.com/doctor.jpg',
     rating: 4.8
-  };
+  } as Provider; // Using type assertion for the mock
 
   // Mock callbacks
   const mockViewDetails = jest.fn();
@@ -54,7 +53,7 @@ describe('AppointmentCard', () => {
   });
 
   it('renders telemedicine appointment correctly', () => {
-    const telemedicineAppointment: Appointment = {
+    const telemedicineAppointment = {
       ...mockAppointment,
       type: AppointmentType.TELEMEDICINE
     };
@@ -121,7 +120,7 @@ describe('AppointmentCard', () => {
   });
 
   it('calls onJoinTelemedicine when telemedicine button is clicked', () => {
-    const telemedicineAppointment: Appointment = {
+    const telemedicineAppointment = {
       ...mockAppointment,
       type: AppointmentType.TELEMEDICINE
     };
@@ -172,9 +171,9 @@ describe('AppointmentCard', () => {
   });
   
   it('renders correctly without provider image', () => {
-    const providerWithoutImage: Provider = {
+    const providerWithoutImage = {
       ...mockProvider,
-      imageUrl: undefined
+      profileImageUrl: undefined
     };
 
     render(
@@ -211,11 +210,7 @@ describe('AppointmentCard', () => {
     // Create a completed telemedicine appointment
     render(
       <AppointmentCard
-        appointment={{
-          ...mockAppointment, 
-          type: AppointmentType.TELEMEDICINE, 
-          status: AppointmentStatus.COMPLETED
-        }}
+        appointment={{...mockAppointment, type: AppointmentType.TELEMEDICINE, status: AppointmentStatus.COMPLETED}}
         provider={mockProvider}
         onJoinTelemedicine={mockJoinTelemedicine}
         testID="appointment-card"
