@@ -2,7 +2,12 @@ import React, { forwardRef } from 'react';
 import { GestureResponderEvent, TouchableOpacity } from 'react-native';
 import { StyledTouchableOpacity } from './Touchable.styles';
 import { colors } from '../../../tokens';
-import { JourneyType } from '@austa/interfaces/themes/tokens.types';
+
+/**
+ * Journey type representing the three main user journeys in the AUSTA SuperApp
+ * Imported from @austa/interfaces to ensure type consistency across packages
+ */
+export type Journey = 'health' | 'care' | 'plan';
 
 /**
  * Props interface for the Touchable component
@@ -32,16 +37,19 @@ export interface TouchableProps {
   
   /**
    * Accessibility label for screen readers
+   * Provides a concise description of the component for users with visual impairments
    */
   accessibilityLabel?: string;
   
   /**
    * Accessibility hint provides additional context for screen readers
+   * Explains what will happen when the user interacts with the component
    */
   accessibilityHint?: string;
   
   /**
    * Accessibility role defines the type of interactive element
+   * @default 'button'
    */
   accessibilityRole?: string;
   
@@ -52,14 +60,27 @@ export interface TouchableProps {
   accessible?: boolean;
   
   /**
+   * Additional accessibility states to communicate component state to assistive technology
+   */
+  accessibilityState?: {
+    disabled?: boolean;
+    selected?: boolean;
+    checked?: boolean | 'mixed';
+    busy?: boolean;
+    expanded?: boolean;
+  };
+  
+  /**
    * TestID for testing purposes
+   * Used for automated testing to locate this component
    */
   testID?: string;
   
   /**
    * Journey identifier for journey-specific styling (health, care, plan)
+   * Applies the appropriate color scheme based on the current journey context
    */
-  journey?: JourneyType;
+  journey?: Journey;
   
   /**
    * Child elements to render inside the touchable
@@ -76,22 +97,12 @@ export interface TouchableProps {
    * @default false
    */
   fullWidth?: boolean;
-  
-  /**
-   * ARIA attributes for web accessibility
-   */
-  'aria-label'?: string;
-  'aria-disabled'?: boolean;
-  'aria-expanded'?: boolean;
-  'aria-controls'?: string;
-  'aria-pressed'?: boolean;
-  'aria-haspopup'?: boolean | 'dialog' | 'menu' | 'listbox' | 'tree' | 'grid';
 }
 
 /**
  * Generates appropriate accessibility props based on component props
  * @param props The component props
- * @returns Accessibility props object with role, label, and state
+ * @returns Accessibility props object with role, label, hint, and state
  */
 const getAccessibilityProps = (props: TouchableProps) => {
   const {
@@ -99,34 +110,22 @@ const getAccessibilityProps = (props: TouchableProps) => {
     accessibilityHint,
     accessibilityRole = 'button',
     accessible = true,
+    accessibilityState,
     disabled,
-    'aria-label': ariaLabel,
-    'aria-disabled': ariaDisabled,
-    'aria-expanded': ariaExpanded,
-    'aria-controls': ariaControls,
-    'aria-pressed': ariaPressed,
-    'aria-haspopup': ariaHasPopup,
   } = props;
 
-  // Use aria-label if provided, otherwise fall back to accessibilityLabel
-  const finalAccessibilityLabel = ariaLabel || accessibilityLabel;
+  // Merge provided accessibilityState with disabled state
+  const mergedAccessibilityState = {
+    ...accessibilityState,
+    disabled: disabled ?? accessibilityState?.disabled ?? false,
+  };
 
   return {
     accessible,
     accessibilityRole,
-    accessibilityLabel: finalAccessibilityLabel,
+    accessibilityLabel,
     accessibilityHint,
-    accessibilityState: {
-      disabled: ariaDisabled !== undefined ? ariaDisabled : !!disabled,
-      expanded: ariaExpanded,
-      selected: ariaPressed,
-    },
-    accessibilityValue: {
-      // Add any accessibility values if needed
-    },
-    // Additional web-specific ARIA attributes
-    'aria-controls': ariaControls,
-    'aria-haspopup': ariaHasPopup,
+    accessibilityState: mergedAccessibilityState,
   };
 };
 
@@ -138,38 +137,22 @@ const getAccessibilityProps = (props: TouchableProps) => {
  * SuperApp, ensuring consistent behavior across platforms with appropriate feedback
  * mechanisms and accessibility support.
  * 
- * @example Basic usage
- * ```tsx
- * import { Touchable } from '@design-system/primitives';
- * 
- * <Touchable onPress={() => console.log('Pressed')}>
+ * @example
+ * // Basic usage
+ * <Touchable onPress={handlePress}>
  *   <Text>Press me</Text>
  * </Touchable>
- * ```
  * 
- * @example With journey-specific styling
- * ```tsx
+ * @example
+ * // With journey-specific styling
  * <Touchable 
- *   journey="health"
- *   onPress={() => console.log('Health journey button pressed')}
- *   accessibilityLabel="Health action button"
+ *   journey="health" 
+ *   onPress={handlePress}
+ *   accessibilityLabel="Start health assessment"
+ *   accessibilityHint="Begins your health assessment questionnaire"
  * >
- *   <Text>Health Action</Text>
+ *   <Text>Start Assessment</Text>
  * </Touchable>
- * ```
- * 
- * @example With accessibility
- * ```tsx
- * <Touchable
- *   onPress={() => setExpanded(!expanded)}
- *   accessibilityLabel="Expand section"
- *   accessibilityHint="Shows additional information"
- *   aria-expanded={expanded}
- *   aria-controls="expandable-content-id"
- * >
- *   <Text>Toggle</Text>
- * </Touchable>
- * ```
  */
 export const Touchable = forwardRef<TouchableOpacity, TouchableProps>((props, ref) => {
   const {
@@ -206,7 +189,6 @@ export const Touchable = forwardRef<TouchableOpacity, TouchableProps>((props, re
       activeOpacity={activeOpacity}
       testID={testID}
       fullWidth={fullWidth}
-      journey={journey}
       style={[journeyStyle, style]}
       {...accessibilityProps}
       {...rest}
