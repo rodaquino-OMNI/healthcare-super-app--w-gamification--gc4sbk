@@ -10,16 +10,10 @@
  */
 export interface StorageOptions {
   /**
-   * Expiration time in milliseconds from now
-   * If provided, the stored data will be considered expired after this time
+   * Optional expiration time in milliseconds
+   * If provided, the stored data will be considered expired after this duration
    */
-  expiresIn?: number;
-
-  /**
-   * Absolute expiration timestamp in milliseconds (from epoch)
-   * Takes precedence over expiresIn if both are provided
-   */
-  expiresAt?: number;
+  expireAfter?: number;
 
   /**
    * Whether to encrypt the stored data
@@ -30,87 +24,78 @@ export interface StorageOptions {
   /**
    * Whether to use session storage instead of persistent storage
    * On web, this uses sessionStorage instead of localStorage
-   * On mobile, this is ignored as AsyncStorage is always persistent
+   * On mobile, this is implementation-specific
    */
-  session?: boolean;
+  useSessionStorage?: boolean;
+
+  /**
+   * Optional journey identifier to namespace the storage
+   * Helps isolate data between different journeys
+   */
+  journeyId?: 'health' | 'care' | 'plan';
 }
 
 /**
  * Core interface for platform-agnostic storage operations
- * Implementations should handle platform-specific storage mechanisms
- * while providing a consistent API for both web and mobile platforms
+ * Implementations should handle platform-specific details while
+ * maintaining this consistent API across platforms
  */
 export interface IJourneyStorage {
   /**
    * Store data with the given key
-   * @param key - Unique identifier for the stored data
-   * @param data - Data to store (will be serialized)
-   * @param options - Optional configuration for storage behavior
-   * @returns Promise that resolves when storage is complete
-   * @throws Error if storage operation fails
+   * @param key - The key to store the data under
+   * @param data - The data to store (will be serialized)
+   * @param options - Optional configuration for the storage operation
+   * @returns A promise that resolves when the operation is complete
+   * @throws If the storage operation fails
    */
-  set<T>(key: string, data: T, options?: StorageOptions): Promise<void>;
+  setItem<T>(key: string, data: T, options?: StorageOptions): Promise<void>;
 
   /**
    * Retrieve data for the given key
-   * @param key - Unique identifier for the stored data
-   * @returns Promise that resolves with the stored data, or null if not found or expired
-   * @throws Error if retrieval operation fails
+   * @param key - The key to retrieve data for
+   * @param defaultValue - Optional default value if the key doesn't exist
+   * @returns A promise that resolves with the retrieved data, or defaultValue if not found
+   * @throws If the retrieval operation fails
    */
-  get<T>(key: string): Promise<T | null>;
+  getItem<T>(key: string, defaultValue?: T): Promise<T | null>;
 
   /**
    * Remove data for the given key
-   * @param key - Unique identifier for the stored data
-   * @returns Promise that resolves when removal is complete
-   * @throws Error if removal operation fails
+   * @param key - The key to remove data for
+   * @returns A promise that resolves when the operation is complete
+   * @throws If the removal operation fails
    */
-  remove(key: string): Promise<void>;
+  removeItem(key: string): Promise<void>;
 
   /**
-   * Check if data exists for the given key and is not expired
-   * @param key - Unique identifier for the stored data
-   * @returns Promise that resolves with boolean indicating existence
-   * @throws Error if check operation fails
+   * Check if data exists for the given key
+   * @param key - The key to check
+   * @returns A promise that resolves with true if the key exists, false otherwise
+   * @throws If the check operation fails
    */
-  has(key: string): Promise<boolean>;
+  hasItem(key: string): Promise<boolean>;
 
   /**
-   * Clear all stored data managed by this storage instance
-   * @returns Promise that resolves when clear operation is complete
-   * @throws Error if clear operation fails
+   * Clear all stored data
+   * @param options - Optional configuration for the clear operation
+   * @returns A promise that resolves when the operation is complete
+   * @throws If the clear operation fails
    */
-  clear(): Promise<void>;
+  clear(options?: { journeyId?: 'health' | 'care' | 'plan' }): Promise<void>;
 
   /**
-   * Get all keys currently in storage
-   * @returns Promise that resolves with array of keys
-   * @throws Error if operation fails
+   * Get all keys that match a certain pattern
+   * @param pattern - Optional pattern to match keys against
+   * @returns A promise that resolves with an array of matching keys
+   * @throws If the operation fails
    */
-  keys(): Promise<string[]>;
+  getAllKeys(pattern?: string): Promise<string[]>;
 
   /**
-   * Get multiple items at once
-   * @param keys - Array of keys to retrieve
-   * @returns Promise that resolves with map of key-value pairs (null for missing/expired items)
-   * @throws Error if operation fails
+   * Remove all expired items from storage
+   * @returns A promise that resolves with the number of items removed
+   * @throws If the cleanup operation fails
    */
-  multiGet<T>(keys: string[]): Promise<Map<string, T | null>>;
-
-  /**
-   * Store multiple items at once
-   * @param items - Map of key-value pairs to store
-   * @param options - Optional configuration for storage behavior
-   * @returns Promise that resolves when storage is complete
-   * @throws Error if operation fails
-   */
-  multiSet<T>(items: Map<string, T>, options?: StorageOptions): Promise<void>;
-
-  /**
-   * Remove multiple items at once
-   * @param keys - Array of keys to remove
-   * @returns Promise that resolves when removal is complete
-   * @throws Error if operation fails
-   */
-  multiRemove(keys: string[]): Promise<void>;
+  removeExpiredItems(): Promise<number>;
 }
