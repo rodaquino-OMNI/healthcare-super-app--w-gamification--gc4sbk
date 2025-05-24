@@ -2,356 +2,232 @@
  * useStorage Hook
  * 
  * A cross-platform storage hook that abstracts away the differences between
- * web localStorage and React Native AsyncStorage, offering a unified API
- * for persisting and retrieving data.
+ * web localStorage and React Native AsyncStorage, offering a unified API for
+ * persisting and retrieving data.
  * 
- * This hook automatically detects the platform and uses the appropriate
- * storage mechanism, providing a consistent interface for both web and mobile.
+ * This utility hook is used internally by other hooks (particularly useAuth)
+ * to manage persistent state like authentication sessions consistently across platforms.
  */
 
 import { useState, useCallback, useEffect } from 'react';
 
-// Define platform type
-type Platform = 'web' | 'mobile';
-
-/**
- * Detects the current platform (web or mobile) based on runtime environment.
- */
-const detectPlatform = (): Platform => {
-  try {
-    // Primary check: React Native specific global
-    if (typeof navigator !== 'undefined' && navigator.product === 'ReactNative') {
-      return 'mobile';
-    }
-    
-    // Secondary check: React Native specific APIs
-    if (
-      typeof global !== 'undefined' && 
-      ((global as any).ReactNative || (global as any).__REACT_NATIVE_DEVTOOLS_GLOBAL_HOOK__)
-    ) {
-      return 'mobile';
-    }
-    
-    // Tertiary check: Web-specific APIs that don't exist in React Native
-    if (
-      typeof window !== 'undefined' && 
-      typeof document !== 'undefined' && 
-      typeof window.localStorage !== 'undefined'
-    ) {
-      return 'web';
-    }
-    
-    // Default to web platform if detection is inconclusive
-    // This is a safer default for SSR environments
-    return 'web';
-  } catch (error) {
-    // If any error occurs during detection, default to web
-    console.warn('Platform detection failed, defaulting to web:', error);
-    return 'web';
-  }
-};
-
-/**
- * Storage interface that defines the methods available for both platforms
- */
-interface StorageInterface {
-  getItem: (key: string) => Promise<string | null>;
-  setItem: (key: string, value: string) => Promise<void>;
+// Type for the return value of the useStorage hook
+export interface UseStorageReturn {
+  /**
+   * Get a value from storage by key
+   * @param key - The storage key
+   * @returns A promise resolving to the stored value or null if not found
+   */
+  getItem: <T>(key: string) => Promise<T | null>;
+  
+  /**
+   * Set a value in storage
+   * @param key - The storage key
+   * @param value - The value to store
+   * @returns A promise that resolves when the operation is complete
+   */
+  setItem: <T>(key: string, value: T) => Promise<void>;
+  
+  /**
+   * Remove a value from storage
+   * @param key - The storage key to remove
+   * @returns A promise that resolves when the operation is complete
+   */
   removeItem: (key: string) => Promise<void>;
+  
+  /**
+   * Clear all values from storage
+   * @returns A promise that resolves when the operation is complete
+   */
   clear: () => Promise<void>;
-  getAllKeys: () => Promise<string[]>;
-}
-
-/**
- * Web storage implementation using localStorage
- */
-class WebStorage implements StorageInterface {
-  async getItem(key: string): Promise<string | null> {
-    try {
-      return localStorage.getItem(key);
-    } catch (error) {
-      console.error(`Error getting item ${key} from localStorage:`, error);
-      return null;
-    }
-  }
-
-  async setItem(key: string, value: string): Promise<void> {
-    try {
-      localStorage.setItem(key, value);
-    } catch (error) {
-      // Handle QuotaExceededError
-      if (error instanceof DOMException && error.name === 'QuotaExceededError') {
-        console.error('localStorage quota exceeded. Attempting to free space...');
-        this.handleStorageFullError();
-        // Try again after cleanup
-        try {
-          localStorage.setItem(key, value);
-        } catch (retryError) {
-          console.error(`Failed to set item ${key} after cleanup:`, retryError);
-          throw retryError;
-        }
-      } else {
-        console.error(`Error setting item ${key} in localStorage:`, error);
-        throw error;
-      }
-    }
-  }
-
-  async removeItem(key: string): Promise<void> {
-    try {
-      localStorage.removeItem(key);
-    } catch (error) {
-      console.error(`Error removing item ${key} from localStorage:`, error);
-      throw error;
-    }
-  }
-
-  async clear(): Promise<void> {
-    try {
-      localStorage.clear();
-    } catch (error) {
-      console.error('Error clearing localStorage:', error);
-      throw error;
-    }
-  }
-
-  async getAllKeys(): Promise<string[]> {
-    try {
-      return Object.keys(localStorage);
-    } catch (error) {
-      console.error('Error getting all keys from localStorage:', error);
-      return [];
-    }
-  }
-
-  /**
-   * Handles storage full error by removing least recently used items
-   */
-  private handleStorageFullError(): void {
-    try {
-      // Get all keys and sort by last access time if available
-      // For simplicity, we'll just remove the first few items
-      const keys = Object.keys(localStorage);
-      if (keys.length > 5) {
-        // Remove oldest 20% of items
-        const itemsToRemove = Math.max(1, Math.floor(keys.length * 0.2));
-        for (let i = 0; i < itemsToRemove; i++) {
-          localStorage.removeItem(keys[i]);
-        }
-      }
-    } catch (error) {
-      console.error('Error handling storage full condition:', error);
-    }
-  }
-}
-
-/**
- * Mobile storage implementation using AsyncStorage
- * This is loaded dynamically to prevent bundling issues on web
- */
-class MobileStorage implements StorageInterface {
-  private asyncStorage: any;
-
-  constructor() {
-    // Dynamic import to prevent bundling issues
-    try {
-      // In a real implementation, we would use dynamic import
-      // but for simplicity, we'll use require here
-      this.asyncStorage = require('@react-native-async-storage/async-storage').default;
-    } catch (error) {
-      console.error('Failed to load AsyncStorage:', error);
-      throw new Error('AsyncStorage is required for mobile storage');
-    }
-  }
-
-  async getItem(key: string): Promise<string | null> {
-    try {
-      return await this.asyncStorage.getItem(key);
-    } catch (error) {
-      console.error(`Error getting item ${key} from AsyncStorage:`, error);
-      return null;
-    }
-  }
-
-  async setItem(key: string, value: string): Promise<void> {
-    try {
-      await this.asyncStorage.setItem(key, value);
-    } catch (error) {
-      // Handle storage full error
-      if (error instanceof Error && error.message.includes('storage_full')) {
-        console.error('AsyncStorage is full. Attempting to free space...');
-        await this.handleStorageFullError();
-        // Try again after cleanup
-        try {
-          await this.asyncStorage.setItem(key, value);
-        } catch (retryError) {
-          console.error(`Failed to set item ${key} after cleanup:`, retryError);
-          throw retryError;
-        }
-      } else {
-        console.error(`Error setting item ${key} in AsyncStorage:`, error);
-        throw error;
-      }
-    }
-  }
-
-  async removeItem(key: string): Promise<void> {
-    try {
-      await this.asyncStorage.removeItem(key);
-    } catch (error) {
-      console.error(`Error removing item ${key} from AsyncStorage:`, error);
-      throw error;
-    }
-  }
-
-  async clear(): Promise<void> {
-    try {
-      await this.asyncStorage.clear();
-    } catch (error) {
-      console.error('Error clearing AsyncStorage:', error);
-      throw error;
-    }
-  }
-
-  async getAllKeys(): Promise<string[]> {
-    try {
-      return await this.asyncStorage.getAllKeys();
-    } catch (error) {
-      console.error('Error getting all keys from AsyncStorage:', error);
-      return [];
-    }
-  }
-
-  /**
-   * Handles storage full error by removing least recently used items
-   */
-  private async handleStorageFullError(): Promise<void> {
-    try {
-      // Get all keys
-      const keys = await this.asyncStorage.getAllKeys();
-      if (keys.length > 5) {
-        // Remove oldest 20% of items
-        const itemsToRemove = Math.max(1, Math.floor(keys.length * 0.2));
-        const keysToRemove = keys.slice(0, itemsToRemove);
-        await this.asyncStorage.multiRemove(keysToRemove);
-      }
-    } catch (error) {
-      console.error('Error handling storage full condition:', error);
-    }
-  }
-}
-
-/**
- * Creates a storage instance based on the detected platform
- */
-const createStorage = (): StorageInterface => {
-  const platform = detectPlatform();
   
-  if (platform === 'web') {
-    return new WebStorage();
-  } else {
-    return new MobileStorage();
-  }
-};
-
-/**
- * Hook return type
- */
-interface UseStorageReturn<T> {
-  value: T | null;
-  setValue: (value: T | null) => Promise<void>;
-  removeValue: () => Promise<void>;
+  /**
+   * Check if a key exists in storage
+   * @param key - The storage key to check
+   * @returns A promise resolving to true if the key exists, false otherwise
+   */
+  hasItem: (key: string) => Promise<boolean>;
+  
+  /**
+   * Current error state if any storage operation failed
+   */
   error: Error | null;
-  isLoading: boolean;
+  
+  /**
+   * Clear the current error state
+   */
+  clearError: () => void;
+  
+  /**
+   * Indicates if the storage system is ready to use
+   */
+  isReady: boolean;
 }
 
 /**
- * useStorage hook for persisting and retrieving data
- * 
- * @param key - The storage key to use
- * @param initialValue - Optional initial value to use if no value is stored
- * @returns Object with value, setValue, removeValue, error, and isLoading
+ * Detect if we're running in a browser environment
  */
-function useStorage<T>(key: string, initialValue: T | null = null): UseStorageReturn<T> {
-  // Create storage instance
-  const storage = createStorage();
-  
-  // State for the stored value, error, and loading status
-  const [value, setValueState] = useState<T | null>(initialValue);
+const isBrowser = typeof window !== 'undefined' && typeof localStorage !== 'undefined';
+
+/**
+ * Detect if we're running in React Native
+ * Note: This is a simple check that works for most cases, but might need adjustment
+ * based on the specific React Native environment
+ */
+const isReactNative = typeof navigator !== 'undefined' && navigator.product === 'ReactNative';
+
+/**
+ * A hook that provides a unified storage API across platforms
+ * @returns Storage methods and state
+ */
+export const useStorage = (): UseStorageReturn => {
+  // Error state for storage operations
   const [error, setError] = useState<Error | null>(null);
-  const [isLoading, setIsLoading] = useState<boolean>(true);
+  // Track if AsyncStorage is loaded in React Native environment
+  const [asyncStorage, setAsyncStorage] = useState<any>(null);
+  // Track if the storage system is ready to use
+  const [isReady, setIsReady] = useState<boolean>(isBrowser);
 
   /**
-   * Load the value from storage on mount
+   * Clear the current error state
    */
-  useEffect(() => {
-    const loadValue = async () => {
-      try {
-        setIsLoading(true);
-        const storedValue = await storage.getItem(key);
-        
-        if (storedValue !== null) {
-          try {
-            // Parse the stored JSON string
-            const parsedValue = JSON.parse(storedValue) as T;
-            setValueState(parsedValue);
-          } catch (parseError) {
-            console.error(`Error parsing stored value for key ${key}:`, parseError);
-            setError(new Error(`Failed to parse stored value: ${parseError.message}`));
-            setValueState(initialValue);
-          }
-        } else {
-          setValueState(initialValue);
-        }
-      } catch (loadError) {
-        console.error(`Error loading value for key ${key}:`, loadError);
-        setError(new Error(`Failed to load value: ${loadError.message}`));
-        setValueState(initialValue);
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
-    loadValue();
-  }, [key, initialValue]);
+  const clearError = useCallback(() => {
+    setError(null);
+  }, []);
 
   /**
-   * Set a new value in storage
+   * Get a value from storage
    */
-  const setValue = useCallback(async (newValue: T | null): Promise<void> => {
+  const getItem = useCallback(async <T>(key: string): Promise<T | null> => {
     try {
-      setError(null);
+      if (isBrowser) {
+        const item = localStorage.getItem(key);
+        if (item === null) return null;
+        return JSON.parse(item) as T;
+      } else if (isReactNative && asyncStorage) {
+        const item = await asyncStorage.getItem(key);
+        if (item === null) return null;
+        return JSON.parse(item) as T;
+      }
+      return null;
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error(String(err));
+      setError(error);
+      console.error(`Error getting item from storage (${key}):`, error);
+      return null;
+    }
+  }, [asyncStorage]);
+
+  /**
+   * Set a value in storage
+   */
+  const setItem = useCallback(async <T>(key: string, value: T): Promise<void> => {
+    try {
+      const serializedValue = JSON.stringify(value);
       
-      if (newValue === null) {
-        await storage.removeItem(key);
-        setValueState(null);
-      } else {
-        // Convert value to JSON string
-        const valueToStore = JSON.stringify(newValue);
-        await storage.setItem(key, valueToStore);
-        setValueState(newValue);
+      if (isBrowser) {
+        localStorage.setItem(key, serializedValue);
+      } else if (isReactNative && asyncStorage) {
+        await asyncStorage.setItem(key, serializedValue);
       }
-    } catch (setError) {
-      console.error(`Error setting value for key ${key}:`, setError);
-      setError(new Error(`Failed to save value: ${setError.message}`));
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error(String(err));
+      setError(error);
+      console.error(`Error setting item in storage (${key}):`, error);
+      throw error;
     }
-  }, [key]);
+  }, [asyncStorage]);
 
   /**
-   * Remove the value from storage
+   * Remove a value from storage
    */
-  const removeValue = useCallback(async (): Promise<void> => {
+  const removeItem = useCallback(async (key: string): Promise<void> => {
     try {
-      setError(null);
-      await storage.removeItem(key);
-      setValueState(null);
-    } catch (removeError) {
-      console.error(`Error removing value for key ${key}:`, removeError);
-      setError(new Error(`Failed to remove value: ${removeError.message}`));
+      if (isBrowser) {
+        localStorage.removeItem(key);
+      } else if (isReactNative && asyncStorage) {
+        await asyncStorage.removeItem(key);
+      }
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error(String(err));
+      setError(error);
+      console.error(`Error removing item from storage (${key}):`, error);
+      throw error;
     }
-  }, [key]);
+  }, [asyncStorage]);
 
-  return { value, setValue, removeValue, error, isLoading };
-}
+  /**
+   * Clear all values from storage
+   */
+  const clear = useCallback(async (): Promise<void> => {
+    try {
+      if (isBrowser) {
+        localStorage.clear();
+      } else if (isReactNative && asyncStorage) {
+        await asyncStorage.clear();
+      }
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error(String(err));
+      setError(error);
+      console.error('Error clearing storage:', error);
+      throw error;
+    }
+  }, [asyncStorage]);
 
-export default useStorage;
+  /**
+   * Check if a key exists in storage
+   */
+  const hasItem = useCallback(async (key: string): Promise<boolean> => {
+    try {
+      if (isBrowser) {
+        return localStorage.getItem(key) !== null;
+      } else if (isReactNative && asyncStorage) {
+        const value = await asyncStorage.getItem(key);
+        return value !== null;
+      }
+      return false;
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error(String(err));
+      setError(error);
+      console.error(`Error checking if item exists in storage (${key}):`, error);
+      return false;
+    }
+  }, [asyncStorage]);
+
+  // Load AsyncStorage module for React Native environment
+  useEffect(() => {
+    // Skip if we're in a browser or AsyncStorage is already loaded
+    if (isBrowser || asyncStorage) {
+      return;
+    }
+
+    // Only attempt to import AsyncStorage in React Native environment
+    if (isReactNative) {
+      const loadAsyncStorage = async () => {
+        try {
+          // Using dynamic import to avoid issues with SSR and bundling
+          const module = await import('@react-native-async-storage/async-storage');
+          setAsyncStorage(module.default);
+          setIsReady(true);
+        } catch (err) {
+          const error = err instanceof Error ? err : new Error(String(err));
+          setError(error);
+          console.error('Failed to import AsyncStorage:', error);
+        }
+      };
+
+      loadAsyncStorage();
+    }
+  }, [asyncStorage]);
+
+  return {
+    getItem,
+    setItem,
+    removeItem,
+    clear,
+    hasItem,
+    error,
+    clearError,
+    isReady
+  };
+};
