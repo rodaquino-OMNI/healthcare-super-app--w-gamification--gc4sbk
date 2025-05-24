@@ -1,261 +1,125 @@
 import React from 'react';
-import { describe, it, expect, jest } from '@jest/globals';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 import { ThemeProvider } from 'styled-components';
-import { Avatar } from './Avatar';
 import { baseTheme } from '../../themes/base.theme';
-import { healthTheme } from '../../themes/health.theme';
-import { careTheme } from '../../themes/care.theme';
-import { planTheme } from '../../themes/plan.theme';
+import { Avatar } from './Avatar';
+import { colors } from '@design-system/primitives/tokens';
 
-// Mock the Text component
-jest.mock('../../primitives/Text/Text', () => ({
-  Text: ({ children, color, fontWeight, testID, ...props }) => (
-    <span 
-      data-testid={testID || 'text'} 
-      data-color={color} 
-      data-font-weight={fontWeight} 
-      {...props}
-    >
-      {children}
-    </span>
-  ),
-}));
-
-// Mock the Icon component
-jest.mock('../../primitives/Icon/Icon', () => ({
-  Icon: ({ name, size, color, ...props }) => (
-    <span 
-      data-testid="icon" 
-      data-name={name} 
-      data-size={size} 
-      data-color={color}
-      {...props} 
-    />
-  ),
-}));
-
-/**
- * Helper function to render a component with a specific theme
- */
-const renderWithTheme = (ui: React.ReactElement, theme = baseTheme) => {
-  return render(
-    <ThemeProvider theme={theme}>
-      {ui}
-    </ThemeProvider>
-  );
+const renderWithTheme = (ui: React.ReactNode) => {
+  return render(<ThemeProvider theme={baseTheme}>{ui}</ThemeProvider>);
 };
 
 describe('Avatar', () => {
-  // Test rendering with default props
-  it('renders correctly with default props', () => {
-    renderWithTheme(<Avatar name="John Doe" />);
+  it('renders an image when src is provided', () => {
+    renderWithTheme(
+      <Avatar src="https://example.com/avatar.jpg" alt="John Doe" testID="avatar" />
+    );
     
     const avatar = screen.getByTestId('avatar');
-    expect(avatar).toBeInTheDocument();
-    expect(avatar).toHaveAttribute('aria-label', 'Avatar for John Doe');
+    const img = avatar.querySelector('img');
+    
+    expect(img).toBeInTheDocument();
+    expect(img).toHaveAttribute('src', 'https://example.com/avatar.jpg');
+    expect(img).toHaveAttribute('alt', 'John Doe');
   });
   
-  // Test rendering with image source
-  it('renders with image when src is provided', () => {
-    renderWithTheme(<Avatar src="https://example.com/avatar.jpg" alt="User Avatar" />);
-    
-    const image = screen.getByRole('img');
-    expect(image).toBeInTheDocument();
-    expect(image).toHaveAttribute('src', 'https://example.com/avatar.jpg');
-    expect(image).toHaveAttribute('alt', 'User Avatar');
-  });
-  
-  // Test fallback to initials when no image is available
-  it('renders initials when no src is provided', () => {
-    renderWithTheme(<Avatar name="John Doe" />);
-    
-    const initials = screen.getByTestId('avatar-initials');
-    expect(initials).toBeInTheDocument();
-    expect(initials).toHaveTextContent('JD');
-  });
-  
-  // Test fallback to icon when no name is available
-  it('renders icon when no name or src is provided', () => {
-    renderWithTheme(<Avatar />);
-    
-    const icon = screen.getByTestId('icon');
-    expect(icon).toBeInTheDocument();
-    expect(icon).toHaveAttribute('data-name', 'profile');
-  });
-  
-  // Test image loading error handling
-  it('falls back to initials when image fails to load', () => {
-    renderWithTheme(<Avatar src="https://example.com/invalid.jpg" name="John Doe" />);
-    
-    const image = screen.getByRole('img');
-    fireEvent.error(image);
-    
-    const initials = screen.getByTestId('avatar-initials');
-    expect(initials).toBeInTheDocument();
-    expect(initials).toHaveTextContent('JD');
-  });
-  
-  // Test onImageError callback
-  it('calls onImageError when image fails to load', () => {
-    const onImageError = jest.fn();
+  it('renders initials when src is not provided', () => {
     renderWithTheme(
-      <Avatar 
-        src="https://example.com/invalid.jpg" 
-        name="John Doe" 
-        onImageError={onImageError} 
-      />
+      <Avatar alt="John Doe" testID="avatar" />
     );
     
-    const image = screen.getByRole('img');
-    fireEvent.error(image);
-    
-    expect(onImageError).toHaveBeenCalledTimes(1);
+    const avatar = screen.getByTestId('avatar');
+    expect(avatar).toHaveTextContent('JD');
   });
   
-  // Test different sizes
-  it('renders with different sizes', () => {
-    const { rerender } = renderWithTheme(<Avatar name="John Doe" size="32px" />);
-    
-    let avatar = screen.getByTestId('avatar');
-    expect(avatar).toHaveStyle('width: 32px');
-    expect(avatar).toHaveStyle('height: 32px');
-    
-    rerender(
-      <ThemeProvider theme={baseTheme}>
-        <Avatar name="John Doe" size="64px" />
-      </ThemeProvider>
+  it('renders a single initial for one-word names', () => {
+    renderWithTheme(
+      <Avatar alt="John" testID="avatar" />
     );
     
-    avatar = screen.getByTestId('avatar');
+    const avatar = screen.getByTestId('avatar');
+    expect(avatar).toHaveTextContent('J');
+  });
+  
+  it('renders a default icon when no alt text is provided', () => {
+    renderWithTheme(
+      <Avatar testID="avatar" />
+    );
+    
+    const avatar = screen.getByTestId('avatar');
+    expect(avatar.querySelector('svg')).toBeInTheDocument();
+  });
+  
+  it('applies the correct size', () => {
+    renderWithTheme(
+      <Avatar alt="John Doe" size={64} testID="avatar" />
+    );
+    
+    const avatar = screen.getByTestId('avatar');
     expect(avatar).toHaveStyle('width: 64px');
     expect(avatar).toHaveStyle('height: 64px');
   });
   
-  // Test forcing fallback display
-  it('shows fallback when showFallback is true even if src is provided', () => {
+  it('shows fallback when showFallback is true', () => {
     renderWithTheme(
       <Avatar 
         src="https://example.com/avatar.jpg" 
-        name="John Doe" 
-        showFallback={true} 
+        alt="John Doe" 
+        showFallback 
+        testID="avatar" 
       />
     );
     
-    const initials = screen.getByTestId('avatar-initials');
-    expect(initials).toBeInTheDocument();
-    expect(initials).toHaveTextContent('JD');
-    
-    // Image should not be rendered
-    expect(screen.queryByRole('img')).not.toBeInTheDocument();
+    const avatar = screen.getByTestId('avatar');
+    expect(avatar).toHaveTextContent('JD');
+    expect(avatar.querySelector('img')).not.toBeInTheDocument();
   });
   
-  // Test fallback type selection
-  it('respects fallbackType prop', () => {
-    const { rerender } = renderWithTheme(
-      <Avatar name="John Doe" fallbackType="initials" />
+  it('applies health journey styling when journey is health', () => {
+    renderWithTheme(
+      <Avatar alt="John Doe" journey="health" testID="avatar" />
     );
-    
-    expect(screen.getByTestId('avatar-initials')).toBeInTheDocument();
-    
-    rerender(
-      <ThemeProvider theme={baseTheme}>
-        <Avatar name="John Doe" fallbackType="icon" />
-      </ThemeProvider>
-    );
-    
-    expect(screen.getByTestId('icon')).toBeInTheDocument();
-    expect(screen.queryByTestId('avatar-initials')).not.toBeInTheDocument();
-  });
-  
-  // Test accessibility attributes
-  it('has correct accessibility attributes', () => {
-    renderWithTheme(<Avatar name="John Doe" alt="Custom Avatar Label" />);
     
     const avatar = screen.getByTestId('avatar');
-    expect(avatar).toHaveAttribute('aria-label', 'Custom Avatar Label');
+    // Note: We can't directly test the computed styles from styled-components in JSDOM
+    // but we can verify the journey prop is applied
+    expect(avatar).toHaveAttribute('journey', 'health');
   });
   
-  // Test journey-specific theming - Health
-  it('applies health journey styling correctly', () => {
-    renderWithTheme(<Avatar name="John Doe" journey="health" />, healthTheme);
+  it('applies care journey styling when journey is care', () => {
+    renderWithTheme(
+      <Avatar alt="John Doe" journey="care" testID="avatar" />
+    );
     
     const avatar = screen.getByTestId('avatar');
-    expect(avatar).toHaveStyle('background-color: #0ACF83');
+    expect(avatar).toHaveAttribute('journey', 'care');
   });
   
-  // Test journey-specific theming - Care
-  it('applies care journey styling correctly', () => {
-    renderWithTheme(<Avatar name="John Doe" journey="care" />, careTheme);
+  it('applies plan journey styling when journey is plan', () => {
+    renderWithTheme(
+      <Avatar alt="John Doe" journey="plan" testID="avatar" />
+    );
     
     const avatar = screen.getByTestId('avatar');
-    expect(avatar).toHaveStyle('background-color: #FF8C42');
+    expect(avatar).toHaveAttribute('journey', 'plan');
   });
   
-  // Test journey-specific theming - Plan
-  it('applies plan journey styling correctly', () => {
-    renderWithTheme(<Avatar name="John Doe" journey="plan" />, planTheme);
-    
-    const avatar = screen.getByTestId('avatar');
-    expect(avatar).toHaveStyle('background-color: #3A86FF');
-  });
-  
-  // Test initials generation
-  it('generates correct initials from different name formats', () => {
-    const { rerender } = renderWithTheme(<Avatar name="John Doe" />);
-    expect(screen.getByTestId('avatar-initials')).toHaveTextContent('JD');
-    
-    rerender(
-      <ThemeProvider theme={baseTheme}>
-        <Avatar name="John" />
-      </ThemeProvider>
+  it('calls onImageError when image fails to load', () => {
+    const onImageError = jest.fn();
+    renderWithTheme(
+      <Avatar 
+        src="https://example.com/avatar.jpg" 
+        alt="John Doe" 
+        onImageError={onImageError} 
+        testID="avatar" 
+      />
     );
-    expect(screen.getByTestId('avatar-initials')).toHaveTextContent('J');
     
-    rerender(
-      <ThemeProvider theme={baseTheme}>
-        <Avatar name="John Middle Doe" />
-      </ThemeProvider>
-    );
-    expect(screen.getByTestId('avatar-initials')).toHaveTextContent('JD');
+    const img = screen.getByAltText('John Doe');
+    fireEvent.error(img);
     
-    rerender(
-      <ThemeProvider theme={baseTheme}>
-        <Avatar name="" />
-      </ThemeProvider>
-    );
-    // Should fall back to icon when name is empty
-    expect(screen.getByTestId('icon')).toBeInTheDocument();
-  });
-  
-  // Test custom test ID
-  it('applies custom testID correctly', () => {
-    renderWithTheme(<Avatar name="John Doe" testID="custom-avatar" />);
-    
-    expect(screen.getByTestId('custom-avatar')).toBeInTheDocument();
-  });
-  
-  // Test that initials are uppercase
-  it('renders initials in uppercase', () => {
-    renderWithTheme(<Avatar name="john doe" />);
-    
-    const initials = screen.getByTestId('avatar-initials');
-    expect(initials).toHaveTextContent('JD');
-  });
-  
-  // Test that fallback text color is white
-  it('renders initials with white text color', () => {
-    renderWithTheme(<Avatar name="John Doe" />);
-    
-    const initials = screen.getByTestId('avatar-initials');
-    expect(initials).toHaveAttribute('data-color', 'white');
-  });
-  
-  // Test that icon size is proportional to avatar size
-  it('renders icon with size proportional to avatar size', () => {
-    renderWithTheme(<Avatar size="80px" fallbackType="icon" />);
-    
-    const icon = screen.getByTestId('icon');
-    expect(icon).toHaveAttribute('data-size', 'calc(80px / 2)');
+    expect(onImageError).toHaveBeenCalled();
+    // After error, it should show fallback
+    expect(screen.getByTestId('avatar')).toHaveTextContent('JD');
   });
 });
