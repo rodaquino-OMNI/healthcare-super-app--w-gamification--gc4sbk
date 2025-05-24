@@ -1,635 +1,491 @@
 /**
- * @file strategy.mocks.ts
- * @description Provides mock implementations of services and dependencies required for testing
- * authentication strategies. These mocks enable isolated testing of strategies without real
- * service dependencies.
+ * Mock implementations for testing authentication strategies
+ * Provides reusable mock services and dependencies for isolated testing
  */
 
 import { ConfigService } from '@nestjs/config';
-import { Test } from '@nestjs/testing';
+import { Logger } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 
-// Import from the auth package using standardized path aliases
-import { AuthService } from '../../../src/auth.service';
-import { TokenService } from '../../../src/token.service';
-import { IAuthResult } from '../../../src/interfaces/auth.interface';
-import { ITokenPayload, ITokenResponse } from '../../../src/interfaces/token.interface';
-import { IUser } from '../../../src/interfaces/user.interface';
-import { OAuthProfile } from '../../../src/providers/oauth/interfaces';
-
-// Import test fixtures
-import {
-  validTokenPayload,
-  expiredTokenPayload,
-  validTokenResponse,
-  validUserCredentials,
-  googleOAuthProfile,
-  facebookOAuthProfile,
-  appleOAuthProfile,
-  authErrorResponses
-} from './strategy.fixtures';
+// Import interfaces from the auth package
+import { IAuthService } from '@austa/auth/interfaces';
+import { ITokenPayload, IToken, ITokenResponse } from '@austa/auth/interfaces';
+import { IUser, IUserWithRoles, IUserResponse } from '@austa/auth/interfaces';
 
 /**
- * Mock implementation of AuthService for testing authentication strategies
- * Provides predefined responses for various authentication scenarios
+ * Mock user data for testing
  */
-export class MockAuthService {
-  // Track method calls for verification in tests
-  validateUserCalls: { email: string; password: string }[] = [];
-  validateTokenCalls: { token: string }[] = [];
-  findUserByEmailCalls: { email: string }[] = [];
-  createUserFromOAuthCalls: { profile: OAuthProfile }[] = [];
-  loginCalls: { email: string; password: string }[] = [];
+export const mockUsers = {
+  validUser: {
+    id: '1',
+    name: 'Test User',
+    email: 'test@example.com',
+    password: '$2b$10$abcdefghijklmnopqrstuvwxyz123456789', // hashed password
+    roles: ['user'],
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  },
+  adminUser: {
+    id: '2',
+    name: 'Admin User',
+    email: 'admin@example.com',
+    password: '$2b$10$abcdefghijklmnopqrstuvwxyz123456789', // hashed password
+    roles: ['admin', 'user'],
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  },
+  invalidUser: {
+    id: '3',
+    name: 'Invalid User',
+    email: 'invalid@example.com',
+    password: '$2b$10$abcdefghijklmnopqrstuvwxyz123456789', // hashed password
+    roles: [],
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  },
+};
 
-  // Mock user data
-  private readonly mockUsers: Record<string, IUser> = {
-    'user@example.com': {
-      id: '123e4567-e89b-12d3-a456-426614174000',
-      email: 'user@example.com',
-      name: 'Test User',
-      roles: [1, 2], // User, Health Journey User
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    },
-    'admin@example.com': {
-      id: '223e4567-e89b-12d3-a456-426614174001',
-      email: 'admin@example.com',
-      name: 'Admin User',
-      roles: [1, 2, 5], // User, Health Journey User, Admin
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    },
-    'google-user@gmail.com': {
-      id: '323e4567-e89b-12d3-a456-426614174002',
-      email: 'google-user@gmail.com',
-      name: 'Google Test User',
-      roles: [1, 2], // User, Health Journey User
-      createdAt: new Date(),
-      updatedAt: new Date(),
-      oauthProviderId: 'google',
-    },
-    'facebook-user@example.com': {
-      id: '423e4567-e89b-12d3-a456-426614174003',
-      email: 'facebook-user@example.com',
-      name: 'Facebook Test User',
-      roles: [1, 2], // User, Health Journey User
-      createdAt: new Date(),
-      updatedAt: new Date(),
-      oauthProviderId: 'facebook',
-    },
-    'apple-user@privaterelay.appleid.com': {
-      id: '523e4567-e89b-12d3-a456-426614174004',
-      email: 'apple-user@privaterelay.appleid.com',
-      name: 'Apple Test User',
-      roles: [1, 2], // User, Health Journey User
-      createdAt: new Date(),
-      updatedAt: new Date(),
-      oauthProviderId: 'apple',
-    },
-    'mfa-user@example.com': {
-      id: '623e4567-e89b-12d3-a456-426614174005',
-      email: 'mfa-user@example.com',
-      name: 'MFA Test User',
-      roles: [1, 2], // User, Health Journey User
-      createdAt: new Date(),
-      updatedAt: new Date(),
-      mfaEnabled: true,
-    },
-  };
+/**
+ * Mock tokens for testing
+ */
+export const mockTokens = {
+  validAccessToken: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxIiwiZW1haWwiOiJ0ZXN0QGV4YW1wbGUuY29tIiwibmFtZSI6IlRlc3QgVXNlciIsInJvbGVzIjpbInVzZXIiXSwiaWF0IjoxNjE2MTIzNDU2LCJleHAiOjE2MTYxMjcwNTZ9.mock-signature',
+  validRefreshToken: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxIiwiZW1haWwiOiJ0ZXN0QGV4YW1wbGUuY29tIiwibmFtZSI6IlRlc3QgVXNlciIsInJvbGVzIjpbInVzZXIiXSwiaWF0IjoxNjE2MTIzNDU2LCJleHAiOjE2MTYyMDk4NTZ9.mock-refresh-signature',
+  expiredAccessToken: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxIiwiZW1haWwiOiJ0ZXN0QGV4YW1wbGUuY29tIiwibmFtZSI6IlRlc3QgVXNlciIsInJvbGVzIjpbInVzZXIiXSwiaWF0IjoxNjE2MDAwMDAwLCJleHAiOjE2MTYwMDAwMDB9.mock-expired-signature',
+  invalidSignatureToken: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxIiwiZW1haWwiOiJ0ZXN0QGV4YW1wbGUuY29tIiwibmFtZSI6IlRlc3QgVXNlciIsInJvbGVzIjpbInVzZXIiXSwiaWF0IjoxNjE2MTIzNDU2LCJleHAiOjE2MTYxMjcwNTZ9.invalid-signature',
+  malformedToken: 'not-a-valid-jwt-token',
+};
 
+/**
+ * Mock token payloads for testing
+ */
+export const mockTokenPayloads = {
+  validUser: {
+    sub: '1',
+    email: 'test@example.com',
+    name: 'Test User',
+    roles: ['user'],
+    iat: 1616123456,
+    exp: 1616127056,
+  },
+  adminUser: {
+    sub: '2',
+    email: 'admin@example.com',
+    name: 'Admin User',
+    roles: ['admin', 'user'],
+    iat: 1616123456,
+    exp: 1616127056,
+  },
+  expiredToken: {
+    sub: '1',
+    email: 'test@example.com',
+    name: 'Test User',
+    roles: ['user'],
+    iat: 1616000000,
+    exp: 1616000000, // expired
+  },
+};
+
+/**
+ * Mock OAuth profiles for testing
+ */
+export const mockOAuthProfiles = {
+  google: {
+    id: 'google-123456789',
+    displayName: 'Google User',
+    emails: [{ value: 'google-user@example.com' }],
+    photos: [{ value: 'https://example.com/photo.jpg' }],
+    provider: 'google',
+  },
+  facebook: {
+    id: 'facebook-123456789',
+    displayName: 'Facebook User',
+    emails: [{ value: 'facebook-user@example.com' }],
+    photos: [{ value: 'https://example.com/photo.jpg' }],
+    provider: 'facebook',
+  },
+  apple: {
+    id: 'apple-123456789',
+    displayName: 'Apple User',
+    emails: [{ value: 'apple-user@example.com' }],
+    photos: [],
+    provider: 'apple',
+  },
+};
+
+/**
+ * Mock AuthService implementation for testing
+ */
+export class MockAuthService implements Partial<IAuthService> {
   /**
-   * Validates user credentials and returns user if valid
-   * @param email User email
-   * @param password User password
-   * @returns User object if credentials are valid, null otherwise
+   * Mock implementation of validateCredentials
+   * Returns a user for valid credentials, throws for invalid ones
    */
-  async validateUser(email: string, password: string): Promise<IUser | null> {
-    this.validateUserCalls.push({ email, password });
-    
-    // For testing purposes, we'll consider valid credentials based on our test fixtures
-    if (email === validUserCredentials.email && password === validUserCredentials.password) {
-      return this.mockUsers[email];
+  async validateCredentials(email: string, password: string): Promise<IUser> {
+    if (email === 'test@example.com' && password === 'password') {
+      return mockUsers.validUser;
     }
-    
-    // Special case for MFA testing
-    if (email === 'mfa-user@example.com' && password === validUserCredentials.password) {
-      return this.mockUsers[email];
+    if (email === 'admin@example.com' && password === 'admin') {
+      return mockUsers.adminUser;
     }
-    
-    return null;
+    throw new Error('Invalid credentials');
   }
 
   /**
-   * Validates a JWT token and returns the user if valid
-   * @param token JWT token
-   * @returns User object if token is valid
-   * @throws Error if token is invalid or expired
+   * Mock implementation of generateAccessToken
+   * Returns a predefined token for known users
    */
-  async validateToken(token: string): Promise<IUser> {
-    this.validateTokenCalls.push({ token });
-    
-    // For testing, we'll simulate token validation based on token content
-    if (token.includes('expired')) {
-      throw new Error('JWT token has expired');
+  async generateAccessToken(user: IUser): Promise<string> {
+    if (user.id === '1') {
+      return mockTokens.validAccessToken;
     }
-    
-    if (token.includes('invalid')) {
-      throw new Error('Invalid JWT token');
+    if (user.id === '2') {
+      return 'admin-access-token';
     }
-    
-    // Default to returning our test user
-    return this.mockUsers['user@example.com'];
+    return 'generic-access-token';
   }
 
   /**
-   * Finds a user by email
-   * @param email User email
-   * @returns User object if found, null otherwise
+   * Mock implementation of generateRefreshToken
+   * Returns a predefined refresh token for known users
    */
-  async findUserByEmail(email: string): Promise<IUser | null> {
-    this.findUserByEmailCalls.push({ email });
-    return this.mockUsers[email] || null;
+  async generateRefreshToken(user: IUser): Promise<string> {
+    if (user.id === '1') {
+      return mockTokens.validRefreshToken;
+    }
+    if (user.id === '2') {
+      return 'admin-refresh-token';
+    }
+    return 'generic-refresh-token';
   }
 
   /**
-   * Creates a new user from OAuth profile
-   * @param profile OAuth profile
-   * @returns Created user
+   * Mock implementation of refreshAccessToken
+   * Returns a new access token for valid refresh tokens
    */
-  async createUserFromOAuth(profile: OAuthProfile): Promise<IUser> {
-    this.createUserFromOAuthCalls.push({ profile });
-    
-    // For Google profile
+  async refreshAccessToken(refreshToken: string): Promise<string> {
+    if (refreshToken === mockTokens.validRefreshToken) {
+      return mockTokens.validAccessToken;
+    }
+    if (refreshToken === 'admin-refresh-token') {
+      return 'admin-access-token';
+    }
+    throw new Error('Invalid refresh token');
+  }
+
+  /**
+   * Mock implementation of logout
+   * Always returns true for successful logout
+   */
+  async logout(userId: string): Promise<boolean> {
+    return true;
+  }
+
+  /**
+   * Additional method for testing OAuth validation
+   */
+  async validateOAuthUser(profile: any): Promise<IUser> {
     if (profile.provider === 'google') {
-      return this.mockUsers['google-user@gmail.com'];
-    }
-    
-    // For Facebook profile
-    if (profile.provider === 'facebook') {
-      return this.mockUsers['facebook-user@example.com'];
-    }
-    
-    // For Apple profile
-    if (profile.provider === 'apple') {
-      return this.mockUsers['apple-user@privaterelay.appleid.com'];
-    }
-    
-    // Default fallback
-    return this.mockUsers['user@example.com'];
-  }
-
-  /**
-   * Authenticates a user with email and password
-   * @param email User email
-   * @param password User password
-   * @returns Authentication result with tokens if successful
-   * @throws Error if credentials are invalid
-   */
-  async login(email: string, password: string): Promise<IAuthResult> {
-    this.loginCalls.push({ email, password });
-    
-    const user = await this.validateUser(email, password);
-    
-    if (!user) {
-      throw new Error('Invalid email or password');
-    }
-    
-    // For MFA testing
-    if (user.mfaEnabled) {
       return {
-        user,
-        requiresMfa: true,
-        mfaToken: 'mock-mfa-token',
+        ...mockUsers.validUser,
+        email: 'google-user@example.com',
       };
     }
-    
-    return {
-      user,
-      tokens: validTokenResponse,
-      requiresMfa: false,
-    };
-  }
-
-  /**
-   * Resets all tracked method calls
-   * Useful between tests to ensure clean state
-   */
-  resetCalls(): void {
-    this.validateUserCalls = [];
-    this.validateTokenCalls = [];
-    this.findUserByEmailCalls = [];
-    this.createUserFromOAuthCalls = [];
-    this.loginCalls = [];
+    if (profile.provider === 'facebook') {
+      return {
+        ...mockUsers.validUser,
+        email: 'facebook-user@example.com',
+      };
+    }
+    if (profile.provider === 'apple') {
+      return {
+        ...mockUsers.validUser,
+        email: 'apple-user@example.com',
+      };
+    }
+    throw new Error('Invalid OAuth provider');
   }
 }
 
 /**
- * Mock implementation of TokenService for testing authentication strategies
- * Provides predefined responses for token operations
+ * Mock ConfigService implementation for testing
  */
-export class MockTokenService {
-  // Track method calls for verification in tests
-  generateTokenCalls: { payload: ITokenPayload }[] = [];
-  verifyTokenCalls: { token: string }[] = [];
-  decodeTokenCalls: { token: string }[] = [];
-  refreshTokenCalls: { refreshToken: string }[] = [];
-
-  /**
-   * Generates a JWT token for a user
-   * @param payload Token payload
-   * @returns Token response with access and refresh tokens
-   */
-  async generateToken(payload: ITokenPayload): Promise<ITokenResponse> {
-    this.generateTokenCalls.push({ payload });
-    return validTokenResponse;
-  }
-
-  /**
-   * Verifies a JWT token
-   * @param token JWT token
-   * @returns Decoded token payload if valid
-   * @throws Error if token is invalid or expired
-   */
-  async verifyToken(token: string): Promise<ITokenPayload> {
-    this.verifyTokenCalls.push({ token });
+export class MockConfigService implements Partial<ConfigService> {
+  private readonly configValues: Record<string, any> = {
+    // JWT configuration
+    'jwt.secret': 'test-jwt-secret',
+    'jwt.expiresIn': '1h',
+    'jwt.refreshExpiresIn': '7d',
+    'jwt.issuer': 'austa-superapp',
+    'jwt.audience': 'austa-users',
     
-    if (token.includes('expired')) {
-      throw new Error('JWT token has expired');
-    }
-    
-    if (token.includes('invalid')) {
-      throw new Error('Invalid JWT token');
-    }
-    
-    return validTokenPayload;
-  }
-
-  /**
-   * Decodes a JWT token without verification
-   * @param token JWT token
-   * @returns Decoded token payload
-   */
-  decodeToken(token: string): ITokenPayload {
-    this.decodeTokenCalls.push({ token });
-    
-    if (token.includes('expired')) {
-      return expiredTokenPayload;
-    }
-    
-    return validTokenPayload;
-  }
-
-  /**
-   * Refreshes an access token using a refresh token
-   * @param refreshToken Refresh token
-   * @returns New token response with fresh access and refresh tokens
-   * @throws Error if refresh token is invalid or expired
-   */
-  async refreshToken(refreshToken: string): Promise<ITokenResponse> {
-    this.refreshTokenCalls.push({ refreshToken });
-    
-    if (refreshToken.includes('expired') || refreshToken.includes('invalid')) {
-      throw new Error('Invalid or expired refresh token');
-    }
-    
-    return {
-      ...validTokenResponse,
-      accessToken: `${validTokenResponse.accessToken}-refreshed`,
-      refreshToken: `${validTokenResponse.refreshToken}-refreshed`,
-      expiresAt: Date.now() + 3600000, // 1 hour from now
-    };
-  }
-
-  /**
-   * Resets all tracked method calls
-   * Useful between tests to ensure clean state
-   */
-  resetCalls(): void {
-    this.generateTokenCalls = [];
-    this.verifyTokenCalls = [];
-    this.decodeTokenCalls = [];
-    this.refreshTokenCalls = [];
-  }
-}
-
-/**
- * Mock implementation of ConfigService for testing authentication strategies
- * Returns controlled configuration values for JWT secrets and OAuth settings
- */
-export class MockConfigService {
-  // Default configuration values
-  private config: Record<string, any> = {
-    'authService.jwt.secret': 'test-jwt-secret',
-    'authService.jwt.expiresIn': '1h',
-    'authService.jwt.refreshExpiresIn': '7d',
-    'authService.jwt.issuer': 'austa-auth-service',
-    'authService.jwt.audience': 'austa-superapp',
+    // OAuth configuration
     'oauth.google.clientId': 'google-client-id',
     'oauth.google.clientSecret': 'google-client-secret',
     'oauth.google.callbackUrl': 'http://localhost:3000/auth/google/callback',
+    
     'oauth.facebook.appId': 'facebook-app-id',
     'oauth.facebook.appSecret': 'facebook-app-secret',
     'oauth.facebook.callbackUrl': 'http://localhost:3000/auth/facebook/callback',
+    
     'oauth.apple.clientId': 'apple-client-id',
     'oauth.apple.teamId': 'apple-team-id',
     'oauth.apple.keyId': 'apple-key-id',
     'oauth.apple.privateKey': 'apple-private-key',
     'oauth.apple.callbackUrl': 'http://localhost:3000/auth/apple/callback',
+    
+    // Database configuration
+    'database.host': 'localhost',
+    'database.port': 5432,
+    'database.username': 'test-user',
+    'database.password': 'test-password',
+    'database.name': 'test-db',
+    
+    // Redis configuration
     'redis.host': 'localhost',
     'redis.port': 6379,
     'redis.password': '',
     'redis.db': 0,
-    'redis.keyPrefix': 'auth:',
-    'auth.tokenBlacklist.enabled': true,
-    'auth.mfa.enabled': true,
-    'auth.mfa.issuer': 'AUSTA SuperApp',
+    
+    // App configuration
+    'app.name': 'AUSTA SuperApp',
+    'app.env': 'test',
+    'app.port': 3000,
+    'app.apiPrefix': 'api',
   };
 
   /**
-   * Gets a configuration value by key
-   * @param key Configuration key
-   * @param defaultValue Default value if key is not found
-   * @returns Configuration value
+   * Mock implementation of get method
+   * Returns predefined configuration values
    */
-  get<T>(key: string, defaultValue?: T): T {
-    return (this.config[key] !== undefined ? this.config[key] : defaultValue) as T;
+  get<T>(key: string): T {
+    return this.configValues[key] as T;
   }
 
   /**
-   * Sets a configuration value
-   * @param key Configuration key
-   * @param value Configuration value
+   * Mock implementation of getOrThrow method
+   * Returns predefined configuration values or throws if not found
+   */
+  getOrThrow<T>(key: string): T {
+    const value = this.configValues[key];
+    if (value === undefined) {
+      throw new Error(`Configuration key "${key}" not found`);
+    }
+    return value as T;
+  }
+
+  /**
+   * Set a custom configuration value for testing
    */
   set(key: string, value: any): void {
-    this.config[key] = value;
-  }
-
-  /**
-   * Resets configuration to default values
-   * @param config Optional custom configuration to set
-   */
-  reset(config?: Record<string, any>): void {
-    this.config = {
-      'authService.jwt.secret': 'test-jwt-secret',
-      'authService.jwt.expiresIn': '1h',
-      'authService.jwt.refreshExpiresIn': '7d',
-      'authService.jwt.issuer': 'austa-auth-service',
-      'authService.jwt.audience': 'austa-superapp',
-      'oauth.google.clientId': 'google-client-id',
-      'oauth.google.clientSecret': 'google-client-secret',
-      'oauth.google.callbackUrl': 'http://localhost:3000/auth/google/callback',
-      'oauth.facebook.appId': 'facebook-app-id',
-      'oauth.facebook.appSecret': 'facebook-app-secret',
-      'oauth.facebook.callbackUrl': 'http://localhost:3000/auth/facebook/callback',
-      'oauth.apple.clientId': 'apple-client-id',
-      'oauth.apple.teamId': 'apple-team-id',
-      'oauth.apple.keyId': 'apple-key-id',
-      'oauth.apple.privateKey': 'apple-private-key',
-      'oauth.apple.callbackUrl': 'http://localhost:3000/auth/apple/callback',
-      'redis.host': 'localhost',
-      'redis.port': 6379,
-      'redis.password': '',
-      'redis.db': 0,
-      'redis.keyPrefix': 'auth:',
-      'auth.tokenBlacklist.enabled': true,
-      'auth.mfa.enabled': true,
-      'auth.mfa.issuer': 'AUSTA SuperApp',
-      ...(config || {}),
-    };
+    this.configValues[key] = value;
   }
 }
 
 /**
- * Mock implementation of JwtService for testing authentication strategies
- * Provides controlled JWT signing and verification
+ * Mock LoggerService implementation for testing
  */
-export class MockJwtService {
-  // Track method calls for verification in tests
-  signCalls: { payload: Record<string, any>; options?: Record<string, any> }[] = [];
-  verifyCalls: { token: string; options?: Record<string, any> }[] = [];
-  decodeCalls: { token: string; options?: Record<string, any> }[] = [];
-
-  /**
-   * Signs a JWT token
-   * @param payload Token payload
-   * @param options Signing options
-   * @returns Signed JWT token
-   */
-  sign(payload: Record<string, any>, options?: Record<string, any>): string {
-    this.signCalls.push({ payload, options });
-    
-    // For testing, we'll create a token string that includes payload info
-    const tokenPrefix = payload.sub ? `token-${payload.sub}` : 'token-default';
-    return `${tokenPrefix}-${Date.now()}`;
-  }
-
-  /**
-   * Verifies a JWT token
-   * @param token JWT token
-   * @param options Verification options
-   * @returns Decoded token payload if valid
-   * @throws Error if token is invalid or expired
-   */
-  verify<T extends object = any>(token: string, options?: Record<string, any>): T {
-    this.verifyCalls.push({ token, options });
-    
-    if (token.includes('expired')) {
-      throw new Error('JWT token has expired');
-    }
-    
-    if (token.includes('invalid')) {
-      throw new Error('Invalid JWT token');
-    }
-    
-    return validTokenPayload as unknown as T;
-  }
-
-  /**
-   * Decodes a JWT token without verification
-   * @param token JWT token
-   * @param options Decoding options
-   * @returns Decoded token payload
-   */
-  decode<T extends object = any>(token: string, options?: Record<string, any>): T | null {
-    this.decodeCalls.push({ token, options });
-    
-    if (token.includes('malformed')) {
-      return null;
-    }
-    
-    if (token.includes('expired')) {
-      return expiredTokenPayload as unknown as T;
-    }
-    
-    return validTokenPayload as unknown as T;
-  }
-
-  /**
-   * Resets all tracked method calls
-   * Useful between tests to ensure clean state
-   */
-  resetCalls(): void {
-    this.signCalls = [];
-    this.verifyCalls = [];
-    this.decodeCalls = [];
-  }
-}
-
-/**
- * Mock implementation of LoggerService for testing authentication strategies
- * Captures log entries for verification
- */
-export class MockLoggerService {
+export class MockLoggerService extends Logger {
   // Store log entries for verification
-  logs: { level: string; message: string; context?: string; meta?: Record<string, any> }[] = [];
+  logs: { level: string; message: string; context?: string; trace?: string }[] = [];
 
   /**
-   * Logs a debug message
-   * @param message Log message
-   * @param context Optional context
-   * @param meta Optional metadata
+   * Clear all captured logs
    */
-  debug(message: string, context?: string, meta?: Record<string, any>): void {
-    this.logs.push({ level: 'debug', message, context, meta });
-  }
-
-  /**
-   * Logs an info message
-   * @param message Log message
-   * @param context Optional context
-   * @param meta Optional metadata
-   */
-  log(message: string, context?: string, meta?: Record<string, any>): void {
-    this.logs.push({ level: 'info', message, context, meta });
-  }
-
-  /**
-   * Logs a warning message
-   * @param message Log message
-   * @param context Optional context
-   * @param meta Optional metadata
-   */
-  warn(message: string, context?: string, meta?: Record<string, any>): void {
-    this.logs.push({ level: 'warn', message, context, meta });
-  }
-
-  /**
-   * Logs an error message
-   * @param message Log message
-   * @param trace Optional stack trace
-   * @param context Optional context
-   * @param meta Optional metadata
-   */
-  error(message: string, trace?: string, context?: string, meta?: Record<string, any>): void {
-    this.logs.push({ level: 'error', message, context, meta: { ...meta, trace } });
-  }
-
-  /**
-   * Logs a verbose message
-   * @param message Log message
-   * @param context Optional context
-   * @param meta Optional metadata
-   */
-  verbose(message: string, context?: string, meta?: Record<string, any>): void {
-    this.logs.push({ level: 'verbose', message, context, meta });
-  }
-
-  /**
-   * Gets all logs of a specific level
-   * @param level Log level
-   * @returns Array of log entries
-   */
-  getLogsByLevel(level: string): { message: string; context?: string; meta?: Record<string, any> }[] {
-    return this.logs
-      .filter(log => log.level === level)
-      .map(({ message, context, meta }) => ({ message, context, meta }));
-  }
-
-  /**
-   * Gets all logs containing a specific message substring
-   * @param substring Message substring to search for
-   * @returns Array of matching log entries
-   */
-  getLogsByMessage(substring: string): { level: string; message: string; context?: string; meta?: Record<string, any> }[] {
-    return this.logs.filter(log => log.message.includes(substring));
-  }
-
-  /**
-   * Gets all logs for a specific context
-   * @param context Context to filter by
-   * @returns Array of matching log entries
-   */
-  getLogsByContext(context: string): { level: string; message: string; meta?: Record<string, any> }[] {
-    return this.logs
-      .filter(log => log.context === context)
-      .map(({ level, message, meta }) => ({ level, message, meta }));
-  }
-
-  /**
-   * Clears all logs
-   * Useful between tests to ensure clean state
-   */
-  clearLogs(): void {
+  clear(): void {
     this.logs = [];
   }
+
+  /**
+   * Override log method to capture entries
+   */
+  log(message: any, context?: string): void {
+    this.logs.push({ level: 'log', message, context });
+  }
+
+  /**
+   * Override error method to capture entries
+   */
+  error(message: any, trace?: string, context?: string): void {
+    this.logs.push({ level: 'error', message, trace, context });
+  }
+
+  /**
+   * Override warn method to capture entries
+   */
+  warn(message: any, context?: string): void {
+    this.logs.push({ level: 'warn', message, context });
+  }
+
+  /**
+   * Override debug method to capture entries
+   */
+  debug(message: any, context?: string): void {
+    this.logs.push({ level: 'debug', message, context });
+  }
+
+  /**
+   * Override verbose method to capture entries
+   */
+  verbose(message: any, context?: string): void {
+    this.logs.push({ level: 'verbose', message, context });
+  }
+
+  /**
+   * Get logs of a specific level
+   */
+  getLogsByLevel(level: string): { message: string; context?: string; trace?: string }[] {
+    return this.logs
+      .filter((log) => log.level === level)
+      .map(({ message, context, trace }) => ({ message, context, trace }));
+  }
+
+  /**
+   * Check if a specific message was logged
+   */
+  hasLoggedMessage(message: string, level?: string): boolean {
+    return this.logs.some(
+      (log) => log.message.includes(message) && (!level || log.level === level)
+    );
+  }
 }
 
 /**
- * Creates a testing module with mock services for authentication strategy testing
- * @param overrides Optional service overrides
- * @returns NestJS test module with mock services
+ * Mock JwtService implementation for testing
  */
-export async function createAuthTestingModule(overrides: {
-  authService?: Partial<MockAuthService>;
-  tokenService?: Partial<MockTokenService>;
-  configService?: Partial<MockConfigService>;
-  jwtService?: Partial<MockJwtService>;
-  loggerService?: Partial<MockLoggerService>;
-} = {}) {
-  const mockAuthService = new MockAuthService();
-  const mockTokenService = new MockTokenService();
-  const mockConfigService = new MockConfigService();
-  const mockJwtService = new MockJwtService();
-  const mockLoggerService = new MockLoggerService();
+export class MockJwtService implements Partial<JwtService> {
+  /**
+   * Mock implementation of sign method
+   * Returns a predefined token
+   */
+  sign(payload: Record<string, any>, options?: any): string {
+    if (payload.sub === '1') {
+      return mockTokens.validAccessToken;
+    }
+    if (payload.sub === '2') {
+      return 'admin-access-token';
+    }
+    return 'generic-access-token';
+  }
 
-  // Apply any overrides
-  Object.assign(mockAuthService, overrides.authService || {});
-  Object.assign(mockTokenService, overrides.tokenService || {});
-  Object.assign(mockConfigService, overrides.configService || {});
-  Object.assign(mockJwtService, overrides.jwtService || {});
-  Object.assign(mockLoggerService, overrides.loggerService || {});
+  /**
+   * Mock implementation of verify method
+   * Returns a decoded payload for valid tokens, throws for invalid ones
+   */
+  verify<T extends object = any>(token: string, options?: any): T {
+    if (token === mockTokens.validAccessToken) {
+      return mockTokenPayloads.validUser as unknown as T;
+    }
+    if (token === 'admin-access-token') {
+      return mockTokenPayloads.adminUser as unknown as T;
+    }
+    if (token === mockTokens.expiredAccessToken) {
+      throw new Error('jwt expired');
+    }
+    if (token === mockTokens.invalidSignatureToken) {
+      throw new Error('invalid signature');
+    }
+    if (token === mockTokens.malformedToken) {
+      throw new Error('jwt malformed');
+    }
+    throw new Error('Invalid token');
+  }
 
-  const moduleRef = await Test.createTestingModule({
-    providers: [
-      {
-        provide: AuthService,
-        useValue: mockAuthService,
-      },
-      {
-        provide: TokenService,
-        useValue: mockTokenService,
-      },
-      {
-        provide: ConfigService,
-        useValue: mockConfigService,
-      },
-      {
-        provide: JwtService,
-        useValue: mockJwtService,
-      },
-      {
-        provide: 'LoggerService',
-        useValue: mockLoggerService,
-      },
-    ],
-  }).compile();
-
-  return {
-    moduleRef,
-    mockAuthService,
-    mockTokenService,
-    mockConfigService,
-    mockJwtService,
-    mockLoggerService,
-  };
+  /**
+   * Mock implementation of decode method
+   * Returns a decoded payload without verification
+   */
+  decode(token: string, options?: any): Record<string, any> | null {
+    if (token === mockTokens.validAccessToken) {
+      return mockTokenPayloads.validUser;
+    }
+    if (token === 'admin-access-token') {
+      return mockTokenPayloads.adminUser;
+    }
+    if (token === mockTokens.expiredAccessToken) {
+      return mockTokenPayloads.expiredToken;
+    }
+    if (token === mockTokens.invalidSignatureToken) {
+      return mockTokenPayloads.validUser;
+    }
+    return null;
+  }
 }
+
+/**
+ * Mock Redis client for testing token blacklisting
+ */
+export class MockRedisClient {
+  private readonly storage: Record<string, string> = {};
+
+  /**
+   * Mock implementation of set method
+   */
+  async set(key: string, value: string, options?: any): Promise<'OK'> {
+    this.storage[key] = value;
+    return 'OK';
+  }
+
+  /**
+   * Mock implementation of get method
+   */
+  async get(key: string): Promise<string | null> {
+    return this.storage[key] || null;
+  }
+
+  /**
+   * Mock implementation of del method
+   */
+  async del(key: string): Promise<number> {
+    if (this.storage[key]) {
+      delete this.storage[key];
+      return 1;
+    }
+    return 0;
+  }
+
+  /**
+   * Mock implementation of exists method
+   */
+  async exists(key: string): Promise<number> {
+    return this.storage[key] ? 1 : 0;
+  }
+
+  /**
+   * Clear all stored data
+   */
+  clear(): void {
+    Object.keys(this.storage).forEach((key) => {
+      delete this.storage[key];
+    });
+  }
+}
+
+/**
+ * Create a test module configuration with mock providers
+ * for testing authentication strategies
+ */
+export const createTestModuleConfig = () => ({
+  providers: [
+    {
+      provide: 'AuthService',
+      useClass: MockAuthService,
+    },
+    {
+      provide: ConfigService,
+      useClass: MockConfigService,
+    },
+    {
+      provide: Logger,
+      useClass: MockLoggerService,
+    },
+    {
+      provide: JwtService,
+      useClass: MockJwtService,
+    },
+    {
+      provide: 'REDIS_CLIENT',
+      useClass: MockRedisClient,
+    },
+  ],
+});
