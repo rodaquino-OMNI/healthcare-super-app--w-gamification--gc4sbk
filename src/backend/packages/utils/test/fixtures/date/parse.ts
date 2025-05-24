@@ -4,327 +4,361 @@
  */
 
 /**
- * Interface for valid date parsing test cases
+ * Valid date parsing test cases
+ * Each case includes a date string, format string, locale, and expected Date object
  */
-export interface ValidDateParseFixture {
-  description: string;
-  input: string;
-  format?: string;
-  locale?: string;
-  expected: Date;
-}
-
-/**
- * Interface for invalid date parsing test cases
- */
-export interface InvalidDateParseFixture {
-  description: string;
-  input: string;
-  format?: string;
-  locale?: string;
-  errorMessage?: string;
-}
-
-/**
- * Standard date format test cases (dd/MM/yyyy for pt-BR)
- */
-export const standardFormatFixtures: ValidDateParseFixture[] = [
+export const validDateParseFixtures = [
+  // Default format (dd/MM/yyyy) with default locale (pt-BR)
   {
-    description: 'Standard date format (dd/MM/yyyy)',
-    input: '01/02/2023',
-    expected: new Date(2023, 1, 1) // Month is 0-indexed in JS Date
+    description: 'Default format with default locale',
+    dateStr: '01/02/2023',
+    formatStr: 'dd/MM/yyyy',
+    locale: 'pt-BR',
+    expected: new Date(2023, 1, 1) // Month is 0-indexed (February = 1)
   },
   {
-    description: 'Date with single-digit day and month',
-    input: '1/2/2023',
-    format: 'd/M/yyyy',
-    expected: new Date(2023, 1, 1)
+    description: 'Default format with default locale - another date',
+    dateStr: '15/07/2023',
+    formatStr: 'dd/MM/yyyy',
+    locale: 'pt-BR',
+    expected: new Date(2023, 6, 15) // Month is 0-indexed (July = 6)
+  },
+  
+  // US format (MM/dd/yyyy) with en-US locale
+  {
+    description: 'US format with en-US locale',
+    dateStr: '02/01/2023',
+    formatStr: 'MM/dd/yyyy',
+    locale: 'en-US',
+    expected: new Date(2023, 1, 1) // Month is 0-indexed (February = 1)
   },
   {
-    description: 'Date with leading zeros',
-    input: '01/02/2023',
-    format: 'dd/MM/yyyy',
-    expected: new Date(2023, 1, 1)
+    description: 'US format with en-US locale - another date',
+    dateStr: '07/15/2023',
+    formatStr: 'MM/dd/yyyy',
+    locale: 'en-US',
+    expected: new Date(2023, 6, 15) // Month is 0-indexed (July = 6)
+  },
+  
+  // Date with time components
+  {
+    description: 'Date with time in default locale',
+    dateStr: '01/02/2023 14:30',
+    formatStr: 'dd/MM/yyyy HH:mm',
+    locale: 'pt-BR',
+    expected: new Date(2023, 1, 1, 14, 30) // Year, month (0-indexed), day, hour, minute
   },
   {
-    description: 'Date at end of month',
-    input: '31/01/2023',
-    expected: new Date(2023, 0, 31)
+    description: 'Date with time and seconds in default locale',
+    dateStr: '01/02/2023 14:30:45',
+    formatStr: 'dd/MM/yyyy HH:mm:ss',
+    locale: 'pt-BR',
+    expected: new Date(2023, 1, 1, 14, 30, 45) // Year, month (0-indexed), day, hour, minute, second
+  },
+  
+  // Custom formats
+  {
+    description: 'Custom format - yyyy-MM-dd',
+    dateStr: '2023-02-01',
+    formatStr: 'yyyy-MM-dd',
+    locale: 'pt-BR',
+    expected: new Date(2023, 1, 1) // Month is 0-indexed (February = 1)
   },
   {
-    description: 'Date with leap year (February 29)',
-    input: '29/02/2020',
-    expected: new Date(2020, 1, 29)
+    description: 'Custom format - dd MMM yyyy',
+    dateStr: '01 Feb 2023',
+    formatStr: 'dd MMM yyyy',
+    locale: 'en-US', // Using English month names
+    expected: new Date(2023, 1, 1) // Month is 0-indexed (February = 1)
+  },
+  {
+    description: 'Custom format - MMMM do, yyyy',
+    dateStr: 'February 1st, 2023',
+    formatStr: 'MMMM do, yyyy',
+    locale: 'en-US',
+    expected: new Date(2023, 1, 1) // Month is 0-indexed (February = 1)
+  },
+  
+  // Locale-specific month names
+  {
+    description: 'Brazilian Portuguese month name',
+    dateStr: '01 Fevereiro 2023',
+    formatStr: 'dd MMMM yyyy',
+    locale: 'pt-BR',
+    expected: new Date(2023, 1, 1) // Month is 0-indexed (February = 1)
+  },
+  {
+    description: 'English month name',
+    dateStr: '01 February 2023',
+    formatStr: 'dd MMMM yyyy',
+    locale: 'en-US',
+    expected: new Date(2023, 1, 1) // Month is 0-indexed (February = 1)
+  },
+  
+  // Short weekday names
+  {
+    description: 'Format with short weekday - pt-BR',
+    dateStr: 'qua, 01/02/2023',
+    formatStr: 'EEE, dd/MM/yyyy',
+    locale: 'pt-BR',
+    expected: new Date(2023, 1, 1) // February 1, 2023 was a Wednesday
+  },
+  {
+    description: 'Format with short weekday - en-US',
+    dateStr: 'Wed, 02/01/2023',
+    formatStr: 'EEE, MM/dd/yyyy',
+    locale: 'en-US',
+    expected: new Date(2023, 1, 1) // February 1, 2023 was a Wednesday
+  },
+  
+  // Edge cases
+  {
+    description: 'Leap year date',
+    dateStr: '29/02/2020',
+    formatStr: 'dd/MM/yyyy',
+    locale: 'pt-BR',
+    expected: new Date(2020, 1, 29) // February 29, 2020 (leap year)
+  },
+  {
+    description: 'Last day of the year',
+    dateStr: '31/12/2023',
+    formatStr: 'dd/MM/yyyy',
+    locale: 'pt-BR',
+    expected: new Date(2023, 11, 31) // December 31, 2023
+  },
+  {
+    description: 'First day of the year',
+    dateStr: '01/01/2023',
+    formatStr: 'dd/MM/yyyy',
+    locale: 'pt-BR',
+    expected: new Date(2023, 0, 1) // January 1, 2023
   }
 ];
 
 /**
- * Locale-specific test cases for pt-BR
+ * Invalid date parsing test cases
+ * Each case includes a date string, format string, locale, and expected error message pattern
  */
-export const ptBRFormatFixtures: ValidDateParseFixture[] = [
+export const invalidDateParseFixtures = [
+  // Malformed dates
   {
-    description: 'Brazilian format with explicit locale',
-    input: '01/02/2023',
+    description: 'Malformed date - incorrect separator',
+    dateStr: '01-02-2023',
+    formatStr: 'dd/MM/yyyy',
     locale: 'pt-BR',
-    expected: new Date(2023, 1, 1)
+    expectedErrorPattern: /Invalid date string/
   },
   {
-    description: 'Brazilian format with month name',
-    input: '01 fev 2023',
-    format: 'dd MMM yyyy',
+    description: 'Malformed date - incorrect order',
+    dateStr: '2023/01/02',
+    formatStr: 'dd/MM/yyyy',
     locale: 'pt-BR',
-    expected: new Date(2023, 1, 1)
+    expectedErrorPattern: /Invalid date string/
+  },
+  
+  // Invalid dates
+  {
+    description: 'Invalid date - February 30',
+    dateStr: '30/02/2023',
+    formatStr: 'dd/MM/yyyy',
+    locale: 'pt-BR',
+    expectedErrorPattern: /Invalid date string/
   },
   {
-    description: 'Brazilian format with full month name',
-    input: '01 fevereiro 2023',
-    format: 'dd MMMM yyyy',
+    description: 'Invalid date - April 31',
+    dateStr: '31/04/2023',
+    formatStr: 'dd/MM/yyyy',
     locale: 'pt-BR',
-    expected: new Date(2023, 1, 1)
+    expectedErrorPattern: /Invalid date string/
+  },
+  
+  // Non-date strings
+  {
+    description: 'Non-date string',
+    dateStr: 'not a date',
+    formatStr: 'dd/MM/yyyy',
+    locale: 'pt-BR',
+    expectedErrorPattern: /Invalid date string/
   },
   {
-    description: 'Brazilian format with weekday',
-    input: 'qua, 01/02/2023',
-    format: 'EEE, dd/MM/yyyy',
+    description: 'Empty string',
+    dateStr: '',
+    formatStr: 'dd/MM/yyyy',
     locale: 'pt-BR',
-    expected: new Date(2023, 1, 1)
+    expectedErrorPattern: /Invalid date string/
+  },
+  
+  // Incorrect format strings
+  {
+    description: 'Incorrect format string for date',
+    dateStr: '01/02/2023',
+    formatStr: 'yyyy-MM-dd',
+    locale: 'pt-BR',
+    expectedErrorPattern: /Invalid date string/
   },
   {
-    description: 'Brazilian format with full weekday',
-    input: 'quarta-feira, 01/02/2023',
-    format: 'EEEE, dd/MM/yyyy',
+    description: 'Format string with missing components',
+    dateStr: '01/02',
+    formatStr: 'dd/MM',
     locale: 'pt-BR',
-    expected: new Date(2023, 1, 1)
+    expectedErrorPattern: /Invalid date string/
   }
 ];
 
 /**
- * Locale-specific test cases for en-US
+ * Locale-specific date parsing test cases
+ * Tests parsing behavior with different locales
  */
-export const enUSFormatFixtures: ValidDateParseFixture[] = [
+export const localeSpecificParseFixtures = [
+  // Brazilian locale (pt-BR) specific tests
   {
-    description: 'US format with explicit locale',
-    input: '02/01/2023', // MM/dd/yyyy in US format
-    format: 'MM/dd/yyyy',
-    locale: 'en-US',
-    expected: new Date(2023, 1, 1)
+    description: 'Brazilian date format with month name',
+    dateStr: '01 de janeiro de 2023',
+    formatStr: 'dd \\de MMMM \\de yyyy',
+    locale: 'pt-BR',
+    expected: new Date(2023, 0, 1) // January 1, 2023
   },
   {
-    description: 'US format with month name',
-    input: 'Feb 01, 2023',
-    format: 'MMM dd, yyyy',
-    locale: 'en-US',
-    expected: new Date(2023, 1, 1)
+    description: 'Brazilian date format with abbreviated month name',
+    dateStr: '01 jan 2023',
+    formatStr: 'dd MMM yyyy',
+    locale: 'pt-BR',
+    expected: new Date(2023, 0, 1) // January 1, 2023
   },
   {
-    description: 'US format with full month name',
-    input: 'February 01, 2023',
-    format: 'MMMM dd, yyyy',
+    description: 'Brazilian date format with weekday',
+    dateStr: 'domingo, 01 de janeiro de 2023',
+    formatStr: 'EEEE, dd \\de MMMM \\de yyyy',
+    locale: 'pt-BR',
+    expected: new Date(2023, 0, 1) // January 1, 2023 was a Sunday
+  },
+  
+  // US locale (en-US) specific tests
+  {
+    description: 'US date format with month name',
+    dateStr: 'January 1, 2023',
+    formatStr: 'MMMM d, yyyy',
     locale: 'en-US',
-    expected: new Date(2023, 1, 1)
+    expected: new Date(2023, 0, 1) // January 1, 2023
   },
   {
-    description: 'US format with weekday',
-    input: 'Wed, 02/01/2023',
-    format: 'EEE, MM/dd/yyyy',
+    description: 'US date format with abbreviated month name',
+    dateStr: 'Jan 1, 2023',
+    formatStr: 'MMM d, yyyy',
     locale: 'en-US',
-    expected: new Date(2023, 1, 1)
+    expected: new Date(2023, 0, 1) // January 1, 2023
   },
   {
-    description: 'US format with full weekday',
-    input: 'Wednesday, February 01, 2023',
-    format: 'EEEE, MMMM dd, yyyy',
+    description: 'US date format with weekday',
+    dateStr: 'Sunday, January 1, 2023',
+    formatStr: 'EEEE, MMMM d, yyyy',
     locale: 'en-US',
-    expected: new Date(2023, 1, 1)
+    expected: new Date(2023, 0, 1) // January 1, 2023 was a Sunday
+  },
+  
+  // Cross-locale parsing (testing robustness)
+  {
+    description: 'Brazilian format with US locale',
+    dateStr: '01/02/2023', // In Brazil this is February 1, but parsing with US locale
+    formatStr: 'dd/MM/yyyy', // Explicitly telling it's day/month/year format
+    locale: 'en-US',
+    expected: new Date(2023, 1, 1) // Should still correctly parse as February 1, 2023
+  },
+  {
+    description: 'US format with Brazilian locale',
+    dateStr: '02/01/2023', // In US this is January 2, but parsing with Brazilian locale
+    formatStr: 'MM/dd/yyyy', // Explicitly telling it's month/day/year format
+    locale: 'pt-BR',
+    expected: new Date(2023, 1, 1) // Should still correctly parse as February 1, 2023
   }
 ];
 
 /**
  * Custom format pattern test cases
+ * Tests parsing with various custom format patterns
  */
-export const customFormatFixtures: ValidDateParseFixture[] = [
+export const customFormatParseFixtures = [
+  // ISO format
   {
-    description: 'ISO format (yyyy-MM-dd)',
-    input: '2023-02-01',
-    format: 'yyyy-MM-dd',
-    expected: new Date(2023, 1, 1)
-  },
-  {
-    description: 'Slash-separated format (yyyy/MM/dd)',
-    input: '2023/02/01',
-    format: 'yyyy/MM/dd',
-    expected: new Date(2023, 1, 1)
-  },
-  {
-    description: 'Dot-separated format (dd.MM.yyyy)',
-    input: '01.02.2023',
-    format: 'dd.MM.yyyy',
-    expected: new Date(2023, 1, 1)
-  },
-  {
-    description: 'Space-separated format (dd MM yyyy)',
-    input: '01 02 2023',
-    format: 'dd MM yyyy',
-    expected: new Date(2023, 1, 1)
-  },
-  {
-    description: 'Custom separator format (dd-MM-yyyy)',
-    input: '01-02-2023',
-    format: 'dd-MM-yyyy',
-    expected: new Date(2023, 1, 1)
-  },
-  {
-    description: 'Format with time component (dd/MM/yyyy HH:mm)',
-    input: '01/02/2023 14:30',
-    format: 'dd/MM/yyyy HH:mm',
-    expected: new Date(2023, 1, 1, 14, 30)
-  },
-  {
-    description: 'Format with seconds (dd/MM/yyyy HH:mm:ss)',
-    input: '01/02/2023 14:30:45',
-    format: 'dd/MM/yyyy HH:mm:ss',
-    expected: new Date(2023, 1, 1, 14, 30, 45)
-  },
-  {
-    description: 'Format with milliseconds (dd/MM/yyyy HH:mm:ss.SSS)',
-    input: '01/02/2023 14:30:45.123',
-    format: 'dd/MM/yyyy HH:mm:ss.SSS',
-    expected: new Date(2023, 1, 1, 14, 30, 45, 123)
-  },
-  {
-    description: 'Format with 12-hour clock (dd/MM/yyyy hh:mm a)',
-    input: '01/02/2023 02:30 PM',
-    format: 'dd/MM/yyyy hh:mm a',
-    expected: new Date(2023, 1, 1, 14, 30)
-  },
-  {
-    description: 'Format with timezone offset (yyyy-MM-dd'T'HH:mm:ssXXX)',
-    input: '2023-02-01T14:30:00-03:00',
-    format: "yyyy-MM-dd'T'HH:mm:ssXXX",
-    expected: new Date('2023-02-01T14:30:00-03:00')
-  }
-];
-
-/**
- * Edge case test fixtures
- */
-export const edgeCaseFixtures: ValidDateParseFixture[] = [
-  {
-    description: 'Leap year date (February 29)',
-    input: '29/02/2020',
-    expected: new Date(2020, 1, 29)
-  },
-  {
-    description: 'Last day of the year',
-    input: '31/12/2023',
-    expected: new Date(2023, 11, 31)
-  },
-  {
-    description: 'First day of the year',
-    input: '01/01/2023',
-    expected: new Date(2023, 0, 1)
-  },
-  {
-    description: 'Date with single-digit day',
-    input: '1/02/2023',
-    format: 'd/MM/yyyy',
-    expected: new Date(2023, 1, 1)
-  },
-  {
-    description: 'Date with single-digit month',
-    input: '01/2/2023',
-    format: 'dd/M/yyyy',
-    expected: new Date(2023, 1, 1)
-  }
-];
-
-/**
- * Invalid date test fixtures that should throw errors
- */
-export const invalidDateFixtures: InvalidDateParseFixture[] = [
-  {
-    description: 'Invalid day (day 32)',
-    input: '32/01/2023',
-    errorMessage: 'Invalid date string: 32/01/2023 for format: dd/MM/yyyy'
-  },
-  {
-    description: 'Invalid month (month 13)',
-    input: '01/13/2023',
-    errorMessage: 'Invalid date string: 01/13/2023 for format: dd/MM/yyyy'
-  },
-  {
-    description: 'Invalid date in February (non-leap year)',
-    input: '29/02/2023',
-    errorMessage: 'Invalid date string: 29/02/2023 for format: dd/MM/yyyy'
-  },
-  {
-    description: 'Invalid format (expected dd/MM/yyyy, got MM/dd/yyyy)',
-    input: '02/01/2023', // This is actually MM/dd/yyyy format
-    format: 'dd/MM/yyyy',
+    description: 'ISO date format',
+    dateStr: '2023-02-01',
+    formatStr: 'yyyy-MM-dd',
     locale: 'pt-BR',
-    errorMessage: 'Invalid date string: 02/01/2023 for format: dd/MM/yyyy'
+    expected: new Date(2023, 1, 1) // February 1, 2023
   },
   {
-    description: 'Completely invalid date string',
-    input: 'not-a-date',
-    errorMessage: 'Invalid date string: not-a-date for format: dd/MM/yyyy'
-  },
-  {
-    description: 'Empty date string',
-    input: '',
-    errorMessage: 'Invalid date string:  for format: dd/MM/yyyy'
-  },
-  {
-    description: 'Partial date (missing year)',
-    input: '01/02',
-    errorMessage: 'Invalid date string: 01/02 for format: dd/MM/yyyy'
-  },
-  {
-    description: 'Wrong separator for format',
-    input: '01-02-2023',
-    format: 'dd/MM/yyyy',
-    errorMessage: 'Invalid date string: 01-02-2023 for format: dd/MM/yyyy'
-  },
-  {
-    description: 'Invalid characters in date string',
-    input: '01/02/202X',
-    errorMessage: 'Invalid date string: 01/02/202X for format: dd/MM/yyyy'
-  }
-];
-
-/**
- * Journey-specific date format test fixtures
- */
-export const journeySpecificFixtures: ValidDateParseFixture[] = [
-  {
-    description: 'Health journey date format with time',
-    input: '01/02/2023 14:30',
-    format: 'dd/MM/yyyy HH:mm',
-    expected: new Date(2023, 1, 1, 14, 30)
-  },
-  {
-    description: 'Care journey appointment date format',
-    input: 'qua, 01 fev 2023',
-    format: 'EEE, dd MMM yyyy',
+    description: 'ISO datetime format',
+    dateStr: '2023-02-01T14:30:00',
+    formatStr: "yyyy-MM-dd'T'HH:mm:ss",
     locale: 'pt-BR',
-    expected: new Date(2023, 1, 1)
+    expected: new Date(2023, 1, 1, 14, 30, 0) // February 1, 2023, 14:30:00
+  },
+  
+  // Slash-separated formats
+  {
+    description: 'Slash-separated year first',
+    dateStr: '2023/02/01',
+    formatStr: 'yyyy/MM/dd',
+    locale: 'pt-BR',
+    expected: new Date(2023, 1, 1) // February 1, 2023
+  },
+  
+  // Dot-separated formats
+  {
+    description: 'Dot-separated format',
+    dateStr: '01.02.2023',
+    formatStr: 'dd.MM.yyyy',
+    locale: 'pt-BR',
+    expected: new Date(2023, 1, 1) // February 1, 2023
+  },
+  
+  // Space-separated formats
+  {
+    description: 'Space-separated format',
+    dateStr: '01 02 2023',
+    formatStr: 'dd MM yyyy',
+    locale: 'pt-BR',
+    expected: new Date(2023, 1, 1) // February 1, 2023
+  },
+  
+  // Text month formats
+  {
+    description: 'Month as text - full',
+    dateStr: '1 February 2023',
+    formatStr: 'd MMMM yyyy',
+    locale: 'en-US',
+    expected: new Date(2023, 1, 1) // February 1, 2023
   },
   {
-    description: 'Plan journey formal date format',
-    input: '01/02/2023',
-    format: 'dd/MM/yyyy',
-    expected: new Date(2023, 1, 1)
+    description: 'Month as text - abbreviated',
+    dateStr: '1 Feb 2023',
+    formatStr: 'd MMM yyyy',
+    locale: 'en-US',
+    expected: new Date(2023, 1, 1) // February 1, 2023
+  },
+  
+  // Formats with day of week
+  {
+    description: 'Format with full day of week',
+    dateStr: 'Wednesday, February 1, 2023',
+    formatStr: 'EEEE, MMMM d, yyyy',
+    locale: 'en-US',
+    expected: new Date(2023, 1, 1) // February 1, 2023 was a Wednesday
+  },
+  
+  // Formats with time components
+  {
+    description: 'Format with 12-hour time',
+    dateStr: 'February 1, 2023 2:30 PM',
+    formatStr: 'MMMM d, yyyy h:mm a',
+    locale: 'en-US',
+    expected: new Date(2023, 1, 1, 14, 30) // February 1, 2023, 2:30 PM
+  },
+  {
+    description: 'Format with 24-hour time',
+    dateStr: '01/02/2023 14:30',
+    formatStr: 'dd/MM/yyyy HH:mm',
+    locale: 'pt-BR',
+    expected: new Date(2023, 1, 1, 14, 30) // February 1, 2023, 14:30
   }
-];
-
-/**
- * All valid date fixtures combined
- */
-export const allValidFixtures: ValidDateParseFixture[] = [
-  ...standardFormatFixtures,
-  ...ptBRFormatFixtures,
-  ...enUSFormatFixtures,
-  ...customFormatFixtures,
-  ...edgeCaseFixtures,
-  ...journeySpecificFixtures
 ];
