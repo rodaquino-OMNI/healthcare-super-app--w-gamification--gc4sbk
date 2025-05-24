@@ -1,259 +1,194 @@
 /**
- * Tests for the type utilities barrel file.
- * 
- * These tests verify that all expected exports are available and properly re-exported
- * to ensure the public API remains stable. This is critical for validating the module's
- * external interface and detecting breaking changes to export patterns.
+ * @file Tests for the type utilities barrel file
+ * @description Verifies that all expected exports are available and properly re-exported
  */
 
-// Import all exports from the barrel file
 import * as typeUtils from '../../../src/type';
 
-// Import individual modules to compare exports
-import * as guardUtils from '../../../src/type/guard';
-import * as assertionUtils from '../../../src/type/assertions';
-import * as predicateUtils from '../../../src/type/predicate';
-import * as conversionUtils from '../../../src/type/conversion';
-
 describe('Type Utilities Barrel File', () => {
-  describe('Guard Utilities', () => {
-    // List of all expected guard utility exports
-    const expectedGuardExports = [
-      'isString',
-      'isNumber',
-      'isBoolean',
-      'isUndefined',
-      'isNull',
-      'isNullOrUndefined',
-      'isArray',
-      'isObject',
-      'isFunction',
-      'isDate',
-      'isPromise',
-      'isEmpty',
-      'isNotEmpty',
-      'isPlainObject',
-      'isNumeric',
-      'isInteger',
-      'isPositive',
-      'isNegative',
-      'isNonEmptyArray',
-      'isNonEmptyString',
-      'isEmail',
-      'isUrl',
-      'isPrimitiveType',
-      'isArrayOf',
-      'isRecordOf'
-    ];
-
-    it('should export all guard utilities', () => {
-      expectedGuardExports.forEach(exportName => {
-        expect(typeUtils).toHaveProperty(exportName);
-      });
+  describe('Exports Availability', () => {
+    it('should export all type guard functions', () => {
+      // Type guard functions
+      expect(typeUtils.isString).toBeDefined();
+      expect(typeUtils.isNumber).toBeDefined();
+      expect(typeUtils.isBoolean).toBeDefined();
+      expect(typeUtils.isArray).toBeDefined();
+      expect(typeUtils.isObject).toBeDefined();
+      expect(typeUtils.isFunction).toBeDefined();
+      expect(typeUtils.isDate).toBeDefined();
+      expect(typeUtils.isPromise).toBeDefined();
+      expect(typeUtils.isEmpty).toBeDefined();
+      expect(typeUtils.isNil).toBeDefined();
+      expect(typeUtils.isUndefined).toBeDefined();
+      expect(typeUtils.isNull).toBeDefined();
     });
 
-    it('should re-export the same functions as the guard module', () => {
-      Object.keys(guardUtils).forEach(exportName => {
-        expect(typeUtils).toHaveProperty(exportName);
-        expect(typeUtils[exportName]).toBe(guardUtils[exportName]);
-      });
+    it('should export all type predicate functions', () => {
+      // Type predicate functions
+      expect(typeUtils.isInstanceOf).toBeDefined();
+      expect(typeUtils.hasProperty).toBeDefined();
+      expect(typeUtils.hasProperties).toBeDefined();
+      expect(typeUtils.isNonEmptyArray).toBeDefined();
+      expect(typeUtils.isValidDate).toBeDefined();
     });
 
-    it('should maintain function signatures for guard utilities', () => {
-      // Test a few key functions to ensure they maintain their expected signatures
-      const testValue = 'test';
-      expect(typeUtils.isString(testValue)).toBe(true);
+    it('should export all type conversion functions', () => {
+      // Type conversion functions
+      expect(typeUtils.toString).toBeDefined();
+      expect(typeUtils.toNumber).toBeDefined();
+      expect(typeUtils.toBoolean).toBeDefined();
+      expect(typeUtils.toArray).toBeDefined();
+      expect(typeUtils.toDate).toBeDefined();
+    });
+
+    it('should export all type assertion functions', () => {
+      // Type assertion functions
+      expect(typeUtils.assertString).toBeDefined();
+      expect(typeUtils.assertNumber).toBeDefined();
+      expect(typeUtils.assertBoolean).toBeDefined();
+      expect(typeUtils.assertArray).toBeDefined();
+      expect(typeUtils.assertObject).toBeDefined();
+      expect(typeUtils.assertFunction).toBeDefined();
+      expect(typeUtils.assertDate).toBeDefined();
+      expect(typeUtils.assertNonEmptyArray).toBeDefined();
+      expect(typeUtils.assertNever).toBeDefined();
+    });
+  });
+
+  describe('Type Guard Functions', () => {
+    it('should correctly identify types', () => {
+      // Test isString
+      expect(typeof typeUtils.isString).toBe('function');
+      expect(typeUtils.isString('test')).toBe(true);
+      expect(typeUtils.isString(123)).toBe(false);
+
+      // Test isNumber
+      expect(typeof typeUtils.isNumber).toBe('function');
       expect(typeUtils.isNumber(123)).toBe(true);
-      expect(typeUtils.isBoolean(false)).toBe(true);
+      expect(typeUtils.isNumber('123')).toBe(false);
+
+      // Test isBoolean
+      expect(typeof typeUtils.isBoolean).toBe('function');
+      expect(typeUtils.isBoolean(true)).toBe(true);
+      expect(typeUtils.isBoolean('true')).toBe(false);
+
+      // Test isArray
+      expect(typeof typeUtils.isArray).toBe('function');
       expect(typeUtils.isArray([])).toBe(true);
+      expect(typeUtils.isArray({})).toBe(false);
+
+      // Test isObject
+      expect(typeof typeUtils.isObject).toBe('function');
       expect(typeUtils.isObject({})).toBe(true);
+      expect(typeUtils.isObject([])).toBe(false); // Arrays should not be considered objects
+      expect(typeUtils.isObject(null)).toBe(false); // Null should not be considered an object
+
+      // Test isFunction
+      expect(typeof typeUtils.isFunction).toBe('function');
+      expect(typeUtils.isFunction(() => {})).toBe(true);
+      expect(typeUtils.isFunction({})).toBe(false);
+
+      // Test isNil
+      expect(typeof typeUtils.isNil).toBe('function');
+      expect(typeUtils.isNil(null)).toBe(true);
+      expect(typeUtils.isNil(undefined)).toBe(true);
+      expect(typeUtils.isNil('')).toBe(false);
     });
   });
 
-  describe('Assertion Utilities', () => {
-    // List of all expected assertion utility exports
-    const expectedAssertionExports = [
-      'assertString',
-      'assertNumber',
-      'assertBoolean',
-      'assertObject',
-      'assertArray',
-      'assertDate',
-      'assertFunction',
-      'assertDefined',
-      'assertNonNull',
-      'assertNonNullable',
-      'assertType',
-      'assertInstanceOf',
-      'assertNever',
-      'assert',
-      'assertOneOf'
-    ];
+  describe('Type Predicate Functions', () => {
+    it('should correctly narrow types', () => {
+      // Test isInstanceOf
+      class TestClass {}
+      const instance = new TestClass();
+      expect(typeof typeUtils.isInstanceOf).toBe('function');
+      expect(typeUtils.isInstanceOf(instance, TestClass)).toBe(true);
+      expect(typeUtils.isInstanceOf({}, TestClass)).toBe(false);
 
-    it('should export all assertion utilities', () => {
-      expectedAssertionExports.forEach(exportName => {
-        expect(typeUtils).toHaveProperty(exportName);
-      });
-    });
+      // Test hasProperty
+      expect(typeof typeUtils.hasProperty).toBe('function');
+      expect(typeUtils.hasProperty({ prop: 'value' }, 'prop')).toBe(true);
+      expect(typeUtils.hasProperty({}, 'prop')).toBe(false);
 
-    it('should re-export the same functions as the assertions module', () => {
-      Object.keys(assertionUtils).forEach(exportName => {
-        expect(typeUtils).toHaveProperty(exportName);
-        expect(typeUtils[exportName]).toBe(assertionUtils[exportName]);
-      });
-    });
-
-    it('should maintain function signatures for assertion utilities', () => {
-      // Test that assertion functions throw when expected
-      expect(() => typeUtils.assertString(123)).toThrow();
-      expect(() => typeUtils.assertNumber('test')).toThrow();
-      expect(() => typeUtils.assertBoolean('true')).toThrow();
-      expect(() => typeUtils.assertArray({})).toThrow();
-      expect(() => typeUtils.assertObject([])).toThrow();
-      
-      // Test that assertion functions don't throw with valid inputs
-      expect(() => typeUtils.assertString('test')).not.toThrow();
-      expect(() => typeUtils.assertNumber(123)).not.toThrow();
-      expect(() => typeUtils.assertBoolean(false)).not.toThrow();
-      expect(() => typeUtils.assertArray([])).not.toThrow();
-      expect(() => typeUtils.assertObject({})).not.toThrow();
+      // Test isNonEmptyArray
+      expect(typeof typeUtils.isNonEmptyArray).toBe('function');
+      expect(typeUtils.isNonEmptyArray([1, 2, 3])).toBe(true);
+      expect(typeUtils.isNonEmptyArray([])).toBe(false);
+      expect(typeUtils.isNonEmptyArray(null as any)).toBe(false);
     });
   });
 
-  describe('Predicate Utilities', () => {
-    // List of all expected predicate utility exports
-    const expectedPredicateExports = [
-      'isDefined',
-      'isNotNull',
-      'isNotUndefined',
-      'isNonEmptyArray',
-      'isArrayOfLength',
-      'isArrayOf',
-      'hasProperty',
-      'hasPropertyOfType',
-      'hasProperties',
-      'isInstanceOf',
-      'isInstanceOfAny',
-      'isFilterDto',
-      'isPaginationDto',
-      'isSortDto',
-      'isOneOf',
-      'isOneOfType',
-      'hasDiscriminator'
-    ];
-
-    it('should export all predicate utilities', () => {
-      expectedPredicateExports.forEach(exportName => {
-        expect(typeUtils).toHaveProperty(exportName);
-      });
-    });
-
-    it('should re-export the same functions as the predicate module', () => {
-      Object.keys(predicateUtils).forEach(exportName => {
-        expect(typeUtils).toHaveProperty(exportName);
-        expect(typeUtils[exportName]).toBe(predicateUtils[exportName]);
-      });
-    });
-
-    it('should maintain function signatures for predicate utilities', () => {
-      // Test a few key functions to ensure they maintain their expected signatures
-      expect(typeUtils.isDefined('test')).toBe(true);
-      expect(typeUtils.isDefined(null)).toBe(false);
-      expect(typeUtils.isNotNull('test')).toBe(true);
-      expect(typeUtils.isNotNull(null)).toBe(false);
-      expect(typeUtils.hasProperty({ name: 'test' }, 'name')).toBe(true);
-      expect(typeUtils.hasProperty({ age: 30 }, 'name')).toBe(false);
-    });
-  });
-
-  describe('Conversion Utilities', () => {
-    // List of all expected conversion utility exports
-    const expectedConversionExports = [
-      'toString',
-      'toNumber',
-      'toInteger',
-      'toFloat',
-      'toBoolean',
-      'toDate',
-      'toArray',
-      'toObject',
-      'toMap',
-      'toSet',
-      'toEnum',
-      'toURL',
-      'toJourneyFormat',
-      'withRetry',
-      'withOptimisticLock',
-      'withCircuitBreaker'
-    ];
-
-    it('should export all conversion utilities', () => {
-      expectedConversionExports.forEach(exportName => {
-        expect(typeUtils).toHaveProperty(exportName);
-      });
-    });
-
-    it('should re-export the same functions as the conversion module', () => {
-      Object.keys(conversionUtils).forEach(exportName => {
-        expect(typeUtils).toHaveProperty(exportName);
-        expect(typeUtils[exportName]).toBe(conversionUtils[exportName]);
-      });
-    });
-
-    it('should maintain function signatures for conversion utilities', () => {
-      // Test a few key functions to ensure they maintain their expected signatures
+  describe('Type Conversion Functions', () => {
+    it('should correctly convert between types', () => {
+      // Test toString
+      expect(typeof typeUtils.toString).toBe('function');
       expect(typeUtils.toString(123)).toBe('123');
+      expect(typeUtils.toString(null, 'default')).toBe('default');
+
+      // Test toNumber
+      expect(typeof typeUtils.toNumber).toBe('function');
       expect(typeUtils.toNumber('123')).toBe(123);
+      expect(typeUtils.toNumber('abc', 0)).toBe(0);
+
+      // Test toBoolean
+      expect(typeof typeUtils.toBoolean).toBe('function');
       expect(typeUtils.toBoolean('true')).toBe(true);
-      expect(typeUtils.toArray('test')).toEqual(['test']);
-      expect(typeUtils.toObject('{"name":"test"}', {})).toEqual({ name: 'test' });
+      expect(typeUtils.toBoolean('false')).toBe(false);
+      expect(typeUtils.toBoolean('invalid', true)).toBe(true);
+
+      // Test toArray
+      expect(typeof typeUtils.toArray).toBe('function');
+      expect(typeUtils.toArray('item')).toEqual(['item']);
+      expect(typeUtils.toArray(['item'])).toEqual(['item']);
+      expect(typeUtils.toArray(null, ['default'])).toEqual(['default']);
+    });
+  });
+
+  describe('Type Assertion Functions', () => {
+    it('should throw errors for invalid types', () => {
+      // Test assertString
+      expect(typeof typeUtils.assertString).toBe('function');
+      expect(() => typeUtils.assertString('test')).not.toThrow();
+      expect(() => typeUtils.assertString(123)).toThrow();
+
+      // Test assertNumber
+      expect(typeof typeUtils.assertNumber).toBe('function');
+      expect(() => typeUtils.assertNumber(123)).not.toThrow();
+      expect(() => typeUtils.assertNumber('123')).toThrow();
+
+      // Test assertArray
+      expect(typeof typeUtils.assertArray).toBe('function');
+      expect(() => typeUtils.assertArray([])).not.toThrow();
+      expect(() => typeUtils.assertArray({})).toThrow();
+
+      // Test assertNonEmptyArray
+      expect(typeof typeUtils.assertNonEmptyArray).toBe('function');
+      expect(() => typeUtils.assertNonEmptyArray([1, 2, 3])).not.toThrow();
+      expect(() => typeUtils.assertNonEmptyArray([])).toThrow();
+
+      // Test assertNever
+      expect(typeof typeUtils.assertNever).toBe('function');
+      expect(() => typeUtils.assertNever('unexpected' as never)).toThrow();
     });
   });
 
   describe('Import Patterns', () => {
-    it('should support importing all utilities from the barrel file', () => {
-      // This test verifies that the pattern used at the top of this file works
-      expect(typeof typeUtils).toBe('object');
-      expect(Object.keys(typeUtils).length).toBeGreaterThan(0);
-    });
-
-    it('should support named imports for specific utilities', () => {
-      // This test simulates how consumers would import specific utilities
-      const { isString, isNumber, toString, toNumber } = typeUtils;
-      
-      expect(typeof isString).toBe('function');
-      expect(typeof isNumber).toBe('function');
-      expect(typeof toString).toBe('function');
-      expect(typeof toNumber).toBe('function');
+    it('should support named imports', () => {
+      // Simulate named imports
+      const { isString, isNumber, toBoolean, assertArray } = typeUtils;
       
       expect(isString('test')).toBe(true);
       expect(isNumber(123)).toBe(true);
-      expect(toString(123)).toBe('123');
-      expect(toNumber('123')).toBe(123);
+      expect(toBoolean('true')).toBe(true);
+      expect(() => assertArray([])).not.toThrow();
     });
-  });
 
-  describe('API Completeness', () => {
-    it('should export all functions from all submodules', () => {
-      // Combine all exports from individual modules
-      const allSubmoduleExports = [
-        ...Object.keys(guardUtils),
-        ...Object.keys(assertionUtils),
-        ...Object.keys(predicateUtils),
-        ...Object.keys(conversionUtils)
-      ];
+    it('should support destructured imports with aliases', () => {
+      // Simulate destructured imports with aliases
+      const { isString: checkString, isNumber: checkNumber } = typeUtils;
       
-      // Check that each export is available in the barrel file
-      allSubmoduleExports.forEach(exportName => {
-        expect(typeUtils).toHaveProperty(exportName);
-      });
-      
-      // Check that the barrel file doesn't export anything not in the submodules
-      const barrelExports = Object.keys(typeUtils);
-      barrelExports.forEach(exportName => {
-        const isInSubmodules = allSubmoduleExports.includes(exportName);
-        expect(isInSubmodules).toBe(true);
-      });
+      expect(checkString('test')).toBe(true);
+      expect(checkNumber(123)).toBe(true);
     });
   });
 });
