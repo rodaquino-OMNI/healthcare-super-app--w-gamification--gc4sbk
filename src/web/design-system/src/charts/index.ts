@@ -5,10 +5,9 @@
  * with particular focus on health metrics, trends, and analytics. The components support
  * journey-specific theming and responsive design.
  * 
- * These chart components are part of the @austa/design-system package and utilize:
- * - Design tokens from @design-system/primitives for consistent styling
- * - Type definitions from @austa/interfaces for prop typing
- * - Journey-specific theming through the @austa/journey-context package
+ * Part of the @austa/design-system package, these chart components leverage design tokens
+ * from @design-system/primitives and type definitions from @austa/interfaces to ensure
+ * consistent visualization across web and mobile platforms.
  * 
  * @packageDocumentation
  */
