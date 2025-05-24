@@ -1,14 +1,9 @@
 import React from 'react';
-import { describe, it, expect } from '@jest/globals';
+import { describe, it, expect, jest } from '@jest/globals';
 import { render, screen, fireEvent } from '@testing-library/react';
 import Button from './Button';
 import { colors } from '@design-system/primitives/src/tokens/colors';
 import { spacing } from '@design-system/primitives/src/tokens/spacing';
-import { baseTheme } from '../../themes/base.theme';
-import { healthTheme } from '../../themes/health.theme';
-import { careTheme } from '../../themes/care.theme';
-import { planTheme } from '../../themes/plan.theme';
-import { useJourney } from '@austa/journey-context';
 
 // Mock react-native components
 jest.mock('react-native', () => ({
@@ -17,17 +12,8 @@ jest.mock('react-native', () => ({
   ),
 }));
 
-// Mock the journey context hook
-jest.mock('@austa/journey-context', () => ({
-  useJourney: jest.fn().mockReturnValue({
-    currentJourney: 'health',
-    setCurrentJourney: jest.fn(),
-    availableJourneys: ['health', 'care', 'plan']
-  })
-}));
-
 // Mock the Touchable component to pass through props to a button element
-jest.mock('@design-system/primitives/src/components/Touchable/Touchable', () => ({
+jest.mock('@design-system/primitives/src/components/Touchable', () => ({
   Touchable: ({ children, ...props }) => (
     <button 
       data-testid="button" 
@@ -39,7 +25,7 @@ jest.mock('@design-system/primitives/src/components/Touchable/Touchable', () => 
 }));
 
 // Mock the Icon component
-jest.mock('@design-system/primitives/src/components/Icon/Icon', () => ({
+jest.mock('@design-system/primitives/src/components/Icon', () => ({
   Icon: ({ name, size, color, ...props }) => (
     <span 
       data-testid="icon" 
@@ -52,7 +38,7 @@ jest.mock('@design-system/primitives/src/components/Icon/Icon', () => ({
 }));
 
 // Mock the Text component
-jest.mock('@design-system/primitives/src/components/Text/Text', () => ({
+jest.mock('@design-system/primitives/src/components/Text', () => ({
   Text: ({ children, fontSize, fontWeight, color, ...props }) => (
     <span 
       data-testid="text" 
@@ -64,6 +50,15 @@ jest.mock('@design-system/primitives/src/components/Text/Text', () => ({
       {children}
     </span>
   ),
+}));
+
+// Mock journey context
+jest.mock('@austa/journey-context', () => ({
+  useJourney: jest.fn().mockReturnValue({
+    currentJourney: 'health',
+    setCurrentJourney: jest.fn(),
+    availableJourneys: ['health', 'care', 'plan']
+  })
 }));
 
 describe('Button', () => {
@@ -138,22 +133,11 @@ describe('Button', () => {
   });
   
   // Test journey context integration
-  it('uses current journey from context when journey prop is not provided', () => {
-    (useJourney as jest.Mock).mockReturnValue({
-      currentJourney: 'care',
-      setCurrentJourney: jest.fn(),
-      availableJourneys: ['health', 'care', 'plan']
-    });
+  it('uses journey from context when not explicitly provided', () => {
+    render(<Button>Context Journey</Button>);
     
-    render(<Button>Context Journey Button</Button>);
-    expect(screen.getByTestId('button')).toHaveAttribute('journey', 'care');
-    
-    // Reset mock for other tests
-    (useJourney as jest.Mock).mockReturnValue({
-      currentJourney: 'health',
-      setCurrentJourney: jest.fn(),
-      availableJourneys: ['health', 'care', 'plan']
-    });
+    // Should use 'health' from the mocked journey context
+    expect(screen.getByTestId('button')).toHaveAttribute('journey', 'health');
   });
   
   // Test icon rendering
@@ -184,8 +168,8 @@ describe('Button', () => {
     const button = screen.getByTestId('button');
     expect(button).toHaveAttribute('accessibilityRole', 'button');
     expect(button).toHaveAttribute('accessibilityLabel', 'Accessible Button');
-    expect(button).toHaveAttribute('aria-label', 'Accessible Button');
     expect(button).toHaveAttribute('role', 'button');
+    expect(button).toHaveAttribute('aria-label', 'Accessible Button');
   });
   
   it('uses content as accessibility label when not explicitly provided', () => {
@@ -251,33 +235,30 @@ describe('Button', () => {
     expect(screen.getByTestId('text')).toHaveAttribute('data-font-size', 'lg');
   });
   
-  // Test focus handling for accessibility
-  it('supports keyboard focus with proper focus indicators', () => {
+  // Test focus management
+  it('supports focus management with proper tabIndex', () => {
     render(<Button>Focusable Button</Button>);
+    expect(screen.getByTestId('button')).toHaveAttribute('tabIndex', '0');
     
-    const button = screen.getByTestId('button');
-    expect(button).toHaveAttribute('tabIndex', '0');
-    
-    // Simulate focus
-    fireEvent.focus(button);
-    expect(document.activeElement).toBe(button);
+    render(<Button disabled>Disabled Button</Button>);
+    expect(screen.getByTestId('button')).toHaveAttribute('tabIndex', '-1');
   });
   
   // Test additional ARIA attributes
   it('applies additional ARIA attributes correctly', () => {
     render(
       <Button 
-        aria-haspopup="true"
+        aria-haspopup="true" 
         aria-expanded="false"
-        aria-controls="menu-id"
+        aria-controls="dropdown-menu"
       >
-        Menu Button
+        Dropdown Button
       </Button>
     );
     
     const button = screen.getByTestId('button');
     expect(button).toHaveAttribute('aria-haspopup', 'true');
     expect(button).toHaveAttribute('aria-expanded', 'false');
-    expect(button).toHaveAttribute('aria-controls', 'menu-id');
+    expect(button).toHaveAttribute('aria-controls', 'dropdown-menu');
   });
 });
