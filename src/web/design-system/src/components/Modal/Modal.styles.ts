@@ -1,6 +1,9 @@
 import styled from 'styled-components';
-import { Box } from '@design-system/primitives/components';
-import { animation, spacing, shadows, breakpoints, colors } from '../../tokens';
+import { Box } from '@design-system/primitives/components/Box';
+import { animation, spacing, shadows, breakpoints, colors } from '@design-system/primitives/tokens';
+
+// Define journey type for proper TypeScript typing
+export type JourneyType = 'health' | 'care' | 'plan' | undefined;
 
 // Styled component for the modal backdrop that covers the entire screen with a semi-transparent background
 export const ModalBackdrop = styled(Box)<{ visible?: boolean }>`
@@ -26,9 +29,9 @@ export const ModalBackdrop = styled(Box)<{ visible?: boolean }>`
 `;
 
 // Styled component for the modal container with appropriate styling and animations
-export const ModalContainer = styled(Box)<{ visible?: boolean; journeyTheme?: string }>`
+export const ModalContainer = styled(Box)<{ visible?: boolean; journey?: JourneyType }>`
   background-color: white;
-  border-radius: ${spacing.md};
+  border-radius: md;
   box-shadow: ${shadows.lg};
   width: 90%;
   max-width: 500px;
@@ -45,15 +48,15 @@ export const ModalContainer = styled(Box)<{ visible?: boolean; journeyTheme?: st
     opacity: 1;
   `}
   
-  ${({ journeyTheme }) => journeyTheme === 'health' && `
+  ${({ journey }) => journey === 'health' && `
     border-top: 4px solid ${colors.journey.health.primary};
   `}
   
-  ${({ journeyTheme }) => journeyTheme === 'care' && `
+  ${({ journey }) => journey === 'care' && `
     border-top: 4px solid ${colors.journey.care.primary};
   `}
   
-  ${({ journeyTheme }) => journeyTheme === 'plan' && `
+  ${({ journey }) => journey === 'plan' && `
     border-top: 4px solid ${colors.journey.plan.primary};
   `}
   
@@ -71,28 +74,40 @@ export const ModalContainer = styled(Box)<{ visible?: boolean; journeyTheme?: st
 `;
 
 // Styled component for the modal header section containing the title
-export const ModalHeader = styled(Box)`
+export const ModalHeader = styled(Box)<{ journey?: JourneyType }>`
   padding: ${spacing.md} ${spacing.lg};
   border-bottom: 1px solid ${colors.neutral.gray200};
   display: flex;
   justify-content: space-between;
   align-items: center;
-`;
-
-// Styled component for the modal content section
-export const ModalContent = styled(Box)<{ scrollable?: boolean }>`
-  padding: ${spacing.lg};
-  ${({ scrollable }) => scrollable && `
-    overflow-y: auto;
-    max-height: calc(80vh - 120px);
+  
+  ${({ journey }) => journey === 'health' && `
+    color: ${colors.journey.health.primary};
+  `}
+  
+  ${({ journey }) => journey === 'care' && `
+    color: ${colors.journey.care.primary};
+  `}
+  
+  ${({ journey }) => journey === 'plan' && `
+    color: ${colors.journey.plan.primary};
   `}
 `;
 
+// Styled component for the modal content section
+export const ModalContent = styled(Box)`
+  padding: ${spacing.lg};
+  overflow-y: auto;
+`;
+
 // Styled component for the modal actions section containing buttons
-export const ModalActions = styled(Box)`
+export const ModalActions = styled(Box)<{ journey?: JourneyType }>`
   padding: ${spacing.md} ${spacing.lg};
   border-top: 1px solid ${colors.neutral.gray200};
   display: flex;
   justify-content: flex-end;
   gap: ${spacing.sm};
+  
+  /* Journey-specific styling can be applied to action buttons via props */
+  /* No direct styling needed here as buttons will have their own journey styling */
 `;
