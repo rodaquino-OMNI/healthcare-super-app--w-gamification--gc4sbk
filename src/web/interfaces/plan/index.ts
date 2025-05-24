@@ -1,22 +1,64 @@
 /**
  * @file Plan Journey Interfaces
- * @description Centralized barrel file that re-exports all Plan journey interface definitions
- * from the individual type files, providing a unified import entry point. This enables consistent
- * importing of Plan types across the application using a single import statement, reducing import
- * clutter and facilitating type sharing between web and mobile platforms.
+ * @description Centralized export file for all Plan journey interface definitions.
+ * 
+ * This barrel file provides a unified import entry point for all Plan journey types,
+ * enabling consistent importing of Plan types across the application using a single
+ * import statement. This reduces import clutter and facilitates type sharing between
+ * web and mobile platforms.
+ * 
+ * @example
+ * // Import all Plan journey types
+ * import { Plan, Claim, Coverage, Benefit } from '@austa/interfaces/plan';
+ * 
+ * // Or import specific types
+ * import { ClaimStatus, ClaimType } from '@austa/interfaces/plan';
  */
 
-// Re-export all claim-related types
-export * from './claims.types';
+// Claims-related types
+export type {
+  ClaimStatus,
+  ClaimType,
+  ClaimDenialReason,
+  Claim,
+  ClaimSubmissionRequest,
+  ClaimStatusUpdateRequest
+} from './claims.types';
 
-// Re-export all document-related types
-export * from './documents.types';
+// Plan-related types
+export {
+  PlanType
+} from './plans.types';
 
-// Re-export all benefit-related types
-export * from './benefits.types';
+export type {
+  PlanCoverageDetails,
+  Plan,
+  PlanDetailsRequest,
+  PlanDetailsResponse
+} from './plans.types';
 
-// Re-export all coverage-related types
-export * from './coverage.types';
+// Coverage-related types
+export {
+  CoverageType
+} from './coverage.types';
 
-// Re-export all plan-related types
-export * from './plans.types';
+export type {
+  Coverage
+} from './coverage.types';
+
+// Benefit-related types
+export type {
+  BenefitType,
+  BenefitUsage,
+  BenefitLimitations,
+  Benefit,
+  BenefitDetailsRequest,
+  BenefitDetailsResponse
+} from './benefits.types';
+
+// Document-related types
+export type {
+  Document,
+  DocumentType,
+  DocumentMetadata
+} from './documents.types';
