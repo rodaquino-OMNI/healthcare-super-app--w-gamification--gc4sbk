@@ -1,559 +1,538 @@
 /**
- * Validation helpers for testing environment variable validation logic
+ * Validation helpers for testing environment variable validation logic.
  * 
- * This file provides utilities for testing environment variable validation, including
- * schema-based validators, type conversion testers, and validation error matchers.
+ * This module provides utilities for testing schema-based validators, type conversion,
+ * validation error patterns, and error aggregation in environment variable validation.
  */
 
 import { z } from 'zod';
+import { expect } from 'vitest';
 import {
-  EnvironmentVariableError,
   MissingEnvironmentVariableError,
   InvalidEnvironmentVariableError,
-  ValidationEnvironmentVariableError,
-  TransformEnvironmentVariableError,
-  BatchEnvironmentValidationError,
-  EnvironmentErrorCategory
+  EnvironmentValidationError,
+  EnvironmentVariableError
 } from '../../../../src/env/error';
+import { EnvValidator } from '../../../../src/env/types';
 
 /**
- * Options for creating test environment variables
+ * Options for creating a test schema validator
  */
-export interface TestEnvOptions {
-  /** Whether the variable should be missing */
-  missing?: boolean;
-  /** Whether the variable should be empty */
-  empty?: boolean;
-  /** Custom value for the variable */
-  value?: string;
+export interface SchemaValidatorOptions<T> {
+  /** Custom error message for validation failures */
+  errorMessage?: string;
+  /** Default value for the schema */
+  defaultValue?: T;
+  /** Whether the schema should be required */
+  required?: boolean;
 }
 
 /**
- * Sets up a test environment variable with the given options
+ * Creates a Zod schema for testing environment variable validation
  * 
- * @param name - The name of the environment variable
- * @param options - Options for setting up the variable
- * @returns The current value of the variable (for assertions)
+ * @param baseSchema - The base Zod schema to use
+ * @param options - Options for customizing the schema
+ * @returns A Zod schema configured with the specified options
+ * 
+ * @example
+ * // Create a required string schema
+ * const stringSchema = createTestSchema(z.string());
+ * 
+ * @example
+ * // Create an optional number schema with a default value
+ * const numberSchema = createTestSchema(z.number(), { 
+ *   required: false, 
+ *   defaultValue: 3000 
+ * });
  */
-export function setupTestEnv(name: string, options: TestEnvOptions = {}): string | undefined {
-  if (options.missing) {
-    delete process.env[name];
-    return undefined;
+export function createTestSchema<T>(baseSchema: z.ZodType<T>, options?: SchemaValidatorOptions<T>): z.ZodType<T> {
+  let schema = baseSchema;
+  
+  if (options?.required === false) {
+    schema = schema.optional() as z.ZodType<T>;
+    
+    if (options?.defaultValue !== undefined) {
+      schema = schema.default(options.defaultValue) as z.ZodType<T>;
+    }
   }
   
-  if (options.empty) {
-    process.env[name] = '';
-    return '';
+  if (options?.errorMessage) {
+    schema = schema.refine(
+      () => true, // No additional validation, just for custom error message
+      { message: options.errorMessage }
+    );
   }
   
-  if (options.value !== undefined) {
-    process.env[name] = options.value;
-    return options.value;
-  }
-  
-  // Default value if none specified
-  process.env[name] = 'test-value';
-  return 'test-value';
+  return schema;
 }
 
 /**
- * Cleans up a test environment variable
+ * Creates a mock environment variable validator function for testing
  * 
- * @param name - The name of the environment variable to clean up
- */
-export function cleanupTestEnv(name: string): void {
-  delete process.env[name];
-}
-
-/**
- * Creates a test case for validating environment variables
+ * @param shouldPass - Whether the validator should pass or fail
+ * @param errorMessage - Custom error message when validation fails
+ * @returns A validator function that always returns the specified result
  * 
- * @param validator - The validator function to test
- * @param validValues - Array of valid values that should pass validation
- * @param invalidValues - Array of invalid values that should fail validation
- * @param errorType - Expected error type for invalid values
- * @returns A function that runs the test cases
- */
-export function createValidatorTest<T>(
-  validator: (value: string) => T,
-  validValues: string[],
-  invalidValues: string[],
-  errorType: new (...args: any[]) => Error = InvalidEnvironmentVariableError
-): () => void {
-  return () => {
-    // Test valid values
-    for (const value of validValues) {
-      expect(() => validator(value)).not.toThrow();
-    }
-    
-    // Test invalid values
-    for (const value of invalidValues) {
-      expect(() => validator(value)).toThrow(errorType);
-    }
-  };
-}
-
-/**
- * Creates a test case for validating environment variables with expected outputs
+ * @example
+ * // Create a validator that always passes
+ * const alwaysValid = createMockValidator(true);
  * 
- * @param validator - The validator function to test
- * @param testCases - Array of test cases with input and expected output
- * @returns A function that runs the test cases
+ * @example
+ * // Create a validator that always fails with a custom message
+ * const alwaysFails = createMockValidator(false, 'Custom validation error');
  */
-export function createValidatorOutputTest<T>(
-  validator: (value: string) => T,
-  testCases: Array<{ input: string; expected: T }>
-): () => void {
-  return () => {
-    for (const { input, expected } of testCases) {
-      const result = validator(input);
-      expect(result).toEqual(expected);
-    }
-  };
-}
-
-/**
- * Creates a mock Zod schema for testing
- * 
- * @param shouldPass - Whether validation should pass
- * @param errorMessage - Error message to return if validation fails
- * @returns A mock Zod schema
- */
-export function createMockZodSchema<T>(shouldPass: boolean, errorMessage: string = 'Validation failed'): z.ZodType<T> {
-  return {
-    parse: jest.fn().mockImplementation((value: unknown) => {
-      if (!shouldPass) {
-        throw new z.ZodError([
-          {
-            code: 'custom',
-            path: [],
-            message: errorMessage
-          }
-        ]);
-      }
-      return value as T;
-    }),
-    safeParse: jest.fn().mockImplementation((value: unknown) => {
-      if (!shouldPass) {
-        return {
-          success: false,
-          error: new z.ZodError([
-            {
-              code: 'custom',
-              path: [],
-              message: errorMessage
-            }
-          ])
-        };
-      }
-      return { success: true, data: value as T };
-    })
-  } as unknown as z.ZodType<T>;
-}
-
-/**
- * Creates a test case for schema-based validators
- * 
- * @param createValidator - Function that creates a validator with a schema
- * @param validSchema - Schema that should pass validation
- * @param invalidSchema - Schema that should fail validation
- * @param testValue - Value to test with the schemas
- * @returns A function that runs the test cases
- */
-export function createSchemaValidatorTest<T>(
-  createValidator: (schema: z.ZodType<T>) => (value: string) => T,
-  validSchema: z.ZodType<T>,
-  invalidSchema: z.ZodType<T>,
-  testValue: string
-): () => void {
-  return () => {
-    const validValidator = createValidator(validSchema);
-    const invalidValidator = createValidator(invalidSchema);
-    
-    expect(() => validValidator(testValue)).not.toThrow();
-    expect(() => invalidValidator(testValue)).toThrow(ValidationEnvironmentVariableError);
-  };
-}
-
-/**
- * Creates a predicate-based validation test helper
- * 
- * @param predicate - The predicate function to test
- * @param validValues - Values that should satisfy the predicate
- * @param invalidValues - Values that should not satisfy the predicate
- * @returns A function that runs the test cases
- */
-export function createPredicateTest(
-  predicate: (value: string) => boolean,
-  validValues: string[],
-  invalidValues: string[]
-): () => void {
-  return () => {
-    for (const value of validValues) {
-      expect(predicate(value)).toBe(true);
-    }
-    
-    for (const value of invalidValues) {
-      expect(predicate(value)).toBe(false);
-    }
-  };
-}
-
-/**
- * Creates a test case for environment variable transformation
- * 
- * @param transformer - The transformation function to test
- * @param testCases - Array of test cases with input and expected output
- * @returns A function that runs the test cases
- */
-export function createTransformerTest<T>(
-  transformer: (value: string) => T,
-  testCases: Array<{ input: string; expected: T }>
-): () => void {
-  return () => {
-    for (const { input, expected } of testCases) {
-      const result = transformer(input);
-      expect(result).toEqual(expected);
-    }
-  };
-}
-
-/**
- * Creates a test case for environment variable transformation errors
- * 
- * @param transformer - The transformation function to test
- * @param invalidValues - Values that should cause transformation errors
- * @param errorType - Expected error type
- * @returns A function that runs the test cases
- */
-export function createTransformerErrorTest<T>(
-  transformer: (value: string) => T,
-  invalidValues: string[],
-  errorType: new (...args: any[]) => Error = TransformEnvironmentVariableError
-): () => void {
-  return () => {
-    for (const value of invalidValues) {
-      expect(() => transformer(value)).toThrow(errorType);
-    }
-  };
-}
-
-/**
- * Creates a test case for batch validation
- * 
- * @param batchValidator - The batch validation function to test
- * @param validConfigs - Configurations that should pass validation
- * @param invalidConfigs - Configurations that should fail validation
- * @returns A function that runs the test cases
- */
-export function createBatchValidatorTest<T>(
-  batchValidator: (config: Record<string, string>) => T,
-  validConfigs: Record<string, string>[],
-  invalidConfigs: Record<string, string>[]
-): () => void {
-  return () => {
-    for (const config of validConfigs) {
-      expect(() => batchValidator(config)).not.toThrow();
-    }
-    
-    for (const config of invalidConfigs) {
-      expect(() => batchValidator(config)).toThrow(BatchEnvironmentValidationError);
-    }
-  };
-}
-
-/**
- * Creates a test case for validation error messages
- * 
- * @param validator - The validator function to test
- * @param testCases - Array of test cases with input and expected error message pattern
- * @returns A function that runs the test cases
- */
-export function createErrorMessageTest<T>(
-  validator: (value: string) => T,
-  testCases: Array<{ input: string; errorPattern: RegExp }>
-): () => void {
-  return () => {
-    for (const { input, errorPattern } of testCases) {
-      try {
-        validator(input);
-        fail(`Expected validator to throw for input: ${input}`);
-      } catch (error) {
-        expect(error.message).toMatch(errorPattern);
-      }
-    }
-  };
-}
-
-/**
- * Creates a test case for validation error categories
- * 
- * @param validator - The validator function to test
- * @param testCases - Array of test cases with input and expected error category
- * @param categorizer - Function to categorize errors
- * @returns A function that runs the test cases
- */
-export function createErrorCategoryTest<T>(
-  validator: (value: string) => T,
-  testCases: Array<{ input: string; category: EnvironmentErrorCategory }>,
-  categorizer: (error: Error) => EnvironmentErrorCategory
-): () => void {
-  return () => {
-    for (const { input, category } of testCases) {
-      try {
-        validator(input);
-        fail(`Expected validator to throw for input: ${input}`);
-      } catch (error) {
-        const actualCategory = categorizer(error);
-        expect(actualCategory).toBe(category);
-      }
-    }
-  };
-}
-
-/**
- * Creates a mock validator function for testing
- * 
- * @param shouldPass - Whether validation should pass
- * @param returnValue - Value to return if validation passes
- * @param errorType - Type of error to throw if validation fails
- * @returns A mock validator function
- */
-export function createMockValidator<T>(
-  shouldPass: boolean,
-  returnValue: T,
-  errorType: new (name: string, message: string) => EnvironmentVariableError = InvalidEnvironmentVariableError
-): (name: string) => T {
-  return (name: string) => {
+export function createMockValidator<T>(shouldPass: boolean, errorMessage?: string): EnvValidator<T> {
+  return (value: T): boolean => {
     if (!shouldPass) {
-      throw new errorType(name, 'Validation failed');
+      throw new Error(errorMessage || 'Validation failed');
     }
-    return returnValue;
+    return true;
   };
 }
 
 /**
- * Creates a test case for environment variable existence
+ * Creates a predicate-based validator for testing
  * 
- * @param validator - The validator function to test
- * @param variableName - Name of the environment variable
- * @returns A function that runs the test cases
+ * @param predicate - Function that determines if a value is valid
+ * @param errorMessage - Custom error message when validation fails
+ * @returns A validator function that uses the predicate to determine validity
+ * 
+ * @example
+ * // Create a validator that checks if a value is positive
+ * const isPositive = createPredicateValidator(
+ *   (value) => value > 0,
+ *   'Value must be positive'
+ * );
  */
-export function createExistenceTest<T>(
-  validator: () => T,
-  variableName: string
-): () => void {
-  return () => {
-    // Test with variable defined
-    process.env[variableName] = 'test-value';
-    expect(() => validator()).not.toThrow();
-    
-    // Test with variable undefined
-    delete process.env[variableName];
-    expect(() => validator()).toThrow(MissingEnvironmentVariableError);
-    
-    // Test with empty variable
-    process.env[variableName] = '';
-    expect(() => validator()).toThrow(MissingEnvironmentVariableError);
-    
-    // Clean up
-    delete process.env[variableName];
+export function createPredicateValidator<T>(
+  predicate: (value: T) => boolean,
+  errorMessage: string
+): EnvValidator<T> {
+  return (value: T): boolean => {
+    if (!predicate(value)) {
+      throw new Error(errorMessage);
+    }
+    return true;
   };
 }
 
 /**
- * Creates a test case for default values
+ * Type conversion test helper that verifies a value is correctly converted
  * 
- * @param validator - The validator function with default value to test
- * @param variableName - Name of the environment variable
- * @param defaultValue - Expected default value
- * @returns A function that runs the test cases
+ * @param converter - Function that converts a string to the expected type
+ * @param input - Input string to convert
+ * @param expected - Expected output after conversion
+ * 
+ * @example
+ * // Test that a string is correctly converted to a number
+ * testTypeConversion(
+ *   (value) => parseInt(value, 10),
+ *   '42',
+ *   42
+ * );
  */
-export function createDefaultValueTest<T>(
-  validator: () => T,
-  variableName: string,
-  defaultValue: T
-): () => void {
-  return () => {
-    // Test with variable undefined
-    delete process.env[variableName];
-    expect(validator()).toEqual(defaultValue);
-    
-    // Test with variable defined
-    process.env[variableName] = 'custom-value';
-    expect(validator()).not.toEqual(defaultValue);
-    
-    // Clean up
-    delete process.env[variableName];
-  };
+export function testTypeConversion<T>(
+  converter: (value: string) => T,
+  input: string,
+  expected: T
+): void {
+  const result = converter(input);
+  expect(result).toEqual(expected);
 }
 
 /**
- * Creates a Jest matcher for environment variable errors
+ * Tests that a validator correctly identifies valid values
  * 
- * @param error - The error to match against
- * @param variableName - Expected variable name in the error
- * @returns A matcher result
+ * @param validator - Validator function to test
+ * @param validValues - Array of values that should pass validation
+ * 
+ * @example
+ * // Test that a validator accepts valid email addresses
+ * testValidValues(
+ *   validateEmail,
+ *   ['user@example.com', 'admin@company.co.uk']
+ * );
  */
-export function toBeEnvironmentError(
-  error: unknown,
-  variableName: string
-): jest.CustomMatcherResult {
-  if (!(error instanceof EnvironmentVariableError)) {
-    return {
-      pass: false,
-      message: () => `Expected error to be an EnvironmentVariableError, but got ${error?.constructor?.name || typeof error}`
-    };
+export function testValidValues<T>(
+  validator: (value: T) => boolean,
+  validValues: T[]
+): void {
+  for (const value of validValues) {
+    expect(() => validator(value)).not.toThrow();
+    expect(validator(value)).toBe(true);
   }
-  
-  const hasCorrectVariable = error.variableName === variableName;
-  
-  return {
-    pass: hasCorrectVariable,
-    message: () => hasCorrectVariable
-      ? `Expected error not to be for variable ${variableName}`
-      : `Expected error to be for variable ${variableName}, but got ${error.variableName}`
-  };
 }
 
 /**
- * Creates a Jest matcher for validation errors
+ * Tests that a validator correctly rejects invalid values
  * 
- * @param error - The error to match against
- * @param errorMessages - Expected error messages in the validation error
- * @returns A matcher result
- */
-export function toHaveValidationErrors(
-  error: unknown,
-  errorMessages: string[]
-): jest.CustomMatcherResult {
-  if (!(error instanceof ValidationEnvironmentVariableError)) {
-    return {
-      pass: false,
-      message: () => `Expected error to be a ValidationEnvironmentVariableError, but got ${error?.constructor?.name || typeof error}`
-    };
-  }
-  
-  const hasAllErrors = errorMessages.every(msg => 
-    error.validationErrors.some(errMsg => errMsg.includes(msg))
-  );
-  
-  return {
-    pass: hasAllErrors,
-    message: () => hasAllErrors
-      ? `Expected error not to have validation messages: ${errorMessages.join(', ')}`
-      : `Expected error to have validation messages: ${errorMessages.join(', ')}, but got: ${error.validationErrors.join(', ')}`
-  };
-}
-
-/**
- * Creates a Jest matcher for batch validation errors
+ * @param validator - Validator function to test
+ * @param invalidValues - Array of values that should fail validation
+ * @param errorType - Expected error type (default: Error)
  * 
- * @param error - The error to match against
- * @param errorCount - Expected number of errors in the batch
- * @returns A matcher result
+ * @example
+ * // Test that a validator rejects invalid email addresses
+ * testInvalidValues(
+ *   validateEmail,
+ *   ['not-an-email', 'missing-domain@']
+ * );
  */
-export function toHaveBatchErrorCount(
-  error: unknown,
-  errorCount: number
-): jest.CustomMatcherResult {
-  if (!(error instanceof BatchEnvironmentValidationError)) {
-    return {
-      pass: false,
-      message: () => `Expected error to be a BatchEnvironmentValidationError, but got ${error?.constructor?.name || typeof error}`
-    };
+export function testInvalidValues<T>(
+  validator: (value: T) => boolean,
+  invalidValues: T[],
+  errorType: any = Error
+): void {
+  for (const value of invalidValues) {
+    expect(() => validator(value)).toThrow(errorType);
   }
-  
-  const hasCorrectCount = error.errors.length === errorCount;
-  
-  return {
-    pass: hasCorrectCount,
-    message: () => hasCorrectCount
-      ? `Expected batch error not to have ${errorCount} errors`
-      : `Expected batch error to have ${errorCount} errors, but got ${error.errors.length}`
-  };
 }
 
 /**
- * Creates a Jest matcher for invalid value errors
+ * Creates a test environment with the specified variables
  * 
- * @param error - The error to match against
- * @param invalidValue - Expected invalid value in the error
- * @returns A matcher result
- */
-export function toHaveInvalidValue(
-  error: unknown,
-  invalidValue: string
-): jest.CustomMatcherResult {
-  if (!(error instanceof InvalidEnvironmentVariableError)) {
-    return {
-      pass: false,
-      message: () => `Expected error to be an InvalidEnvironmentVariableError, but got ${error?.constructor?.name || typeof error}`
-    };
-  }
-  
-  const hasCorrectValue = error.providedValue === invalidValue;
-  
-  return {
-    pass: hasCorrectValue,
-    message: () => hasCorrectValue
-      ? `Expected error not to have invalid value ${invalidValue}`
-      : `Expected error to have invalid value ${invalidValue}, but got ${error.providedValue}`
-  };
-}
-
-/**
- * Creates a Jest matcher for transform errors
+ * @param variables - Object containing environment variables to set
+ * @returns Function to restore the original environment
  * 
- * @param error - The error to match against
- * @param targetType - Expected target type in the error
- * @returns A matcher result
+ * @example
+ * // Set up test environment variables
+ * const restore = setupTestEnv({
+ *   API_URL: 'https://api.example.com',
+ *   API_KEY: 'test-key',
+ *   DEBUG: 'true'
+ * });
+ * 
+ * // Run tests...
+ * 
+ * // Restore original environment
+ * restore();
  */
-export function toHaveTransformTarget(
-  error: unknown,
-  targetType: string
-): jest.CustomMatcherResult {
-  if (!(error instanceof TransformEnvironmentVariableError)) {
-    return {
-      pass: false,
-      message: () => `Expected error to be a TransformEnvironmentVariableError, but got ${error?.constructor?.name || typeof error}`
-    };
-  }
+export function setupTestEnv(variables: Record<string, string | undefined>): () => void {
+  const originalEnv = { ...process.env };
   
-  const hasCorrectTarget = error.targetType === targetType;
-  
-  return {
-    pass: hasCorrectTarget,
-    message: () => hasCorrectTarget
-      ? `Expected error not to have target type ${targetType}`
-      : `Expected error to have target type ${targetType}, but got ${error.targetType}`
-  };
-}
-
-/**
- * Extends Jest matchers with environment validation matchers
- */
-export function extendJestMatchers(): void {
-  expect.extend({
-    toBeEnvironmentError,
-    toHaveValidationErrors,
-    toHaveBatchErrorCount,
-    toHaveInvalidValue,
-    toHaveTransformTarget
+  // Set the specified variables
+  Object.entries(variables).forEach(([key, value]) => {
+    if (value === undefined) {
+      delete process.env[key];
+    } else {
+      process.env[key] = value;
+    }
   });
+  
+  // Return a function to restore the original environment
+  return () => {
+    // Restore original environment
+    process.env = originalEnv;
+  };
 }
 
 /**
- * Type declaration for extended Jest matchers
+ * Custom Jest matchers for environment variable validation errors
  */
-declare global {
-  namespace jest {
-    interface Matchers<R> {
-      toBeEnvironmentError(variableName: string): R;
-      toHaveValidationErrors(errorMessages: string[]): R;
-      toHaveBatchErrorCount(errorCount: number): R;
-      toHaveInvalidValue(invalidValue: string): R;
-      toHaveTransformTarget(targetType: string): R;
+export const matchers = {
+  /**
+   * Expects a function to throw a MissingEnvironmentVariableError for the specified variable
+   * 
+   * @param received - Function that should throw an error
+   * @param varName - Expected environment variable name
+   * 
+   * @example
+   * // Test that a function throws a MissingEnvironmentVariableError for API_KEY
+   * expect(() => validateRequiredEnv('API_KEY')).toThrowMissingEnvError('API_KEY');
+   */
+  toThrowMissingEnvError(received: () => any, varName: string) {
+    try {
+      received();
+      return {
+        pass: false,
+        message: () => `Expected function to throw MissingEnvironmentVariableError for ${varName}, but it did not throw`
+      };
+    } catch (error) {
+      const pass = (
+        error instanceof MissingEnvironmentVariableError &&
+        error.variableName === varName
+      );
+      
+      return {
+        pass,
+        message: () => pass
+          ? `Expected function not to throw MissingEnvironmentVariableError for ${varName}, but it did`
+          : `Expected function to throw MissingEnvironmentVariableError for ${varName}, but it threw ${error}`
+      };
+    }
+  },
+  
+  /**
+   * Expects a function to throw an InvalidEnvironmentVariableError for the specified variable
+   * 
+   * @param received - Function that should throw an error
+   * @param varName - Expected environment variable name
+   * @param value - Expected invalid value
+   * 
+   * @example
+   * // Test that a function throws an InvalidEnvironmentVariableError for PORT with value 'abc'
+   * expect(() => validatePort('PORT')).toThrowInvalidEnvError('PORT', 'abc');
+   */
+  toThrowInvalidEnvError(received: () => any, varName: string, value?: string) {
+    try {
+      received();
+      return {
+        pass: false,
+        message: () => `Expected function to throw InvalidEnvironmentVariableError for ${varName}, but it did not throw`
+      };
+    } catch (error) {
+      const pass = (
+        error instanceof InvalidEnvironmentVariableError &&
+        error.variableName === varName &&
+        (value === undefined || error.actualValue === value)
+      );
+      
+      return {
+        pass,
+        message: () => pass
+          ? `Expected function not to throw InvalidEnvironmentVariableError for ${varName}, but it did`
+          : `Expected function to throw InvalidEnvironmentVariableError for ${varName}${value ? ` with value ${value}` : ''}, but it threw ${error}`
+      };
+    }
+  },
+  
+  /**
+   * Expects a function to throw an EnvironmentValidationError with the specified number of errors
+   * 
+   * @param received - Function that should throw an error
+   * @param errorCount - Expected number of validation errors
+   * 
+   * @example
+   * // Test that a function throws an EnvironmentValidationError with 3 errors
+   * expect(() => validateBatchEnv(schema)).toThrowEnvValidationError(3);
+   */
+  toThrowEnvValidationError(received: () => any, errorCount?: number) {
+    try {
+      received();
+      return {
+        pass: false,
+        message: () => `Expected function to throw EnvironmentValidationError, but it did not throw`
+      };
+    } catch (error) {
+      const pass = (
+        error instanceof EnvironmentValidationError &&
+        (errorCount === undefined || error.errors.length === errorCount)
+      );
+      
+      return {
+        pass,
+        message: () => pass
+          ? `Expected function not to throw EnvironmentValidationError${errorCount ? ` with ${errorCount} errors` : ''}, but it did`
+          : `Expected function to throw EnvironmentValidationError${errorCount ? ` with ${errorCount} errors` : ''}, but it threw ${error}`
+      };
+    }
+  }
+};
+
+/**
+ * Extends Jest's expect with custom environment validation matchers
+ * 
+ * @example
+ * // In your test file:
+ * import { extendExpect } from '../__utils__/validation-helpers';
+ * 
+ * // Extend Jest's expect
+ * extendExpect();
+ */
+export function extendExpect(): void {
+  expect.extend(matchers);
+}
+
+/**
+ * Creates a mock environment validation error for testing error handling
+ * 
+ * @param varName - Environment variable name
+ * @param message - Error message
+ * @returns A new EnvironmentVariableError
+ * 
+ * @example
+ * // Create a mock environment error
+ * const error = createMockEnvError('API_KEY', 'API key is required');
+ */
+export function createMockEnvError(varName: string, message: string): EnvironmentVariableError {
+  return new EnvironmentVariableError(varName, message);
+}
+
+/**
+ * Creates a mock missing environment variable error for testing error handling
+ * 
+ * @param varName - Environment variable name
+ * @param message - Optional custom error message
+ * @returns A new MissingEnvironmentVariableError
+ * 
+ * @example
+ * // Create a mock missing environment variable error
+ * const error = createMockMissingEnvError('DATABASE_URL');
+ */
+export function createMockMissingEnvError(
+  varName: string,
+  message?: string
+): MissingEnvironmentVariableError {
+  return new MissingEnvironmentVariableError(varName, message);
+}
+
+/**
+ * Creates a mock invalid environment variable error for testing error handling
+ * 
+ * @param varName - Environment variable name
+ * @param reason - Reason for validation failure
+ * @param value - Actual invalid value
+ * @param message - Optional custom error message
+ * @returns A new InvalidEnvironmentVariableError
+ * 
+ * @example
+ * // Create a mock invalid environment variable error
+ * const error = createMockInvalidEnvError(
+ *   'PORT',
+ *   'Expected number, got string',
+ *   'abc'
+ * );
+ */
+export function createMockInvalidEnvError(
+  varName: string,
+  reason: string,
+  value: string | undefined,
+  message?: string
+): InvalidEnvironmentVariableError {
+  return new InvalidEnvironmentVariableError(varName, reason, value, message);
+}
+
+/**
+ * Creates a mock environment validation error with multiple nested errors
+ * 
+ * @param errors - Array of environment variable errors
+ * @param message - Optional custom error message
+ * @returns A new EnvironmentValidationError
+ * 
+ * @example
+ * // Create a mock environment validation error with multiple errors
+ * const error = createMockEnvValidationError([
+ *   createMockMissingEnvError('API_KEY'),
+ *   createMockInvalidEnvError('PORT', 'Expected number', 'abc')
+ * ]);
+ */
+export function createMockEnvValidationError(
+  errors: EnvironmentVariableError[],
+  message?: string
+): EnvironmentValidationError {
+  return new EnvironmentValidationError(message, errors);
+}
+
+/**
+ * Tests that an environment validator correctly handles both valid and invalid values
+ * 
+ * @param validator - Validator function to test
+ * @param validCases - Test cases with valid values
+ * @param invalidCases - Test cases with invalid values
+ * 
+ * @example
+ * // Test a URL validator with valid and invalid cases
+ * testEnvValidator(
+ *   validateUrl,
+ *   [
+ *     { varName: 'API_URL', value: 'https://api.example.com' },
+ *     { varName: 'WEB_URL', value: 'http://web.example.com' }
+ *   ],
+ *   [
+ *     { varName: 'API_URL', value: 'not-a-url', errorType: InvalidEnvironmentVariableError },
+ *     { varName: 'WEB_URL', value: undefined, errorType: MissingEnvironmentVariableError }
+ *   ]
+ * );
+ */
+export function testEnvValidator<T>(
+  validator: (varName: string, ...args: any[]) => T,
+  validCases: Array<{ varName: string, value: string, expected?: T, args?: any[] }>,
+  invalidCases: Array<{ varName: string, value: string | undefined, errorType: any, args?: any[] }>
+): void {
+  // Test valid cases
+  for (const { varName, value, expected, args = [] } of validCases) {
+    const restore = setupTestEnv({ [varName]: value });
+    try {
+      const result = validator(varName, ...args);
+      if (expected !== undefined) {
+        expect(result).toEqual(expected);
+      }
+    } finally {
+      restore();
+    }
+  }
+  
+  // Test invalid cases
+  for (const { varName, value, errorType, args = [] } of invalidCases) {
+    const restore = setupTestEnv({ [varName]: value });
+    try {
+      expect(() => validator(varName, ...args)).toThrow(errorType);
+    } finally {
+      restore();
+    }
+  }
+}
+
+/**
+ * Tests that a batch environment validator correctly handles valid and invalid configurations
+ * 
+ * @param validator - Batch validator function to test
+ * @param validConfigs - Test cases with valid configurations
+ * @param invalidConfigs - Test cases with invalid configurations
+ * 
+ * @example
+ * // Test a batch validator with valid and invalid configurations
+ * testBatchEnvValidator(
+ *   validateBatchEnv,
+ *   [
+ *     {
+ *       env: { API_URL: 'https://api.example.com', API_KEY: 'test-key' },
+ *       schema: { API_URL: z.string().url(), API_KEY: z.string() },
+ *       expected: { API_URL: 'https://api.example.com', API_KEY: 'test-key' }
+ *     }
+ *   ],
+ *   [
+ *     {
+ *       env: { API_URL: 'not-a-url', API_KEY: undefined },
+ *       schema: { API_URL: z.string().url(), API_KEY: z.string() },
+ *       errorType: EnvironmentValidationError,
+ *       errorCount: 2
+ *     }
+ *   ]
+ * );
+ */
+export function testBatchEnvValidator<T>(
+  validator: (schema: any, ...args: any[]) => T,
+  validConfigs: Array<{ env: Record<string, string | undefined>, schema: any, expected: T, args?: any[] }>,
+  invalidConfigs: Array<{ env: Record<string, string | undefined>, schema: any, errorType: any, errorCount?: number, args?: any[] }>
+): void {
+  // Test valid configurations
+  for (const { env, schema, expected, args = [] } of validConfigs) {
+    const restore = setupTestEnv(env);
+    try {
+      const result = validator(schema, ...args);
+      expect(result).toEqual(expected);
+    } finally {
+      restore();
+    }
+  }
+  
+  // Test invalid configurations
+  for (const { env, schema, errorType, errorCount, args = [] } of invalidConfigs) {
+    const restore = setupTestEnv(env);
+    try {
+      expect(() => validator(schema, ...args)).toThrow(errorType);
+      
+      if (errorCount !== undefined) {
+        try {
+          validator(schema, ...args);
+        } catch (error) {
+          if (error instanceof EnvironmentValidationError) {
+            expect(error.errors).toHaveLength(errorCount);
+          }
+        }
+      }
+    } finally {
+      restore();
     }
   }
 }
