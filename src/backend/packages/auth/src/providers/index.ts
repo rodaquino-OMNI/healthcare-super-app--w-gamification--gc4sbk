@@ -1,148 +1,79 @@
 /**
- * @file Centralized export file for all authentication providers
- * 
- * This barrel file exports all authentication providers and related interfaces
- * organized by provider type (database, JWT, OAuth). It serves as the main entry
- * point for consuming applications to access authentication functionality.
+ * @file Providers index barrel file
+ * @description Centralized export point for all authentication providers and related interfaces.
+ * This file organizes exports by provider type (database, JWT, OAuth) for improved code readability
+ * and IDE support. It integrates with @austa/interfaces for type-safe request/response models.
  *
  * @module @austa/auth/providers
  */
 
-// Core provider interface
+import { UserInterface, TokenPayloadInterface } from '@austa/interfaces/auth';
+
+/**
+ * Base Authentication Provider Interface
+ * @description Core interface that all authentication providers must implement
+ */
 export * from './auth-provider.interface';
 
-// Provider module for dependency injection
+/**
+ * Authentication Providers Module
+ * @description NestJS module for registering all authentication providers
+ */
 export * from './providers.module';
 
 /**
- * Database Authentication Providers
- * 
- * Includes providers for username/password authentication against database records,
- * along with utilities for password handling and validation.
+ * Database Authentication
+ * @description Providers for username/password authentication against database
  */
 export * from './database';
 
+// Named exports for database providers for better IDE support
+export { 
+  DatabaseAuthProvider,
+  DatabaseAuthProviderInterface,
+  DatabaseAuthOptions,
+  PasswordUtils,
+  hashPassword,
+  verifyPassword,
+  validatePasswordStrength
+} from './database';
+
 /**
- * JWT Authentication Providers
- * 
- * Includes providers for JWT token generation, validation, and blacklisting,
- * along with configuration options and interfaces.
+ * JWT Authentication
+ * @description Providers for JSON Web Token generation and validation
  */
 export * from './jwt';
 
+// Named exports for JWT providers for better IDE support
+export {
+  JwtProvider,
+  JwtRedisProvider,
+  JwtProviderInterface,
+  JwtConfig,
+  JwtPayload,
+  JwtValidationResult
+} from './jwt';
+
 /**
- * OAuth Authentication Providers
- * 
- * Includes providers for third-party authentication services like Google,
- * Facebook, and Apple, along with interfaces and utilities for OAuth flows.
+ * OAuth Authentication
+ * @description Providers for third-party authentication (Google, Facebook, Apple)
  */
 export * from './oauth';
 
-// Re-export relevant interfaces from @austa/interfaces for convenience
-import {
-  LoginRequestDto,
-  RegisterRequestDto,
-  RefreshTokenRequestDto,
-} from '@austa/interfaces/auth/request.interface';
-
-import {
-  LoginResponseDto,
-  RegisterResponseDto,
-  TokenValidationResponseDto,
-} from '@austa/interfaces/auth/response.interface';
-
-import {
-  JwtPayload,
-  AuthSession,
-  AuthState,
-} from '@austa/interfaces/auth/auth.interface';
-
-import {
-  UserResponseDto,
-  CreateUserDto,
-  UpdateUserDto,
-} from '@austa/interfaces/auth/user.interface';
-
-import {
-  RoleResponseDto,
-  CreateRoleDto,
-  UpdateRoleDto,
-} from '@austa/interfaces/auth/role.interface';
-
-import {
-  PermissionResponseDto,
-  CreatePermissionDto,
-  UpdatePermissionDto,
-} from '@austa/interfaces/auth/permission.interface';
+// Named exports for OAuth providers for better IDE support
+export {
+  BaseOAuthProvider,
+  GoogleOAuthProvider,
+  FacebookOAuthProvider,
+  AppleOAuthProvider,
+  OAuthProfile,
+  OAuthToken,
+  OAuthConfig,
+  OAuthProviderType
+} from './oauth';
 
 /**
- * Authentication Request DTOs
- * 
- * Data Transfer Objects for authentication requests including login,
- * registration, and token refresh operations.
+ * Re-export common types from @austa/interfaces for convenience
+ * This allows consumers to import these types directly from the providers module
  */
-export {
-  LoginRequestDto,
-  RegisterRequestDto,
-  RefreshTokenRequestDto,
-};
-
-/**
- * Authentication Response DTOs
- * 
- * Data Transfer Objects for authentication responses including login,
- * registration, and token validation results.
- */
-export {
-  LoginResponseDto,
-  RegisterResponseDto,
-  TokenValidationResponseDto,
-};
-
-/**
- * Authentication Core Interfaces
- * 
- * Core interfaces for authentication state, sessions, and JWT payloads
- * used across the authentication system.
- */
-export {
-  JwtPayload,
-  AuthSession,
-  AuthState,
-};
-
-/**
- * User Management DTOs
- * 
- * Data Transfer Objects for user management operations including
- * creation, updating, and response formatting.
- */
-export {
-  UserResponseDto,
-  CreateUserDto,
-  UpdateUserDto,
-};
-
-/**
- * Role Management DTOs
- * 
- * Data Transfer Objects for role management operations including
- * creation, updating, and response formatting.
- */
-export {
-  RoleResponseDto,
-  CreateRoleDto,
-  UpdateRoleDto,
-};
-
-/**
- * Permission Management DTOs
- * 
- * Data Transfer Objects for permission management operations including
- * creation, updating, and response formatting.
- */
-export {
-  PermissionResponseDto,
-  CreatePermissionDto,
-  UpdatePermissionDto,
-};
+export { UserInterface, TokenPayloadInterface };
