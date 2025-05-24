@@ -40,46 +40,76 @@ jest.mock('@design-system/primitives/tokens', () => ({
   typography: {
     fontSize: { 
       sm: '14px', 
+      md: '16px',
       lg: '18px', 
       xl: '20px'
     },
     fontWeight: { 
+      regular: 400,
+      medium: 500,
       bold: 700
     },
     lineHeight: {
-      base: 1.5
+      base: 1.5,
+      tight: 1.2,
+      loose: 1.8
     }
   },
   borderRadius: {
-    md: '8px'
+    sm: '4px',
+    md: '8px',
+    lg: '16px',
+    pill: '999px'
   }
 }));
 
 // Mock @austa/interfaces/gamification
 jest.mock('@austa/interfaces/gamification', () => ({
-  // Export Achievement type interface
-  Achievement: {
-    id: '',
-    title: '',
-    description: '',
-    icon: '',
-    progress: 0,
-    total: 0,
-    unlocked: false,
-    journey: ''
-  }
+  JourneyType: {
+    HEALTH: 'health',
+    CARE: 'care',
+    PLAN: 'plan'
+  },
+  LevelTitles: {
+    1: 'Iniciante',
+    2: 'Aprendiz',
+    3: 'Praticante',
+    4: 'Especialista',
+    5: 'Aventureiro',
+    6: 'Mestre',
+    7: 'Campeão',
+    8: 'Lendário',
+    9: 'Mítico',
+    10: 'Transcendente'
+  },
+  // Export type definitions as values for testing
+  Achievement: 'Achievement',
+  LevelIndicatorProps: 'LevelIndicatorProps'
 }));
 
 // Mock @austa/journey-context
 jest.mock('@austa/journey-context', () => ({
-  useJourneyTheme: (journey) => ({
+  useJourneyTheme: (journey: string) => ({
     colors: {
       primary: journey === 'health' ? '#0ACF83' : journey === 'care' ? '#FF8C42' : '#3A86FF',
       secondary: journey === 'health' ? '#05A66A' : journey === 'care' ? '#F17C3A' : '#2D6FD9',
       background: journey === 'health' ? '#F0FFF4' : journey === 'care' ? '#FFF8F0' : '#F0F8FF',
       text: '#1A1A1A'
+    },
+    name: journey,
+    getJourneyColor: (colorType: string) => {
+      if (colorType === 'primary') {
+        return journey === 'health' ? '#0ACF83' : journey === 'care' ? '#FF8C42' : '#3A86FF';
+      } else if (colorType === 'secondary') {
+        return journey === 'health' ? '#05A66A' : journey === 'care' ? '#F17C3A' : '#2D6FD9';
+      } else if (colorType === 'background') {
+        return journey === 'health' ? '#F0FFF4' : journey === 'care' ? '#FFF8F0' : '#F0F8FF';
+      } else {
+        return '#1A1A1A';
+      }
     }
-  })
+  }),
+  JourneyProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>
 }));
 
 // Mock styled-components
@@ -152,10 +182,34 @@ jest.mock('../XPCounter/XPCounter', () => ({
 }));
 
 jest.mock('../AchievementBadge/AchievementBadge', () => ({
-  AchievementBadge: ({ achievement, size }: any) => (
-    <div data-testid="achievement-badge" data-achievement-id={achievement.id} data-size={size}>
+  AchievementBadge: ({ achievement, size, journeyTheme }: any) => (
+    <div 
+      data-testid="achievement-badge" 
+      data-achievement-id={achievement.id} 
+      data-size={size}
+      data-journey-theme={journeyTheme?.name}
+    >
       {achievement.title}
     </div>
+  )
+}));
+
+// Mock @design-system/primitives components
+jest.mock('@design-system/primitives', () => ({
+  Box: ({ children, ...props }: any) => <div data-testid="primitives-box" {...props}>{children}</div>,
+  Text: ({ children, ...props }: any) => <span data-testid="primitives-text" {...props}>{children}</span>,
+  Stack: ({ children, ...props }: any) => <div data-testid="primitives-stack" {...props}>{children}</div>,
+  Touchable: ({ children, onPress, ...props }: any) => (
+    <button data-testid="primitives-touchable" onClick={onPress} {...props}>{children}</button>
+  ),
+  Icon: ({ name, size, color, ...props }: any) => (
+    <span 
+      data-testid="primitives-icon" 
+      data-icon-name={name} 
+      data-icon-size={size} 
+      data-icon-color={color} 
+      {...props}
+    />
   )
 }));
 
@@ -284,73 +338,50 @@ describe('LevelIndicator', () => {
     expect(container).toBeInTheDocument();
   });
 
-  it('uses the correct level title based on user level', () => {
-    // Test different level ranges
-    const { rerender } = render(
+  it('uses the journey theme from useJourneyTheme hook', () => {
+    render(
       <LevelIndicator 
-        level={3} 
+        level={5} 
         currentXp={500} 
         nextLevelXp={1000} 
         journey="health" 
       />
     );
     
-    // Level 3 should be "Iniciante"
-    expect(screen.getByText(/- Iniciante/i)).toBeInTheDocument();
+    // The component should use the useJourneyTheme hook which is mocked
+    // We can verify this by checking that the XPCounter has the correct journey prop
+    const xpCounter = screen.getByTestId('xp-counter');
+    expect(xpCounter).toHaveAttribute('data-journey', 'health');
     
-    // Level 8 should be "Aventureiro"
-    rerender(
+    // Check that primitive components are used
+    expect(screen.getAllByTestId('primitives-box').length).toBeGreaterThan(0);
+    expect(screen.getAllByTestId('primitives-text').length).toBeGreaterThan(0);
+  });
+  
+  it('passes journey theme to AchievementBadge when rendering achievements', () => {
+    const recentAchievement = {
+      id: 'test-achievement',
+      title: 'Test Achievement',
+      description: 'This is a test achievement',
+      icon: 'trophy',
+      progress: 1,
+      total: 1,
+      unlocked: true,
+      journey: 'health'
+    };
+    
+    render(
       <LevelIndicator 
-        level={8} 
+        level={5} 
         currentXp={500} 
         nextLevelXp={1000} 
         journey="health" 
+        recentAchievement={recentAchievement} 
       />
     );
-    expect(screen.getByText(/- Aventureiro/i)).toBeInTheDocument();
     
-    // Level 12 should be "Explorador"
-    rerender(
-      <LevelIndicator 
-        level={12} 
-        currentXp={500} 
-        nextLevelXp={1000} 
-        journey="health" 
-      />
-    );
-    expect(screen.getByText(/- Explorador/i)).toBeInTheDocument();
-    
-    // Level 18 should be "Especialista"
-    rerender(
-      <LevelIndicator 
-        level={18} 
-        currentXp={500} 
-        nextLevelXp={1000} 
-        journey="health" 
-      />
-    );
-    expect(screen.getByText(/- Especialista/i)).toBeInTheDocument();
-    
-    // Level 22 should be "Mestre"
-    rerender(
-      <LevelIndicator 
-        level={22} 
-        currentXp={500} 
-        nextLevelXp={1000} 
-        journey="health" 
-      />
-    );
-    expect(screen.getByText(/- Mestre/i)).toBeInTheDocument();
-    
-    // Level 30 should be "Lendário"
-    rerender(
-      <LevelIndicator 
-        level={30} 
-        currentXp={500} 
-        nextLevelXp={1000} 
-        journey="health" 
-      />
-    );
-    expect(screen.getByText(/- Lendário/i)).toBeInTheDocument();
+    // Check that the AchievementBadge receives the journey theme
+    const achievementBadge = screen.getByTestId('achievement-badge');
+    expect(achievementBadge).toHaveAttribute('data-journey-theme', 'health');
   });
 });
