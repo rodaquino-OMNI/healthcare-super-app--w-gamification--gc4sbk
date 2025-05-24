@@ -1,28 +1,46 @@
+/**
+ * XPCounter component styles
+ * 
+ * Defines styled components for the XPCounter that show XP values and remaining progress
+ * with journey-specific styling. This file creates the visual presentation layer for the
+ * XPCounter component, using spacing, typography, and color tokens from the design system
+ * primitives package.
+ */
+
 import styled from 'styled-components';
-import { JourneyId } from '@austa/journey-context/types';
+import { JourneyType } from '@austa/interfaces/themes';
+import { spacing, typography, colors } from '@design-system/primitives';
 
-type JourneyProps = {
-  journey?: JourneyId;
-};
-
+/**
+ * Container for the XP counter component
+ * Provides layout structure with proper spacing
+ */
 export const XPContainer = styled.div`
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  margin: ${({ theme }) => theme.spacing.sm} 0;
+  margin: ${spacing.sm} 0;
 `;
 
-export const XPLabel = styled.span<JourneyProps>`
-  font-size: ${({ theme }) => theme.typography.fontSize.lg};
-  font-weight: ${({ theme }) => theme.typography.fontWeight.bold};
+/**
+ * Label for displaying the XP value
+ * Supports journey-specific styling based on the current journey
+ */
+export const XPLabel = styled.span<{ journey?: JourneyType }>`
+  font-size: ${typography.fontSize.lg};
+  font-weight: ${typography.fontWeight.bold};
   color: ${({ theme, journey }) => 
-    journey ? theme.colors.journeys[journey].primary : theme.colors.brand.primary};
+    journey ? colors.journeys[journey].primary : colors.brand.primary};
   display: flex;
   align-items: center;
 `;
 
+/**
+ * Component for displaying remaining XP to next level
+ * Uses neutral colors for secondary information
+ */
 export const XPRemaining = styled.span`
-  font-size: ${({ theme }) => theme.typography.fontSize.sm};
-  color: ${({ theme }) => theme.colors.neutral.gray600};
-  margin-top: ${({ theme }) => theme.spacing.xs};
+  font-size: ${typography.fontSize.sm};
+  color: ${colors.neutral.gray600};
+  margin-top: ${spacing.xs};
 `;
