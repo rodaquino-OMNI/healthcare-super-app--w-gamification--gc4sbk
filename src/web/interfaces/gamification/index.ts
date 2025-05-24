@@ -1,178 +1,111 @@
 /**
- * @file Gamification Interfaces
- * @description Central export file for all gamification-related TypeScript interfaces.
+ * @file Gamification Interfaces Barrel File
  * 
- * This barrel file provides a unified import surface for all gamification types
+ * This file serves as the central export point for all gamification-related TypeScript interfaces
+ * used throughout the AUSTA SuperApp. It provides a unified import surface for gamification types
  * including achievements, quests, rewards, profiles, events, leaderboards, XP, and rules.
  * 
- * These interfaces are used by both web and mobile applications to ensure consistent
- * implementation of gamification features across all platforms.
+ * These interfaces ensure type safety and consistency across both web and mobile applications
+ * that interact with the gamification system.
  * 
- * @example
- * // Import all gamification interfaces
+ * @example Import all gamification interfaces
+ * ```typescript
  * import * as Gamification from '@austa/interfaces/gamification';
+ * ```
  * 
- * // Use namespaced interfaces
- * const achievement: Gamification.Achievement = {...};
- * 
- * @example
- * // Import specific interfaces
- * import { Achievement, Quest, Reward } from '@austa/interfaces/gamification';
- * 
- * @example
- * // Import from specific namespace
+ * @example Import specific namespaced interfaces
+ * ```typescript
  * import { Achievements } from '@austa/interfaces/gamification';
- * const achievement: Achievements.Achievement = {...};
+ * ```
+ * 
+ * @example Import specific interfaces directly
+ * ```typescript
+ * import { Achievement, Quest, Reward } from '@austa/interfaces/gamification';
+ * ```
  */
 
-// Re-export all interfaces from their respective files
-
-// Achievement interfaces
+// Direct exports of all interfaces for convenient importing
 export * from './achievements';
-
-// Quest interfaces
-export * from './quests';
-
-// Reward interfaces
-export * from './rewards';
-
-// Profile interfaces
-export * from './profiles';
-
-// Event interfaces
 export * from './events';
-
-// Leaderboard interfaces
 export * from './leaderboard';
-
-// XP interfaces
+export * from './profiles';
+export * from './quests';
+export * from './rewards';
+export * from './rules';
 export * from './xp';
 
-// Rule interfaces
-export * from './rules';
-
 // Namespaced exports for selective importing
+import * as Achievements from './achievements';
+import * as Events from './events';
+import * as Leaderboard from './leaderboard';
+import * as Profiles from './profiles';
+import * as Quests from './quests';
+import * as Rewards from './rewards';
+import * as Rules from './rules';
+import * as XP from './xp';
 
 /**
- * Achievement-related interfaces and types
+ * Namespaced exports for selective importing of related interfaces
+ * This allows consumers to import only the interfaces they need
+ * 
+ * @example
+ * ```typescript
+ * import { Achievements } from '@austa/interfaces/gamification';
+ * const achievement: Achievements.Achievement = { ... };
+ * ```
  */
-import * as AchievementsImport from './achievements';
-export namespace Achievements {
-  export type Achievement = AchievementsImport.Achievement;
-  export type AchievementCategory = AchievementsImport.AchievementCategory;
-  export type AchievementProgress = AchievementsImport.AchievementProgress;
-  export type AchievementNotification = AchievementsImport.AchievementNotification;
+export {
+  Achievements,
+  Events,
+  Leaderboard,
+  Profiles,
+  Quests,
+  Rewards,
+  Rules,
+  XP
+};
+
+/**
+ * Journey-specific gamification interfaces
+ * These namespaces group interfaces by journey for more organized imports
+ */
+export namespace Health {
+  export type { 
+    Achievements.HealthAchievement,
+    Events.HealthGamificationEvent,
+    Quests.HealthQuest,
+    Rewards.HealthReward
+  };
+}
+
+export namespace Care {
+  export type { 
+    Achievements.CareAchievement,
+    Events.CareGamificationEvent,
+    Quests.CareQuest,
+    Rewards.CareReward
+  };
+}
+
+export namespace Plan {
+  export type { 
+    Achievements.PlanAchievement,
+    Events.PlanGamificationEvent,
+    Quests.PlanQuest,
+    Rewards.PlanReward
+  };
 }
 
 /**
- * Quest-related interfaces and types
+ * Cross-journey gamification interfaces
+ * These interfaces are used across multiple journeys
  */
-import * as QuestsImport from './quests';
-export namespace Quests {
-  export type Quest = QuestsImport.Quest;
-  export type QuestCategory = QuestsImport.QuestCategory;
-  export type QuestStatus = QuestsImport.QuestStatus;
-  export type DailyQuest = QuestsImport.DailyQuest;
-  export type WeeklyQuest = QuestsImport.WeeklyQuest;
-}
-
-/**
- * Reward-related interfaces and types
- */
-import * as RewardsImport from './rewards';
-export namespace Rewards {
-  export type Reward = RewardsImport.Reward;
-  export type RewardCategory = RewardsImport.RewardCategory;
-  export type RewardStatus = RewardsImport.RewardStatus;
-  export type RewardRedemption = RewardsImport.RewardRedemption;
-}
-
-/**
- * Profile-related interfaces and types
- */
-import * as ProfilesImport from './profiles';
-export namespace Profiles {
-  export type GameProfile = ProfilesImport.GameProfile;
-  export type UserBadge = ProfilesImport.UserBadge;
-  export type UserStreak = ProfilesImport.UserStreak;
-  export type ProfileStatistics = ProfilesImport.ProfileStatistics;
-}
-
-/**
- * Event-related interfaces and types
- */
-import * as EventsImport from './events';
-export namespace Events {
-  export type GamificationEventType = EventsImport.GamificationEventType;
-  export type BaseGamificationEvent = EventsImport.BaseGamificationEvent;
-  export type AchievementEvent = EventsImport.AchievementEvent;
-  export type QuestEvent = EventsImport.QuestEvent;
-  export type RewardEvent = EventsImport.RewardEvent;
-  export type LevelUpEvent = EventsImport.LevelUpEvent;
-}
-
-/**
- * Leaderboard-related interfaces and types
- */
-import * as LeaderboardImport from './leaderboard';
-export namespace Leaderboard {
-  export type LeaderboardEntry = LeaderboardImport.LeaderboardEntry;
-  export type Leaderboard = LeaderboardImport.Leaderboard;
-  export type LeaderboardTimeFrame = LeaderboardImport.LeaderboardTimeFrame;
-  export type JourneyLeaderboard = LeaderboardImport.JourneyLeaderboard;
-  export type LeaderboardFilter = LeaderboardImport.LeaderboardFilter;
-}
-
-/**
- * XP-related interfaces and types
- */
-import * as XPImport from './xp';
-export namespace XP {
-  export type ExperienceLevel = XPImport.ExperienceLevel;
-  export type XPSource = XPImport.XPSource;
-  export type XPTransaction = XPImport.XPTransaction;
-  export type XPMultiplier = XPImport.XPMultiplier;
-  export type LevelUpRequirement = XPImport.LevelUpRequirement;
-}
-
-/**
- * Rule-related interfaces and types
- */
-import * as RulesImport from './rules';
-export namespace Rules {
-  export type Rule = RulesImport.Rule;
-  export type RuleCondition = RulesImport.RuleCondition;
-  export type RuleAction = RulesImport.RuleAction;
-  export type RuleContext = RulesImport.RuleContext;
-}
-
-// Common types used across multiple gamification features
-
-/**
- * Represents the different journeys in the AUSTA SuperApp
- */
-export enum Journey {
-  HEALTH = 'health',
-  CARE = 'care',
-  PLAN = 'plan',
-}
-
-/**
- * Represents the common properties shared by all gamification entities
- */
-export interface GamificationEntity {
-  /** Unique identifier for the entity */
-  id: string;
-  /** Display title of the entity */
-  title: string;
-  /** Detailed description of the entity */
-  description: string;
-  /** Which journey this entity belongs to */
-  journey: Journey;
-  /** Icon identifier for visual representation */
-  icon: string;
-  /** Creation timestamp */
-  createdAt: Date;
-  /** Last update timestamp */
-  updatedAt: Date;
+export namespace CrossJourney {
+  export type { 
+    Achievements.CrossJourneyAchievement,
+    Events.CrossJourneyGamificationEvent,
+    Quests.CrossJourneyQuest,
+    Rewards.CrossJourneyReward,
+    Rules.CrossJourneyRule
+  };
 }
