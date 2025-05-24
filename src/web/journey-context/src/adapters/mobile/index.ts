@@ -1,26 +1,28 @@
 /**
  * Mobile Adapters Index
  * 
- * This file exports all mobile-specific adapter implementations for the journey context.
- * These adapters bridge the unified journey context API with React Native platform capabilities,
- * providing implementations for authentication, navigation, storage, gamification, journey state,
- * and notifications that are optimized for the mobile environment.
+ * This file serves as a centralized export point for all mobile-specific adapters
+ * in the journey context architecture. These adapters provide platform-specific
+ * implementations for React Native that bridge the unified journey context API
+ * with mobile platform capabilities.
+ * 
+ * @package @austa/journey-context
  */
 
 // Authentication adapter for mobile (AsyncStorage token persistence, biometric auth)
-export { default as AuthAdapter } from './AuthAdapter';
+export { AuthAdapter } from './AuthAdapter';
 
 // Gamification adapter for mobile (offline support, optimized data fetching)
-export { default as GamificationAdapter } from './GamificationAdapter';
+export { GamificationAdapter } from './GamificationAdapter';
 
 // Journey adapter for mobile (AsyncStorage persistence, React Navigation integration)
-export { default as JourneyAdapter } from './JourneyAdapter';
+export { JourneyAdapter } from './JourneyAdapter';
 
 // Navigation adapter for mobile (React Navigation integration, deep linking)
-export { default as NavigationAdapter } from './NavigationAdapter';
+export { NavigationAdapter } from './NavigationAdapter';
 
 // Notification adapter for mobile (push notifications, local notifications)
-export { default as NotificationAdapter } from './NotificationAdapter';
+export { NotificationAdapter } from './NotificationAdapter';
 
 // Storage adapter for mobile (AsyncStorage wrapper with error handling)
-export { default as StorageAdapter } from './StorageAdapter';
+export { StorageAdapter } from './StorageAdapter';
