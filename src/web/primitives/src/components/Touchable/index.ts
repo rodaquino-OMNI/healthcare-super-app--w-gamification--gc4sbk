@@ -1,7 +1,9 @@
-import { Touchable, TouchableProps } from './Touchable';
+/**
+ * Touchable component barrel file
+ * 
+ * This file exports the Touchable component and its associated types,
+ * providing a clean public API for consumers of this primitive.
+ */
 
-// Export the Touchable component and its props interface for use throughout the application
-export { Touchable, TouchableProps };
-
-// Default export for easier importing
-export default Touchable;
+export { Touchable } from './Touchable';
+export type { TouchableProps, Journey } from './Touchable';
