@@ -1,75 +1,100 @@
+/**
+ * @file GoalCard.tsx
+ * @description A component for displaying health goals with progress tracking
+ * and completion status. Integrates with the gamification system.
+ */
+
 import React from 'react';
 import { Box, Text, Stack } from '@design-system/primitives';
 import { useJourney } from '@austa/journey-context';
 import { HealthGoal } from '@austa/interfaces/health';
 
+/**
+ * Props for the GoalCard component
+ */
 export interface GoalCardProps {
-  /** The health goal data */
-  goal: HealthGoal;
+  /** The title of the goal */
+  title: string;
+  /** Optional description of the goal */
+  description?: string;
+  /** Progress towards completing the goal (0-100) */
+  progress?: number;
+  /** Whether the goal has been completed */
+  completed?: boolean;
   /** Optional callback when goal is achieved */
-  onAchieved?: (goalId: string) => void;
-  /** Additional class name */
-  className?: string;
-  /** Test ID for testing */
-  testId?: string;
+  onAchieved?: () => void;
+  /** Optional health goal data */
+  goalData?: Partial<HealthGoal>;
+  /** Optional test ID for testing */
+  testID?: string;
 }
 
 /**
- * GoalCard - A component for displaying health goal information with progress
+ * GoalCard - A component for displaying goal information
  * 
- * @param {GoalCardProps} props - Component props
- * @returns {React.ReactElement} The GoalCard component
+ * Displays health goals with title, description, progress bar, and completion status.
+ * Integrates with the gamification system to show goal progress as part of the Health journey.
+ * 
+ * @example
+ * <GoalCard
+ *   title="Walk 10,000 steps daily"
+ *   description="Stay active by walking at least 10,000 steps every day"
+ *   progress={75}
+ *   completed={false}
+ *   onAchieved={() => console.log('Goal achieved!')}
+ * />
  */
 const GoalCard: React.FC<GoalCardProps> = ({ 
-  goal,
+  title, 
+  description, 
+  progress = 0, 
+  completed = false,
   onAchieved,
-  className,
-  testId = 'goal-card'
+  goalData,
+  testID = 'goal-card'
 }) => {
-  const { journey } = useJourney();
-  const { title, description, progress = 0, completed = false, id } = goal;
+  // Get journey context for theming
+  const { journeyData } = useJourney();
   
   // Ensure progress is within valid range
   const normalizedProgress = completed ? 100 : Math.min(Math.max(progress, 0), 100);
   
-  // Handle achievement callback when goal is completed
-  React.useEffect(() => {
-    if (completed && onAchieved && id) {
-      onAchieved(id);
-    }
-  }, [completed, onAchieved, id]);
-
+  // Determine the primary color based on journey and completion status
+  const primaryColor = completed 
+    ? 'semantic.success' 
+    : `journeys.${journeyData.id}.primary`;
+  
   return (
-    <Box 
+    <Box
       display="flex"
       flexDirection="column"
-      padding="16px"
-      borderRadius="8px"
+      padding="md"
+      borderRadius="md"
       backgroundColor="neutral.white"
       boxShadow="sm"
-      transition="transform 0.3s ease, box-shadow 0.3s ease"
       borderLeft="4px solid"
-      borderLeftColor={completed ? 'semantic.success' : `journeys.${journey}.primary`}
+      borderLeftColor={primaryColor}
+      transition="transform 0.3s ease, box-shadow 0.3s ease"
       _hover={{
         transform: 'translateY(-2px)',
         boxShadow: 'md'
       }}
-      className={className}
       aria-label={`Goal: ${title}${completed ? ', completed' : `, ${normalizedProgress}% complete`}`}
-      data-testid={testId}
+      data-testid={testID}
       role="region"
       aria-roledescription="health goal card"
     >
-      <Stack direction="row" alignItems="center" marginBottom="12px">
+      <Stack direction="row" spacing="sm" alignItems="center" marginBottom="sm">
         {completed && (
-          <Box 
+          <Box
             display="inline-flex"
             alignItems="center"
-            padding="4px 8px"
+            padding="xs"
+            paddingLeft="sm"
+            paddingRight="sm"
             backgroundColor="semantic.success"
             color="neutral.white"
-            borderRadius="16px"
-            marginRight="8px"
+            borderRadius="full"
             aria-label="Goal completed"
           >
             <Text 
@@ -85,8 +110,7 @@ const GoalCard: React.FC<GoalCardProps> = ({
           fontSize="sm" 
           color="neutral.gray600" 
           marginLeft="auto"
-          aria-live="polite"
-          aria-atomic="true"
+          aria-label={`Progress: ${normalizedProgress}%`}
         >
           {completed ? '100%' : `${normalizedProgress}%`}
         </Text>
@@ -97,7 +121,7 @@ const GoalCard: React.FC<GoalCardProps> = ({
         fontSize="lg" 
         fontWeight="bold" 
         color="neutral.gray900" 
-        marginBottom="8px"
+        marginBottom="xs"
       >
         {title}
       </Text>
@@ -106,31 +130,31 @@ const GoalCard: React.FC<GoalCardProps> = ({
         <Text 
           fontSize="md" 
           color="neutral.gray700" 
-          marginBottom="16px"
+          marginBottom="md"
         >
           {description}
         </Text>
       )}
       
-      <Box 
+      <Box
         width="100%"
         height="8px"
         backgroundColor="neutral.gray200"
-        borderRadius="4px"
+        borderRadius="sm"
         overflow="hidden"
         marginTop="auto"
       >
         <Box 
           height="100%"
-          borderRadius="4px"
-          backgroundColor={completed ? 'semantic.success' : `journeys.${journey}.primary`}
+          borderRadius="sm"
+          backgroundColor={primaryColor}
           width={`${normalizedProgress}%`}
           transition="width 0.3s ease"
           role="progressbar"
           aria-valuenow={normalizedProgress}
           aria-valuemin={0}
           aria-valuemax={100}
-          aria-label={`${normalizedProgress}% progress toward goal`}
+          aria-label={`${normalizedProgress}% complete`}
         />
       </Box>
     </Box>
