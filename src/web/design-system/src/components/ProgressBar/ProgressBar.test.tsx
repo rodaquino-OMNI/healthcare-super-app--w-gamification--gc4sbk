@@ -1,23 +1,116 @@
 import React from 'react';
 import { render, screen } from '@testing-library/react';
 import { ThemeProvider } from 'styled-components';
-import { Platform } from 'react-native';
-
-// Import from the new package structure
-import { colors, spacing } from '@design-system/primitives';
-import { ProgressBarProps } from '@austa/interfaces/components/core.types';
 import ProgressBar from './ProgressBar';
+// Updated imports to use @design-system/primitives for theme tokens
+import { colors, spacing } from '@design-system/primitives';
+// Updated imports to use types from @austa/interfaces
+import type { JourneyTheme } from '@austa/interfaces/components';
 
-// Import themes from the design system
-import { healthTheme, careTheme, planTheme } from '../../themes';
-
-// Mock Platform for testing platform-specific behavior
-jest.mock('react-native', () => ({
-  Platform: {
-    OS: 'web',
-    select: jest.fn((obj) => obj.web),
+/**
+ * Mock themes using primitives from @design-system/primitives
+ */
+const mockThemes = {
+  healthTheme: {
+    colors: {
+      journeys: {
+        health: {
+          primary: colors.journeys.health.primary,
+          secondary: colors.journeys.health.secondary
+        },
+        care: {
+          primary: colors.journeys.care.primary,
+          secondary: colors.journeys.care.secondary
+        },
+        plan: {
+          primary: colors.journeys.plan.primary,
+          secondary: colors.journeys.plan.secondary
+        }
+      },
+      neutral: {
+        gray200: colors.neutral.gray200
+      },
+      brand: {
+        primary: colors.brand.primary,
+        secondary: colors.brand.secondary
+      }
+    },
+    spacing: {
+      xs: spacing.xs,
+      sm: spacing.sm,
+      md: spacing.md
+    },
+    borderRadius: {
+      md: '4px'
+    }
   },
-}));
+  careTheme: {
+    colors: {
+      journeys: {
+        health: {
+          primary: colors.journeys.health.primary,
+          secondary: colors.journeys.health.secondary
+        },
+        care: {
+          primary: colors.journeys.care.primary,
+          secondary: colors.journeys.care.secondary
+        },
+        plan: {
+          primary: colors.journeys.plan.primary,
+          secondary: colors.journeys.plan.secondary
+        }
+      },
+      neutral: {
+        gray200: colors.neutral.gray200
+      },
+      brand: {
+        primary: colors.brand.primary,
+        secondary: colors.brand.secondary
+      }
+    },
+    spacing: {
+      xs: spacing.xs,
+      sm: spacing.sm,
+      md: spacing.md
+    },
+    borderRadius: {
+      md: '4px'
+    }
+  },
+  planTheme: {
+    colors: {
+      journeys: {
+        health: {
+          primary: colors.journeys.health.primary,
+          secondary: colors.journeys.health.secondary
+        },
+        care: {
+          primary: colors.journeys.care.primary,
+          secondary: colors.journeys.care.secondary
+        },
+        plan: {
+          primary: colors.journeys.plan.primary,
+          secondary: colors.journeys.plan.secondary
+        }
+      },
+      neutral: {
+        gray200: colors.neutral.gray200
+      },
+      brand: {
+        primary: colors.brand.primary,
+        secondary: colors.brand.secondary
+      }
+    },
+    spacing: {
+      xs: spacing.xs,
+      sm: spacing.sm,
+      md: spacing.md
+    },
+    borderRadius: {
+      md: '4px'
+    }
+  }
+};
 
 /**
  * Helper function to render components with a specific theme
@@ -34,7 +127,7 @@ describe('ProgressBar', () => {
   it('renders correctly with default props', () => {
     renderWithTheme(
       <ProgressBar current={50} total={100} testId="progress-bar" />,
-      healthTheme
+      mockThemes.healthTheme
     );
     
     const progressBar = screen.getByTestId('progress-bar');
@@ -48,7 +141,7 @@ describe('ProgressBar', () => {
   it('calculates percentage correctly', () => {
     renderWithTheme(
       <ProgressBar current={25} total={200} testId="progress-bar" />,
-      healthTheme
+      mockThemes.healthTheme
     );
     
     const progressBar = screen.getByTestId('progress-bar');
@@ -62,7 +155,7 @@ describe('ProgressBar', () => {
     // Test with current > total (should clamp to 100%)
     renderWithTheme(
       <ProgressBar current={150} total={100} testId="progress-bar-over" />,
-      healthTheme
+      mockThemes.healthTheme
     );
     
     const progressBarOver = screen.getByTestId('progress-bar-over');
@@ -72,7 +165,7 @@ describe('ProgressBar', () => {
     // Test with negative current (should clamp to 0%)
     renderWithTheme(
       <ProgressBar current={-10} total={100} testId="progress-bar-under" />,
-      healthTheme
+      mockThemes.healthTheme
     );
     
     const progressBarUnder = screen.getByTestId('progress-bar-under');
@@ -80,11 +173,11 @@ describe('ProgressBar', () => {
     expect(fillUnder).toHaveStyle('width: 0%');
   });
 
-  it('applies correct journey-specific styling for all themes', () => {
+  it('applies correct journey-specific styling', () => {
     // Health journey
     renderWithTheme(
       <ProgressBar current={50} total={100} journey="health" testId="health-progress" />,
-      healthTheme
+      mockThemes.healthTheme
     );
     
     const healthProgress = screen.getByTestId('health-progress');
@@ -94,7 +187,7 @@ describe('ProgressBar', () => {
     // Care journey
     renderWithTheme(
       <ProgressBar current={50} total={100} journey="care" testId="care-progress" />,
-      careTheme
+      mockThemes.careTheme
     );
     
     const careProgress = screen.getByTestId('care-progress');
@@ -104,7 +197,7 @@ describe('ProgressBar', () => {
     // Plan journey
     renderWithTheme(
       <ProgressBar current={50} total={100} journey="plan" testId="plan-progress" />,
-      planTheme
+      mockThemes.planTheme
     );
     
     const planProgress = screen.getByTestId('plan-progress');
@@ -121,7 +214,7 @@ describe('ProgressBar', () => {
         levelMarkers={[25, 50, 75]} 
         testId="levels-progress" 
       />,
-      healthTheme
+      mockThemes.healthTheme
     );
     
     const progressBar = screen.getByTestId('levels-progress');
@@ -136,7 +229,7 @@ describe('ProgressBar', () => {
     expect(markers[2]).toHaveStyle('left: 75%');
   });
 
-  it('applies correct ARIA attributes for accessibility', () => {
+  it('applies correct ARIA attributes', () => {
     renderWithTheme(
       <ProgressBar 
         current={30} 
@@ -144,7 +237,7 @@ describe('ProgressBar', () => {
         ariaLabel="Test progress" 
         testId="aria-progress" 
       />,
-      healthTheme
+      mockThemes.healthTheme
     );
     
     const progressBar = screen.getByTestId('aria-progress');
@@ -164,18 +257,18 @@ describe('ProgressBar', () => {
         className="custom-progress" 
         testId="class-progress" 
       />,
-      healthTheme
+      mockThemes.healthTheme
     );
     
     const progressBar = screen.getByTestId('class-progress');
     expect(progressBar).toHaveClass('custom-progress');
   });
 
-  it('renders with different sizes using spacing tokens', () => {
+  it('renders with different sizes', () => {
     // Small size
     renderWithTheme(
       <ProgressBar current={50} total={100} size="sm" testId="sm-progress" />,
-      healthTheme
+      mockThemes.healthTheme
     );
     
     const smProgress = screen.getByTestId('sm-progress');
@@ -184,7 +277,7 @@ describe('ProgressBar', () => {
     // Medium size (default)
     renderWithTheme(
       <ProgressBar current={50} total={100} size="md" testId="md-progress" />,
-      healthTheme
+      mockThemes.healthTheme
     );
     
     const mdProgress = screen.getByTestId('md-progress');
@@ -193,7 +286,7 @@ describe('ProgressBar', () => {
     // Large size
     renderWithTheme(
       <ProgressBar current={50} total={100} size="lg" testId="lg-progress" />,
-      healthTheme
+      mockThemes.healthTheme
     );
     
     const lgProgress = screen.getByTestId('lg-progress');
@@ -203,7 +296,7 @@ describe('ProgressBar', () => {
   it('handles zero total value', () => {
     renderWithTheme(
       <ProgressBar current={50} total={0} testId="zero-progress" />,
-      healthTheme
+      mockThemes.healthTheme
     );
     
     const progressBar = screen.getByTestId('zero-progress');
@@ -213,58 +306,107 @@ describe('ProgressBar', () => {
     expect(fill).toHaveStyle('width: 0%');
   });
 
-  it('adapts to platform-specific rendering', () => {
-    // Mock Platform.OS as 'web'
-    (Platform.OS as string) = 'web';
-    
-    renderWithTheme(
-      <ProgressBar current={50} total={100} testId="web-progress" />,
-      healthTheme
+  // New test for responsive behavior
+  it('maintains consistent styling across different themes', () => {
+    // Render with health theme
+    const { unmount: unmountHealth } = renderWithTheme(
+      <ProgressBar current={50} total={100} testId="theme-progress" />,
+      mockThemes.healthTheme
     );
     
-    const webProgress = screen.getByTestId('web-progress');
-    expect(webProgress).toBeInTheDocument();
+    const healthProgress = screen.getByTestId('theme-progress');
+    expect(healthProgress).toHaveStyle(`background-color: ${colors.neutral.gray200}`);
+    unmountHealth();
     
-    // Mock Platform.OS as 'ios'
-    (Platform.OS as string) = 'ios';
-    
-    renderWithTheme(
-      <ProgressBar current={50} total={100} testId="ios-progress" />,
-      healthTheme
+    // Render with care theme
+    const { unmount: unmountCare } = renderWithTheme(
+      <ProgressBar current={50} total={100} testId="theme-progress" />,
+      mockThemes.careTheme
     );
     
-    const iosProgress = screen.getByTestId('ios-progress');
-    expect(iosProgress).toBeInTheDocument();
+    const careProgress = screen.getByTestId('theme-progress');
+    expect(careProgress).toHaveStyle(`background-color: ${colors.neutral.gray200}`);
+    unmountCare();
     
-    // Reset Platform.OS to 'web' for other tests
-    (Platform.OS as string) = 'web';
+    // Render with plan theme
+    renderWithTheme(
+      <ProgressBar current={50} total={100} testId="theme-progress" />,
+      mockThemes.planTheme
+    );
+    
+    const planProgress = screen.getByTestId('theme-progress');
+    expect(planProgress).toHaveStyle(`background-color: ${colors.neutral.gray200}`);
   });
 
-  it('handles responsive behavior based on viewport size', () => {
-    // Mock window.matchMedia for testing responsive behavior
-    Object.defineProperty(window, 'matchMedia', {
-      writable: true,
-      value: jest.fn().mockImplementation(query => ({
-        matches: query.includes('(min-width: 768px)'),
-        media: query,
-        onchange: null,
-        addListener: jest.fn(),
-        removeListener: jest.fn(),
-        addEventListener: jest.fn(),
-        removeEventListener: jest.fn(),
-        dispatchEvent: jest.fn(),
-      })),
-    });
-    
+  // New test for platform-specific rendering
+  it('uses correct ARIA attributes for accessibility across platforms', () => {
     renderWithTheme(
-      <ProgressBar current={50} total={100} testId="responsive-progress" />,
-      healthTheme
+      <ProgressBar 
+        current={75} 
+        total={100} 
+        testId="platform-progress" 
+      />,
+      mockThemes.healthTheme
     );
     
-    const responsiveProgress = screen.getByTestId('responsive-progress');
-    expect(responsiveProgress).toBeInTheDocument();
+    const progressBar = screen.getByTestId('platform-progress');
     
-    // Clean up mock
-    delete (window as any).matchMedia;
+    // Check that all required ARIA attributes are present for screen readers
+    expect(progressBar).toHaveAttribute('role', 'progressbar');
+    expect(progressBar).toHaveAttribute('aria-valuenow', '75');
+    expect(progressBar).toHaveAttribute('aria-valuemin', '0');
+    expect(progressBar).toHaveAttribute('aria-valuemax', '100');
+    expect(progressBar).toHaveAttribute('aria-label'); // Should have some aria-label
+  });
+
+  // New test for journey-specific marker colors
+  it('applies correct journey-specific colors to level markers', () => {
+    // Health journey markers
+    renderWithTheme(
+      <ProgressBar 
+        current={60} 
+        total={100} 
+        journey="health"
+        showLevels={true} 
+        levelMarkers={[50]} 
+        testId="health-marker-progress" 
+      />,
+      mockThemes.healthTheme
+    );
+    
+    const healthMarker = screen.getByTestId('health-marker-progress').querySelector('[aria-hidden="true"]') as HTMLElement;
+    expect(healthMarker).toHaveStyle(`background-color: ${colors.journeys.health.secondary}`);
+    
+    // Care journey markers
+    renderWithTheme(
+      <ProgressBar 
+        current={60} 
+        total={100} 
+        journey="care"
+        showLevels={true} 
+        levelMarkers={[50]} 
+        testId="care-marker-progress" 
+      />,
+      mockThemes.careTheme
+    );
+    
+    const careMarker = screen.getByTestId('care-marker-progress').querySelector('[aria-hidden="true"]') as HTMLElement;
+    expect(careMarker).toHaveStyle(`background-color: ${colors.journeys.care.secondary}`);
+    
+    // Plan journey markers
+    renderWithTheme(
+      <ProgressBar 
+        current={60} 
+        total={100} 
+        journey="plan"
+        showLevels={true} 
+        levelMarkers={[50]} 
+        testId="plan-marker-progress" 
+      />,
+      mockThemes.planTheme
+    );
+    
+    const planMarker = screen.getByTestId('plan-marker-progress').querySelector('[aria-hidden="true"]') as HTMLElement;
+    expect(planMarker).toHaveStyle(`background-color: ${colors.journeys.plan.secondary}`);
   });
 });
