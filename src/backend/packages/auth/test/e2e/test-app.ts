@@ -1,186 +1,595 @@
-import { INestApplication, ValidationPipe } from '@nestjs/common';
-import { TestingModule } from '@nestjs/testing';
-import { JwtService } from '@nestjs/jwt';
-import { Controller, Get, Post, UseGuards, Request, Body } from '@nestjs/common';
+/**
+ * Authentication Test Application Utility
+ * 
+ * This utility module creates a configurable NestJS test application for authentication end-to-end tests.
+ * It provides functions to initialize a test environment with mocked dependencies, configurable
+ * authentication strategies, and predefined test users. Supports testing of registration, login,
+ * JWT validation, and protected routes without requiring a real database connection.
+ */
+
+import { INestApplication, ModuleMetadata, Type } from '@nestjs/common';
+import { Test, TestingModule } from '@nestjs/testing';
+import { JwtModule } from '@nestjs/jwt';
+import { PassportModule } from '@nestjs/passport';
+
+// Import auth package components
+import { AuthService } from '../../src/auth.service';
+import { TokenService } from '../../src/token.service';
+import { JwtStrategy } from '../../src/strategies/jwt.strategy';
+import { LocalStrategy } from '../../src/strategies/local.strategy';
 import { JwtAuthGuard } from '../../src/guards/jwt-auth.guard';
-import { LocalAuthGuard } from '../../src/guards/local-auth.guard';
 import { RolesGuard } from '../../src/guards/roles.guard';
-import { Roles } from '../../src/decorators/roles.decorator';
-import { CurrentUser } from '../../src/decorators/current-user.decorator';
-import { IUser } from '../../src/interfaces';
+import { ROLES_KEY } from '../../src/decorators/roles.decorator';
+
+// Import auth provider interfaces
+import { AuthProvider } from '../../src/types';
+import { ERROR_CODES, JWT_CLAIMS, TOKEN_TYPES } from '../../src/constants';
 
 /**
- * Options for creating a test application
+ * Test user data for authentication tests
  */
-interface TestAppOptions {
+export const TEST_USERS = {
+  admin: {
+    id: '1',
+    email: 'admin@example.com',
+    password: 'Admin123!',
+    firstName: 'Admin',
+    lastName: 'User',
+    roles: ['admin'],
+    permissions: {
+      health: ['read', 'write', 'manage'],
+      care: ['read', 'write', 'manage'],
+      plan: ['read', 'write', 'manage']
+    },
+    emailVerified: true,
+    provider: AuthProvider.LOCAL
+  },
+  user: {
+    id: '2',
+    email: 'user@example.com',
+    password: 'User123!',
+    firstName: 'Regular',
+    lastName: 'User',
+    roles: ['user'],
+    permissions: {
+      health: ['read'],
+      care: ['read'],
+      plan: ['read']
+    },
+    emailVerified: true,
+    provider: AuthProvider.LOCAL
+  },
+  healthAdmin: {
+    id: '3',
+    email: 'health-admin@example.com',
+    password: 'Health123!',
+    firstName: 'Health',
+    lastName: 'Admin',
+    roles: ['health_admin'],
+    permissions: {
+      health: ['read', 'write', 'manage'],
+      care: ['read'],
+      plan: ['read']
+    },
+    emailVerified: true,
+    provider: AuthProvider.LOCAL
+  },
+  unverified: {
+    id: '4',
+    email: 'unverified@example.com',
+    password: 'Unverified123!',
+    firstName: 'Unverified',
+    lastName: 'User',
+    roles: ['user'],
+    permissions: {
+      health: ['read'],
+      care: ['read'],
+      plan: ['read']
+    },
+    emailVerified: false,
+    provider: AuthProvider.LOCAL
+  },
+  oauth: {
+    id: '5',
+    email: 'oauth@example.com',
+    firstName: 'OAuth',
+    lastName: 'User',
+    roles: ['user'],
+    permissions: {
+      health: ['read'],
+      care: ['read'],
+      plan: ['read']
+    },
+    emailVerified: true,
+    provider: AuthProvider.GOOGLE,
+    externalId: 'google-123456'
+  }
+};
+
+/**
+ * Configuration options for the test application
+ */
+export interface AuthTestOptions {
   /**
-   * Mock user for authentication
+   * Additional NestJS module imports to include in the test module
    */
-  user?: IUser;
+  imports?: ModuleMetadata['imports'];
   
   /**
-   * Whether to include test controllers
+   * Additional providers to include in the test module
    */
-  controllers?: boolean;
+  providers?: ModuleMetadata['providers'];
+  
+  /**
+   * Controllers to include in the test module
+   */
+  controllers?: ModuleMetadata['controllers'];
+  
+  /**
+   * JWT configuration options
+   */
+  jwt?: {
+    /**
+     * Secret key for signing tokens
+     */
+    secret?: string;
+    
+    /**
+     * Access token expiration time in seconds
+     */
+    accessTokenExpiration?: number;
+    
+    /**
+     * Refresh token expiration time in seconds
+     */
+    refreshTokenExpiration?: number;
+  };
+  
+  /**
+   * Database configuration options
+   */
+  database?: {
+    /**
+     * Mock database provider implementation
+     */
+    mockImplementation?: any;
+    
+    /**
+     * Whether to use an in-memory database for testing
+     */
+    useInMemory?: boolean;
+  };
+  
+  /**
+   * Authentication strategies to enable
+   */
+  strategies?: {
+    /**
+     * Enable JWT authentication strategy
+     */
+    jwt?: boolean;
+    
+    /**
+     * Enable local (username/password) authentication strategy
+     */
+    local?: boolean;
+    
+    /**
+     * Enable OAuth authentication strategies
+     */
+    oauth?: {
+      /**
+       * Enable Google OAuth authentication
+       */
+      google?: boolean;
+      
+      /**
+       * Enable Facebook OAuth authentication
+       */
+      facebook?: boolean;
+      
+      /**
+       * Enable Apple OAuth authentication
+       */
+      apple?: boolean;
+    };
+  };
+  
+  /**
+   * Error handling configuration
+   */
+  errors?: {
+    /**
+     * Mock error handler implementation
+     */
+    mockImplementation?: any;
+  };
+  
+  /**
+   * Logging configuration
+   */
+  logging?: {
+    /**
+     * Enable logging in tests
+     */
+    enabled?: boolean;
+    
+    /**
+     * Mock logger implementation
+     */
+    mockImplementation?: any;
+  };
 }
 
 /**
- * Creates a test controller for authentication strategy testing
- * @param mockUser The mock user to use for authentication
- * @returns A test controller class
+ * Default test options
  */
-function createTestController(mockUser: IUser) {
-  @Controller()
-  class TestController {
-    constructor(private jwtService: JwtService) {}
-
-    @UseGuards(JwtAuthGuard)
-    @Get('protected')
-    getProtected(@CurrentUser() user: IUser) {
-      return {
-        userId: user.id,
-        message: 'Protected route accessed successfully'
-      };
+const defaultOptions: AuthTestOptions = {
+  jwt: {
+    secret: 'test-secret-key',
+    accessTokenExpiration: 3600,
+    refreshTokenExpiration: 86400
+  },
+  strategies: {
+    jwt: true,
+    local: true,
+    oauth: {
+      google: false,
+      facebook: false,
+      apple: false
     }
+  },
+  database: {
+    useInMemory: true
+  },
+  logging: {
+    enabled: false
+  }
+};
 
-    @UseGuards(JwtAuthGuard)
-    @Get('user-info')
-    getUserInfo(@CurrentUser() user: IUser) {
-      return user;
-    }
+/**
+ * Mock database provider for testing
+ */
+export class MockDatabaseProvider {
+  private users = Object.values(TEST_USERS);
 
-    @UseGuards(LocalAuthGuard)
-    @Post('login')
-    async login(@Request() req) {
-      // Generate tokens for the authenticated user
-      const payload = {
-        sub: req.user.id,
-        email: req.user.email,
-        roles: req.user.roles
-      };
+  async findUserById(id: string) {
+    return this.users.find(user => user.id === id);
+  }
+
+  async findUserByEmail(email: string) {
+    return this.users.find(user => user.email === email);
+  }
+
+  async validateCredentials(email: string, password: string) {
+    const user = this.users.find(user => user.email === email);
+    if (!user) return null;
+    if (user.password !== password) return null;
+    return user;
+  }
+
+  async createUser(userData: any) {
+    const newUser = {
+      id: String(this.users.length + 1),
+      ...userData,
+      emailVerified: false,
+      provider: AuthProvider.LOCAL
+    };
+    this.users.push(newUser);
+    return newUser;
+  }
+
+  async updateUser(id: string, userData: any) {
+    const userIndex = this.users.findIndex(user => user.id === id);
+    if (userIndex === -1) return null;
+    
+    this.users[userIndex] = {
+      ...this.users[userIndex],
+      ...userData
+    };
+    
+    return this.users[userIndex];
+  }
+}
+
+/**
+ * Mock token service for testing
+ */
+export class MockTokenService {
+  constructor(private readonly options: AuthTestOptions) {}
+
+  generateAccessToken(payload: any) {
+    return `mock-access-token-${payload.sub}`;
+  }
+
+  generateRefreshToken(payload: any) {
+    return `mock-refresh-token-${payload.sub}`;
+  }
+
+  verifyToken(token: string) {
+    if (token.startsWith('mock-access-token-')) {
+      const userId = token.replace('mock-access-token-', '');
+      const user = Object.values(TEST_USERS).find(u => u.id === userId);
+      
+      if (!user) throw new Error(ERROR_CODES.INVALID_TOKEN);
       
       return {
-        user: req.user,
-        access_token: this.jwtService.sign(payload),
-        refresh_token: this.jwtService.sign({ ...payload, type: 'refresh' }, { expiresIn: '7d' })
+        sub: user.id,
+        email: user.email,
+        roles: user.roles,
+        permissions: user.permissions,
+        iat: Math.floor(Date.now() / 1000),
+        exp: Math.floor(Date.now() / 1000) + (this.options.jwt?.accessTokenExpiration || 3600)
       };
     }
-
-    @UseGuards(JwtAuthGuard, RolesGuard)
-    @Roles('user')
-    @Get('admin')
-    getAdmin() {
-      return { message: 'Admin route accessed successfully' };
+    
+    if (token.startsWith('mock-refresh-token-')) {
+      const userId = token.replace('mock-refresh-token-', '');
+      const user = Object.values(TEST_USERS).find(u => u.id === userId);
+      
+      if (!user) throw new Error(ERROR_CODES.INVALID_REFRESH_TOKEN);
+      
+      return {
+        sub: user.id,
+        type: TOKEN_TYPES.REFRESH,
+        iat: Math.floor(Date.now() / 1000),
+        exp: Math.floor(Date.now() / 1000) + (this.options.jwt?.refreshTokenExpiration || 86400)
+      };
     }
+    
+    throw new Error(ERROR_CODES.INVALID_TOKEN);
+  }
 
-    @UseGuards(JwtAuthGuard)
-    @Get('health-journey')
-    getHealthJourney(@CurrentUser() user: IUser) {
-      // Check if user has health journey preference
-      if (user.journeyPreferences?.defaultJourney !== 'health') {
-        throw new Error('User does not have access to health journey');
+  decodeToken(token: string) {
+    return this.verifyToken(token);
+  }
+
+  refreshToken(refreshToken: string) {
+    if (!refreshToken.startsWith('mock-refresh-token-')) {
+      throw new Error(ERROR_CODES.INVALID_REFRESH_TOKEN);
+    }
+    
+    const userId = refreshToken.replace('mock-refresh-token-', '');
+    const user = Object.values(TEST_USERS).find(u => u.id === userId);
+    
+    if (!user) throw new Error(ERROR_CODES.INVALID_REFRESH_TOKEN);
+    
+    return {
+      accessToken: `mock-access-token-${user.id}`,
+      refreshToken: `mock-refresh-token-${user.id}`,
+      expiresIn: this.options.jwt?.accessTokenExpiration || 3600,
+      tokenType: 'Bearer'
+    };
+  }
+}
+
+/**
+ * Mock auth service for testing
+ */
+export class MockAuthService {
+  constructor(
+    private readonly databaseProvider: MockDatabaseProvider,
+    private readonly tokenService: MockTokenService
+  ) {}
+
+  async validateUser(email: string, password: string) {
+    return this.databaseProvider.validateCredentials(email, password);
+  }
+
+  async login(user: any) {
+    const payload = {
+      sub: user.id,
+      email: user.email,
+      roles: user.roles,
+      permissions: user.permissions
+    };
+    
+    return {
+      user: {
+        id: user.id,
+        email: user.email,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        roles: user.roles,
+        permissions: user.permissions,
+        emailVerified: user.emailVerified,
+        provider: user.provider
+      },
+      tokens: {
+        accessToken: this.tokenService.generateAccessToken(payload),
+        refreshToken: this.tokenService.generateRefreshToken(payload),
+        expiresIn: 3600,
+        tokenType: 'Bearer'
       }
-      
-      return { message: 'Health journey accessed successfully' };
-    }
+    };
+  }
 
-    @Post('refresh-token')
-    async refreshToken(@Body() body: { refresh_token: string }) {
-      try {
-        // Verify the refresh token
-        const payload = this.jwtService.verify(body.refresh_token);
-        
-        // Check if it's a refresh token
-        if (payload.type !== 'refresh') {
-          throw new Error('Invalid token type');
+  async register(userData: any) {
+    const existingUser = await this.databaseProvider.findUserByEmail(userData.email);
+    if (existingUser) {
+      throw new Error(ERROR_CODES.EMAIL_ALREADY_EXISTS);
+    }
+    
+    const newUser = await this.databaseProvider.createUser({
+      ...userData,
+      roles: ['user'],
+      permissions: {
+        health: ['read'],
+        care: ['read'],
+        plan: ['read']
+      }
+    });
+    
+    return this.login(newUser);
+  }
+
+  async refreshToken(refreshToken: string) {
+    return this.tokenService.refreshToken(refreshToken);
+  }
+
+  async validateToken(token: string) {
+    return this.tokenService.verifyToken(token);
+  }
+}
+
+/**
+ * Creates a test module for authentication testing
+ * 
+ * @param options Configuration options for the test module
+ * @returns TestingModule instance
+ */
+export async function createAuthTestingModule(options: AuthTestOptions = {}): Promise<TestingModule> {
+  const mergedOptions = {
+    ...defaultOptions,
+    ...options,
+    jwt: { ...defaultOptions.jwt, ...options.jwt },
+    strategies: { 
+      ...defaultOptions.strategies, 
+      ...options.strategies,
+      oauth: { 
+        ...defaultOptions.strategies?.oauth, 
+        ...options.strategies?.oauth 
+      }
+    },
+    database: { ...defaultOptions.database, ...options.database },
+    logging: { ...defaultOptions.logging, ...options.logging }
+  };
+
+  // Create mock providers
+  const mockDatabaseProvider = new MockDatabaseProvider();
+  const mockTokenService = new MockTokenService(mergedOptions);
+  const mockAuthService = new MockAuthService(mockDatabaseProvider, mockTokenService);
+
+  // Base module configuration
+  const moduleConfig: ModuleMetadata = {
+    imports: [
+      PassportModule,
+      JwtModule.register({
+        secret: mergedOptions.jwt?.secret,
+        signOptions: {
+          expiresIn: `${mergedOptions.jwt?.accessTokenExpiration}s`
         }
-        
-        // Generate a new access token
-        const newPayload = {
-          sub: payload.sub,
-          email: payload.email,
-          roles: payload.roles
-        };
-        
-        return {
-          access_token: this.jwtService.sign(newPayload)
-        };
-      } catch (error) {
-        throw new Error('Invalid refresh token');
+      }),
+      ...(mergedOptions.imports || [])
+    ],
+    controllers: [...(mergedOptions.controllers || [])],
+    providers: [
+      {
+        provide: AuthService,
+        useValue: mockAuthService
+      },
+      {
+        provide: TokenService,
+        useValue: mockTokenService
+      },
+      JwtAuthGuard,
+      RolesGuard,
+      ...(mergedOptions.providers || [])
+    ]
+  };
+
+  // Add authentication strategies based on configuration
+  if (mergedOptions.strategies?.jwt) {
+    moduleConfig.providers?.push({
+      provide: JwtStrategy,
+      useValue: {
+        validate: async (payload: any) => {
+          const user = await mockDatabaseProvider.findUserById(payload.sub);
+          if (!user) return null;
+          
+          return {
+            id: user.id,
+            email: user.email,
+            roles: user.roles,
+            permissions: user.permissions
+          };
+        }
       }
-    }
-
-    // OAuth routes
-    @Get('auth/google')
-    googleAuth() {
-      // In a real app, this would redirect to Google
-      // For testing, we'll just return a mock response
-      return { redirectUrl: 'https://accounts.google.com/o/oauth2/auth' };
-    }
-
-    @Get('auth/google/callback')
-    googleAuthCallback() {
-      // In a real app, this would process the OAuth callback
-      // For testing, we'll just return a mock response with the user and token
-      const payload = {
-        sub: mockUser.id,
-        email: mockUser.email,
-        roles: mockUser.roles
-      };
-      
-      return {
-        user: mockUser,
-        access_token: this.jwtService.sign(payload)
-      };
-    }
+    });
   }
 
-  return TestController;
+  if (mergedOptions.strategies?.local) {
+    moduleConfig.providers?.push({
+      provide: LocalStrategy,
+      useValue: {
+        validate: async (email: string, password: string) => {
+          const user = await mockAuthService.validateUser(email, password);
+          if (!user) return null;
+          
+          return user;
+        }
+      }
+    });
+  }
+
+  // Create and return the testing module
+  return Test.createTestingModule(moduleConfig).compile();
 }
 
 /**
- * Creates a test application for authentication e2e tests
- * @param moduleFixture The testing module fixture
- * @param options Options for creating the test application
- * @returns A configured NestJS application for testing
+ * Creates a test application for authentication testing
+ * 
+ * @param options Configuration options for the test application
+ * @returns NestJS application instance
  */
-export async function createTestApp(
-  moduleFixture: TestingModule,
-  options: TestAppOptions = {}
-): Promise<INestApplication> {
-  const { user, controllers = false } = options;
+export async function createAuthTestingApp(options: AuthTestOptions = {}): Promise<INestApplication> {
+  const moduleRef = await createAuthTestingModule(options);
+  const app = moduleRef.createNestApplication();
+  await app.init();
+  return app;
+}
+
+/**
+ * Creates a test token for a specific user
+ * 
+ * @param userId User ID to create token for
+ * @param options Configuration options
+ * @returns Access token string
+ */
+export function createTestToken(userId: string, options: AuthTestOptions = {}): string {
+  const tokenService = new MockTokenService(options);
+  const user = Object.values(TEST_USERS).find(u => u.id === userId);
   
-  // If controllers are enabled and a user is provided, create a test controller
-  if (controllers && user) {
-    const TestController = createTestController(user);
-    moduleFixture.createNestApplication().get('ControllerTokens', []).push(TestController);
+  if (!user) {
+    throw new Error(`Test user with ID ${userId} not found`);
   }
   
-  // Create and configure the application
-  const app = moduleFixture.createNestApplication();
-  
-  // Apply global pipes and filters
-  app.useGlobalPipes(new ValidationPipe({
-    whitelist: true,
-    transform: true,
-    forbidNonWhitelisted: true
-  }));
-  
-  // Add global exception filter for standardized error responses
-  app.useGlobalFilters({
-    catch: (exception, host) => {
-      const ctx = host.switchToHttp();
-      const response = ctx.getResponse();
-      const status = exception.status || 500;
-      
-      response.status(status).json({
-        statusCode: status,
-        message: exception.message || 'Internal server error',
-        error: exception.name || 'Error',
-        timestamp: new Date().toISOString()
-      });
-    }
+  return tokenService.generateAccessToken({
+    sub: user.id,
+    email: user.email,
+    roles: user.roles,
+    permissions: user.permissions
   });
+}
+
+/**
+ * Creates test headers with authentication token
+ * 
+ * @param userId User ID to create token for
+ * @param options Configuration options
+ * @returns Headers object with Authorization
+ */
+export function createAuthHeaders(userId: string, options: AuthTestOptions = {}): Record<string, string> {
+  const token = createTestToken(userId, options);
+  return {
+    Authorization: `Bearer ${token}`
+  };
+}
+
+/**
+ * Helper function to create a controller with specific roles
+ * 
+ * @param roles Roles required for the controller
+ * @returns Controller class with roles metadata
+ */
+export function createProtectedController(roles: string[]) {
+  class TestController {
+    getProtectedResource() {
+      return { message: 'This is a protected resource' };
+    }
+  }
   
-  return app;
+  Reflect.defineMetadata(ROLES_KEY, roles, TestController.prototype.getProtectedResource);
+  
+  return TestController;
 }
