@@ -1,302 +1,383 @@
 /**
  * Style Props Type Definitions
  * 
- * This file defines all style prop interfaces used for component styling in the AUSTA SuperApp.
- * These interfaces enable the theme-aware prop system that forms the foundation of the design system.
+ * This file defines TypeScript interfaces for all style props used in the AUSTA SuperApp
+ * design system. These interfaces establish the contract between UI components and their
+ * style functions, ensuring consistent prop naming and type checking across all styled
+ * components.
  * 
- * The interfaces are organized into categories:
- * - SpacingProps: margin, padding
- * - LayoutProps: width, height, position
- * - TypographyProps: fontSize, lineHeight, etc.
- * - ColorProps: color, backgroundColor, etc.
- * - BorderProps: borderWidth, borderRadius, etc.
- * - FlexProps: flex, flexDirection, etc.
- * - GridProps: gridTemplateColumns, gridGap, etc.
- * - PositionProps: position, top, right, etc.
- * - ShadowProps: boxShadow, textShadow
- * - TransitionProps: transition, animation
- * - PseudoProps: hover, focus, active states
- * - VariantProps: variant-based styling
+ * The style props are organized into logical categories (spacing, layout, typography, etc.)
+ * and support responsive values, pseudo-class styling, and theme-aware properties.
+ */
+
+import { ResponsiveToken } from './tokens.types';
+
+/**
+ * ResponsiveValue Type
  * 
- * Each prop can accept:
- * - Direct values (string, number)
- * - Theme values (references to theme tokens)
- * - Responsive values (different values at different breakpoints)
+ * A generic type that allows a property to be defined as either a single value
+ * or as a responsive object with different values for different breakpoints.
  */
-
-import { Theme } from '../themes/theme.types';
+export type ResponsiveValue<T> = T | ResponsiveToken<T>;
 
 /**
- * Responsive prop type that allows different values at different breakpoints
- */
-export type ResponsiveProp<T> = 
-  | T 
-  | {
-      base?: T;
-      sm?: T;
-      md?: T;
-      lg?: T;
-      xl?: T;
-    };
-
-/**
- * Theme-aware prop type that can reference values from the theme
- */
-export type ThemeAwareProp<T, K extends keyof Theme = never> = 
-  | T 
-  | keyof Theme[K];
-
-/**
- * Spacing Props (margin, padding)
+ * Spacing Props Interface
+ * 
+ * Defines props related to margin and padding with support for responsive values.
+ * These props map to CSS margin and padding properties and follow the 8-point grid system.
  */
 export interface SpacingProps {
-  m?: ResponsiveProp<ThemeAwareProp<string | number, 'spacing'>>;
-  mt?: ResponsiveProp<ThemeAwareProp<string | number, 'spacing'>>;
-  mr?: ResponsiveProp<ThemeAwareProp<string | number, 'spacing'>>;
-  mb?: ResponsiveProp<ThemeAwareProp<string | number, 'spacing'>>;
-  ml?: ResponsiveProp<ThemeAwareProp<string | number, 'spacing'>>;
-  mx?: ResponsiveProp<ThemeAwareProp<string | number, 'spacing'>>;
-  my?: ResponsiveProp<ThemeAwareProp<string | number, 'spacing'>>;
-  margin?: ResponsiveProp<ThemeAwareProp<string | number, 'spacing'>>;
-  marginTop?: ResponsiveProp<ThemeAwareProp<string | number, 'spacing'>>;
-  marginRight?: ResponsiveProp<ThemeAwareProp<string | number, 'spacing'>>;
-  marginBottom?: ResponsiveProp<ThemeAwareProp<string | number, 'spacing'>>;
-  marginLeft?: ResponsiveProp<ThemeAwareProp<string | number, 'spacing'>>;
-  marginX?: ResponsiveProp<ThemeAwareProp<string | number, 'spacing'>>;
-  marginY?: ResponsiveProp<ThemeAwareProp<string | number, 'spacing'>>;
-  p?: ResponsiveProp<ThemeAwareProp<string | number, 'spacing'>>;
-  pt?: ResponsiveProp<ThemeAwareProp<string | number, 'spacing'>>;
-  pr?: ResponsiveProp<ThemeAwareProp<string | number, 'spacing'>>;
-  pb?: ResponsiveProp<ThemeAwareProp<string | number, 'spacing'>>;
-  pl?: ResponsiveProp<ThemeAwareProp<string | number, 'spacing'>>;
-  px?: ResponsiveProp<ThemeAwareProp<string | number, 'spacing'>>;
-  py?: ResponsiveProp<ThemeAwareProp<string | number, 'spacing'>>;
-  padding?: ResponsiveProp<ThemeAwareProp<string | number, 'spacing'>>;
-  paddingTop?: ResponsiveProp<ThemeAwareProp<string | number, 'spacing'>>;
-  paddingRight?: ResponsiveProp<ThemeAwareProp<string | number, 'spacing'>>;
-  paddingBottom?: ResponsiveProp<ThemeAwareProp<string | number, 'spacing'>>;
-  paddingLeft?: ResponsiveProp<ThemeAwareProp<string | number, 'spacing'>>;
-  paddingX?: ResponsiveProp<ThemeAwareProp<string | number, 'spacing'>>;
-  paddingY?: ResponsiveProp<ThemeAwareProp<string | number, 'spacing'>>;
+  // Margin props
+  m?: ResponsiveValue<string | number>;
+  margin?: ResponsiveValue<string | number>;
+  mt?: ResponsiveValue<string | number>;
+  marginTop?: ResponsiveValue<string | number>;
+  mr?: ResponsiveValue<string | number>;
+  marginRight?: ResponsiveValue<string | number>;
+  mb?: ResponsiveValue<string | number>;
+  marginBottom?: ResponsiveValue<string | number>;
+  ml?: ResponsiveValue<string | number>;
+  marginLeft?: ResponsiveValue<string | number>;
+  mx?: ResponsiveValue<string | number>;
+  marginX?: ResponsiveValue<string | number>;
+  my?: ResponsiveValue<string | number>;
+  marginY?: ResponsiveValue<string | number>;
+  
+  // Padding props
+  p?: ResponsiveValue<string | number>;
+  padding?: ResponsiveValue<string | number>;
+  pt?: ResponsiveValue<string | number>;
+  paddingTop?: ResponsiveValue<string | number>;
+  pr?: ResponsiveValue<string | number>;
+  paddingRight?: ResponsiveValue<string | number>;
+  pb?: ResponsiveValue<string | number>;
+  paddingBottom?: ResponsiveValue<string | number>;
+  pl?: ResponsiveValue<string | number>;
+  paddingLeft?: ResponsiveValue<string | number>;
+  px?: ResponsiveValue<string | number>;
+  paddingX?: ResponsiveValue<string | number>;
+  py?: ResponsiveValue<string | number>;
+  paddingY?: ResponsiveValue<string | number>;
 }
 
 /**
- * Layout Props (width, height, display)
+ * Layout Props Interface
+ * 
+ * Defines props related to component layout, including width, height, display, overflow, etc.
+ * These props map to CSS layout properties and support responsive values.
  */
 export interface LayoutProps {
-  width?: ResponsiveProp<ThemeAwareProp<string | number, 'sizes'>>;
-  height?: ResponsiveProp<ThemeAwareProp<string | number, 'sizes'>>;
-  minWidth?: ResponsiveProp<ThemeAwareProp<string | number, 'sizes'>>;
-  maxWidth?: ResponsiveProp<ThemeAwareProp<string | number, 'sizes'>>;
-  minHeight?: ResponsiveProp<ThemeAwareProp<string | number, 'sizes'>>;
-  maxHeight?: ResponsiveProp<ThemeAwareProp<string | number, 'sizes'>>;
-  size?: ResponsiveProp<ThemeAwareProp<string | number, 'sizes'>>;
-  display?: ResponsiveProp<'none' | 'flex' | 'block' | 'inline' | 'inline-block' | 'grid' | 'inline-flex'>;
-  overflow?: ResponsiveProp<'visible' | 'hidden' | 'scroll' | 'auto'>;
-  overflowX?: ResponsiveProp<'visible' | 'hidden' | 'scroll' | 'auto'>;
-  overflowY?: ResponsiveProp<'visible' | 'hidden' | 'scroll' | 'auto'>;
-  verticalAlign?: ResponsiveProp<'baseline' | 'top' | 'middle' | 'bottom' | 'text-top' | 'text-bottom'>;
+  // Width and height
+  w?: ResponsiveValue<string | number>;
+  width?: ResponsiveValue<string | number>;
+  h?: ResponsiveValue<string | number>;
+  height?: ResponsiveValue<string | number>;
+  minW?: ResponsiveValue<string | number>;
+  minWidth?: ResponsiveValue<string | number>;
+  maxW?: ResponsiveValue<string | number>;
+  maxWidth?: ResponsiveValue<string | number>;
+  minH?: ResponsiveValue<string | number>;
+  minHeight?: ResponsiveValue<string | number>;
+  maxH?: ResponsiveValue<string | number>;
+  maxHeight?: ResponsiveValue<string | number>;
+  
+  // Display and visibility
+  display?: ResponsiveValue<string>;
+  d?: ResponsiveValue<string>;
+  visibility?: ResponsiveValue<string>;
+  overflow?: ResponsiveValue<string>;
+  overflowX?: ResponsiveValue<string>;
+  overflowY?: ResponsiveValue<string>;
+  
+  // Box sizing
+  boxSizing?: ResponsiveValue<string>;
+  
+  // Object fit (for images and videos)
+  objectFit?: ResponsiveValue<string>;
+  objectPosition?: ResponsiveValue<string>;
+  
+  // Aspect ratio
+  aspectRatio?: ResponsiveValue<string | number>;
 }
 
 /**
- * Typography Props (fontSize, fontWeight, etc.)
+ * Typography Props Interface
+ * 
+ * Defines props related to text styling, including font size, weight, family, etc.
+ * These props map to CSS typography properties and support responsive values.
  */
 export interface TypographyProps {
-  fontFamily?: ResponsiveProp<ThemeAwareProp<string, 'fonts'>>;
-  fontSize?: ResponsiveProp<ThemeAwareProp<string | number, 'fontSizes'>>;
-  fontWeight?: ResponsiveProp<ThemeAwareProp<string | number, 'fontWeights'>>;
-  lineHeight?: ResponsiveProp<ThemeAwareProp<string | number, 'lineHeights'>>;
-  letterSpacing?: ResponsiveProp<ThemeAwareProp<string | number, 'letterSpacings'>>;
-  textAlign?: ResponsiveProp<'left' | 'right' | 'center' | 'justify'>;
-  fontStyle?: ResponsiveProp<'normal' | 'italic'>;
-  textTransform?: ResponsiveProp<'uppercase' | 'lowercase' | 'capitalize' | 'none'>;
-  textDecoration?: ResponsiveProp<'none' | 'underline' | 'line-through'>;
-  textOverflow?: ResponsiveProp<'clip' | 'ellipsis'>;
-  whiteSpace?: ResponsiveProp<'normal' | 'nowrap' | 'pre' | 'pre-wrap' | 'pre-line'>;
-  wordBreak?: ResponsiveProp<'normal' | 'break-all' | 'keep-all' | 'break-word'>;
-  wordWrap?: ResponsiveProp<'normal' | 'break-word'>;
+  fontFamily?: ResponsiveValue<string>;
+  fontSize?: ResponsiveValue<string | number>;
+  fontWeight?: ResponsiveValue<string | number>;
+  lineHeight?: ResponsiveValue<string | number>;
+  letterSpacing?: ResponsiveValue<string | number>;
+  textAlign?: ResponsiveValue<string>;
+  fontStyle?: ResponsiveValue<string>;
+  textTransform?: ResponsiveValue<string>;
+  textDecoration?: ResponsiveValue<string>;
+  textOverflow?: ResponsiveValue<string>;
+  whiteSpace?: ResponsiveValue<string>;
+  wordBreak?: ResponsiveValue<string>;
+  wordWrap?: ResponsiveValue<string>;
+  textShadow?: ResponsiveValue<string>;
+  
+  // Truncation
+  truncate?: boolean;
+  noOfLines?: number;
+  
+  // Responsive typography
+  textStyle?: ResponsiveValue<string>;
 }
 
 /**
- * Color Props (color, backgroundColor, etc.)
+ * Color Props Interface
+ * 
+ * Defines props related to colors, including text color, background color, etc.
+ * These props map to CSS color properties and support theme-aware values.
  */
 export interface ColorProps {
-  color?: ResponsiveProp<ThemeAwareProp<string, 'colors'>>;
-  backgroundColor?: ResponsiveProp<ThemeAwareProp<string, 'colors'>>;
-  bg?: ResponsiveProp<ThemeAwareProp<string, 'colors'>>;
-  opacity?: ResponsiveProp<number>;
-  colorScheme?: ResponsiveProp<'health' | 'care' | 'plan'>;
+  color?: ResponsiveValue<string>;
+  bg?: ResponsiveValue<string>;
+  backgroundColor?: ResponsiveValue<string>;
+  bgColor?: ResponsiveValue<string>;
+  opacity?: ResponsiveValue<string | number>;
+  bgGradient?: ResponsiveValue<string>;
+  backgroundGradient?: ResponsiveValue<string>;
+  bgImage?: ResponsiveValue<string>;
+  backgroundImage?: ResponsiveValue<string>;
+  bgSize?: ResponsiveValue<string>;
+  backgroundSize?: ResponsiveValue<string>;
+  bgPosition?: ResponsiveValue<string>;
+  backgroundPosition?: ResponsiveValue<string>;
+  bgRepeat?: ResponsiveValue<string>;
+  backgroundRepeat?: ResponsiveValue<string>;
+  bgAttachment?: ResponsiveValue<string>;
+  backgroundAttachment?: ResponsiveValue<string>;
+  bgClip?: ResponsiveValue<string>;
+  backgroundClip?: ResponsiveValue<string>;
+  
+  // Theme-aware colors
+  colorScheme?: ResponsiveValue<string>;
+  fill?: ResponsiveValue<string>;
+  stroke?: ResponsiveValue<string>;
 }
 
 /**
- * Border Props (borderWidth, borderRadius, etc.)
+ * Border Props Interface
+ * 
+ * Defines props related to borders, including border width, style, color, radius, etc.
+ * These props map to CSS border properties and support responsive values.
  */
 export interface BorderProps {
-  border?: ResponsiveProp<string>;
-  borderWidth?: ResponsiveProp<ThemeAwareProp<string | number, 'borderWidths'>>;
-  borderStyle?: ResponsiveProp<'solid' | 'dashed' | 'dotted' | 'none'>;
-  borderColor?: ResponsiveProp<ThemeAwareProp<string, 'colors'>>;
-  borderRadius?: ResponsiveProp<ThemeAwareProp<string | number, 'radii'>>;
-  borderTop?: ResponsiveProp<string>;
-  borderRight?: ResponsiveProp<string>;
-  borderBottom?: ResponsiveProp<string>;
-  borderLeft?: ResponsiveProp<string>;
-  borderTopWidth?: ResponsiveProp<ThemeAwareProp<string | number, 'borderWidths'>>;
-  borderRightWidth?: ResponsiveProp<ThemeAwareProp<string | number, 'borderWidths'>>;
-  borderBottomWidth?: ResponsiveProp<ThemeAwareProp<string | number, 'borderWidths'>>;
-  borderLeftWidth?: ResponsiveProp<ThemeAwareProp<string | number, 'borderWidths'>>;
-  borderTopColor?: ResponsiveProp<ThemeAwareProp<string, 'colors'>>;
-  borderRightColor?: ResponsiveProp<ThemeAwareProp<string, 'colors'>>;
-  borderBottomColor?: ResponsiveProp<ThemeAwareProp<string, 'colors'>>;
-  borderLeftColor?: ResponsiveProp<ThemeAwareProp<string, 'colors'>>;
-  borderTopStyle?: ResponsiveProp<'solid' | 'dashed' | 'dotted' | 'none'>;
-  borderRightStyle?: ResponsiveProp<'solid' | 'dashed' | 'dotted' | 'none'>;
-  borderBottomStyle?: ResponsiveProp<'solid' | 'dashed' | 'dotted' | 'none'>;
-  borderLeftStyle?: ResponsiveProp<'solid' | 'dashed' | 'dotted' | 'none'>;
-  borderTopLeftRadius?: ResponsiveProp<ThemeAwareProp<string | number, 'radii'>>;
-  borderTopRightRadius?: ResponsiveProp<ThemeAwareProp<string | number, 'radii'>>;
-  borderBottomRightRadius?: ResponsiveProp<ThemeAwareProp<string | number, 'radii'>>;
-  borderBottomLeftRadius?: ResponsiveProp<ThemeAwareProp<string | number, 'radii'>>;
+  border?: ResponsiveValue<string>;
+  borderWidth?: ResponsiveValue<string | number>;
+  borderStyle?: ResponsiveValue<string>;
+  borderColor?: ResponsiveValue<string>;
+  
+  // Individual borders
+  borderTop?: ResponsiveValue<string>;
+  borderRight?: ResponsiveValue<string>;
+  borderBottom?: ResponsiveValue<string>;
+  borderLeft?: ResponsiveValue<string>;
+  
+  // Border width shortcuts
+  borderTopWidth?: ResponsiveValue<string | number>;
+  borderRightWidth?: ResponsiveValue<string | number>;
+  borderBottomWidth?: ResponsiveValue<string | number>;
+  borderLeftWidth?: ResponsiveValue<string | number>;
+  
+  // Border style shortcuts
+  borderTopStyle?: ResponsiveValue<string>;
+  borderRightStyle?: ResponsiveValue<string>;
+  borderBottomStyle?: ResponsiveValue<string>;
+  borderLeftStyle?: ResponsiveValue<string>;
+  
+  // Border color shortcuts
+  borderTopColor?: ResponsiveValue<string>;
+  borderRightColor?: ResponsiveValue<string>;
+  borderBottomColor?: ResponsiveValue<string>;
+  borderLeftColor?: ResponsiveValue<string>;
+  
+  // Border radius
+  borderRadius?: ResponsiveValue<string | number>;
+  borderTopLeftRadius?: ResponsiveValue<string | number>;
+  borderTopRightRadius?: ResponsiveValue<string | number>;
+  borderBottomRightRadius?: ResponsiveValue<string | number>;
+  borderBottomLeftRadius?: ResponsiveValue<string | number>;
+  
+  // Border radius shortcuts
+  rounded?: ResponsiveValue<string | number>;
+  roundedTop?: ResponsiveValue<string | number>;
+  roundedRight?: ResponsiveValue<string | number>;
+  roundedBottom?: ResponsiveValue<string | number>;
+  roundedLeft?: ResponsiveValue<string | number>;
+  roundedTopLeft?: ResponsiveValue<string | number>;
+  roundedTopRight?: ResponsiveValue<string | number>;
+  roundedBottomRight?: ResponsiveValue<string | number>;
+  roundedBottomLeft?: ResponsiveValue<string | number>;
 }
 
 /**
- * Flex Props (flex, flexDirection, etc.)
- */
-export interface FlexProps {
-  flex?: ResponsiveProp<number | string>;
-  flexGrow?: ResponsiveProp<number>;
-  flexShrink?: ResponsiveProp<number>;
-  flexBasis?: ResponsiveProp<string | number>;
-  flexDirection?: ResponsiveProp<'row' | 'column' | 'row-reverse' | 'column-reverse'>;
-  flexWrap?: ResponsiveProp<'nowrap' | 'wrap' | 'wrap-reverse'>;
-  justifyContent?: ResponsiveProp<
-    'flex-start' | 'flex-end' | 'center' | 'space-between' | 'space-around' | 'space-evenly'
-  >;
-  alignItems?: ResponsiveProp<'flex-start' | 'flex-end' | 'center' | 'baseline' | 'stretch'>;
-  alignContent?: ResponsiveProp<
-    'flex-start' | 'flex-end' | 'center' | 'space-between' | 'space-around' | 'stretch'
-  >;
-  alignSelf?: ResponsiveProp<'auto' | 'flex-start' | 'flex-end' | 'center' | 'baseline' | 'stretch'>;
-  order?: ResponsiveProp<number>;
-  gap?: ResponsiveProp<ThemeAwareProp<string | number, 'spacing'>>;
-  rowGap?: ResponsiveProp<ThemeAwareProp<string | number, 'spacing'>>;
-  columnGap?: ResponsiveProp<ThemeAwareProp<string | number, 'spacing'>>;
-}
-
-/**
- * Grid Props (gridTemplateColumns, gridGap, etc.)
- */
-export interface GridProps {
-  gridGap?: ResponsiveProp<ThemeAwareProp<string | number, 'spacing'>>;
-  gridRowGap?: ResponsiveProp<ThemeAwareProp<string | number, 'spacing'>>;
-  gridColumnGap?: ResponsiveProp<ThemeAwareProp<string | number, 'spacing'>>;
-  gridRow?: ResponsiveProp<string>;
-  gridColumn?: ResponsiveProp<string>;
-  gridAutoFlow?: ResponsiveProp<'row' | 'column' | 'row dense' | 'column dense'>;
-  gridAutoRows?: ResponsiveProp<string>;
-  gridAutoColumns?: ResponsiveProp<string>;
-  gridTemplateRows?: ResponsiveProp<string>;
-  gridTemplateColumns?: ResponsiveProp<string>;
-  gridTemplateAreas?: ResponsiveProp<string>;
-  gridArea?: ResponsiveProp<string>;
-}
-
-/**
- * Position Props (position, top, right, etc.)
- */
-export interface PositionProps {
-  position?: ResponsiveProp<'static' | 'relative' | 'absolute' | 'fixed' | 'sticky'>;
-  zIndex?: ResponsiveProp<ThemeAwareProp<string | number, 'zIndices'>>;
-  top?: ResponsiveProp<ThemeAwareProp<string | number, 'space'>>;
-  right?: ResponsiveProp<ThemeAwareProp<string | number, 'space'>>;
-  bottom?: ResponsiveProp<ThemeAwareProp<string | number, 'space'>>;
-  left?: ResponsiveProp<ThemeAwareProp<string | number, 'space'>>;
-}
-
-/**
- * Shadow Props (boxShadow, textShadow)
+ * Shadow Props Interface
+ * 
+ * Defines props related to shadows, including box shadow and text shadow.
+ * These props map to CSS shadow properties and support responsive values.
  */
 export interface ShadowProps {
-  boxShadow?: ResponsiveProp<ThemeAwareProp<string, 'shadows'>>;
-  textShadow?: ResponsiveProp<string>;
+  boxShadow?: ResponsiveValue<string>;
+  textShadow?: ResponsiveValue<string>;
+  shadow?: ResponsiveValue<string>;
 }
 
 /**
- * Transition Props (transition, animation)
+ * Position Props Interface
+ * 
+ * Defines props related to positioning, including position, top, right, bottom, left, z-index.
+ * These props map to CSS positioning properties and support responsive values.
  */
-export interface TransitionProps {
-  transition?: ResponsiveProp<string>;
-  transitionProperty?: ResponsiveProp<string>;
-  transitionDuration?: ResponsiveProp<ThemeAwareProp<string | number, 'durations'>>;
-  transitionTimingFunction?: ResponsiveProp<ThemeAwareProp<string, 'easings'>>;
-  transitionDelay?: ResponsiveProp<string>;
-  animation?: ResponsiveProp<string>;
-  transform?: ResponsiveProp<string>;
-  transformOrigin?: ResponsiveProp<string>;
+export interface PositionProps {
+  position?: ResponsiveValue<string>;
+  pos?: ResponsiveValue<string>;
+  top?: ResponsiveValue<string | number>;
+  right?: ResponsiveValue<string | number>;
+  bottom?: ResponsiveValue<string | number>;
+  left?: ResponsiveValue<string | number>;
+  zIndex?: ResponsiveValue<string | number>;
+  inset?: ResponsiveValue<string | number>;
+  insetX?: ResponsiveValue<string | number>;
+  insetY?: ResponsiveValue<string | number>;
 }
 
 /**
- * Pseudo Props (hover, focus, active states)
+ * Flexbox Props Interface
+ * 
+ * Defines props related to flexbox layout, including flex direction, wrap, align, justify, etc.
+ * These props map to CSS flexbox properties and support responsive values.
+ */
+export interface FlexboxProps {
+  flex?: ResponsiveValue<string | number>;
+  flexGrow?: ResponsiveValue<string | number>;
+  flexShrink?: ResponsiveValue<string | number>;
+  flexBasis?: ResponsiveValue<string | number>;
+  flexDirection?: ResponsiveValue<string>;
+  flexDir?: ResponsiveValue<string>;
+  flexWrap?: ResponsiveValue<string>;
+  
+  // Alignment
+  alignItems?: ResponsiveValue<string>;
+  alignContent?: ResponsiveValue<string>;
+  justifyItems?: ResponsiveValue<string>;
+  justifyContent?: ResponsiveValue<string>;
+  justifySelf?: ResponsiveValue<string>;
+  alignSelf?: ResponsiveValue<string>;
+  
+  // Order
+  order?: ResponsiveValue<string | number>;
+  
+  // Shorthand props
+  direction?: ResponsiveValue<string>;
+  wrap?: ResponsiveValue<string | boolean>;
+  justify?: ResponsiveValue<string>;
+  align?: ResponsiveValue<string>;
+}
+
+/**
+ * Grid Props Interface
+ * 
+ * Defines props related to CSS Grid layout, including grid template, gap, areas, etc.
+ * These props map to CSS Grid properties and support responsive values.
+ */
+export interface GridProps {
+  gridGap?: ResponsiveValue<string | number>;
+  gridColumnGap?: ResponsiveValue<string | number>;
+  gridRowGap?: ResponsiveValue<string | number>;
+  gridColumn?: ResponsiveValue<string>;
+  gridRow?: ResponsiveValue<string>;
+  gridAutoFlow?: ResponsiveValue<string>;
+  gridAutoColumns?: ResponsiveValue<string>;
+  gridAutoRows?: ResponsiveValue<string>;
+  gridTemplateColumns?: ResponsiveValue<string>;
+  gridTemplateRows?: ResponsiveValue<string>;
+  gridTemplateAreas?: ResponsiveValue<string>;
+  gridArea?: ResponsiveValue<string>;
+  
+  // Shorthand props
+  gap?: ResponsiveValue<string | number>;
+  rowGap?: ResponsiveValue<string | number>;
+  columnGap?: ResponsiveValue<string | number>;
+  templateColumns?: ResponsiveValue<string>;
+  templateRows?: ResponsiveValue<string>;
+  templateAreas?: ResponsiveValue<string>;
+  area?: ResponsiveValue<string>;
+  autoFlow?: ResponsiveValue<string>;
+  autoColumns?: ResponsiveValue<string>;
+  autoRows?: ResponsiveValue<string>;
+}
+
+/**
+ * Pseudo Props Interface
+ * 
+ * Defines props for pseudo-class styling, including hover, focus, active, etc.
+ * These props allow for defining styles that apply in different interaction states.
  */
 export interface PseudoProps {
-  _hover?: Omit<StyleProps, '_hover' | '_focus' | '_active' | '_disabled'>;
-  _focus?: Omit<StyleProps, '_hover' | '_focus' | '_active' | '_disabled'>;
-  _active?: Omit<StyleProps, '_hover' | '_focus' | '_active' | '_disabled'>;
-  _disabled?: Omit<StyleProps, '_hover' | '_focus' | '_active' | '_disabled'>;
-  _pressed?: Omit<StyleProps, '_hover' | '_focus' | '_active' | '_disabled' | '_pressed'>;
-  _invalid?: Omit<StyleProps, '_hover' | '_focus' | '_active' | '_disabled' | '_pressed' | '_invalid'>;
-  _loading?: Omit<StyleProps, '_hover' | '_focus' | '_active' | '_disabled' | '_pressed' | '_invalid' | '_loading'>;
-  _selected?: Omit<StyleProps, '_hover' | '_focus' | '_active' | '_disabled' | '_pressed' | '_invalid' | '_loading' | '_selected'>;
-  _before?: Omit<StyleProps, '_hover' | '_focus' | '_active' | '_disabled' | '_pressed' | '_invalid' | '_loading' | '_selected' | '_before' | '_after'>;
-  _after?: Omit<StyleProps, '_hover' | '_focus' | '_active' | '_disabled' | '_pressed' | '_invalid' | '_loading' | '_selected' | '_before' | '_after'>;
-  _first?: Omit<StyleProps, '_hover' | '_focus' | '_active' | '_disabled' | '_pressed' | '_invalid' | '_loading' | '_selected' | '_before' | '_after' | '_first' | '_last'>;
-  _last?: Omit<StyleProps, '_hover' | '_focus' | '_active' | '_disabled' | '_pressed' | '_invalid' | '_loading' | '_selected' | '_before' | '_after' | '_first' | '_last'>;
+  _hover?: Omit<StyleProps, '_hover'>;
+  _focus?: Omit<StyleProps, '_focus'>;
+  _active?: Omit<StyleProps, '_active'>;
+  _disabled?: Omit<StyleProps, '_disabled'>;
+  _invalid?: Omit<StyleProps, '_invalid'>;
+  _pressed?: Omit<StyleProps, '_pressed'>;
+  _selected?: Omit<StyleProps, '_selected'>;
+  _focusVisible?: Omit<StyleProps, '_focusVisible'>;
+  _focusWithin?: Omit<StyleProps, '_focusWithin'>;
+  _placeholder?: Omit<StyleProps, '_placeholder'>;
+  _firstChild?: Omit<StyleProps, '_firstChild'>;
+  _lastChild?: Omit<StyleProps, '_lastChild'>;
+  _notFirstChild?: Omit<StyleProps, '_notFirstChild'>;
+  _notLastChild?: Omit<StyleProps, '_notLastChild'>;
+  _even?: Omit<StyleProps, '_even'>;
+  _odd?: Omit<StyleProps, '_odd'>;
+  _first?: Omit<StyleProps, '_first'>;
+  _last?: Omit<StyleProps, '_last'>;
+  _expanded?: Omit<StyleProps, '_expanded'>;
+  _checked?: Omit<StyleProps, '_checked'>;
+  _groupHover?: Omit<StyleProps, '_groupHover'>;
+  _groupFocus?: Omit<StyleProps, '_groupFocus'>;
+  _groupActive?: Omit<StyleProps, '_groupActive'>;
+  _groupDisabled?: Omit<StyleProps, '_groupDisabled'>;
+  _groupInvalid?: Omit<StyleProps, '_groupInvalid'>;
+  _groupChecked?: Omit<StyleProps, '_groupChecked'>;
+  _groupExpanded?: Omit<StyleProps, '_groupExpanded'>;
+  _indeterminate?: Omit<StyleProps, '_indeterminate'>;
+  _readOnly?: Omit<StyleProps, '_readOnly'>;
+  _empty?: Omit<StyleProps, '_empty'>;
+  _fullScreen?: Omit<StyleProps, '_fullScreen'>;
+  _loading?: Omit<StyleProps, '_loading'>;
+  _autofill?: Omit<StyleProps, '_autofill'>;
+  _highlighted?: Omit<StyleProps, '_highlighted'>;
 }
 
 /**
- * Variant Props (variant-based styling)
+ * Variant Props Interface
+ * 
+ * Defines props for component variants, including size, variant, colorScheme, etc.
+ * These props allow for predefined style variations of components.
  */
 export interface VariantProps {
-  variant?: string;
-  size?: string;
-  colorScheme?: 'health' | 'care' | 'plan';
-  isDisabled?: boolean;
-  isInvalid?: boolean;
-  isRequired?: boolean;
-  isReadOnly?: boolean;
-  isFullWidth?: boolean;
-  isLoading?: boolean;
-  isActive?: boolean;
-  isHovered?: boolean;
-  isFocused?: boolean;
-  isPressed?: boolean;
-  isSelected?: boolean;
-}
-
-/**
- * Journey-specific Props (journey-based styling)
- */
-export interface JourneyProps {
-  journey?: 'health' | 'care' | 'plan';
+  size?: ResponsiveValue<string>;
+  variant?: ResponsiveValue<string>;
+  colorScheme?: ResponsiveValue<string>;
+  orientation?: ResponsiveValue<string>;
+  styleConfig?: Record<string, any>;
   journeyTheme?: 'health' | 'care' | 'plan';
 }
 
 /**
- * Accessibility Props
- */
-export interface AccessibilityProps {
-  aria?: Record<string, string>;
-  role?: string;
-  tabIndex?: number;
-  accessibilityLabel?: string;
-  accessibilityHint?: string;
-  accessibilityRole?: string;
-  accessibilityState?: Record<string, boolean | string>;
-  testID?: string;
-}
-
-/**
- * Combined Style Props
+ * Style Props Interface
+ * 
+ * A comprehensive interface that includes all style props categories.
+ * This interface is used as the base for component prop types that accept styling.
  */
 export interface StyleProps extends 
   SpacingProps,
@@ -304,38 +385,45 @@ export interface StyleProps extends
   TypographyProps,
   ColorProps,
   BorderProps,
-  FlexProps,
-  GridProps,
-  PositionProps,
   ShadowProps,
-  TransitionProps,
+  PositionProps,
+  FlexboxProps,
+  GridProps,
   PseudoProps,
-  VariantProps,
-  JourneyProps,
-  AccessibilityProps {}
-
-/**
- * Base component props that include style props
- */
-export interface BaseComponentProps extends StyleProps {
-  as?: string | React.ComponentType<any>;
-  children?: React.ReactNode;
-  id?: string;
-  className?: string;
-  style?: React.CSSProperties;
+  VariantProps {
+  /**
+   * Custom CSS properties
+   * Allows passing any additional CSS properties not covered by the specific prop interfaces
+   */
+  sx?: Record<string, any>;
+  
+  /**
+   * CSS property
+   * Allows passing raw CSS as a string (use sparingly, prefer typed props)
+   */
+  css?: string | Record<string, any>;
+  
+  /**
+   * Theme-aware style function
+   * Allows passing a function that receives the theme and returns styles
+   */
+  __css?: Record<string, any>;
+  
+  /**
+   * Base styles
+   * Styles that are applied before variant styles
+   */
+  baseStyle?: Record<string, any>;
+  
+  /**
+   * Transform function
+   * Function to transform the final style object
+   */
+  transform?: (styles: Record<string, any>) => Record<string, any>;
+  
+  /**
+   * Apply styles conditionally
+   * Object of style props that are applied based on a condition
+   */
+  apply?: Record<string, boolean | undefined>;
 }
-
-/**
- * Utility type to extract responsive values
- */
-export type ResponsiveValue<T> = T | Array<T | null> | { [key: string]: T };
-
-/**
- * Utility type for theme-aware values
- */
-export type ThemeValue<T extends keyof Theme> = keyof Theme[T];
-
-/**
- * Utility type for creating style prop getters
- */
-export type StylePropGetter<P extends keyof StyleProps> = (props: { theme: Theme } & Pick<StyleProps, P>) => any;
