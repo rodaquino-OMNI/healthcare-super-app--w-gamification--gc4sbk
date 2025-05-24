@@ -1,68 +1,63 @@
 /**
- * Platform-specific type adaptations for journey context
+ * Platform-specific type adaptations for journey context.
  * 
- * This file provides type definitions that enable consistent journey context usage
- * while accommodating the different implementation details between web and mobile platforms.
+ * This file defines types that bridge the differences between web and mobile implementations
+ * of the journey context, enabling consistent usage across platforms while accommodating
+ * their different implementation details.
  */
 
+import { JourneyId, Journey } from './journey.types';
+
 /**
- * Supported platforms in the AUSTA SuperApp
+ * Supported platforms in the application
  */
 export type Platform = 'web' | 'mobile';
 
 /**
- * Maps platform types to their respective context implementations
+ * Maps platform identifiers to their respective context property names
  */
 export interface PlatformContextMap {
-  /**
-   * Web platform uses 'currentJourney' and 'setCurrentJourney'
-   */
   web: {
-    journeyProp: 'currentJourney';
+    journeyIdProp: 'currentJourney';
     setJourneyProp: 'setCurrentJourney';
+    journeyDataProp: 'journeyData';
   };
-  
-  /**
-   * Mobile platform uses 'journey' and 'setJourney'
-   */
   mobile: {
-    journeyProp: 'journey';
+    journeyIdProp: 'journey';
     setJourneyProp: 'setJourney';
+    journeyDataProp?: undefined; // Mobile doesn't have journeyData
   };
 }
 
 /**
- * Helper type to resolve platform-specific context types
- * @template T - The platform type ('web' | 'mobile')
+ * Generic helper type for platform-specific context type resolution
+ * 
+ * @template P - The platform ('web' | 'mobile')
+ * @template T - The type to resolve based on platform
  */
-export type PlatformJourneyContextType<T extends Platform> = {
-  [K in PlatformContextMap[T]['journeyProp']]: string;
-} & {
-  [K in PlatformContextMap[T]['setJourneyProp']]: (journeyId: string) => void;
-} & {
-  journeyData?: any; // Optional journey data that may be present in web context
-};
+export type PlatformJourneyContextType<
+  P extends Platform,
+  T extends PlatformContextMap
+> = T[P];
 
 /**
- * Maps platform types to their respective state property names
+ * Maps platform-specific journey state property names to their common types
  */
 export interface PlatformJourneyStateMap {
   web: {
-    state: 'currentJourney';
-    setState: 'setCurrentJourney';
+    currentJourney: JourneyId;
+    setCurrentJourney: (journeyId: JourneyId) => void;
+    journeyData?: Journey;
   };
   mobile: {
-    state: 'journey';
-    setState: 'setJourney';
+    journey: JourneyId;
+    setJourney: (journey: JourneyId) => void;
   };
 }
 
 /**
  * Platform-specific journey state type
- * @template T - The platform type ('web' | 'mobile')
+ * 
+ * @template P - The platform ('web' | 'mobile')
  */
-export type PlatformJourneyState<T extends Platform> = {
-  [K in PlatformJourneyStateMap[T]['state']]: string;
-} & {
-  [K in PlatformJourneyStateMap[T]['setState']]: (journeyId: string) => void;
-};
+export type PlatformJourneyState<P extends Platform> = PlatformJourneyStateMap[P];
