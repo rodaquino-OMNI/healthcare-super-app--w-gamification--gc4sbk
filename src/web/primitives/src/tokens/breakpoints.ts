@@ -12,21 +12,9 @@
  * - xl: Large desktops (≥1200px)
  */
 
-import { Dimensions } from 'react-native';
-
 /**
- * Breakpoint key type
- * Used for type-safe access to breakpoint values
- */
-export type BreakpointKey = 'xs' | 'sm' | 'md' | 'lg' | 'xl';
-
-/**
- * Orientation type for orientation-specific breakpoints
- */
-export type Orientation = 'portrait' | 'landscape';
-
-/**
- * Interface for numeric breakpoint values
+ * Interface for breakpoint values without units
+ * Used for calculations and when raw numbers are needed
  */
 export interface BreakpointValues {
   xs: number;
@@ -37,9 +25,10 @@ export interface BreakpointValues {
 }
 
 /**
- * Interface for string breakpoint values with units
+ * Interface for breakpoint values with px units
+ * Used directly in CSS properties
  */
-export interface BreakpointStrings {
+export interface Breakpoints {
   xs: string;
   sm: string;
   md: string;
@@ -49,15 +38,49 @@ export interface BreakpointStrings {
 
 /**
  * Interface for media query strings
+ * Used for responsive styling in CSS-in-JS libraries
  */
-export interface MediaQueryStrings {
+export interface MediaQueries {
   xs: string;
   sm: string;
   md: string;
   lg: string;
   xl: string;
+  // Orientation-based breakpoints
   portrait: string;
   landscape: string;
+  // Device-specific breakpoints
+  mobile: string;
+  tablet: string;
+  desktop: string;
+}
+
+/**
+ * Interface for React Native platform-specific breakpoint helpers
+ * Used for conditional rendering based on screen dimensions
+ */
+export interface ReactNativeBreakpoints {
+  isXs: (width: number) => boolean;
+  isSm: (width: number) => boolean;
+  isMd: (width: number) => boolean;
+  isLg: (width: number) => boolean;
+  isXl: (width: number) => boolean;
+  isMobile: (width: number) => boolean;
+  isTablet: (width: number) => boolean;
+  isDesktop: (width: number) => boolean;
+  isPortrait: (width: number, height: number) => boolean;
+  isLandscape: (width: number, height: number) => boolean;
+}
+
+/**
+ * Interface for viewport dimension helpers
+ * Used for dynamic layout calculations
+ */
+export interface ViewportHelpers {
+  getBreakpointFromWidth: (width: number) => keyof BreakpointValues;
+  getNextBreakpoint: (breakpoint: keyof BreakpointValues) => keyof BreakpointValues | null;
+  getPreviousBreakpoint: (breakpoint: keyof BreakpointValues) => keyof BreakpointValues | null;
+  isWidthBetweenBreakpoints: (width: number, min: keyof BreakpointValues, max: keyof BreakpointValues) => boolean;
 }
 
 /**
@@ -76,7 +99,7 @@ export const breakpointValues: BreakpointValues = {
  * String values for breakpoints (with px units)
  * These can be used directly in CSS properties
  */
-export const breakpoints: BreakpointStrings = {
+export const breakpoints: Breakpoints = {
   xs: '576px',
   sm: '768px',
   md: '992px',
@@ -99,194 +122,136 @@ export const breakpoints: BreakpointStrings = {
  *   @media ${mediaQueries.lg} {
  *     font-size: 20px;
  *   }
- * `;
- * ```
- */
-export const mediaQueries: MediaQueryStrings = {
-  xs: `(min-width: ${breakpoints.xs})`,
-  sm: `(min-width: ${breakpoints.sm})`,
-  md: `(min-width: ${breakpoints.md})`,
-  lg: `(min-width: ${breakpoints.lg})`,
-  xl: `(min-width: ${breakpoints.xl})`,
-  portrait: '(orientation: portrait)',
-  landscape: '(orientation: landscape)'
-};
-
-/**
- * Media query strings for max-width queries
- * Useful for mobile-first design where you need to target smaller screens
- * 
- * Usage example with styled-components:
- * ```
- * const MobileComponent = styled.div`
- *   font-size: 18px; // Default for larger screens
  *   
- *   @media ${maxWidthQueries.sm} {
- *     font-size: 16px; // Override for smaller screens
+ *   // Orientation-based styling
+ *   @media ${mediaQueries.portrait} {
+ *     flex-direction: column;
  *   }
- * `;
- * ```
- */
-export const maxWidthQueries: BreakpointStrings = {
-  xs: `(max-width: ${breakpointValues.xs - 1}px)`,
-  sm: `(max-width: ${breakpointValues.sm - 1}px)`,
-  md: `(max-width: ${breakpointValues.md - 1}px)`,
-  lg: `(max-width: ${breakpointValues.lg - 1}px)`,
-  xl: `(max-width: ${breakpointValues.xl - 1}px)`
-};
-
-/**
- * Range media queries for targeting specific breakpoint ranges
- * 
- * Usage example with styled-components:
- * ```
- * const TabletComponent = styled.div`
- *   // This style only applies to tablet-sized screens
- *   @media ${rangeQueries.md} {
+ *   
+ *   @media ${mediaQueries.landscape} {
+ *     flex-direction: row;
+ *   }
+ *   
+ *   // Device-specific styling
+ *   @media ${mediaQueries.mobile} {
+ *     padding: 8px;
+ *   }
+ *   
+ *   @media ${mediaQueries.tablet} {
+ *     padding: 16px;
+ *   }
+ *   
+ *   @media ${mediaQueries.desktop} {
  *     padding: 24px;
  *   }
  * `;
  * ```
  */
-export const rangeQueries: BreakpointStrings = {
-  xs: `(max-width: ${breakpointValues.sm - 1}px)`,
-  sm: `(min-width: ${breakpoints.xs}) and (max-width: ${breakpointValues.md - 1}px)`,
-  md: `(min-width: ${breakpoints.md}) and (max-width: ${breakpointValues.lg - 1}px)`,
-  lg: `(min-width: ${breakpoints.lg}) and (max-width: ${breakpointValues.xl - 1}px)`,
-  xl: `(min-width: ${breakpoints.xl})`
+export const mediaQueries: MediaQueries = {
+  xs: `(min-width: ${breakpoints.xs})`,
+  sm: `(min-width: ${breakpoints.sm})`,
+  md: `(min-width: ${breakpoints.md})`,
+  lg: `(min-width: ${breakpoints.lg})`,
+  xl: `(min-width: ${breakpoints.xl})`,
+  // Orientation-based breakpoints
+  portrait: '(orientation: portrait)',
+  landscape: '(orientation: landscape)',
+  // Device-specific breakpoints
+  mobile: `(max-width: ${breakpointValues.sm - 1}px)`,
+  tablet: `(min-width: ${breakpoints.sm}) and (max-width: ${breakpointValues.lg - 1}px)`,
+  desktop: `(min-width: ${breakpoints.lg})`
 };
 
 /**
- * Helper function to get current viewport dimensions
- * Useful for dynamic layout calculations
+ * React Native platform-specific breakpoint helpers
  * 
- * @returns Object containing width and height of the current viewport
+ * Usage example:
+ * ```
+ * import { Dimensions } from 'react-native';
+ * import { reactNativeBreakpoints } from '@design-system/primitives';
+ * 
+ * const MyComponent = () => {
+ *   const { width, height } = Dimensions.get('window');
+ *   
+ *   return (
+ *     <View>
+ *       {reactNativeBreakpoints.isTablet(width) && (
+ *         <TabletLayout />
+ *       )}
+ *       {reactNativeBreakpoints.isMobile(width) && (
+ *         <MobileLayout />
+ *       )}
+ *       {reactNativeBreakpoints.isPortrait(width, height) && (
+ *         <PortraitContent />
+ *       )}
+ *     </View>
+ *   );
+ * };
+ * ```
  */
-export const getViewportDimensions = (): { width: number; height: number } => {
-  if (typeof window !== 'undefined') {
-    return {
-      width: window.innerWidth,
-      height: window.innerHeight
-    };
+export const reactNativeBreakpoints: ReactNativeBreakpoints = {
+  isXs: (width: number) => width < breakpointValues.sm,
+  isSm: (width: number) => width >= breakpointValues.sm && width < breakpointValues.md,
+  isMd: (width: number) => width >= breakpointValues.md && width < breakpointValues.lg,
+  isLg: (width: number) => width >= breakpointValues.lg && width < breakpointValues.xl,
+  isXl: (width: number) => width >= breakpointValues.xl,
+  isMobile: (width: number) => width < breakpointValues.sm,
+  isTablet: (width: number) => width >= breakpointValues.sm && width < breakpointValues.lg,
+  isDesktop: (width: number) => width >= breakpointValues.lg,
+  isPortrait: (width: number, height: number) => height > width,
+  isLandscape: (width: number, height: number) => width >= height
+};
+
+/**
+ * Viewport dimension helpers for dynamic layout calculations
+ * 
+ * Usage example:
+ * ```
+ * import { useEffect, useState } from 'react';
+ * import { viewportHelpers } from '@design-system/primitives';
+ * 
+ * const ResponsiveLayout = () => {
+ *   const [windowWidth, setWindowWidth] = useState(window.innerWidth);
+ *   const currentBreakpoint = viewportHelpers.getBreakpointFromWidth(windowWidth);
+ *   
+ *   useEffect(() => {
+ *     const handleResize = () => setWindowWidth(window.innerWidth);
+ *     window.addEventListener('resize', handleResize);
+ *     return () => window.removeEventListener('resize', handleResize);
+ *   }, []);
+ *   
+ *   return (
+ *     <div>
+ *       <p>Current breakpoint: {currentBreakpoint}</p>
+ *       {viewportHelpers.isWidthBetweenBreakpoints(windowWidth, 'sm', 'lg') && (
+ *         <p>This content only appears on tablet devices</p>
+ *       )}
+ *     </div>
+ *   );
+ * };
+ * ```
+ */
+export const viewportHelpers: ViewportHelpers = {
+  getBreakpointFromWidth: (width: number): keyof BreakpointValues => {
+    if (width < breakpointValues.xs) return 'xs';
+    if (width < breakpointValues.sm) return 'sm';
+    if (width < breakpointValues.md) return 'md';
+    if (width < breakpointValues.lg) return 'lg';
+    return 'xl';
+  },
+  getNextBreakpoint: (breakpoint: keyof BreakpointValues): keyof BreakpointValues | null => {
+    const breakpoints: Array<keyof BreakpointValues> = ['xs', 'sm', 'md', 'lg', 'xl'];
+    const index = breakpoints.indexOf(breakpoint);
+    return index < breakpoints.length - 1 ? breakpoints[index + 1] : null;
+  },
+  getPreviousBreakpoint: (breakpoint: keyof BreakpointValues): keyof BreakpointValues | null => {
+    const breakpoints: Array<keyof BreakpointValues> = ['xs', 'sm', 'md', 'lg', 'xl'];
+    const index = breakpoints.indexOf(breakpoint);
+    return index > 0 ? breakpoints[index - 1] : null;
+  },
+  isWidthBetweenBreakpoints: (width: number, min: keyof BreakpointValues, max: keyof BreakpointValues): boolean => {
+    const minValue = breakpointValues[min];
+    const maxValue = breakpointValues[max];
+    return width >= minValue && width < maxValue;
   }
-  
-  // React Native fallback
-  return Dimensions.get('window');
-};
-
-/**
- * Helper function to determine if the current viewport matches a breakpoint
- * 
- * @param breakpoint - The breakpoint to check against
- * @returns Boolean indicating if the viewport width is at least the specified breakpoint
- * 
- * Usage example:
- * ```
- * const isDesktop = useCallback(() => matchesBreakpoint('lg'), []);
- * 
- * return (
- *   <div>
- *     {isDesktop() ? <DesktopComponent /> : <MobileComponent />}
- *   </div>
- * );
- * ```
- */
-export const matchesBreakpoint = (breakpoint: BreakpointKey): boolean => {
-  const { width } = getViewportDimensions();
-  return width >= breakpointValues[breakpoint];
-};
-
-/**
- * Helper function to determine the current breakpoint based on viewport width
- * 
- * @returns The current breakpoint key
- * 
- * Usage example:
- * ```
- * const currentBreakpoint = getCurrentBreakpoint();
- * console.log(`Current device size: ${currentBreakpoint}`); // e.g. "Current device size: md"
- * ```
- */
-export const getCurrentBreakpoint = (): BreakpointKey => {
-  const { width } = getViewportDimensions();
-  
-  if (width >= breakpointValues.xl) return 'xl';
-  if (width >= breakpointValues.lg) return 'lg';
-  if (width >= breakpointValues.md) return 'md';
-  if (width >= breakpointValues.sm) return 'sm';
-  return 'xs';
-};
-
-/**
- * Helper function to determine the current orientation
- * 
- * @returns The current orientation ('portrait' or 'landscape')
- */
-export const getCurrentOrientation = (): Orientation => {
-  const { width, height } = getViewportDimensions();
-  return width < height ? 'portrait' : 'landscape';
-};
-
-/**
- * React Native specific media query helpers
- * These functions help implement responsive design in React Native
- * 
- * Usage example:
- * ```
- * import { StyleSheet } from 'react-native';
- * import { isTablet, isLargePhone } from '@design-system/primitives';
- * 
- * const styles = StyleSheet.create({
- *   container: {
- *     padding: isTablet() ? 24 : 16,
- *     flexDirection: isLargePhone() ? 'row' : 'column',
- *   }
- * });
- * ```
- */
-
-/**
- * Checks if the current device is a small phone (xs breakpoint)
- */
-export const isSmallPhone = (): boolean => {
-  const { width } = getViewportDimensions();
-  return width < breakpointValues.xs;
-};
-
-/**
- * Checks if the current device is a large phone (sm breakpoint)
- */
-export const isLargePhone = (): boolean => {
-  const { width } = getViewportDimensions();
-  return width >= breakpointValues.xs && width < breakpointValues.md;
-};
-
-/**
- * Checks if the current device is a tablet (md breakpoint)
- */
-export const isTablet = (): boolean => {
-  const { width } = getViewportDimensions();
-  return width >= breakpointValues.md && width < breakpointValues.lg;
-};
-
-/**
- * Checks if the current device is a desktop (lg or xl breakpoint)
- */
-export const isDesktop = (): boolean => {
-  const { width } = getViewportDimensions();
-  return width >= breakpointValues.lg;
-};
-
-/**
- * Checks if the device is in portrait orientation
- */
-export const isPortrait = (): boolean => {
-  return getCurrentOrientation() === 'portrait';
-};
-
-/**
- * Checks if the device is in landscape orientation
- */
-export const isLandscape = (): boolean => {
-  return getCurrentOrientation() === 'landscape';
 };
