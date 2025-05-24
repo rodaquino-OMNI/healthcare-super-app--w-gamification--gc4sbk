@@ -1,33 +1,31 @@
 /**
- * Health Device Connection Interface
+ * Health Device Interfaces for the AUSTA SuperApp
  * 
- * This file defines the DeviceConnection interface and its validation schema for the AUSTA SuperApp.
- * It represents connections to health tracking devices and wearables that integrate with the application,
- * including fitness trackers, smart scales, and blood pressure monitors.
+ * This file defines TypeScript interfaces and validation schemas for health tracking devices
+ * and wearables that integrate with the Health journey of the application. These interfaces
+ * ensure type safety and data consistency for device connections across the platform.
  */
 
 import { z } from 'zod'; // v3.22.4
 
 /**
  * Types of health tracking devices supported by the application
- * Used for device integration in the Health Journey
+ * Used for device integration in the Health journey
  */
 export enum DeviceType {
   FITNESS_TRACKER = 'FITNESS_TRACKER',
-  SMART_WATCH = 'SMART_WATCH',
   SMART_SCALE = 'SMART_SCALE',
   BLOOD_PRESSURE_MONITOR = 'BLOOD_PRESSURE_MONITOR',
-  HEART_RATE_MONITOR = 'HEART_RATE_MONITOR',
   GLUCOSE_MONITOR = 'GLUCOSE_MONITOR',
   SLEEP_TRACKER = 'SLEEP_TRACKER',
+  HEART_RATE_MONITOR = 'HEART_RATE_MONITOR',
+  SMARTWATCH = 'SMARTWATCH',
   PULSE_OXIMETER = 'PULSE_OXIMETER',
-  THERMOMETER = 'THERMOMETER',
-  OTHER = 'OTHER',
 }
 
 /**
  * Connection states for health tracking devices
- * Used to track the current status of device connections
+ * Represents the current status of a device connection
  */
 export enum ConnectionState {
   CONNECTED = 'CONNECTED',
@@ -35,11 +33,12 @@ export enum ConnectionState {
   PAIRING = 'PAIRING',
   SYNCING = 'SYNCING',
   ERROR = 'ERROR',
+  UNAUTHORIZED = 'UNAUTHORIZED',
 }
 
 /**
  * Represents a connection to a health tracking device
- * Used for device integration and synchronization in the Health Journey
+ * Used for device integration and synchronization in the Health journey
  */
 export interface DeviceConnection {
   /** Unique identifier for the device connection */
@@ -59,6 +58,15 @@ export interface DeviceConnection {
   
   /** Current connection state of the device */
   status: ConnectionState;
+  
+  /** Optional manufacturer name of the device */
+  manufacturer?: string;
+  
+  /** Optional model name/number of the device */
+  model?: string;
+  
+  /** Optional firmware version of the device */
+  firmwareVersion?: string;
 }
 
 /**
@@ -88,10 +96,13 @@ export const deviceConnectionSchema = z.object({
       message: `Invalid connection state: ${ctx.data}. Must be one of the defined connection states.`,
     }),
   }),
+  manufacturer: z.string().optional(),
+  model: z.string().optional(),
+  firmwareVersion: z.string().optional(),
 });
 
 /**
- * Type for validated device connection data
- * Represents a device connection that has passed validation
+ * Type for device connection data validated by the schema
+ * Provides a type-safe way to work with validated device connection data
  */
 export type ValidatedDeviceConnection = z.infer<typeof deviceConnectionSchema>;
