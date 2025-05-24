@@ -2,11 +2,11 @@
  * Health Journey API Interfaces
  * 
  * This file defines the API interfaces for the Health journey in the AUSTA SuperApp.
- * It includes request/response types for health metrics, medical events, health goals,
- * and device connections, along with validation schemas for data integrity.
+ * It includes request and response types for all Health journey endpoints, along with
+ * validation schemas for ensuring data integrity.
  * 
- * These interfaces ensure type safety for all Health journey API operations and
- * are used by both frontend and backend to maintain consistent data contracts.
+ * These interfaces are used by both frontend and backend to ensure type safety and
+ * consistent data structures across the application.
  */
 
 import { z } from 'zod';
@@ -22,12 +22,82 @@ import {
   deviceConnectionSchema
 } from '../../shared/types/health.types';
 
-// ===== Health Metrics API =====
+// Time period options for health data queries
+export enum TimePeriod {
+  DAY = 'DAY',
+  WEEK = 'WEEK',
+  MONTH = 'MONTH',
+  QUARTER = 'QUARTER',
+  YEAR = 'YEAR',
+  CUSTOM = 'CUSTOM',
+}
+
+// Aggregation methods for health metrics
+export enum AggregationMethod {
+  AVG = 'AVG',
+  MIN = 'MIN',
+  MAX = 'MAX',
+  SUM = 'SUM',
+  COUNT = 'COUNT',
+}
 
 /**
- * Request interface for creating a new health metric
+ * Base query parameters for health data filtering
+ */
+export interface HealthDataQueryParams {
+  userId: string;
+  startDate?: string;
+  endDate?: string;
+  timePeriod?: TimePeriod;
+  limit?: number;
+  offset?: number;
+}
+
+/**
+ * Query parameters for health metrics with additional filtering options
+ */
+export interface HealthMetricsQueryParams extends HealthDataQueryParams {
+  types?: HealthMetricType[];
+  sources?: string[];
+  aggregation?: AggregationMethod;
+  includeLatest?: boolean;
+}
+
+/**
+ * Query parameters for medical events
+ */
+export interface MedicalEventsQueryParams extends HealthDataQueryParams {
+  types?: string[];
+  providers?: string[];
+  includeDocuments?: boolean;
+}
+
+/**
+ * Query parameters for health goals
+ */
+export interface HealthGoalsQueryParams extends HealthDataQueryParams {
+  types?: string[];
+  status?: string[];
+  includeCompleted?: boolean;
+}
+
+/**
+ * Query parameters for device connections
+ */
+export interface DeviceConnectionsQueryParams extends HealthDataQueryParams {
+  deviceTypes?: string[];
+  status?: string[];
+  lastSyncBefore?: string;
+  lastSyncAfter?: string;
+}
+
+// ==================== Health Metrics API ====================
+
+/**
+ * Request to create a new health metric
  */
 export interface CreateHealthMetricRequest {
+  userId: string;
   type: HealthMetricType;
   value: number;
   unit: string;
@@ -36,72 +106,52 @@ export interface CreateHealthMetricRequest {
 }
 
 /**
- * Request interface for updating an existing health metric
+ * Request to create multiple health metrics in a batch
  */
-export interface UpdateHealthMetricRequest {
-  id: string;
-  value?: number;
-  unit?: string;
-  timestamp?: string;
-  source?: string;
+export interface CreateHealthMetricsBatchRequest {
+  metrics: CreateHealthMetricRequest[];
 }
 
 /**
- * Parameters for filtering health metrics in list/search operations
- */
-export interface HealthMetricQueryParams {
-  userId?: string;
-  type?: HealthMetricType;
-  startDate?: string;
-  endDate?: string;
-  source?: string;
-  limit?: number;
-  offset?: number;
-  sortBy?: 'timestamp' | 'value';
-  sortDirection?: 'asc' | 'desc';
-}
-
-/**
- * Response interface for health metric operations
+ * Response for a single health metric
  */
 export interface HealthMetricResponse {
-  data: HealthMetric;
-  success: boolean;
-  message?: string;
+  metric: HealthMetric;
 }
 
 /**
- * Response interface for listing multiple health metrics
+ * Response for multiple health metrics
  */
-export interface HealthMetricsListResponse {
-  data: HealthMetric[];
+export interface HealthMetricsResponse {
+  metrics: HealthMetric[];
   total: number;
-  limit: number;
-  offset: number;
-  success: boolean;
+  page: number;
+  pageSize: number;
 }
 
 /**
- * Response interface for aggregated health metrics
+ * Response for aggregated health metrics
  */
-export interface HealthMetricAggregationResponse {
-  data: {
+export interface AggregatedHealthMetricsResponse {
+  results: {
     type: HealthMetricType;
-    average?: number;
-    min?: number;
-    max?: number;
-    count: number;
-    period: string;
+    value: number;
+    unit: string;
+    timestamp: string;
+    aggregationMethod: AggregationMethod;
   }[];
-  success: boolean;
+  timePeriod: TimePeriod;
+  startDate: string;
+  endDate: string;
 }
 
-// ===== Medical Events API =====
+// ==================== Medical Events API ====================
 
 /**
- * Request interface for creating a new medical event
+ * Request to create a new medical event
  */
 export interface CreateMedicalEventRequest {
+  userId: string;
   type: string;
   description: string;
   date: string;
@@ -110,58 +160,29 @@ export interface CreateMedicalEventRequest {
 }
 
 /**
- * Request interface for updating an existing medical event
- */
-export interface UpdateMedicalEventRequest {
-  id: string;
-  type?: string;
-  description?: string;
-  date?: string;
-  provider?: string;
-  documents?: string[];
-}
-
-/**
- * Parameters for filtering medical events in list/search operations
- */
-export interface MedicalEventQueryParams {
-  userId?: string;
-  type?: string;
-  startDate?: string;
-  endDate?: string;
-  provider?: string;
-  limit?: number;
-  offset?: number;
-  sortBy?: 'date' | 'type';
-  sortDirection?: 'asc' | 'desc';
-}
-
-/**
- * Response interface for medical event operations
+ * Response for a single medical event
  */
 export interface MedicalEventResponse {
-  data: MedicalEvent;
-  success: boolean;
-  message?: string;
+  event: MedicalEvent;
 }
 
 /**
- * Response interface for listing multiple medical events
+ * Response for multiple medical events
  */
-export interface MedicalEventsListResponse {
-  data: MedicalEvent[];
+export interface MedicalEventsResponse {
+  events: MedicalEvent[];
   total: number;
-  limit: number;
-  offset: number;
-  success: boolean;
+  page: number;
+  pageSize: number;
 }
 
-// ===== Health Goals API =====
+// ==================== Health Goals API ====================
 
 /**
- * Request interface for creating a new health goal
+ * Request to create a new health goal
  */
 export interface CreateHealthGoalRequest {
+  userId: string;
   type: string;
   target: number;
   startDate: string;
@@ -170,203 +191,134 @@ export interface CreateHealthGoalRequest {
 }
 
 /**
- * Request interface for updating an existing health goal
+ * Request to update a health goal's status
  */
-export interface UpdateHealthGoalRequest {
-  id: string;
-  type?: string;
-  target?: number;
-  startDate?: string;
-  endDate?: string;
-  status?: string;
+export interface UpdateHealthGoalStatusRequest {
+  status: string;
 }
 
 /**
- * Parameters for filtering health goals in list/search operations
- */
-export interface HealthGoalQueryParams {
-  userId?: string;
-  type?: string;
-  status?: string;
-  limit?: number;
-  offset?: number;
-  sortBy?: 'endDate' | 'startDate' | 'status';
-  sortDirection?: 'asc' | 'desc';
-}
-
-/**
- * Response interface for health goal operations
+ * Response for a single health goal
  */
 export interface HealthGoalResponse {
-  data: HealthGoal;
-  success: boolean;
-  message?: string;
+  goal: HealthGoal;
 }
 
 /**
- * Response interface for listing multiple health goals
+ * Response for multiple health goals
  */
-export interface HealthGoalsListResponse {
-  data: HealthGoal[];
+export interface HealthGoalsResponse {
+  goals: HealthGoal[];
   total: number;
-  limit: number;
-  offset: number;
-  success: boolean;
+  page: number;
+  pageSize: number;
 }
 
 /**
- * Response interface for health goal progress
+ * Response for health goal progress
  */
 export interface HealthGoalProgressResponse {
-  data: {
-    goalId: string;
-    type: string;
-    target: number;
-    currentValue: number;
-    progressPercentage: number;
-    remainingDays: number;
-    status: string;
-  };
-  success: boolean;
+  goal: HealthGoal;
+  currentValue: number;
+  progressPercentage: number;
+  remainingDays: number;
+  projectedCompletion: string;
 }
 
-// ===== Device Connections API =====
+// ==================== Device Connections API ====================
 
 /**
- * Request interface for creating a new device connection
+ * Request to create a new device connection
  */
 export interface CreateDeviceConnectionRequest {
+  userId: string;
   deviceType: string;
   deviceId: string;
   status: string;
 }
 
 /**
- * Request interface for updating an existing device connection
+ * Request to update a device connection's sync status
  */
-export interface UpdateDeviceConnectionRequest {
-  id: string;
-  deviceType?: string;
-  deviceId?: string;
-  lastSync?: string;
-  status?: string;
+export interface UpdateDeviceSyncRequest {
+  lastSync: string;
+  status: string;
 }
 
 /**
- * Parameters for filtering device connections in list/search operations
- */
-export interface DeviceConnectionQueryParams {
-  userId?: string;
-  deviceType?: string;
-  status?: string;
-  limit?: number;
-  offset?: number;
-  sortBy?: 'lastSync' | 'deviceType';
-  sortDirection?: 'asc' | 'desc';
-}
-
-/**
- * Response interface for device connection operations
+ * Response for a single device connection
  */
 export interface DeviceConnectionResponse {
-  data: DeviceConnection;
-  success: boolean;
-  message?: string;
+  connection: DeviceConnection;
 }
 
 /**
- * Response interface for listing multiple device connections
+ * Response for multiple device connections
  */
-export interface DeviceConnectionsListResponse {
-  data: DeviceConnection[];
+export interface DeviceConnectionsResponse {
+  connections: DeviceConnection[];
   total: number;
-  limit: number;
-  offset: number;
-  success: boolean;
+  page: number;
+  pageSize: number;
 }
 
-/**
- * Request interface for syncing data from a connected device
- */
-export interface DeviceSyncRequest {
-  deviceConnectionId: string;
-  metrics: Array<{
-    type: HealthMetricType;
-    value: number;
-    unit: string;
-    timestamp: string;
-  }>;
-}
+// ==================== Validation Schemas ====================
 
 /**
- * Response interface for device sync operations
+ * Zod schema for validating health data query parameters
  */
-export interface DeviceSyncResponse {
-  success: boolean;
-  syncedMetrics: number;
-  failedMetrics: number;
-  lastSync: string;
-  message?: string;
-}
-
-// ===== FHIR Integration API =====
+export const healthDataQueryParamsSchema = z.object({
+  userId: z.string().uuid(),
+  startDate: z.string().datetime().optional(),
+  endDate: z.string().datetime().optional(),
+  timePeriod: z.nativeEnum(TimePeriod).optional(),
+  limit: z.number().positive().optional(),
+  offset: z.number().nonnegative().optional(),
+});
 
 /**
- * Request interface for importing FHIR resources
+ * Zod schema for validating health metrics query parameters
  */
-export interface ImportFHIRResourcesRequest {
-  resourceType: 'Observation' | 'Condition' | 'MedicationStatement' | 'Procedure';
-  resources: any[];
-}
+export const healthMetricsQueryParamsSchema = healthDataQueryParamsSchema.extend({
+  types: z.array(z.nativeEnum(HealthMetricType)).optional(),
+  sources: z.array(z.string()).optional(),
+  aggregation: z.nativeEnum(AggregationMethod).optional(),
+  includeLatest: z.boolean().optional(),
+});
 
 /**
- * Response interface for FHIR import operations
+ * Zod schema for validating medical events query parameters
  */
-export interface FHIRImportResponse {
-  success: boolean;
-  imported: number;
-  failed: number;
-  message?: string;
-}
-
-// ===== Health Insights API =====
+export const medicalEventsQueryParamsSchema = healthDataQueryParamsSchema.extend({
+  types: z.array(z.string()).optional(),
+  providers: z.array(z.string()).optional(),
+  includeDocuments: z.boolean().optional(),
+});
 
 /**
- * Parameters for requesting health insights
+ * Zod schema for validating health goals query parameters
  */
-export interface HealthInsightQueryParams {
-  userId?: string;
-  metricTypes?: HealthMetricType[];
-  period?: 'day' | 'week' | 'month' | 'year';
-  startDate?: string;
-  endDate?: string;
-}
+export const healthGoalsQueryParamsSchema = healthDataQueryParamsSchema.extend({
+  types: z.array(z.string()).optional(),
+  status: z.array(z.string()).optional(),
+  includeCompleted: z.boolean().optional(),
+});
 
 /**
- * Response interface for health insights
+ * Zod schema for validating device connections query parameters
  */
-export interface HealthInsightResponse {
-  data: {
-    insightType: string;
-    metricType: HealthMetricType;
-    description: string;
-    severity: 'info' | 'warning' | 'alert';
-    timestamp: string;
-    relatedMetrics: {
-      id: string;
-      value: number;
-      timestamp: string;
-    }[];
-  }[];
-  success: boolean;
-}
-
-// ===== Validation Schemas =====
+export const deviceConnectionsQueryParamsSchema = healthDataQueryParamsSchema.extend({
+  deviceTypes: z.array(z.string()).optional(),
+  status: z.array(z.string()).optional(),
+  lastSyncBefore: z.string().datetime().optional(),
+  lastSyncAfter: z.string().datetime().optional(),
+});
 
 /**
- * Zod schema for validating CreateHealthMetricRequest
+ * Zod schema for validating create health metric request
  */
-export const createHealthMetricSchema = z.object({
+export const createHealthMetricRequestSchema = z.object({
+  userId: z.string().uuid(),
   type: z.nativeEnum(HealthMetricType),
   value: z.number(),
   unit: z.string(),
@@ -375,20 +327,17 @@ export const createHealthMetricSchema = z.object({
 });
 
 /**
- * Zod schema for validating UpdateHealthMetricRequest
+ * Zod schema for validating create health metrics batch request
  */
-export const updateHealthMetricSchema = z.object({
-  id: z.string().uuid(),
-  value: z.number().optional(),
-  unit: z.string().optional(),
-  timestamp: z.string().datetime().optional(),
-  source: z.string().optional(),
+export const createHealthMetricsBatchRequestSchema = z.object({
+  metrics: z.array(createHealthMetricRequestSchema),
 });
 
 /**
- * Zod schema for validating CreateMedicalEventRequest
+ * Zod schema for validating create medical event request
  */
-export const createMedicalEventSchema = z.object({
+export const createMedicalEventRequestSchema = z.object({
+  userId: z.string().uuid(),
   type: z.string(),
   description: z.string(),
   date: z.string().datetime(),
@@ -397,21 +346,10 @@ export const createMedicalEventSchema = z.object({
 });
 
 /**
- * Zod schema for validating UpdateMedicalEventRequest
+ * Zod schema for validating create health goal request
  */
-export const updateMedicalEventSchema = z.object({
-  id: z.string().uuid(),
-  type: z.string().optional(),
-  description: z.string().optional(),
-  date: z.string().datetime().optional(),
-  provider: z.string().optional(),
-  documents: z.array(z.string()).optional(),
-});
-
-/**
- * Zod schema for validating CreateHealthGoalRequest
- */
-export const createHealthGoalSchema = z.object({
+export const createHealthGoalRequestSchema = z.object({
+  userId: z.string().uuid(),
   type: z.string(),
   target: z.number(),
   startDate: z.string().datetime(),
@@ -420,56 +358,26 @@ export const createHealthGoalSchema = z.object({
 });
 
 /**
- * Zod schema for validating UpdateHealthGoalRequest
+ * Zod schema for validating update health goal status request
  */
-export const updateHealthGoalSchema = z.object({
-  id: z.string().uuid(),
-  type: z.string().optional(),
-  target: z.number().optional(),
-  startDate: z.string().datetime().optional(),
-  endDate: z.string().datetime().optional(),
-  status: z.string().optional(),
+export const updateHealthGoalStatusRequestSchema = z.object({
+  status: z.string(),
 });
 
 /**
- * Zod schema for validating CreateDeviceConnectionRequest
+ * Zod schema for validating create device connection request
  */
-export const createDeviceConnectionSchema = z.object({
+export const createDeviceConnectionRequestSchema = z.object({
+  userId: z.string().uuid(),
   deviceType: z.string(),
   deviceId: z.string(),
   status: z.string(),
 });
 
 /**
- * Zod schema for validating UpdateDeviceConnectionRequest
+ * Zod schema for validating update device sync request
  */
-export const updateDeviceConnectionSchema = z.object({
-  id: z.string().uuid(),
-  deviceType: z.string().optional(),
-  deviceId: z.string().optional(),
-  lastSync: z.string().datetime().optional(),
-  status: z.string().optional(),
-});
-
-/**
- * Zod schema for validating DeviceSyncRequest
- */
-export const deviceSyncSchema = z.object({
-  deviceConnectionId: z.string().uuid(),
-  metrics: z.array(
-    z.object({
-      type: z.nativeEnum(HealthMetricType),
-      value: z.number(),
-      unit: z.string(),
-      timestamp: z.string().datetime(),
-    })
-  ),
-});
-
-/**
- * Zod schema for validating ImportFHIRResourcesRequest
- */
-export const importFHIRResourcesSchema = z.object({
-  resourceType: z.enum(['Observation', 'Condition', 'MedicationStatement', 'Procedure']),
-  resources: z.array(z.any()),
+export const updateDeviceSyncRequestSchema = z.object({
+  lastSync: z.string().datetime(),
+  status: z.string(),
 });
