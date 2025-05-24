@@ -1,195 +1,160 @@
-/**
- * @file Database Authentication Provider Interface
- * 
- * Defines the interface for database authentication providers, extending the base auth provider
- * interface with database-specific methods. It establishes a contract for credential validation,
- * user retrieval, and password verification operations that all database authentication
- * implementations must fulfill.
- *
- * @module @austa/auth/providers/database
- */
-
-import { IAuthProvider } from '../auth-provider.interface';
-
-/**
- * Database credentials interface for username/password authentication
- */
-export interface DatabaseCredentials {
-  /**
-   * Username (email, username, etc.)
-   */
-  username: string;
-  
-  /**
-   * Password
-   */
-  password: string;
-  
-  /**
-   * Remember user session (extended token expiration)
-   */
-  rememberMe?: boolean;
-}
+import { JwtPayload } from '@austa/interfaces/auth';
+import { AuthProvider } from '../auth-provider.interface';
+import { PasswordHashOptions, PasswordStrengthOptions, PasswordStrengthResult } from './password-utils';
 
 /**
  * Configuration options for database authentication providers
  */
 export interface DatabaseAuthProviderOptions {
   /**
-   * The database table/collection to use for user authentication
-   * @default 'users'
+   * The Prisma model to use for user lookup
+   * @default 'user'
    */
-  userTable?: string;
-  
+  userModel?: string;
+
   /**
    * The field to use as the username for authentication
    * @default 'email'
    */
   usernameField?: string;
-  
+
   /**
-   * The field to use as the password for authentication
+   * The field that stores the password hash
    * @default 'password'
    */
   passwordField?: string;
-  
+
   /**
-   * Whether to enable case-insensitive username matching
-   * @default true
-   */
-  caseInsensitiveMatch?: boolean;
-  
-  /**
-   * Additional fields to select from the user table
-   * @default []
+   * Additional fields to select when retrieving the user
+   * @default ['id', 'email', 'name']
    */
   selectFields?: string[];
-  
+
   /**
    * Custom error messages
    */
   errorMessages?: {
     invalidCredentials?: string;
     userNotFound?: string;
-    accountDisabled?: string;
-    accountLocked?: string;
-    passwordExpired?: string;
+    databaseError?: string;
+  };
+
+  /**
+   * JWT token configuration
+   */
+  jwt?: {
+    /**
+     * Secret key for signing JWT tokens
+     */
+    secret?: string;
+
+    /**
+     * Expiration time for access tokens in seconds
+     * @default 3600 (1 hour)
+     */
+    accessTokenExpiration?: number;
+
+    /**
+     * Expiration time for refresh tokens in seconds
+     * @default 2592000 (30 days)
+     */
+    refreshTokenExpiration?: number;
   };
 }
 
 /**
- * Interface for database authentication providers that validate username/password
- * credentials against database records.
+ * Interface for database authentication providers in the AUSTA SuperApp.
+ * Extends the base AuthProvider interface with database-specific methods.
  * 
- * Extends the base auth provider interface with database-specific methods for
- * user lookup, password verification, and account management.
+ * This interface establishes a contract for credential validation, user retrieval,
+ * and password verification operations that all database authentication implementations
+ * must fulfill.
  * 
- * @template TUser The user entity type
- * @template TCredentials The credentials type, defaults to DatabaseCredentials
+ * @typeParam TUser - The user model type that the provider will work with
+ * @typeParam TCredentials - The credentials type used for authentication (defaults to email/password)
  */
-export interface IDatabaseAuthProvider<
-  TUser extends Record<string, any>,
-  TCredentials extends DatabaseCredentials = DatabaseCredentials
-> extends IAuthProvider<TUser, TCredentials> {
-  /**
-   * Finds a user by their username (email, username, etc.)
-   * 
-   * @param username - Username to search for
-   * @returns Promise resolving to the user or null if not found
-   */
-  findUserByUsername(username: string): Promise<TUser | null>;
+export interface DatabaseAuthProvider<TUser, TCredentials = { email: string; password: string }>
+  extends AuthProvider<TUser, TCredentials> {
   
   /**
-   * Verifies a password against a user's stored password hash
+   * Verifies if a plain text password matches a stored password hash
    * 
-   * @param plainPassword - Plain text password to verify
-   * @param user - User object containing the hashed password
-   * @returns Promise resolving to true if the password is valid, false otherwise
+   * @param hash - The stored password hash
+   * @param password - The plain text password to verify
+   * @returns A promise that resolves to true if the password matches, false otherwise
+   * @throws AppException with appropriate error code if verification fails
    */
-  verifyUserPassword(plainPassword: string, user: TUser): Promise<boolean>;
-  
+  verifyPassword(hash: string, password: string): Promise<boolean>;
+
   /**
-   * Updates a user's password in the database
+   * Hashes a plain text password using the configured algorithm
    * 
-   * @param userId - User identifier
-   * @param newPassword - New password (plain text)
-   * @returns Promise resolving to true if the update was successful, false otherwise
+   * @param password - The plain text password to hash
+   * @param options - Optional configuration for the hashing algorithm
+   * @returns A promise that resolves to the generated password hash
+   * @throws AppException with appropriate error code if hashing fails
    */
-  updateUserPassword(userId: string, newPassword: string): Promise<boolean>;
-  
+  hashPassword(password: string, options?: PasswordHashOptions): Promise<string>;
+
   /**
-   * Checks if a user account is locked due to too many failed login attempts
+   * Validates the strength of a password against configurable requirements
    * 
-   * @param user - User object
-   * @returns True if the account is locked, false otherwise
+   * @param password - The password to validate
+   * @param options - Optional configuration for password strength requirements
+   * @returns A result object with validation status, errors, and strength score
    */
-  isAccountLocked(user: TUser): boolean;
-  
+  validatePasswordStrength(password: string, options?: PasswordStrengthOptions): PasswordStrengthResult;
+
   /**
-   * Checks if a user account is disabled/inactive
+   * Finds a user by a custom field value
    * 
-   * @param user - User object
-   * @returns True if the account is disabled, false otherwise
+   * @param field - The field name to search by
+   * @param value - The value to search for
+   * @returns A promise that resolves to the user if found, or null if not found
+   * @throws AppException with appropriate error code if retrieval fails
    */
-  isAccountDisabled(user: TUser): boolean;
-  
+  findUserByField(field: string, value: any): Promise<TUser | null>;
+
   /**
-   * Checks if a user's password has expired and needs to be changed
+   * Retrieves a user with their associated roles and permissions
    * 
-   * @param user - User object
-   * @returns True if the password has expired, false otherwise
+   * @param userId - The unique identifier of the user to retrieve
+   * @returns A promise that resolves to the user with roles and permissions if found, or null if not found
+   * @throws AppException with appropriate error code if retrieval fails
    */
-  isPasswordExpired(user: TUser): boolean;
-  
+  findUserWithRoles(userId: string): Promise<TUser | null>;
+
   /**
-   * Records a failed login attempt for a user
+   * Checks if a user has a specific permission
    * 
-   * @param userId - User identifier
-   * @returns Promise resolving to the updated number of failed attempts
+   * @param userId - The unique identifier of the user
+   * @param permission - The permission to check for
+   * @returns A promise that resolves to true if the user has the permission, false otherwise
+   * @throws AppException with appropriate error code if check fails
    */
-  recordFailedLoginAttempt(userId: string): Promise<number>;
-  
+  hasPermission(userId: string, permission: string): Promise<boolean>;
+
   /**
-   * Resets the failed login attempts counter for a user
+   * Checks if a user has a specific role
    * 
-   * @param userId - User identifier
-   * @returns Promise resolving when the reset is complete
+   * @param userId - The unique identifier of the user
+   * @param role - The role to check for
+   * @returns A promise that resolves to true if the user has the role, false otherwise
+   * @throws AppException with appropriate error code if check fails
    */
-  resetFailedLoginAttempts(userId: string): Promise<void>;
-  
+  hasRole(userId: string, role: string): Promise<boolean>;
+
   /**
-   * Updates the last login timestamp for a user
+   * Retrieves the configuration options for this provider
    * 
-   * @param userId - User identifier
-   * @returns Promise resolving when the update is complete
+   * @returns The current configuration options
    */
-  updateLastLogin(userId: string): Promise<void>;
-  
+  getOptions(): DatabaseAuthProviderOptions;
+
   /**
-   * Locks a user account, preventing further login attempts
+   * Updates the configuration options for this provider
    * 
-   * @param userId - User identifier
-   * @param reason - Reason for locking the account (optional)
-   * @returns Promise resolving when the account is locked
+   * @param options - The new configuration options
    */
-  lockUserAccount(userId: string, reason?: string): Promise<void>;
-  
-  /**
-   * Unlocks a previously locked user account
-   * 
-   * @param userId - User identifier
-   * @returns Promise resolving when the account is unlocked
-   */
-  unlockUserAccount(userId: string): Promise<void>;
-  
-  /**
-   * Validates that a password meets the required strength criteria
-   * 
-   * @param password - Password to validate
-   * @returns Object containing validation result and any error messages
-   */
-  validatePasswordStrength(password: string): {
-    isValid: boolean;
-    errors: string[];
-  };
+  setOptions(options: Partial<DatabaseAuthProviderOptions>): void;
 }
