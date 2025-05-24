@@ -1,5 +1,9 @@
-import { Input } from './Input';
-import type { InputProps } from '@austa/interfaces/components/core.types';
+/**
+ * Input Component Entry Point
+ * 
+ * This file serves as the public API entry point for the Input component,
+ * exporting both the component and its types for consumers.
+ */
 
-export { Input, InputProps };
-export default Input;
+export { default } from './Input';
+export { Input } from './Input';
