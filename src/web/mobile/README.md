@@ -1,78 +1,81 @@
 # AUSTA SuperApp - Mobile Application
 
-This directory contains the source code for the AUSTA SuperApp's mobile application, built using React Native. The mobile app is part of the AUSTA SuperApp ecosystem, providing a journey-centered approach with gamification features across health, care, and plan journeys.
+This directory contains the source code for the AUSTA SuperApp's mobile application, built using React Native. The mobile app is part of the AUSTA SuperApp ecosystem, providing a journey-centered healthcare experience with cross-journey gamification features.
 
 ## Technology Stack
 
-- **React Native**: Cross-platform mobile development framework (version 0.73.4)
-- **TypeScript**: Type-safe programming language
-- **Expo**: Managed workflow for React Native development and deployment
-- **@austa/design-system**: UI component library with journey-specific theming
-- **@design-system/primitives**: Design tokens and primitive components
-- **@austa/interfaces**: Shared TypeScript interfaces
-- **@austa/journey-context**: Journey-specific state management
+- **React Native**: v0.73.4 - Cross-platform mobile development framework
+- **TypeScript**: v5.3.3 - Strongly-typed programming language
+- **Expo (EAS)**: Latest - Managed workflow for React Native development and deployment
+- **TanStack Query**: v5.25.0 - Data fetching and caching library
+- **Redux Toolkit**: v2.1.0 - State management library
+- **React Navigation**: v6.x - Navigation library for React Native
+
+## Design System Integration
+
+The mobile application integrates with the following design system packages:
+
+- **@austa/design-system**: Main component library with journey-specific theming
+- **@design-system/primitives**: Foundational design tokens and primitive components
+- **@austa/interfaces**: Shared TypeScript interfaces for type safety
+- **@austa/journey-context**: Context providers for journey-specific state management
+
+These packages ensure consistent UI/UX across both web and mobile platforms while maintaining platform-specific optimizations.
 
 ## Getting Started
 
 ### Prerequisites
 
-- Node.js 18.x or later
-- npm 9.x or later, yarn 1.22.x or later, or pnpm 8.x or later
+- Node.js ≥18.0.0
+- npm, yarn, or pnpm (pnpm recommended for workspace compatibility)
 - Expo CLI: `npm install -g expo-cli` or `yarn global add expo-cli`
-- iOS: Xcode 14 or later (for iOS development)
-- Android: Android Studio with SDK 33 or later (for Android development)
+- iOS: XCode and CocoaPods (for iOS development)
+- Android: Android Studio and Android SDK (for Android development)
 
 ### Installation
 
 1. Clone the repository
-2. Navigate to the root of the monorepo
+2. Navigate to the root directory of the monorepo
 3. Install dependencies using the workspace package manager:
    ```bash
-   # Using yarn
-   yarn install
-   
-   # Using npm
-   npm install
-   
-   # Using pnpm
    pnpm install
    ```
+   This will install dependencies for all packages in the monorepo, including the design system packages.
+
 4. Navigate to the mobile app directory:
    ```bash
    cd src/web/mobile
    ```
+
 5. Start the Expo development server:
    ```bash
-   yarn start
-   # or
-   npm run start
-   # or
-   expo start
+   pnpm start
    ```
-6. Follow the Expo CLI instructions to run the app on a simulator or physical device
+
+6. Follow the Expo CLI instructions to run the app on a simulator or physical device.
 
 ## Directory Structure
 
 ```
 src/web/mobile/
-├── android/                # Android-specific native code
-├── ios/                    # iOS-specific native code
+├── android/                # Android-specific files
+├── ios/                    # iOS-specific files
 ├── src/
 │   ├── api/                # API client and service integration
 │   ├── assets/             # Static assets (images, fonts, animations)
 │   │   ├── animations/     # Lottie animation files
 │   │   ├── fonts/          # Custom font files
 │   │   └── images/         # Image assets
-│   │       ├── achievements/  # Achievement badge images
+│   │       ├── achievements/  # Gamification achievement images
 │   │       ├── app/           # App-wide images
 │   │       └── journey/       # Journey-specific images
 │   ├── components/         # Reusable UI components
 │   │   ├── forms/          # Form components
 │   │   ├── lists/          # List and item components
 │   │   ├── modals/         # Modal components
-│   │   └── shared/         # Shared utility components
+│   │   └── shared/         # Shared components across journeys
 │   ├── constants/          # Application constants
-│   ├── context/            # Context providers (uses @austa/journey-context)
+│   ├── context/            # React context providers
 │   ├── hooks/              # Custom React hooks
 │   ├── i18n/               # Internationalization
 │   ├── navigation/         # Navigation configuration
@@ -82,304 +85,199 @@ src/web/mobile/
 │   │   ├── health/         # Health journey screens
 │   │   ├── home/           # Home and dashboard screens
 │   │   └── plan/           # Plan journey screens
-│   ├── types/              # TypeScript type definitions (uses @austa/interfaces)
+│   ├── types/              # TypeScript type definitions
 │   └── utils/              # Utility functions
-├── .env.example           # Example environment variables
-├── app.config.js          # Expo configuration
-├── App.tsx                # Application entry point
-├── babel.config.js        # Babel configuration
-├── metro.config.js        # Metro bundler configuration
-├── package.json           # Package dependencies
-└── tsconfig.json          # TypeScript configuration
-```
-
-## Design System Integration
-
-The mobile app integrates with the AUSTA design system through the following packages:
-
-### @austa/design-system
-
-Provides journey-specific UI components with consistent theming across the application. Import components directly:
-
-```typescript
-import { Button, Card, ProgressCircle } from '@austa/design-system';
-import { HealthMetricCard } from '@austa/design-system/health';
-import { AppointmentCard } from '@austa/design-system/care';
-import { BenefitCard } from '@austa/design-system/plan';
-```
-
-### @design-system/primitives
-
-Contains foundational design tokens and primitive components:
-
-```typescript
-import { Box, Text, Stack, Icon, Touchable } from '@design-system/primitives';
-import { colors, spacing, typography } from '@design-system/primitives/tokens';
-```
-
-### @austa/interfaces
-
-Provides shared TypeScript interfaces for consistent data models:
-
-```typescript
-import { HealthMetric } from '@austa/interfaces/health';
-import { Appointment } from '@austa/interfaces/care';
-import { InsuranceClaim } from '@austa/interfaces/plan';
-```
-
-### @austa/journey-context
-
-Manages journey-specific state with React context providers:
-
-```typescript
-import { useHealthContext } from '@austa/journey-context/health';
-import { useCareContext } from '@austa/journey-context/care';
-import { usePlanContext } from '@austa/journey-context/plan';
+├── .env.development        # Development environment variables
+├── .env.production         # Production environment variables
+├── app.config.js           # Expo configuration
+├── App.tsx                 # Application entry point
+├── babel.config.js         # Babel configuration
+├── metro.config.js         # Metro bundler configuration
+├── package.json            # Package dependencies and scripts
+└── tsconfig.json           # TypeScript configuration
 ```
 
 ## Environment Configuration
 
-The application's configuration is managed through environment variables. Create a `.env` file in the root directory based on the `.env.example` template.
+The application uses environment variables for configuration. Create the following files in the root directory:
 
-### Required Environment Variables
+- `.env.development` - Development environment variables
+- `.env.production` - Production environment variables
+
+Required environment variables:
 
 ```
-# API Configuration
-API_URL=https://api.austa.example.com
-GRAPHQL_URL=https://api.austa.example.com/graphql
-
-# Authentication
-AUTH_CLIENT_ID=mobile_client
-AUTH_REDIRECT_URI=com.austa.superapp:/callback
-
-# Feature Flags
-ENABLE_HEALTH_JOURNEY=true
-ENABLE_CARE_JOURNEY=true
-ENABLE_PLAN_JOURNEY=true
-
-# Design System
-DESIGN_SYSTEM_VERSION=1.0.0
+API_URL=https://api.austa.health
+GRAPHQL_URL=https://api.austa.health/graphql
+AUTH_URL=https://auth.austa.health
+APP_ENV=development
 ```
 
-### Package Resolution
+The application uses `@env` package to access environment variables in the code:
 
-The Metro bundler is configured to resolve the design system packages correctly. If you encounter module resolution issues, verify that the `metro.config.js` includes the proper workspace package resolution:
+```typescript
+import { API_URL, APP_ENV } from '@env';
+```
 
-```javascript
-const { getDefaultConfig } = require('expo/metro-config');
-const path = require('path');
+## Using the Design System
 
-const projectRoot = __dirname;
-const workspaceRoot = path.resolve(projectRoot, '../../..');
+### Importing Components
 
-const config = getDefaultConfig(projectRoot);
+```typescript
+// Import design system components
+import { Button, Card, ProgressCircle } from '@austa/design-system';
 
-// Add workspace packages to resolver
-config.watchFolders = [workspaceRoot];
-config.resolver.nodeModulesPaths = [
-  path.resolve(projectRoot, 'node_modules'),
-  path.resolve(workspaceRoot, 'node_modules'),
-];
+// Import primitive components
+import { Box, Text, Stack } from '@design-system/primitives';
 
-module.exports = config;
+// Import journey context
+import { useHealthContext } from '@austa/journey-context';
+
+// Import shared interfaces
+import { HealthMetric } from '@austa/interfaces';
+```
+
+### Theming
+
+The application uses journey-specific theming. To apply a theme:
+
+```typescript
+import { ThemeProvider, healthTheme } from '@austa/design-system';
+
+const MyComponent = () => (
+  <ThemeProvider theme={healthTheme}>
+    {/* Your components here */}
+  </ThemeProvider>
+);
 ```
 
 ## Testing
 
-The mobile application uses Jest and React Native Testing Library for unit and component testing.
+The application uses Jest and React Testing Library for testing. Tests are located alongside the components they test.
 
 ### Running Tests
 
 ```bash
 # Run all tests
-yarn test
+pnpm test
 
 # Run tests with coverage
-yarn test:coverage
+pnpm test:coverage
 
 # Run tests in watch mode
-yarn test:watch
+pnpm test:watch
 ```
 
-### Testing Components with Design System
+### Test Structure
 
-When testing components that use the design system, you'll need to wrap them in the appropriate providers:
+Tests follow a component-based structure:
 
-```typescript
-import { render } from '@testing-library/react-native';
-import { ThemeProvider } from '@austa/design-system';
-import { JourneyProvider } from '@austa/journey-context';
-
-const renderWithProviders = (ui, options = {}) => {
-  return render(
-    <ThemeProvider>
-      <JourneyProvider>
-        {ui}
-      </JourneyProvider>
-    </ThemeProvider>,
-    options
-  );
-};
-
-test('renders correctly', () => {
-  const { getByText } = renderWithProviders(<YourComponent />);
-  expect(getByText('Expected Text')).toBeTruthy();
-});
 ```
+src/components/Button/
+├── Button.tsx
+├── Button.test.tsx
+└── index.ts
+```
+
+### Component Testing
+
+Components should be tested for:
+
+1. Rendering correctly with default props
+2. Handling user interactions
+3. Applying correct styles based on props
+4. Journey-specific theming
+5. Accessibility compliance
 
 ## Troubleshooting
 
 ### Common Issues
 
-#### Module Resolution Errors
+#### Design System Package Resolution
 
-If you encounter errors like `Unable to resolve module '@austa/design-system'`, try the following:
+If you encounter issues with resolving design system packages, ensure:
 
-1. Verify that all workspace packages are installed:
-   ```bash
-   cd ../../.. # Navigate to monorepo root
-   yarn install # Reinstall all dependencies
-   ```
+1. The workspace is properly configured in the root `package.json`
+2. Metro config includes the correct `extraNodeModules` and `watchFolders`
+3. TypeScript paths are correctly configured in `tsconfig.json`
 
-2. Clear Metro bundler cache:
-   ```bash
-   yarn start --clear
-   # or
-   expo start -c
-   ```
+#### Metro Bundler Errors
 
-3. Check that your `tsconfig.json` includes the proper path aliases:
-   ```json
-   {
-     "extends": "../../tsconfig.base.json",
-     "compilerOptions": {
-       "paths": {
-         "@austa/design-system": ["../design-system/src"],
-         "@design-system/primitives": ["../primitives/src"],
-         "@austa/interfaces": ["../interfaces"],
-         "@austa/journey-context": ["../journey-context/src"]
-       }
-     }
-   }
-   ```
+If Metro bundler fails to resolve dependencies:
 
-#### Version Conflicts
+1. Clear Metro cache: `expo start --clear`
+2. Ensure all workspace packages are built: `pnpm build:packages`
+3. Check for circular dependencies between packages
 
-If you encounter React Native version conflicts, ensure that all packages use the same React Native version (0.73.4):
+#### React Native Version Conflicts
 
-1. Check for duplicate React Native installations:
-   ```bash
-   yarn why react-native
-   # or
-   npm ls react-native
-   ```
+If you encounter React Native version conflicts:
 
-2. Update the `resolutions` field in your `package.json`:
-   ```json
-   {
-     "resolutions": {
-       "react-native": "0.73.4",
-       "react": "18.2.0"
-     }
-   }
-   ```
-
-3. Reinstall dependencies:
-   ```bash
-   yarn install
-   ```
+1. Check the `resolutions` field in the root `package.json`
+2. Ensure all packages use compatible React Native versions
+3. Run `pnpm why react-native` to identify version conflicts
 
 ## Deployment
 
 The mobile application is deployed using Expo Application Services (EAS).
 
-### Prerequisites
+### Build Configuration
 
-1. Install EAS CLI:
-   ```bash
-   npm install -g eas-cli
-   # or
-   yarn global add eas-cli
-   ```
+The `eas.json` file contains build profiles for different environments:
 
-2. Log in to your Expo account:
-   ```bash
-   eas login
-   ```
+```json
+{
+  "build": {
+    "development": {
+      "developmentClient": true,
+      "distribution": "internal"
+    },
+    "preview": {
+      "distribution": "internal",
+      "channel": "preview"
+    },
+    "production": {
+      "channel": "production"
+    }
+  }
+}
+```
 
 ### Building for App Stores
 
-1. Configure your app in `app.config.js`:
-   ```javascript
-   export default {
-     expo: {
-       name: "AUSTA SuperApp",
-       slug: "austa-superapp",
-       version: "1.0.0",
-       // Other configuration...
-     }
-   };
-   ```
+```bash
+# Build for iOS App Store
+pnpm build:ios
 
-2. Configure EAS builds in `eas.json`:
-   ```json
-   {
-     "build": {
-       "production": {
-         "distribution": "store",
-         "android": {
-           "buildType": "app-bundle"
-         },
-         "ios": {
-           "distribution": "app-store"
-         }
-       },
-       "preview": {
-         "distribution": "internal",
-         "android": {
-           "buildType": "apk"
-         },
-         "ios": {
-           "simulator": true
-         }
-       }
-     }
-   }
-   ```
+# Build for Google Play Store
+pnpm build:android
 
-3. Build for production:
-   ```bash
-   # Build for both platforms
-   eas build --platform all --profile production
-   
-   # Build for iOS only
-   eas build --platform ios --profile production
-   
-   # Build for Android only
-   eas build --platform android --profile production
-   ```
-
-4. Submit to app stores:
-   ```bash
-   # Submit to Apple App Store
-   eas submit --platform ios
-   
-   # Submit to Google Play Store
-   eas submit --platform android
-   ```
+# Build for internal testing
+pnpm build:preview
+```
 
 ### Over-the-Air Updates
 
-EAS Update allows you to push updates to your app without going through the app store review process:
+The application supports Expo OTA updates for quick deployment of JavaScript changes:
 
 ```bash
-# Create and publish an update
-eas update --branch production --message "Fix: resolved login issue"
+# Publish an update to the preview channel
+pnpm publish:preview
+
+# Publish an update to the production channel
+pnpm publish:production
 ```
 
-## Additional Resources
+## Contributing
 
-- [React Native Documentation](https://reactnative.dev/docs/getting-started)
-- [Expo Documentation](https://docs.expo.dev/)
-- [React Navigation Documentation](https://reactnavigation.org/docs/getting-started)
-- [Testing Library Documentation](https://testing-library.com/docs/react-native-testing-library/intro)
+Please follow the project's coding standards and contribution guidelines when making changes to the mobile application.
+
+1. Create a feature branch from `develop`
+2. Make your changes
+3. Write tests for your changes
+4. Ensure all tests pass
+5. Submit a pull request
+
+## License
+
+This project is proprietary and confidential. Unauthorized copying, transfer, or reproduction of the contents of this repository is prohibited.
