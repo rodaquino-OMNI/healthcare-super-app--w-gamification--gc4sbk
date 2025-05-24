@@ -1,7 +1,24 @@
 /**
- * Barrel file for exporting all authentication-related interfaces
- * Creates a clean public API for the auth package
+ * @file index.ts
+ * @description Barrel file for exporting all authentication-related interfaces.
+ * This file creates a centralized export point for all interfaces in the auth package,
+ * enabling a clean public API and simplified imports for consumers.
  */
+
+// Export service interfaces
+export { IAuthService, IUserService, IRoleService, IPermissionService } from './services.interface';
+
+// Export role and permission interfaces
+export {
+  JourneyType,
+  IPermission,
+  IRole,
+  IUserRole,
+  HealthRole,
+  CareRole,
+  PlanRole,
+  GlobalRole
+} from './role.interface';
 
 // Export token interfaces
 export {
@@ -13,32 +30,25 @@ export {
   ITokenGenerationOptions
 } from './token.interface';
 
-// Export role interfaces
-export {
-  IRole,
-  IPermission,
-  IUserRole
-} from './role.interface';
-
-// Export user interfaces
-export {
-  IUser,
-  IUserResponse,
-  IUserWithRoles
-} from './user.interface';
-
-// Export auth interfaces
+// Export authentication interfaces
 export {
   IAuthResult,
   ILoginRequest,
   IRegisterRequest,
-  IMfaVerifyRequest
+  IMfaVerifyRequest,
+  ISocialLoginRequest,
+  IPasswordResetRequest,
+  IPasswordUpdateRequest,
+  IAuthSession
 } from './auth.interface';
 
-// Export service interfaces
+// Export user interfaces
+// Note: IRole and IPermission are already exported from role.interface.ts
 export {
-  IAuthService,
-  IUserService,
-  IRoleService,
-  IPermissionService
-} from './services.interface';
+  IUser,
+  IUserWithRoles,
+  IUserResponse,
+  ICreateUser,
+  IUpdateUser,
+  IUserCredentials
+} from './user.interface';
