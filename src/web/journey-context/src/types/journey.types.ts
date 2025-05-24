@@ -1,58 +1,86 @@
 /**
- * @file journey.types.ts
- * @description Type definitions for journey-related data structures used across the AUSTA SuperApp.
- * These types provide a standardized foundation for representing the three primary user journeys
+ * Type definitions for journey-related data structures.
+ * These types establish the core foundation for representing the three primary user journeys
  * ('Minha Saúde', 'Cuidar-me Agora', and 'Meu Plano & Benefícios') across both web and mobile platforms.
  */
 
 /**
- * Represents the valid journey identifiers in the application.
- * This type ensures that only the three supported journeys can be referenced.
+ * Valid journey IDs in the system
  */
 export type JourneyId = 'health' | 'care' | 'plan';
 
 /**
- * Strongly-typed constants for journey identifiers.
- * Using these constants instead of string literals helps prevent typos and provides better IDE support.
+ * Constants for journey IDs to prevent string literal usage
  */
 export const JOURNEY_IDS = {
-  /** Health journey identifier ('Minha Saúde') */
-  HEALTH: 'health' as const,
-  /** Care journey identifier ('Cuidar-me Agora') */
-  CARE: 'care' as const,
-  /** Plan journey identifier ('Meu Plano & Benefícios') */
-  PLAN: 'plan' as const,
-} as const;
+  HEALTH: 'health' as JourneyId,
+  CARE: 'care' as JourneyId,
+  PLAN: 'plan' as JourneyId
+};
 
 /**
- * Represents a journey in the application with all its associated metadata.
- * This interface provides a comprehensive definition of what constitutes a journey,
- * including its visual representation and navigation properties.
+ * Theme colors for a journey
  */
-export interface Journey {
-  /** Unique identifier for the journey */
-  id: JourneyId;
-  /** Display name for the journey in the user's language */
-  name: string;
-  /** Primary color associated with the journey for theming */
-  color: string;
-  /** Icon identifier for the journey */
-  icon: string;
-  /** Base route for the journey in the application */
-  route: string;
-  /** Optional description of the journey */
-  description?: string;
+export interface JourneyTheme {
+  primary: string;
+  secondary: string;
+  accent: string;
+  background: string;
+  text: string;
+  // Additional theme properties as needed
 }
 
 /**
- * Configuration options for journeys in the application.
- * This interface allows for customizing which journeys are available and how they are presented.
+ * Comprehensive journey interface with all properties
+ */
+export interface Journey {
+  /**
+   * Unique identifier for the journey
+   */
+  id: JourneyId;
+  
+  /**
+   * Localized display name for the journey
+   */
+  name: string;
+  
+  /**
+   * Primary color associated with the journey
+   */
+  color: string;
+  
+  /**
+   * Icon identifier for the journey
+   */
+  icon: string;
+  
+  /**
+   * Base route path for the journey
+   */
+  route: string;
+  
+  /**
+   * Theme colors for the journey
+   */
+  theme: JourneyTheme;
+}
+
+/**
+ * Configuration interface for journey settings
  */
 export interface JourneyConfig {
-  /** List of available journeys in the application */
+  /**
+   * List of available journeys in the application
+   */
   availableJourneys: Journey[];
-  /** Default journey to show when no specific journey is selected */
+  
+  /**
+   * Default journey to use when none is selected
+   */
   defaultJourney: JourneyId;
-  /** Preferred order for displaying journeys in navigation */
+  
+  /**
+   * Preferred order for displaying journeys
+   */
   displayOrder?: JourneyId[];
 }
