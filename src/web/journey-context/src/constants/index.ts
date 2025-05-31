@@ -1,13 +1,11 @@
 /**
- * Journey Context Constants Barrel File
+ * Constants Barrel File for Journey Context
  * 
  * This file centralizes and re-exports all journey-related constants from the journey-context package,
  * providing a single entry point for importing journey IDs, names, colors, routes, and default configurations.
- * It simplifies imports across both web and mobile platforms, eliminating the need for multiple import
- * statements when working with journey constants.
  * 
- * Example usage:
- * import { JOURNEY_IDS, JOURNEY_NAMES, JOURNEY_COLORS, JOURNEY_ROUTES, DEFAULT_JOURNEY } from '@austa/journey-context/constants';
+ * It simplifies imports across both web and mobile platforms, eliminating the need for multiple
+ * import statements when working with journey constants.
  * 
  * The constants support three core user journeys:
  * - My Health ("Minha Saúde")
@@ -15,14 +13,14 @@
  * - My Plan & Benefits ("Meu Plano & Benefícios")
  */
 
-// Re-export journey definitions (IDs, names, metadata)
+// Re-export journey-related constants
 export * from './journeys';
 
-// Re-export journey color schemes and theming values
+// Re-export color-related constants
 export * from './colors';
 
-// Re-export journey-specific route constants and navigation paths
+// Re-export route-related constants
 export * from './routes';
 
-// Re-export default configurations and fallback values
+// Re-export default configuration constants
 export * from './defaults';

@@ -1,10 +1,11 @@
 /**
  * @fileoverview ESLint Configuration Resolver for Yarn PnP environments
+ * @author AUSTA SuperApp Team
  * 
- * This module provides specialized resolution for ESLint configuration files
- * in a Yarn PnP (Plug'n'Play) environment. It ensures that ESLint can correctly
- * locate and load configuration files (.eslintrc.js, .eslintrc.json) and their
- * extended configurations across the monorepo.
+ * This module provides custom resolution mechanisms for ESLint configuration files,
+ * plugins, parsers, and imports in a Yarn PnP environment. It addresses the path
+ * resolution failures mentioned in the technical specification by ensuring that
+ * ESLint can correctly locate and load configuration files across the monorepo.
  */
 
 'use strict';
@@ -12,292 +13,401 @@
 const path = require('path');
 const fs = require('fs');
 
-// Try to load the PnP API if available
-let pnp;
+// Try to load PnP API if available
+// In Yarn PnP, the pnpapi module is automatically available to all packages
+let pnpApi;
 try {
-  pnp = require('pnpapi');
+  pnpApi = require('pnpapi');
 } catch (error) {
-  // Not in a PnP environment, will use standard resolution
+  // PnP API not available, will fall back to standard resolution
+  // This can happen when running in a non-PnP environment
 }
 
 /**
  * Resolves the given module name from the provided base directory
  * @param {string} moduleName - The module to resolve
  * @param {string} baseDir - The directory to resolve from
- * @returns {string} The resolved module path
+ * @returns {string|null} The resolved path or null if not found
  */
 function resolveModule(moduleName, baseDir) {
   try {
-    if (pnp) {
-      // Use PnP API to resolve the module
-      return pnp.resolveToUnqualified(moduleName, baseDir);
+    if (pnpApi) {
+      // Use PnP API for resolution if available
+      // resolveToUnqualified returns the path to the package directory
+      // This is needed because ESLint expects paths to actual files, not virtual paths
+      return pnpApi.resolveToUnqualified(moduleName, baseDir);
     } else {
-      // Fallback to standard Node.js resolution
+      // Fall back to standard Node.js resolution
       return require.resolve(moduleName, { paths: [baseDir] });
     }
   } catch (error) {
-    // Handle special case for eslint-config- prefix
-    if (!moduleName.startsWith('eslint-config-')) {
-      try {
-        return resolveModule(`eslint-config-${moduleName}`, baseDir);
-      } catch (prefixError) {
-        // If that also fails, throw the original error
-        throw error;
-      }
-    }
-    throw error;
-  }
-}
-
-/**
- * Resolves an ESLint plugin from the provided base directory
- * @param {string} pluginName - The plugin to resolve
- * @param {string} baseDir - The directory to resolve from
- * @returns {string} The resolved plugin path
- */
-function resolvePlugin(pluginName, baseDir) {
-  // Handle the eslint-plugin- prefix if not already present
-  const fullPluginName = pluginName.startsWith('eslint-plugin-') 
-    ? pluginName 
-    : `eslint-plugin-${pluginName}`;
-  
-  try {
-    return resolveModule(fullPluginName, baseDir);
-  } catch (error) {
-    // Try resolving from the ESLint installation directory as a fallback
+    // Try to resolve from workspace root as a fallback
     try {
-      const eslintPath = path.dirname(require.resolve('eslint/package.json'));
-      return resolveModule(fullPluginName, eslintPath);
-    } catch (eslintError) {
-      throw error; // If that also fails, throw the original error
+      const workspaceRoot = getWorkspaceRoot();
+      if (baseDir !== workspaceRoot) {
+        return resolveModule(moduleName, workspaceRoot);
+      }
+    } catch (e) {
+      // Ignore errors in fallback resolution
     }
+    return null;
   }
 }
 
 /**
- * Resolves an ESLint configuration file
- * @param {string} configName - The configuration to resolve
+ * Resolves an ESLint config file path
+ * @param {string} configName - The config name to resolve
  * @param {string} baseDir - The directory to resolve from
- * @returns {string} The resolved configuration path
+ * @returns {string|null} The resolved config path or null if not found
  */
 function resolveConfig(configName, baseDir) {
-  // Handle relative paths
-  if (configName.startsWith('./') || configName.startsWith('../')) {
-    const resolvedPath = path.resolve(baseDir, configName);
-    if (fs.existsSync(resolvedPath)) {
-      return resolvedPath;
-    }
-    throw new Error(`Could not resolve config file: ${resolvedPath}`);
+  // Handle built-in configs
+  if (configName.startsWith('eslint:')) {
+    return configName;
   }
-  
-  // Handle absolute paths
-  if (path.isAbsolute(configName)) {
-    if (fs.existsSync(configName)) {
-      return configName;
+
+  // Handle scoped packages
+  let prefix = '';
+  if (configName.charAt(0) === '@') {
+    const scopedPackageSlash = configName.indexOf('/');
+    if (scopedPackageSlash > 0) {
+      prefix = configName.slice(0, scopedPackageSlash + 1);
+      configName = configName.slice(scopedPackageSlash + 1);
     }
-    throw new Error(`Could not resolve config file: ${configName}`);
   }
-  
-  // Handle package names (with or without eslint-config- prefix)
-  try {
-    return resolveModule(configName, baseDir);
-  } catch (error) {
-    // If resolution fails, try with workspace-specific paths
-    if (pnp) {
-      try {
-        // Try to find the configuration in workspaces
-        const workspaces = findWorkspaces();
-        for (const workspace of workspaces) {
-          try {
-            return resolveModule(configName, workspace);
-          } catch (workspaceError) {
-            // Continue to the next workspace
-          }
-        }
-      } catch (workspaceError) {
-        // Ignore workspace resolution errors
-      }
-    }
-    throw error;
-  }
+
+  // Handle eslint-config prefix
+  const configFullName = configName.startsWith('eslint-config-')
+    ? `${prefix}${configName}`
+    : `${prefix}eslint-config-${configName}`;
+
+  // Try to resolve the config
+  const resolvedPath = resolveModule(configFullName, baseDir) || 
+                       resolveModule(configName, baseDir);
+
+  return resolvedPath;
 }
 
 /**
- * Attempts to find all workspace roots in the monorepo
- * @returns {string[]} Array of workspace root paths
- */
-function findWorkspaces() {
-  if (!pnp) {
-    return [];
-  }
-  
-  try {
-    // Try to get workspaces from PnP API
-    const pnpWorkspaces = pnp.getPackageInformation(pnp.topLevel).workspaces;
-    if (pnpWorkspaces && Array.isArray(pnpWorkspaces)) {
-      return pnpWorkspaces.map(w => w.location);
-    }
-  } catch (error) {
-    // Fallback: try to find package.json with workspaces field
-    try {
-      const projectRoot = findProjectRoot();
-      if (projectRoot) {
-        const packageJsonPath = path.join(projectRoot, 'package.json');
-        if (fs.existsSync(packageJsonPath)) {
-          const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
-          if (packageJson.workspaces) {
-            // This is a simplified approach - in a real implementation,
-            // we would need to resolve glob patterns in workspaces
-            return [];
-          }
-        }
-      }
-    } catch (packageError) {
-      // Ignore package.json errors
-    }
-  }
-  
-  return [];
-}
-
-/**
- * Finds the project root by looking for .pnp.cjs or package.json
- * @returns {string|null} The project root path or null if not found
- */
-function findProjectRoot() {
-  let currentDir = process.cwd();
-  const root = path.parse(currentDir).root;
-  
-  while (currentDir !== root) {
-    if (fs.existsSync(path.join(currentDir, '.pnp.cjs')) || 
-        fs.existsSync(path.join(currentDir, '.pnp.js'))) {
-      return currentDir;
-    }
-    
-    if (fs.existsSync(path.join(currentDir, 'package.json'))) {
-      return currentDir;
-    }
-    
-    currentDir = path.dirname(currentDir);
-  }
-  
-  return null;
-}
-
-/**
- * Resolves a path alias from tsconfig.json or other configuration
- * @param {string} alias - The alias to resolve
+ * Resolves an ESLint plugin
+ * @param {string} pluginName - The plugin name to resolve
  * @param {string} baseDir - The directory to resolve from
- * @returns {string|null} The resolved path or null if not resolvable
+ * @returns {string|null} The resolved plugin path or null if not found
  */
-function resolvePathAlias(alias, baseDir) {
-  // Try to find and parse tsconfig.json for path mappings
-  try {
-    const tsconfigPath = findTsconfig(baseDir);
-    if (tsconfigPath) {
-      const tsconfig = JSON.parse(fs.readFileSync(tsconfigPath, 'utf8'));
-      const paths = tsconfig.compilerOptions?.paths;
+function resolvePlugin(pluginName, baseDir) {
+  // Handle scoped packages
+  let prefix = '';
+  if (pluginName.charAt(0) === '@') {
+    const scopedPackageSlash = pluginName.indexOf('/');
+    if (scopedPackageSlash > 0) {
+      prefix = pluginName.slice(0, scopedPackageSlash + 1);
+      pluginName = pluginName.slice(scopedPackageSlash + 1);
+    }
+  }
+
+  // Handle eslint-plugin prefix
+  const pluginFullName = pluginName.startsWith('eslint-plugin-')
+    ? `${prefix}${pluginName}`
+    : `${prefix}eslint-plugin-${pluginName}`;
+
+  // Try to resolve the plugin
+  const resolvedPath = resolveModule(pluginFullName, baseDir) || 
+                       resolveModule(pluginName, baseDir);
+
+  return resolvedPath;
+}
+
+/**
+ * Resolves a parser based on the provided name
+ * @param {string} parserName - The parser to resolve
+ * @param {string} baseDir - The directory to resolve from
+ * @returns {string|null} The resolved parser path or null if not found
+ */
+function resolveParser(parserName, baseDir) {
+  return resolveModule(parserName, baseDir);
+}
+
+/**
+ * Resolves a path alias based on tsconfig or jsconfig
+ * @param {string} source - The source path with alias
+ * @param {string} file - The file containing the import
+ * @param {Object} config - The ESLint config object
+ * @returns {string|null} The resolved path or null if not found
+ */
+function resolvePathAlias(source, file, config) {
+  // Handle common path alias patterns in the AUSTA SuperApp
+  // This includes aliases like @app/auth, @app/shared, @austa/*, etc.
+  // as mentioned in the technical specification
+  
+  // Skip if not potentially an alias
+  if (!source.startsWith('@')) {
+    return null;
+  }
+
+  const fileDir = path.dirname(file);
+  
+  // Try to find tsconfig.json or jsconfig.json
+  let configPath = null;
+  let currentDir = fileDir;
+  
+  // Look for config files up to the root
+  while (currentDir && currentDir !== path.parse(currentDir).root) {
+    const tsConfigPath = path.join(currentDir, 'tsconfig.json');
+    const jsConfigPath = path.join(currentDir, 'jsconfig.json');
+    
+    if (fs.existsSync(tsConfigPath)) {
+      configPath = tsConfigPath;
+      break;
+    } else if (fs.existsSync(jsConfigPath)) {
+      configPath = jsConfigPath;
+      break;
+    }
+    
+    currentDir = path.dirname(currentDir);
+  }
+  
+  if (!configPath) {
+    // If no config file found, try some common patterns for the AUSTA SuperApp
+    const workspaceRoot = getWorkspaceRoot();
+    
+    // Handle @app/* aliases (common in the AUSTA SuperApp)
+    if (source.startsWith('@app/')) {
+      const appPath = source.slice(5); // Remove '@app/'
+      const possiblePaths = [
+        path.join(workspaceRoot, 'src', 'app', appPath),
+        path.join(workspaceRoot, 'src', appPath),
+        path.join(workspaceRoot, 'src', 'web', appPath),
+        path.join(workspaceRoot, 'src', 'backend', appPath)
+      ];
       
-      if (paths) {
-        // Check if the alias matches any of the path mappings
-        for (const [pattern, destinations] of Object.entries(paths)) {
-          const normalizedPattern = pattern.replace(/\*/g, '');
-          if (alias.startsWith(normalizedPattern) && Array.isArray(destinations) && destinations.length > 0) {
-            const suffix = alias.slice(normalizedPattern.length);
-            const destination = destinations[0].replace(/\*/g, '');
-            const resolvedPath = path.resolve(path.dirname(tsconfigPath), destination, suffix);
-            
-            if (fs.existsSync(resolvedPath) || fs.existsSync(`${resolvedPath}.js`) || fs.existsSync(`${resolvedPath}.ts`)) {
-              return resolvedPath;
-            }
+      for (const possiblePath of possiblePaths) {
+        if (fs.existsSync(possiblePath)) {
+          return possiblePath;
+        }
+        
+        // Try with .js, .ts, .jsx, .tsx extensions
+        for (const ext of ['.js', '.ts', '.jsx', '.tsx']) {
+          const pathWithExt = possiblePath + ext;
+          if (fs.existsSync(pathWithExt)) {
+            return pathWithExt;
           }
         }
       }
     }
+    
+    // Handle @austa/* aliases
+    if (source.startsWith('@austa/')) {
+      const austaPath = source.slice(7); // Remove '@austa/'
+      const possiblePaths = [
+        path.join(workspaceRoot, 'src', 'web', austaPath),
+        path.join(workspaceRoot, 'src', 'web', austaPath, 'src'),
+        path.join(workspaceRoot, 'src', 'backend', 'packages', austaPath),
+        path.join(workspaceRoot, 'src', 'backend', 'packages', austaPath, 'src')
+      ];
+      
+      for (const possiblePath of possiblePaths) {
+        if (fs.existsSync(possiblePath)) {
+          return possiblePath;
+        }
+      }
+    }
+    
+    return null;
+  }
+  
+  try {
+    const configContent = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+    const paths = configContent.compilerOptions?.paths || {};
+    
+    // Find matching path alias
+    for (const [alias, targets] of Object.entries(paths)) {
+      const aliasPattern = alias.replace(/\*/g, '(.*)');
+      const regex = new RegExp(`^${aliasPattern}$`);
+      const match = source.match(regex);
+      
+      if (match) {
+        const suffix = match[1] || '';
+        const target = targets[0].replace('*', suffix);
+        const basePath = path.dirname(configPath);
+        const resolvedPath = path.resolve(basePath, target);
+        
+        return resolvedPath;
+      }
+    }
   } catch (error) {
-    // Ignore tsconfig.json errors
+    // Failed to parse config or resolve alias
   }
   
   return null;
 }
 
 /**
- * Finds the nearest tsconfig.json file
- * @param {string} dir - The directory to start searching from
- * @returns {string|null} The path to tsconfig.json or null if not found
+ * Resolves an import based on the provided source
+ * @param {string} source - The import source
+ * @param {string} file - The file containing the import
+ * @param {Object} config - The ESLint config object
+ * @returns {string|null} The resolved import path or null if not found
  */
-function findTsconfig(dir) {
-  let currentDir = dir;
-  const root = path.parse(currentDir).root;
+function resolveImport(source, file, config) {
+  // Skip node built-in modules
+  if (isBuiltinModule(source)) {
+    return source;
+  }
   
-  while (currentDir !== root) {
-    const tsconfigPath = path.join(currentDir, 'tsconfig.json');
-    if (fs.existsSync(tsconfigPath)) {
-      return tsconfigPath;
+  // First try to resolve as a path alias
+  const aliasResolved = resolvePathAlias(source, file, config);
+  if (aliasResolved) {
+    return aliasResolved;
+  }
+  
+  // Then try to resolve as a module
+  const baseDir = path.dirname(file);
+  const resolved = resolveModule(source, baseDir);
+  
+  if (resolved) {
+    return resolved;
+  }
+  
+  // If still not resolved, try from workspace root
+  const workspaceRoot = getWorkspaceRoot();
+  return resolveModule(source, workspaceRoot);
+}
+
+/**
+ * Checks if a module is a Node.js built-in module
+ * @param {string} moduleName - The module name to check
+ * @returns {boolean} True if the module is built-in, false otherwise
+ */
+function isBuiltinModule(moduleName) {
+  // List of Node.js built-in modules
+  const builtinModules = [
+    'assert', 'buffer', 'child_process', 'cluster', 'console', 'constants',
+    'crypto', 'dgram', 'dns', 'domain', 'events', 'fs', 'http', 'https', 'module',
+    'net', 'os', 'path', 'perf_hooks', 'process', 'punycode', 'querystring', 'readline',
+    'repl', 'stream', 'string_decoder', 'timers', 'tls', 'tty', 'url', 'util',
+    'v8', 'vm', 'wasi', 'worker_threads', 'zlib'
+  ];
+  
+  return builtinModules.includes(moduleName);
+}
+
+/**
+ * Gets the workspace root directory
+ * @returns {string} The workspace root directory
+ */
+function getWorkspaceRoot() {
+  // Try to find the workspace root by looking for .yarn folder
+  let currentDir = process.cwd();
+  
+  while (currentDir && currentDir !== path.parse(currentDir).root) {
+    // Check for .yarn directory which indicates a Yarn PnP workspace root
+    if (fs.existsSync(path.join(currentDir, '.yarn'))) {
+      return currentDir;
     }
+    
+    // Also check for package.json with workspaces field
+    const packageJsonPath = path.join(currentDir, 'package.json');
+    if (fs.existsSync(packageJsonPath)) {
+      try {
+        const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
+        if (packageJson.workspaces) {
+          return currentDir;
+        }
+      } catch (error) {
+        // Ignore JSON parsing errors
+      }
+    }
+    
+    currentDir = path.dirname(currentDir);
+  }
+  
+  // Fall back to current directory if not found
+  return process.cwd();
+}
+
+/**
+ * Resolves the configuration file path
+ * @param {string} configFile - The config file to resolve
+ * @param {string} baseDir - The directory to resolve from
+ * @returns {string|null} The resolved config file path or null if not found
+ */
+function resolveConfigFile(configFile, baseDir) {
+  if (path.isAbsolute(configFile)) {
+    return fs.existsSync(configFile) ? configFile : null;
+  }
+  
+  const resolvedPath = path.resolve(baseDir, configFile);
+  return fs.existsSync(resolvedPath) ? resolvedPath : null;
+}
+
+/**
+ * Checks if a path exists in the file system
+ * @param {string} filePath - The path to check
+ * @returns {boolean} True if the path exists, false otherwise
+ */
+function pathExists(filePath) {
+  try {
+    return fs.existsSync(filePath);
+  } catch (error) {
+    return false;
+  }
+}
+
+/**
+ * Finds the nearest ESLint configuration file from the given directory
+ * @param {string} directory - The directory to start searching from
+ * @returns {string|null} The path to the nearest configuration file or null if not found
+ */
+function findNearestConfig(directory) {
+  let currentDir = directory;
+  
+  while (currentDir && currentDir !== path.parse(currentDir).root) {
+    // Check for various ESLint config file formats
+    const configFiles = [
+      path.join(currentDir, '.eslintrc.js'),
+      path.join(currentDir, '.eslintrc.cjs'),
+      path.join(currentDir, '.eslintrc.yaml'),
+      path.join(currentDir, '.eslintrc.yml'),
+      path.join(currentDir, '.eslintrc.json'),
+      path.join(currentDir, '.eslintrc'),
+      path.join(currentDir, 'eslint.config.js'),
+      path.join(currentDir, 'eslint.config.mjs')
+    ];
+    
+    for (const configFile of configFiles) {
+      if (pathExists(configFile)) {
+        return configFile;
+      }
+    }
+    
+    // Check for package.json with eslintConfig field
+    const packageJsonPath = path.join(currentDir, 'package.json');
+    if (pathExists(packageJsonPath)) {
+      try {
+        const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
+        if (packageJson.eslintConfig) {
+          return packageJsonPath;
+        }
+      } catch (error) {
+        // Ignore JSON parsing errors
+      }
+    }
+    
     currentDir = path.dirname(currentDir);
   }
   
   return null;
 }
-
-/**
- * Patches ESLint's module resolution to work with Yarn PnP
- */
-function patchEslintModuleResolution() {
-  try {
-    // Only apply the patch if we're in a PnP environment
-    if (!pnp) {
-      return;
-    }
-    
-    // Try to load the ESLint module resolver
-    const eslintModuleResolverPath = require.resolve('eslint/lib/shared/relative-module-resolver');
-    const originalResolver = require(eslintModuleResolverPath);
-    
-    // Patch the resolver
-    require.cache[eslintModuleResolverPath].exports = function patchedResolver(moduleName, relativeToPath) {
-      try {
-        // First try the original resolver
-        return originalResolver(moduleName, relativeToPath);
-      } catch (error) {
-        // If that fails, try our custom resolution
-        try {
-          if (moduleName.startsWith('eslint-plugin-')) {
-            return resolvePlugin(moduleName, path.dirname(relativeToPath));
-          } else if (moduleName.startsWith('eslint-config-')) {
-            return resolveConfig(moduleName, path.dirname(relativeToPath));
-          } else {
-            // Try to resolve path aliases
-            const resolvedAlias = resolvePathAlias(moduleName, path.dirname(relativeToPath));
-            if (resolvedAlias) {
-              return resolvedAlias;
-            }
-            
-            // Fall back to our module resolver
-            return resolveModule(moduleName, path.dirname(relativeToPath));
-          }
-        } catch (customError) {
-          // If our custom resolution also fails, throw the original error
-          throw error;
-        }
-      }
-    };
-  } catch (error) {
-    // If patching fails, log a warning but don't crash
-    console.warn('Failed to patch ESLint module resolution for Yarn PnP:', error.message);
-  }
-}
-
-// Apply the patch when this module is loaded
-patchEslintModuleResolution();
 
 module.exports = {
-  resolveModule,
-  resolvePlugin,
   resolveConfig,
-  resolvePathAlias,
-  findWorkspaces,
-  findProjectRoot,
-  findTsconfig
+  resolvePlugin,
+  resolveParser,
+  resolveImport,
+  resolveModule,
+  resolveConfigFile,
+  getWorkspaceRoot,
+  findNearestConfig,
+  pathExists,
+  isBuiltinModule
 };

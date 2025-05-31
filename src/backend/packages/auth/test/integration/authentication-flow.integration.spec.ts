@@ -1,887 +1,548 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { INestApplication, ValidationPipe } from '@nestjs/common';
+import { INestApplication } from '@nestjs/common';
 import * as request from 'supertest';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
-import { PrismaService } from '@austa/database';
-import { LoggerService } from '@austa/logging';
 import { AuthService } from '../../src/auth.service';
 import { TokenService } from '../../src/token.service';
-import { AuthModule } from '../../src/auth.module';
 import { JwtAuthGuard } from '../../src/guards/jwt-auth.guard';
 import { RolesGuard } from '../../src/guards/roles.guard';
 import { Roles } from '../../src/decorators/roles.decorator';
 import { CurrentUser } from '../../src/decorators/current-user.decorator';
-import { Controller, Get, Post, Body, UseGuards } from '@nestjs/common';
-import { User } from '@austa/interfaces/auth';
-import { AuthErrorCode } from '../../src/constants';
-import { createTestUser, generateValidToken } from './test-helpers';
+import { ITokenPayload, IUser } from '../../src/interfaces';
+import { LoginDto } from '../../src/dto/login.dto';
+import { RefreshTokenDto } from '../../src/dto/refresh-token.dto';
 
-// Mock journey-specific controllers to test authentication across journeys
-@Controller('health')
-class HealthController {
-  @Get('protected')
-  @UseGuards(JwtAuthGuard)
-  @Roles('health:viewer')
-  getProtectedHealth(@CurrentUser() user: User) {
-    return { message: 'Health data accessed', user };
-  }
+// Mock services and modules
+import { createMockAuthModule } from '../helpers/mock-auth-module';
+import { createMockJourneyModule } from '../helpers/mock-journey-module';
+import { mockUsers } from '../fixtures/users.fixture';
+import { mockJourneyData } from '../fixtures/journey-data.fixture';
 
-  @Get('admin')
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles('health:admin')
-  getAdminHealth(@CurrentUser() user: User) {
-    return { message: 'Health admin data accessed', user };
-  }
-}
+// Test utilities
+import { delay, generateRandomEmail } from '../utils/test-utils';
 
-@Controller('care')
-class CareController {
-  @Get('protected')
-  @UseGuards(JwtAuthGuard)
-  @Roles('care:viewer')
-  getProtectedCare(@CurrentUser() user: User) {
-    return { message: 'Care data accessed', user };
-  }
-
-  @Get('provider')
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles('care:provider')
-  getProviderCare(@CurrentUser() user: User) {
-    return { message: 'Care provider data accessed', user };
-  }
-}
-
-@Controller('plan')
-class PlanController {
-  @Get('protected')
-  @UseGuards(JwtAuthGuard)
-  @Roles('plan:viewer')
-  getProtectedPlan(@CurrentUser() user: User) {
-    return { message: 'Plan data accessed', user };
-  }
-
-  @Get('manager')
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles('plan:manager')
-  getManagerPlan(@CurrentUser() user: User) {
-    return { message: 'Plan manager data accessed', user };
-  }
-}
-
-// Mock auth controller for testing registration and login
-@Controller('auth')
-class AuthTestController {
-  constructor(private authService: AuthService) {}
-
-  @Post('register')
-  async register(@Body() createUserDto: any) {
-    return this.authService.register(createUserDto);
-  }
-
-  @Post('login')
-  async login(@Body() loginDto: { email: string; password: string }) {
-    return this.authService.login(loginDto.email, loginDto.password);
-  }
-
-  @Post('refresh')
-  @UseGuards(JwtAuthGuard)
-  async refresh(@CurrentUser() user: User, @Body() refreshDto: { refreshToken: string }) {
-    return this.authService.refreshToken(user.id, refreshDto.refreshToken);
-  }
-
-  @Get('profile')
-  @UseGuards(JwtAuthGuard)
-  getProfile(@CurrentUser() user: User) {
-    return user;
-  }
-}
-
+/**
+ * Comprehensive integration tests for the complete authentication flow
+ * across different journeys in the AUSTA SuperApp.
+ * 
+ * These tests validate the entire authentication pipeline including:
+ * - User registration
+ * - Login and token generation
+ * - Token validation and refresh
+ * - Access to protected resources
+ * - Journey-specific authentication scenarios
+ * - Error handling for authentication failures
+ * - Concurrent authentication operations
+ */
 describe('Authentication Flow Integration Tests', () => {
   let app: INestApplication;
-  let moduleRef: TestingModule;
-  let prismaService: PrismaService;
-  let jwtService: JwtService;
-  let tokenService: TokenService;
   let authService: AuthService;
+  let tokenService: TokenService;
+  let jwtService: JwtService;
   let configService: ConfigService;
-
+  
+  // Test data
+  const testUser = {
+    email: generateRandomEmail(),
+    password: 'Test@123456',
+    firstName: 'Test',
+    lastName: 'User',
+  };
+  
+  let accessToken: string;
+  let refreshToken: string;
+  
   beforeAll(async () => {
-    // Create a test module with all required components
-    moduleRef = await Test.createTestingModule({
-      imports: [AuthModule],
-      controllers: [AuthTestController, HealthController, CareController, PlanController],
-      providers: [
-        {
-          provide: PrismaService,
-          useFactory: () => ({
-            user: {
-              findUnique: jest.fn(),
-              findFirst: jest.fn(),
-              create: jest.fn(),
-              update: jest.fn(),
-            },
-            userRole: {
-              findMany: jest.fn(),
-              create: jest.fn(),
-            },
-            $transaction: jest.fn((callback) => callback()),
-          }),
-        },
-        {
-          provide: LoggerService,
-          useFactory: () => ({
-            log: jest.fn(),
-            error: jest.fn(),
-            warn: jest.fn(),
-            debug: jest.fn(),
-          }),
-        },
+    // Create a test module with mock implementations
+    const moduleFixture: TestingModule = await Test.createTestingModule({
+      imports: [
+        createMockAuthModule(),
+        createMockJourneyModule('health'),
+        createMockJourneyModule('care'),
+        createMockJourneyModule('plan'),
       ],
     }).compile();
-
-    // Create a NestJS application instance
-    app = moduleRef.createNestApplication();
-    app.useGlobalPipes(new ValidationPipe({ transform: true }));
+    
+    app = moduleFixture.createNestApplication();
     await app.init();
-
-    // Get service instances for test setup
-    prismaService = moduleRef.get<PrismaService>(PrismaService);
-    jwtService = moduleRef.get<JwtService>(JwtService);
-    tokenService = moduleRef.get<TokenService>(TokenService);
-    authService = moduleRef.get<AuthService>(AuthService);
-    configService = moduleRef.get<ConfigService>(ConfigService);
+    
+    // Get service instances
+    authService = moduleFixture.get<AuthService>(AuthService);
+    tokenService = moduleFixture.get<TokenService>(TokenService);
+    jwtService = moduleFixture.get<JwtService>(JwtService);
+    configService = moduleFixture.get<ConfigService>(ConfigService);
   });
-
+  
   afterAll(async () => {
     await app.close();
-    await moduleRef.close();
   });
-
-  beforeEach(() => {
-    jest.clearAllMocks();
-  });
-
+  
   describe('Registration Flow', () => {
     it('should register a new user successfully', async () => {
-      // Mock user creation
-      const newUser = {
-        id: '1',
-        email: 'test@example.com',
-        name: 'Test User',
-        password: 'hashedPassword',
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      };
-
-      // Mock the database operations
-      (prismaService.user.findUnique as jest.Mock).mockResolvedValueOnce(null);
-      (prismaService.user.create as jest.Mock).mockResolvedValueOnce(newUser);
-      (prismaService.userRole.create as jest.Mock).mockResolvedValueOnce({ userId: '1', role: 'user' });
-
-      // Mock token generation
-      jest.spyOn(tokenService, 'generateToken').mockResolvedValueOnce('mock-access-token');
-      jest.spyOn(tokenService, 'generateRefreshToken').mockResolvedValueOnce('mock-refresh-token');
-
-      // Test registration endpoint
       const response = await request(app.getHttpServer())
         .post('/auth/register')
-        .send({
-          email: 'test@example.com',
-          password: 'Password123!',
-          name: 'Test User',
-        })
+        .send(testUser)
         .expect(201);
-
-      // Verify response structure
-      expect(response.body).toHaveProperty('accessToken');
-      expect(response.body).toHaveProperty('refreshToken');
-      expect(response.body).toHaveProperty('user');
-      expect(response.body.user.email).toBe('test@example.com');
-      expect(response.body.user).not.toHaveProperty('password');
-
-      // Verify database operations were called correctly
-      expect(prismaService.user.findUnique).toHaveBeenCalledWith({
-        where: { email: 'test@example.com' },
-      });
-      expect(prismaService.user.create).toHaveBeenCalled();
-      expect(prismaService.userRole.create).toHaveBeenCalled();
+      
+      expect(response.body).toHaveProperty('id');
+      expect(response.body).toHaveProperty('email', testUser.email);
+      expect(response.body).not.toHaveProperty('password'); // Password should not be returned
     });
-
+    
     it('should reject registration with existing email', async () => {
-      // Mock existing user
-      const existingUser = {
-        id: '1',
-        email: 'existing@example.com',
-        name: 'Existing User',
-        password: 'hashedPassword',
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      };
-
-      // Mock database operation to return existing user
-      (prismaService.user.findUnique as jest.Mock).mockResolvedValueOnce(existingUser);
-
-      // Test registration with existing email
       const response = await request(app.getHttpServer())
         .post('/auth/register')
-        .send({
-          email: 'existing@example.com',
-          password: 'Password123!',
-          name: 'Test User',
-        })
+        .send(testUser)
         .expect(400);
-
-      // Verify error response
+      
       expect(response.body).toHaveProperty('error');
-      expect(response.body.error.code).toBe(AuthErrorCode.USER_ALREADY_EXISTS);
+      expect(response.body.error).toHaveProperty('code', 'AUTH_USER_EXISTS');
     });
-
+    
     it('should reject registration with invalid data', async () => {
-      // Test registration with invalid data (missing required fields)
+      const invalidUser = {
+        email: 'invalid-email',
+        password: '123', // Too short
+      };
+      
       const response = await request(app.getHttpServer())
         .post('/auth/register')
-        .send({
-          email: 'invalid-email',
-          password: '123', // Too short
-        })
+        .send(invalidUser)
         .expect(400);
-
-      // Verify validation error response
+      
       expect(response.body).toHaveProperty('error');
-      expect(response.body.error.message).toContain('validation');
+      expect(response.body.error).toHaveProperty('details');
+      expect(response.body.error.details).toHaveLength(3); // Missing firstName, lastName, invalid email, invalid password
     });
   });
-
+  
   describe('Login Flow', () => {
-    it('should login successfully with valid credentials', async () => {
-      // Mock user for login
-      const existingUser = {
-        id: '1',
-        email: 'login@example.com',
-        name: 'Login User',
-        password: 'hashedPassword',
-        createdAt: new Date(),
-        updatedAt: new Date(),
+    it('should authenticate user and return tokens', async () => {
+      const loginDto: LoginDto = {
+        email: testUser.email,
+        password: testUser.password,
       };
-
-      // Mock database and authentication operations
-      (prismaService.user.findUnique as jest.Mock).mockResolvedValueOnce(existingUser);
-      (prismaService.userRole.findMany as jest.Mock).mockResolvedValueOnce([
-        { role: 'user' },
-        { role: 'health:viewer' },
-      ]);
-
-      // Mock password verification and token generation
-      jest.spyOn(authService as any, 'verifyPassword').mockResolvedValueOnce(true);
-      jest.spyOn(tokenService, 'generateToken').mockResolvedValueOnce('mock-access-token');
-      jest.spyOn(tokenService, 'generateRefreshToken').mockResolvedValueOnce('mock-refresh-token');
-
-      // Test login endpoint
+      
       const response = await request(app.getHttpServer())
         .post('/auth/login')
-        .send({
-          email: 'login@example.com',
-          password: 'Password123!',
-        })
+        .send(loginDto)
         .expect(200);
-
-      // Verify response structure
+      
       expect(response.body).toHaveProperty('accessToken');
       expect(response.body).toHaveProperty('refreshToken');
-      expect(response.body).toHaveProperty('user');
-      expect(response.body.user.email).toBe('login@example.com');
-      expect(response.body.user.roles).toContain('user');
-      expect(response.body.user.roles).toContain('health:viewer');
-      expect(response.body.user).not.toHaveProperty('password');
+      expect(response.body).toHaveProperty('expiresIn');
+      
+      // Store tokens for subsequent tests
+      accessToken = response.body.accessToken;
+      refreshToken = response.body.refreshToken;
+      
+      // Verify token contains expected payload
+      const decodedToken = jwtService.decode(accessToken) as ITokenPayload;
+      expect(decodedToken).toHaveProperty('sub');
+      expect(decodedToken).toHaveProperty('email', testUser.email);
     });
-
+    
     it('should reject login with invalid credentials', async () => {
-      // Mock user for login attempt
-      const existingUser = {
-        id: '1',
-        email: 'login@example.com',
-        name: 'Login User',
-        password: 'hashedPassword',
-        createdAt: new Date(),
-        updatedAt: new Date(),
+      const invalidLogin: LoginDto = {
+        email: testUser.email,
+        password: 'wrong-password',
       };
-
-      // Mock database operation to return user
-      (prismaService.user.findUnique as jest.Mock).mockResolvedValueOnce(existingUser);
-
-      // Mock password verification to fail
-      jest.spyOn(authService as any, 'verifyPassword').mockResolvedValueOnce(false);
-
-      // Test login with invalid password
+      
       const response = await request(app.getHttpServer())
         .post('/auth/login')
-        .send({
-          email: 'login@example.com',
-          password: 'WrongPassword123!',
-        })
+        .send(invalidLogin)
         .expect(401);
-
-      // Verify error response
+      
       expect(response.body).toHaveProperty('error');
-      expect(response.body.error.code).toBe(AuthErrorCode.INVALID_CREDENTIALS);
+      expect(response.body.error).toHaveProperty('code', 'AUTH_INVALID_CREDENTIALS');
     });
-
-    it('should reject login for non-existent user', async () => {
-      // Mock database operation to return no user
-      (prismaService.user.findUnique as jest.Mock).mockResolvedValueOnce(null);
-
-      // Test login with non-existent email
+    
+    it('should reject login with non-existent user', async () => {
+      const nonExistentUser: LoginDto = {
+        email: 'nonexistent@example.com',
+        password: 'Test@123456',
+      };
+      
       const response = await request(app.getHttpServer())
         .post('/auth/login')
-        .send({
-          email: 'nonexistent@example.com',
-          password: 'Password123!',
-        })
+        .send(nonExistentUser)
         .expect(401);
-
-      // Verify error response
+      
       expect(response.body).toHaveProperty('error');
-      expect(response.body.error.code).toBe(AuthErrorCode.INVALID_CREDENTIALS);
+      expect(response.body.error).toHaveProperty('code', 'AUTH_INVALID_CREDENTIALS');
     });
   });
-
-  describe('Protected Resource Access', () => {
-    it('should access protected resource with valid token', async () => {
-      // Create a valid user with appropriate roles
-      const user = createTestUser({
-        id: '1',
-        email: 'protected@example.com',
-        roles: ['user', 'health:viewer'],
-      });
-
-      // Generate a valid token for this user
-      const token = await generateValidToken(jwtService, user);
-
-      // Mock token validation
-      jest.spyOn(tokenService, 'validateToken').mockResolvedValueOnce(user);
-
-      // Test accessing protected resource
+  
+  describe('Token Validation and Refresh', () => {
+    it('should access protected route with valid token', async () => {
       const response = await request(app.getHttpServer())
-        .get('/health/protected')
-        .set('Authorization', `Bearer ${token}`)
+        .get('/auth/profile')
+        .set('Authorization', `Bearer ${accessToken}`)
         .expect(200);
-
-      // Verify response
-      expect(response.body).toHaveProperty('message');
-      expect(response.body.message).toBe('Health data accessed');
-      expect(response.body).toHaveProperty('user');
-      expect(response.body.user.id).toBe('1');
+      
+      expect(response.body).toHaveProperty('email', testUser.email);
+      expect(response.body).toHaveProperty('firstName', testUser.firstName);
+      expect(response.body).toHaveProperty('lastName', testUser.lastName);
     });
-
-    it('should reject access without token', async () => {
-      // Test accessing protected resource without token
-      const response = await request(app.getHttpServer())
-        .get('/health/protected')
-        .expect(401);
-
-      // Verify error response
-      expect(response.body).toHaveProperty('error');
-      expect(response.body.error.code).toBe(AuthErrorCode.UNAUTHORIZED);
-    });
-
+    
     it('should reject access with invalid token', async () => {
-      // Test accessing protected resource with invalid token
       const response = await request(app.getHttpServer())
-        .get('/health/protected')
+        .get('/auth/profile')
         .set('Authorization', 'Bearer invalid-token')
         .expect(401);
-
-      // Verify error response
+      
       expect(response.body).toHaveProperty('error');
-      expect(response.body.error.code).toBe(AuthErrorCode.INVALID_TOKEN);
+      expect(response.body.error).toHaveProperty('code', 'AUTH_INVALID_TOKEN');
     });
-
+    
     it('should reject access with expired token', async () => {
-      // Create a user
-      const user = createTestUser({
-        id: '1',
-        email: 'expired@example.com',
-        roles: ['user', 'health:viewer'],
-      });
-
-      // Generate an expired token
-      const token = await generateValidToken(jwtService, user, { expiresIn: '0s' });
-
-      // Mock token validation to throw expired token error
-      jest.spyOn(tokenService, 'validateToken').mockRejectedValueOnce({
-        code: AuthErrorCode.TOKEN_EXPIRED,
-        message: 'Token has expired',
-      });
-
-      // Test accessing protected resource with expired token
+      // Create an expired token
+      const expiredToken = await tokenService.generateToken(
+        { sub: '123', email: testUser.email },
+        '1ms' // Expire immediately
+      );
+      
+      // Wait for token to expire
+      await delay(10);
+      
       const response = await request(app.getHttpServer())
-        .get('/health/protected')
-        .set('Authorization', `Bearer ${token}`)
+        .get('/auth/profile')
+        .set('Authorization', `Bearer ${expiredToken}`)
         .expect(401);
-
-      // Verify error response
+      
       expect(response.body).toHaveProperty('error');
-      expect(response.body.error.code).toBe(AuthErrorCode.TOKEN_EXPIRED);
+      expect(response.body.error).toHaveProperty('code', 'AUTH_EXPIRED_TOKEN');
     });
-  });
-
-  describe('Role-Based Access Control', () => {
-    it('should allow access to role-protected resource with correct role', async () => {
-      // Create a user with admin role
-      const adminUser = createTestUser({
-        id: '1',
-        email: 'admin@example.com',
-        roles: ['user', 'health:admin'],
-      });
-
-      // Generate a valid token for this user
-      const token = await generateValidToken(jwtService, adminUser);
-
-      // Mock token validation and role checking
-      jest.spyOn(tokenService, 'validateToken').mockResolvedValueOnce(adminUser);
-
-      // Test accessing admin-protected resource
-      const response = await request(app.getHttpServer())
-        .get('/health/admin')
-        .set('Authorization', `Bearer ${token}`)
-        .expect(200);
-
-      // Verify response
-      expect(response.body).toHaveProperty('message');
-      expect(response.body.message).toBe('Health admin data accessed');
-    });
-
-    it('should deny access to role-protected resource without required role', async () => {
-      // Create a user without admin role
-      const regularUser = createTestUser({
-        id: '2',
-        email: 'regular@example.com',
-        roles: ['user', 'health:viewer'],
-      });
-
-      // Generate a valid token for this user
-      const token = await generateValidToken(jwtService, regularUser);
-
-      // Mock token validation
-      jest.spyOn(tokenService, 'validateToken').mockResolvedValueOnce(regularUser);
-
-      // Test accessing admin-protected resource
-      const response = await request(app.getHttpServer())
-        .get('/health/admin')
-        .set('Authorization', `Bearer ${token}`)
-        .expect(403);
-
-      // Verify error response
-      expect(response.body).toHaveProperty('error');
-      expect(response.body.error.code).toBe(AuthErrorCode.FORBIDDEN);
-    });
-  });
-
-  describe('Journey-Specific Authentication', () => {
-    it('should access health journey resources with health role', async () => {
-      // Create a user with health role
-      const healthUser = createTestUser({
-        id: '1',
-        email: 'health@example.com',
-        roles: ['user', 'health:viewer'],
-      });
-
-      // Generate a valid token for this user
-      const token = await generateValidToken(jwtService, healthUser);
-
-      // Mock token validation
-      jest.spyOn(tokenService, 'validateToken').mockResolvedValueOnce(healthUser);
-
-      // Test accessing health resource
-      const response = await request(app.getHttpServer())
-        .get('/health/protected')
-        .set('Authorization', `Bearer ${token}`)
-        .expect(200);
-
-      // Verify response
-      expect(response.body).toHaveProperty('message');
-      expect(response.body.message).toBe('Health data accessed');
-    });
-
-    it('should access care journey resources with care role', async () => {
-      // Create a user with care role
-      const careUser = createTestUser({
-        id: '2',
-        email: 'care@example.com',
-        roles: ['user', 'care:viewer'],
-      });
-
-      // Generate a valid token for this user
-      const token = await generateValidToken(jwtService, careUser);
-
-      // Mock token validation
-      jest.spyOn(tokenService, 'validateToken').mockResolvedValueOnce(careUser);
-
-      // Test accessing care resource
-      const response = await request(app.getHttpServer())
-        .get('/care/protected')
-        .set('Authorization', `Bearer ${token}`)
-        .expect(200);
-
-      // Verify response
-      expect(response.body).toHaveProperty('message');
-      expect(response.body.message).toBe('Care data accessed');
-    });
-
-    it('should access plan journey resources with plan role', async () => {
-      // Create a user with plan role
-      const planUser = createTestUser({
-        id: '3',
-        email: 'plan@example.com',
-        roles: ['user', 'plan:viewer'],
-      });
-
-      // Generate a valid token for this user
-      const token = await generateValidToken(jwtService, planUser);
-
-      // Mock token validation
-      jest.spyOn(tokenService, 'validateToken').mockResolvedValueOnce(planUser);
-
-      // Test accessing plan resource
-      const response = await request(app.getHttpServer())
-        .get('/plan/protected')
-        .set('Authorization', `Bearer ${token}`)
-        .expect(200);
-
-      // Verify response
-      expect(response.body).toHaveProperty('message');
-      expect(response.body.message).toBe('Plan data accessed');
-    });
-
-    it('should deny access to journey resources without specific journey role', async () => {
-      // Create a user with only health role
-      const healthOnlyUser = createTestUser({
-        id: '4',
-        email: 'healthonly@example.com',
-        roles: ['user', 'health:viewer'],
-      });
-
-      // Generate a valid token for this user
-      const token = await generateValidToken(jwtService, healthOnlyUser);
-
-      // Mock token validation
-      jest.spyOn(tokenService, 'validateToken').mockResolvedValueOnce(healthOnlyUser);
-
-      // Test accessing care resource without care role
-      const response = await request(app.getHttpServer())
-        .get('/care/protected')
-        .set('Authorization', `Bearer ${token}`)
-        .expect(403);
-
-      // Verify error response
-      expect(response.body).toHaveProperty('error');
-      expect(response.body.error.code).toBe(AuthErrorCode.FORBIDDEN);
-    });
-  });
-
-  describe('Token Refresh Flow', () => {
-    it('should refresh tokens successfully with valid refresh token', async () => {
-      // Create a user
-      const user = createTestUser({
-        id: '1',
-        email: 'refresh@example.com',
-        roles: ['user'],
-      });
-
-      // Generate a valid token for this user
-      const token = await generateValidToken(jwtService, user);
-      const refreshToken = 'valid-refresh-token';
-
-      // Mock token validation and refresh
-      jest.spyOn(tokenService, 'validateToken').mockResolvedValueOnce(user);
-      jest.spyOn(authService, 'refreshToken').mockResolvedValueOnce({
-        accessToken: 'new-access-token',
-        refreshToken: 'new-refresh-token',
-      });
-
-      // Test token refresh
+    
+    it('should refresh token successfully', async () => {
+      const refreshDto: RefreshTokenDto = {
+        refreshToken,
+      };
+      
       const response = await request(app.getHttpServer())
         .post('/auth/refresh')
-        .set('Authorization', `Bearer ${token}`)
-        .send({ refreshToken })
-        .expect(201);
-
-      // Verify response
+        .send(refreshDto)
+        .expect(200);
+      
       expect(response.body).toHaveProperty('accessToken');
       expect(response.body).toHaveProperty('refreshToken');
-      expect(response.body.accessToken).toBe('new-access-token');
-      expect(response.body.refreshToken).toBe('new-refresh-token');
-    });
-
-    it('should reject refresh with invalid refresh token', async () => {
-      // Create a user
-      const user = createTestUser({
-        id: '1',
-        email: 'refresh@example.com',
-        roles: ['user'],
-      });
-
-      // Generate a valid token for this user
-      const token = await generateValidToken(jwtService, user);
-      const invalidRefreshToken = 'invalid-refresh-token';
-
-      // Mock token validation
-      jest.spyOn(tokenService, 'validateToken').mockResolvedValueOnce(user);
+      expect(response.body).toHaveProperty('expiresIn');
       
-      // Mock refresh token validation to fail
-      jest.spyOn(authService, 'refreshToken').mockRejectedValueOnce({
-        code: AuthErrorCode.INVALID_REFRESH_TOKEN,
-        message: 'Invalid refresh token',
-      });
-
-      // Test token refresh with invalid refresh token
+      // Update tokens for subsequent tests
+      accessToken = response.body.accessToken;
+      refreshToken = response.body.refreshToken;
+    });
+    
+    it('should reject refresh with invalid refresh token', async () => {
+      const invalidRefreshDto: RefreshTokenDto = {
+        refreshToken: 'invalid-refresh-token',
+      };
+      
       const response = await request(app.getHttpServer())
         .post('/auth/refresh')
-        .set('Authorization', `Bearer ${token}`)
-        .send({ refreshToken: invalidRefreshToken })
+        .send(invalidRefreshDto)
         .expect(401);
-
-      // Verify error response
+      
       expect(response.body).toHaveProperty('error');
-      expect(response.body.error.code).toBe(AuthErrorCode.INVALID_REFRESH_TOKEN);
+      expect(response.body.error).toHaveProperty('code', 'AUTH_INVALID_REFRESH_TOKEN');
     });
   });
-
+  
+  describe('Journey-Specific Authentication', () => {
+    // Health Journey Authentication
+    describe('Health Journey', () => {
+      it('should access health journey resources with valid token', async () => {
+        const response = await request(app.getHttpServer())
+          .get('/health/metrics')
+          .set('Authorization', `Bearer ${accessToken}`)
+          .expect(200);
+        
+        expect(response.body).toHaveProperty('metrics');
+        expect(response.body).toHaveProperty('journeyType', 'health');
+      });
+      
+      it('should validate health-specific roles', async () => {
+        // Assuming the test user has health:viewer role
+        const response = await request(app.getHttpServer())
+          .get('/health/insights')
+          .set('Authorization', `Bearer ${accessToken}`)
+          .expect(200);
+        
+        expect(response.body).toHaveProperty('insights');
+        expect(response.body).toHaveProperty('journeyType', 'health');
+      });
+      
+      it('should reject access to health admin resources without proper role', async () => {
+        // Assuming the test user doesn't have health:admin role
+        const response = await request(app.getHttpServer())
+          .post('/health/admin/settings')
+          .set('Authorization', `Bearer ${accessToken}`)
+          .send({ setting: 'value' })
+          .expect(403);
+        
+        expect(response.body).toHaveProperty('error');
+        expect(response.body.error).toHaveProperty('code', 'AUTH_INSUFFICIENT_PERMISSIONS');
+      });
+    });
+    
+    // Care Journey Authentication
+    describe('Care Journey', () => {
+      it('should access care journey resources with valid token', async () => {
+        const response = await request(app.getHttpServer())
+          .get('/care/appointments')
+          .set('Authorization', `Bearer ${accessToken}`)
+          .expect(200);
+        
+        expect(response.body).toHaveProperty('appointments');
+        expect(response.body).toHaveProperty('journeyType', 'care');
+      });
+      
+      it('should validate care-specific roles', async () => {
+        // Assuming the test user has care:patient role
+        const response = await request(app.getHttpServer())
+          .get('/care/medical-history')
+          .set('Authorization', `Bearer ${accessToken}`)
+          .expect(200);
+        
+        expect(response.body).toHaveProperty('medicalHistory');
+        expect(response.body).toHaveProperty('journeyType', 'care');
+      });
+      
+      it('should reject access to provider resources without proper role', async () => {
+        // Assuming the test user doesn't have care:provider role
+        const response = await request(app.getHttpServer())
+          .get('/care/provider/patients')
+          .set('Authorization', `Bearer ${accessToken}`)
+          .expect(403);
+        
+        expect(response.body).toHaveProperty('error');
+        expect(response.body.error).toHaveProperty('code', 'AUTH_INSUFFICIENT_PERMISSIONS');
+      });
+    });
+    
+    // Plan Journey Authentication
+    describe('Plan Journey', () => {
+      it('should access plan journey resources with valid token', async () => {
+        const response = await request(app.getHttpServer())
+          .get('/plan/benefits')
+          .set('Authorization', `Bearer ${accessToken}`)
+          .expect(200);
+        
+        expect(response.body).toHaveProperty('benefits');
+        expect(response.body).toHaveProperty('journeyType', 'plan');
+      });
+      
+      it('should validate plan-specific roles', async () => {
+        // Assuming the test user has plan:member role
+        const response = await request(app.getHttpServer())
+          .get('/plan/claims')
+          .set('Authorization', `Bearer ${accessToken}`)
+          .expect(200);
+        
+        expect(response.body).toHaveProperty('claims');
+        expect(response.body).toHaveProperty('journeyType', 'plan');
+      });
+      
+      it('should reject access to insurance admin resources without proper role', async () => {
+        // Assuming the test user doesn't have plan:admin role
+        const response = await request(app.getHttpServer())
+          .post('/plan/admin/approve-claim')
+          .set('Authorization', `Bearer ${accessToken}`)
+          .send({ claimId: '123' })
+          .expect(403);
+        
+        expect(response.body).toHaveProperty('error');
+        expect(response.body.error).toHaveProperty('code', 'AUTH_INSUFFICIENT_PERMISSIONS');
+      });
+    });
+  });
+  
+  describe('Cross-Service Token Validation', () => {
+    it('should validate tokens across service boundaries', async () => {
+      // Simulate token validation in different services
+      const services = ['health', 'care', 'plan'];
+      
+      for (const service of services) {
+        const response = await request(app.getHttpServer())
+          .post(`/${service}/validate-token`)
+          .set('Authorization', `Bearer ${accessToken}`)
+          .expect(200);
+        
+        expect(response.body).toHaveProperty('valid', true);
+        expect(response.body).toHaveProperty('user');
+        expect(response.body.user).toHaveProperty('email', testUser.email);
+      }
+    });
+    
+    it('should maintain consistent user context across services', async () => {
+      // Simulate retrieving user context in different services
+      const services = ['health', 'care', 'plan'];
+      const userContexts = [];
+      
+      for (const service of services) {
+        const response = await request(app.getHttpServer())
+          .get(`/${service}/user-context`)
+          .set('Authorization', `Bearer ${accessToken}`)
+          .expect(200);
+        
+        userContexts.push(response.body);
+      }
+      
+      // Verify user context is consistent across services
+      expect(userContexts[0].id).toEqual(userContexts[1].id);
+      expect(userContexts[1].id).toEqual(userContexts[2].id);
+      expect(userContexts[0].email).toEqual(testUser.email);
+    });
+  });
+  
   describe('Concurrent Authentication Operations', () => {
-    it('should handle multiple concurrent login attempts for different users', async () => {
-      // Create mock users
-      const user1 = {
-        id: '1',
-        email: 'user1@example.com',
-        name: 'User One',
-        password: 'hashedPassword1',
-        createdAt: new Date(),
-        updatedAt: new Date(),
+    it('should handle multiple concurrent login attempts', async () => {
+      const loginDto: LoginDto = {
+        email: testUser.email,
+        password: testUser.password,
       };
-
-      const user2 = {
-        id: '2',
-        email: 'user2@example.com',
-        name: 'User Two',
-        password: 'hashedPassword2',
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      };
-
-      // Mock database operations for first user
-      (prismaService.user.findUnique as jest.Mock).mockImplementation((params) => {
-        if (params.where.email === 'user1@example.com') {
-          return Promise.resolve(user1);
-        } else if (params.where.email === 'user2@example.com') {
-          return Promise.resolve(user2);
-        }
-        return Promise.resolve(null);
-      });
-
-      // Mock roles for both users
-      (prismaService.userRole.findMany as jest.Mock).mockImplementation((params) => {
-        if (params.where.userId === '1') {
-          return Promise.resolve([{ role: 'user' }, { role: 'health:viewer' }]);
-        } else if (params.where.userId === '2') {
-          return Promise.resolve([{ role: 'user' }, { role: 'care:viewer' }]);
-        }
-        return Promise.resolve([]);
-      });
-
-      // Mock password verification for both users
-      jest.spyOn(authService as any, 'verifyPassword').mockResolvedValue(true);
-
-      // Mock token generation with different tokens for each user
-      jest.spyOn(tokenService, 'generateToken').mockImplementation((userId, payload) => {
-        return Promise.resolve(`token-for-${userId}`);
-      });
-
-      jest.spyOn(tokenService, 'generateRefreshToken').mockImplementation((userId) => {
-        return Promise.resolve(`refresh-token-for-${userId}`);
-      });
-
-      // Execute concurrent login requests
-      const [response1, response2] = await Promise.all([
-        request(app.getHttpServer())
+      
+      // Make 5 concurrent login requests
+      const requests = Array(5).fill(0).map(() => {
+        return request(app.getHttpServer())
           .post('/auth/login')
-          .send({
-            email: 'user1@example.com',
-            password: 'Password123!',
-          }),
-        request(app.getHttpServer())
-          .post('/auth/login')
-          .send({
-            email: 'user2@example.com',
-            password: 'Password123!',
-          }),
-      ]);
-
-      // Verify both responses are successful
-      expect(response1.status).toBe(200);
-      expect(response2.status).toBe(200);
-
-      // Verify user-specific tokens were generated
-      expect(response1.body.accessToken).toBe('token-for-1');
-      expect(response2.body.accessToken).toBe('token-for-2');
-
-      // Verify user-specific refresh tokens
-      expect(response1.body.refreshToken).toBe('refresh-token-for-1');
-      expect(response2.body.refreshToken).toBe('refresh-token-for-2');
-
-      // Verify correct user data in responses
-      expect(response1.body.user.email).toBe('user1@example.com');
-      expect(response2.body.user.email).toBe('user2@example.com');
-
-      // Verify correct roles in responses
-      expect(response1.body.user.roles).toContain('health:viewer');
-      expect(response2.body.user.roles).toContain('care:viewer');
+          .send(loginDto);
+      });
+      
+      const responses = await Promise.all(requests);
+      
+      // All requests should succeed
+      responses.forEach(response => {
+        expect(response.status).toBe(200);
+        expect(response.body).toHaveProperty('accessToken');
+      });
+      
+      // Tokens should be different for each request
+      const tokens = responses.map(response => response.body.accessToken);
+      const uniqueTokens = new Set(tokens);
+      expect(uniqueTokens.size).toBe(tokens.length);
     });
-
-    it('should maintain isolation between concurrent authentication operations', async () => {
-      // Create mock users with different journey roles
-      const healthUser = createTestUser({
-        id: '1',
-        email: 'health@example.com',
-        roles: ['user', 'health:viewer'],
+    
+    it('should maintain isolation between concurrent operations', async () => {
+      // Create multiple test users
+      const testUsers = Array(3).fill(0).map((_, i) => ({
+        email: generateRandomEmail(),
+        password: `Test@${100000 + i}`,
+        firstName: `Test${i}`,
+        lastName: `User${i}`,
+      }));
+      
+      // Register users concurrently
+      const registerRequests = testUsers.map(user => {
+        return request(app.getHttpServer())
+          .post('/auth/register')
+          .send(user);
       });
-
-      const careUser = createTestUser({
-        id: '2',
-        email: 'care@example.com',
-        roles: ['user', 'care:viewer'],
+      
+      const registerResponses = await Promise.all(registerRequests);
+      
+      // All registrations should succeed
+      registerResponses.forEach((response, i) => {
+        expect(response.status).toBe(201);
+        expect(response.body).toHaveProperty('email', testUsers[i].email);
       });
-
-      const planUser = createTestUser({
-        id: '3',
-        email: 'plan@example.com',
-        roles: ['user', 'plan:viewer'],
+      
+      // Login with each user concurrently
+      const loginRequests = testUsers.map(user => {
+        return request(app.getHttpServer())
+          .post('/auth/login')
+          .send({
+            email: user.email,
+            password: user.password,
+          });
       });
-
-      // Generate tokens for each user
-      const healthToken = await generateValidToken(jwtService, healthUser);
-      const careToken = await generateValidToken(jwtService, careUser);
-      const planToken = await generateValidToken(jwtService, planUser);
-
-      // Mock token validation to return the appropriate user based on the token
-      jest.spyOn(tokenService, 'validateToken').mockImplementation((token) => {
-        if (token === healthToken) return Promise.resolve(healthUser);
-        if (token === careToken) return Promise.resolve(careUser);
-        if (token === planToken) return Promise.resolve(planUser);
-        return Promise.reject({ code: AuthErrorCode.INVALID_TOKEN });
+      
+      const loginResponses = await Promise.all(loginRequests);
+      
+      // All logins should succeed
+      const userTokens = loginResponses.map(response => {
+        expect(response.status).toBe(200);
+        return response.body.accessToken;
       });
-
-      // Execute concurrent requests to different journey endpoints
-      const [healthResponse, careResponse, planResponse] = await Promise.all([
-        request(app.getHttpServer())
-          .get('/health/protected')
-          .set('Authorization', `Bearer ${healthToken}`),
-        request(app.getHttpServer())
-          .get('/care/protected')
-          .set('Authorization', `Bearer ${careToken}`),
-        request(app.getHttpServer())
-          .get('/plan/protected')
-          .set('Authorization', `Bearer ${planToken}`),
-      ]);
-
-      // Verify all responses are successful
-      expect(healthResponse.status).toBe(200);
-      expect(careResponse.status).toBe(200);
-      expect(planResponse.status).toBe(200);
-
-      // Verify correct journey-specific responses
-      expect(healthResponse.body.message).toBe('Health data accessed');
-      expect(careResponse.body.message).toBe('Care data accessed');
-      expect(planResponse.body.message).toBe('Plan data accessed');
-
-      // Verify correct user data in responses
-      expect(healthResponse.body.user.email).toBe('health@example.com');
-      expect(careResponse.body.user.email).toBe('care@example.com');
-      expect(planResponse.body.user.email).toBe('plan@example.com');
+      
+      // Access profile with each token concurrently
+      const profileRequests = userTokens.map(token => {
+        return request(app.getHttpServer())
+          .get('/auth/profile')
+          .set('Authorization', `Bearer ${token}`);
+      });
+      
+      const profileResponses = await Promise.all(profileRequests);
+      
+      // Each profile should match the corresponding user
+      profileResponses.forEach((response, i) => {
+        expect(response.status).toBe(200);
+        expect(response.body).toHaveProperty('email', testUsers[i].email);
+        expect(response.body).toHaveProperty('firstName', testUsers[i].firstName);
+      });
     });
   });
-
-  describe('Cross-Journey Authentication', () => {
-    it('should allow access to multiple journeys with multi-journey roles', async () => {
-      // Create a user with roles for multiple journeys
-      const multiJourneyUser = createTestUser({
-        id: '1',
-        email: 'multi@example.com',
-        roles: ['user', 'health:viewer', 'care:viewer', 'plan:viewer'],
-      });
-
-      // Generate a valid token for this user
-      const token = await generateValidToken(jwtService, multiJourneyUser);
-
-      // Mock token validation to return the multi-journey user
-      jest.spyOn(tokenService, 'validateToken').mockResolvedValue(multiJourneyUser);
-
-      // Test accessing resources from all three journeys
-      const [healthResponse, careResponse, planResponse] = await Promise.all([
-        request(app.getHttpServer())
-          .get('/health/protected')
-          .set('Authorization', `Bearer ${token}`),
-        request(app.getHttpServer())
-          .get('/care/protected')
-          .set('Authorization', `Bearer ${token}`),
-        request(app.getHttpServer())
-          .get('/plan/protected')
-          .set('Authorization', `Bearer ${token}`),
-      ]);
-
-      // Verify all responses are successful
-      expect(healthResponse.status).toBe(200);
-      expect(careResponse.status).toBe(200);
-      expect(planResponse.status).toBe(200);
-
-      // Verify correct journey-specific responses
-      expect(healthResponse.body.message).toBe('Health data accessed');
-      expect(careResponse.body.message).toBe('Care data accessed');
-      expect(planResponse.body.message).toBe('Plan data accessed');
-
-      // Verify all responses contain the same user data
-      expect(healthResponse.body.user.id).toBe('1');
-      expect(careResponse.body.user.id).toBe('1');
-      expect(planResponse.body.user.id).toBe('1');
-      expect(healthResponse.body.user.email).toBe('multi@example.com');
+  
+  describe('Error Handling and Edge Cases', () => {
+    it('should handle malformed token gracefully', async () => {
+      const response = await request(app.getHttpServer())
+        .get('/auth/profile')
+        .set('Authorization', 'Bearer malformed.token.value')
+        .expect(401);
+      
+      expect(response.body).toHaveProperty('error');
+      expect(response.body.error).toHaveProperty('code', 'AUTH_INVALID_TOKEN');
     });
-
-    it('should handle role elevation across journeys', async () => {
-      // Create a user with different role levels across journeys
-      const mixedRoleUser = createTestUser({
-        id: '1',
-        email: 'mixed@example.com',
-        roles: ['user', 'health:admin', 'care:viewer', 'plan:manager'],
-      });
-
-      // Generate a valid token for this user
-      const token = await generateValidToken(jwtService, mixedRoleUser);
-
-      // Mock token validation
-      jest.spyOn(tokenService, 'validateToken').mockResolvedValue(mixedRoleUser);
-
-      // Test accessing elevated privilege resources across journeys
-      const [healthAdminResponse, careViewerResponse, planManagerResponse] = await Promise.all([
-        request(app.getHttpServer())
-          .get('/health/admin')
-          .set('Authorization', `Bearer ${token}`),
-        request(app.getHttpServer())
-          .get('/care/protected')
-          .set('Authorization', `Bearer ${token}`),
-        request(app.getHttpServer())
-          .get('/plan/manager')
-          .set('Authorization', `Bearer ${token}`),
-      ]);
-
-      // Verify all responses are successful
-      expect(healthAdminResponse.status).toBe(200);
-      expect(careViewerResponse.status).toBe(200);
-      expect(planManagerResponse.status).toBe(200);
-
-      // Verify correct journey-specific responses with appropriate privilege levels
-      expect(healthAdminResponse.body.message).toBe('Health admin data accessed');
-      expect(careViewerResponse.body.message).toBe('Care data accessed');
-      expect(planManagerResponse.body.message).toBe('Plan manager data accessed');
+    
+    it('should handle missing authorization header gracefully', async () => {
+      const response = await request(app.getHttpServer())
+        .get('/auth/profile')
+        .expect(401);
+      
+      expect(response.body).toHaveProperty('error');
+      expect(response.body.error).toHaveProperty('code', 'AUTH_MISSING_TOKEN');
+    });
+    
+    it('should handle token blacklisting after logout', async () => {
+      // First, logout to blacklist the token
+      await request(app.getHttpServer())
+        .post('/auth/logout')
+        .set('Authorization', `Bearer ${accessToken}`)
+        .expect(200);
+      
+      // Then try to use the same token
+      const response = await request(app.getHttpServer())
+        .get('/auth/profile')
+        .set('Authorization', `Bearer ${accessToken}`)
+        .expect(401);
+      
+      expect(response.body).toHaveProperty('error');
+      expect(response.body.error).toHaveProperty('code', 'AUTH_TOKEN_REVOKED');
+    });
+    
+    it('should handle rate limiting for failed login attempts', async () => {
+      const invalidLogin = {
+        email: generateRandomEmail(),
+        password: 'wrong-password',
+      };
+      
+      // Make multiple failed login attempts
+      for (let i = 0; i < 5; i++) {
+        await request(app.getHttpServer())
+          .post('/auth/login')
+          .send(invalidLogin)
+          .expect(401);
+      }
+      
+      // The next attempt should be rate limited
+      const response = await request(app.getHttpServer())
+        .post('/auth/login')
+        .send(invalidLogin)
+        .expect(429);
+      
+      expect(response.body).toHaveProperty('error');
+      expect(response.body.error).toHaveProperty('code', 'AUTH_RATE_LIMIT_EXCEEDED');
     });
   });
 });

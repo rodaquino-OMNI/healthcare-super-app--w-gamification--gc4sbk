@@ -1,612 +1,938 @@
 /**
- * Authentication API interfaces for the AUSTA SuperApp
+ * Authentication API Interfaces for the AUSTA SuperApp
  * 
  * This file defines the request and response interfaces for all authentication-related
- * API endpoints, including login, registration, token refresh, password reset, and MFA operations.
- * These interfaces ensure type safety for authentication flows across both web and mobile platforms.
+ * API operations, including login, registration, token refresh, password reset, and MFA.
+ * 
+ * These interfaces ensure type safety for authentication operations across the application
+ * and enable consistent authentication patterns across web and mobile platforms.
+ * 
+ * Security best practices implemented:
+ * - Short-lived access tokens with refresh token mechanism
+ * - Multi-factor authentication support
+ * - Device tracking for session management
+ * - Secure password reset and recovery flows
+ * - Support for social authentication providers
  */
 
-// Import types from auth interfaces
-import { AuthSession } from '../auth/session.types';
-import { JWTPayload, TokenValidationResult } from '../auth/token.types';
-import { UserProfile } from '../auth/user.types';
-
-// Import common API types
-import { APIResponse } from './response.types';
-import { APIErrorResponse } from './error.types';
+// Import from source types until auth interfaces are fully implemented
+import type { AuthSession } from '../../shared/types/auth.types';
 
 /**
- * Authentication API error codes
+ * Authentication API namespace containing all auth-related interfaces
  */
-export enum AuthErrorCode {
-  INVALID_CREDENTIALS = 'AUTH_001',
-  ACCOUNT_LOCKED = 'AUTH_002',
-  ACCOUNT_NOT_VERIFIED = 'AUTH_003',
-  INVALID_TOKEN = 'AUTH_004',
-  TOKEN_EXPIRED = 'AUTH_005',
-  INVALID_MFA_CODE = 'AUTH_006',
-  PASSWORD_POLICY_VIOLATION = 'AUTH_007',
-  EMAIL_ALREADY_EXISTS = 'AUTH_008',
-  USERNAME_ALREADY_EXISTS = 'AUTH_009',
-  INVALID_RESET_TOKEN = 'AUTH_010',
-  RESET_TOKEN_EXPIRED = 'AUTH_011',
-  MFA_REQUIRED = 'AUTH_012',
-  SOCIAL_ACCOUNT_NOT_LINKED = 'AUTH_013',
-  PERMISSION_DENIED = 'AUTH_014',
-  INVALID_REFRESH_TOKEN = 'AUTH_015',
-}
-
-/**
- * MFA (Multi-Factor Authentication) types supported by the system
- */
-export enum MFAType {
-  SMS = 'sms',
-  EMAIL = 'email',
-  AUTHENTICATOR_APP = 'authenticator_app',
-  PUSH_NOTIFICATION = 'push_notification',
-}
-
-/**
- * Social authentication providers supported by the system
- */
-export enum SocialAuthProvider {
-  GOOGLE = 'google',
-  FACEBOOK = 'facebook',
-  APPLE = 'apple',
-  MICROSOFT = 'microsoft',
-}
-
-/**
- * Base interface for all authentication requests
- */
-export interface AuthRequest {
+export namespace AuthAPI {
   /**
-   * Client device information for security and analytics
+   * JWT token payload structure
+   * Represents the decoded content of a JWT token
    */
-  deviceInfo?: {
+  export interface JwtPayload {
     /**
-     * Device type (mobile, tablet, desktop)
+     * Subject (user ID)
      */
-    deviceType: string;
+    sub: string;
     
     /**
-     * Operating system
+     * Issuer (auth service identifier)
      */
-    os: string;
+    iss: string;
     
     /**
-     * Browser or app version
+     * Audience (intended recipient of the token)
      */
-    appVersion: string;
+    aud: string | string[];
     
     /**
-     * Device identifier (when available)
+     * Expiration time (Unix timestamp)
      */
-    deviceId?: string;
-  };
-}
-
-/**
- * Login request payload
- */
-export interface LoginRequest extends AuthRequest {
+    exp: number;
+    
+    /**
+     * Issued at time (Unix timestamp)
+     */
+    iat: number;
+    
+    /**
+     * JWT ID (unique identifier for this token)
+     */
+    jti: string;
+    
+    /**
+     * User email (optional)
+     */
+    email?: string;
+    
+    /**
+     * User roles
+     */
+    roles?: string[];
+    
+    /**
+     * User permissions
+     */
+    permissions?: string[];
+    
+    /**
+     * Token type (access or refresh)
+     */
+    type: 'access' | 'refresh';
+  }
   /**
-   * User email address
+   * Base interface for authentication requests
    */
-  email: string;
+  export interface BaseAuthRequest {
+    /**
+     * Client identifier for tracking and analytics
+     */
+    clientId?: string;
+
+    /**
+     * Device information for security tracking
+     */
+    deviceInfo?: DeviceInfo;
+    
+    /**
+     * Request fingerprint for fraud detection
+     * Contains hashed browser/device fingerprint data
+     */
+    fingerprint?: string;
+    
+    /**
+     * Request timestamp for replay attack prevention
+     */
+    timestamp?: number;
+  }
+
+  /**
+   * Device information for security tracking and multi-device management
+   */
+  export interface DeviceInfo {
+    /**
+     * Unique device identifier
+     */
+    deviceId: string;
+
+    /**
+     * Device platform (ios, android, web)
+     */
+    platform: 'ios' | 'android' | 'web';
+
+    /**
+     * Device model information
+     */
+    model?: string;
+
+    /**
+     * Operating system version
+     */
+    osVersion?: string;
+
+    /**
+     * App version
+     */
+    appVersion?: string;
+  }
+
+  /**
+   * Login request payload
+   */
+  export interface LoginRequest extends BaseAuthRequest {
+    /**
+     * User email address
+     */
+    email: string;
+
+    /**
+     * User password
+     */
+    password: string;
+
+    /**
+     * Remember user preference for extended session duration
+     */
+    rememberMe?: boolean;
+  }
+
+  /**
+   * Login response payload
+   */
+  export interface LoginResponse {
+    /**
+     * Authentication session with tokens
+     */
+    session: AuthSession;
+
+    /**
+     * User profile information
+     */
+    user: UserProfile;
+
+    /**
+     * Indicates if MFA verification is required
+     */
+    requiresMfa?: boolean;
+
+    /**
+     * MFA challenge ID if MFA is required
+     */
+    mfaChallengeId?: string;
+    
+    /**
+     * Token expiration time in seconds
+     */
+    expiresIn: number;
+    
+    /**
+     * Indicates if this is a new device login
+     * When true, the user may receive a notification about a new device login
+     */
+    newDeviceLogin?: boolean;
+    
+    /**
+     * Security recommendations for the user (optional)
+     * For example, suggesting enabling MFA if not enabled
+     */
+    securityRecommendations?: string[];
+  }
+
+  /**
+   * Registration request payload
+   */
+  export interface RegistrationRequest extends BaseAuthRequest {
+    /**
+     * User email address
+     */
+    email: string;
+
+    /**
+     * User password
+     */
+    password: string;
+
+    /**
+     * Password confirmation
+     */
+    passwordConfirmation: string;
+
+    /**
+     * User's first name
+     */
+    firstName: string;
+
+    /**
+     * User's last name
+     */
+    lastName: string;
+
+    /**
+     * User's date of birth (YYYY-MM-DD)
+     */
+    dateOfBirth: string;
+
+    /**
+     * User's phone number
+     */
+    phoneNumber?: string;
+
+    /**
+     * Marketing opt-in preference
+     */
+    marketingOptIn?: boolean;
+
+    /**
+     * Terms and conditions acceptance
+     */
+    termsAccepted: boolean;
+  }
+
+  /**
+   * Registration response payload
+   */
+  export interface RegistrationResponse {
+    /**
+     * Authentication session with tokens
+     */
+    session: AuthSession;
+
+    /**
+     * User profile information
+     */
+    user: UserProfile;
+
+    /**
+     * Indicates if email verification is required
+     */
+    requiresEmailVerification: boolean;
+
+    /**
+     * Verification token if email verification is required
+     */
+    verificationToken?: string;
+  }
+
+  /**
+   * Token refresh request payload
+   */
+  export interface TokenRefreshRequest extends BaseAuthRequest {
+    /**
+     * Refresh token for obtaining a new access token
+     */
+    refreshToken: string;
+    
+    /**
+     * Current access token (optional, for token rotation security)
+     */
+    accessToken?: string;
+  }
+
+  /**
+   * Token refresh response payload
+   */
+  export interface TokenRefreshResponse {
+    /**
+     * New authentication session with updated tokens
+     */
+    session: AuthSession;
+    
+    /**
+     * Token rotation indicator
+     * When true, the refresh token has been rotated and the old one is invalidated
+     */
+    tokenRotated?: boolean;
+  }
+
+  /**
+   * Logout request payload
+   */
+  export interface LogoutRequest extends BaseAuthRequest {
+    /**
+     * Refresh token to invalidate
+     */
+    refreshToken: string;
+    
+    /**
+     * Access token to blacklist
+     */
+    accessToken: string;
+
+    /**
+     * Whether to logout from all devices
+     */
+    logoutFromAllDevices?: boolean;
+  }
+
+  /**
+   * Logout response payload
+   */
+  export interface LogoutResponse {
+    /**
+     * Indicates if logout was successful
+     */
+    success: boolean;
+  }
+
+  /**
+   * Password reset request payload
+   */
+  export interface PasswordResetRequest extends BaseAuthRequest {
+    /**
+     * User email address
+     */
+    email: string;
+  }
+
+  /**
+   * Password reset response payload
+   */
+  export interface PasswordResetResponse {
+    /**
+     * Indicates if password reset email was sent successfully
+     */
+    success: boolean;
+  }
+
+  /**
+   * Password reset confirmation request payload
+   */
+  export interface PasswordResetConfirmationRequest extends BaseAuthRequest {
+    /**
+     * Password reset token from email
+     */
+    token: string;
+
+    /**
+     * New password
+     */
+    newPassword: string;
+
+    /**
+     * New password confirmation
+     */
+    newPasswordConfirmation: string;
+  }
+
+  /**
+   * Password reset confirmation response payload
+   */
+  export interface PasswordResetConfirmationResponse {
+    /**
+     * Indicates if password was reset successfully
+     */
+    success: boolean;
+
+    /**
+     * Authentication session if auto-login is enabled
+     */
+    session?: AuthSession;
+  }
+
+  /**
+   * Email verification request payload
+   */
+  export interface EmailVerificationRequest extends BaseAuthRequest {
+    /**
+     * Email verification token
+     */
+    token: string;
+  }
+
+  /**
+   * Email verification response payload
+   */
+  export interface EmailVerificationResponse {
+    /**
+     * Indicates if email was verified successfully
+     */
+    success: boolean;
+
+    /**
+     * Authentication session if auto-login is enabled
+     */
+    session?: AuthSession;
+  }
+
+  /**
+   * MFA setup request payload
+   */
+  export interface MfaSetupRequest extends BaseAuthRequest {
+    /**
+     * MFA method to set up
+     */
+    method: MfaMethod;
+
+    /**
+     * Phone number for SMS verification
+     */
+    phoneNumber?: string;
+  }
+
+  /**
+   * MFA setup response payload
+   */
+  export interface MfaSetupResponse {
+    /**
+     * Indicates if MFA setup was initiated successfully
+     */
+    success: boolean;
+
+    /**
+     * MFA setup challenge ID
+     */
+    challengeId: string;
+
+    /**
+     * QR code data URL for TOTP setup
+     */
+    qrCodeDataUrl?: string;
+
+    /**
+     * Secret key for TOTP setup
+     */
+    secretKey?: string;
+  }
+
+  /**
+   * MFA verification request payload
+   */
+  export interface MfaVerificationRequest extends BaseAuthRequest {
+    /**
+     * MFA challenge ID
+     */
+    challengeId: string;
+
+    /**
+     * Verification code provided by the user
+     */
+    code: string;
+
+    /**
+     * MFA method used for verification
+     */
+    method: MfaMethod;
+  }
+
+  /**
+   * MFA verification response payload
+   */
+  export interface MfaVerificationResponse {
+    /**
+     * Indicates if MFA verification was successful
+     */
+    success: boolean;
+
+    /**
+     * Authentication session if verification was successful
+     */
+    session?: AuthSession;
+  }
+
+  /**
+   * MFA method options
+   * - sms: SMS-based verification code
+   * - email: Email-based verification code
+   * - totp: Time-based One-Time Password (authenticator apps)
+   * - recovery: Recovery codes for account access
+   * - webauthn: WebAuthn/FIDO2 authentication (security keys, biometrics)
+   */
+  export type MfaMethod = 'sms' | 'email' | 'totp' | 'recovery' | 'webauthn';
+
+  /**
+   * MFA recovery codes request
+   */
+  export interface MfaRecoveryCodesRequest extends BaseAuthRequest {
+    /**
+     * Current password for verification
+     */
+    currentPassword: string;
+  }
+
+  /**
+   * MFA recovery codes response
+   */
+  export interface MfaRecoveryCodesResponse {
+    /**
+     * List of recovery codes
+     */
+    recoveryCodes: string[];
+  }
+
+  /**
+   * Change password request payload
+   */
+  export interface ChangePasswordRequest extends BaseAuthRequest {
+    /**
+     * Current password
+     */
+    currentPassword: string;
+
+    /**
+     * New password
+     */
+    newPassword: string;
+
+    /**
+     * New password confirmation
+     */
+    newPasswordConfirmation: string;
+  }
+
+  /**
+   * Change password response payload
+   */
+  export interface ChangePasswordResponse {
+    /**
+     * Indicates if password was changed successfully
+     */
+    success: boolean;
+  }
+
+  /**
+   * Token validation error types
+   */
+  export enum TokenErrorType {
+    EXPIRED = 'token_expired',
+    INVALID_SIGNATURE = 'invalid_signature',
+    MALFORMED = 'malformed_token',
+    MISSING = 'missing_token',
+    BLACKLISTED = 'blacklisted_token',
+    INSUFFICIENT_SCOPE = 'insufficient_scope',
+    INVALID_ISSUER = 'invalid_issuer',
+    INVALID_AUDIENCE = 'invalid_audience'
+  }
   
   /**
-   * User password
+   * Token validation error response
    */
-  password: string;
-  
-  /**
-   * Remember user session (extends token expiration)
-   */
-  rememberMe?: boolean;
-}
-
-/**
- * Login response payload
- */
-export interface LoginResponse extends APIResponse {
-  /**
-   * Authentication session with tokens
-   */
-  session: AuthSession;
+  export interface TokenValidationError {
+    /**
+     * Error type
+     */
+    type: TokenErrorType;
+    
+    /**
+     * Error message
+     */
+    message: string;
+    
+    /**
+     * Error details
+     */
+    details?: Record<string, unknown>;
+  }
   
   /**
    * User profile information
    */
-  user: UserProfile;
-  
-  /**
-   * Indicates if MFA verification is required
-   */
-  requiresMFA?: boolean;
-  
-  /**
-   * MFA verification methods available for this user
-   */
-  mfaMethods?: MFAType[];
-  
-  /**
-   * Temporary token for MFA verification flow
-   */
-  mfaToken?: string;
-}
+  export interface UserProfile {
+    /**
+     * User ID
+     */
+    id: string;
 
-/**
- * Registration request payload
- */
-export interface RegistrationRequest extends AuthRequest {
-  /**
-   * User email address
-   */
-  email: string;
-  
-  /**
-   * User password
-   */
-  password: string;
-  
-  /**
-   * Password confirmation
-   */
-  passwordConfirmation: string;
-  
-  /**
-   * User's first name
-   */
-  firstName: string;
-  
-  /**
-   * User's last name
-   */
-  lastName: string;
-  
-  /**
-   * User's phone number (optional)
-   */
-  phoneNumber?: string;
-  
-  /**
-   * User's date of birth
-   */
-  dateOfBirth: string;
-  
-  /**
-   * User's preferred language
-   */
-  preferredLanguage?: string;
-  
-  /**
-   * Marketing opt-in preference
-   */
-  marketingOptIn?: boolean;
-  
-  /**
-   * Terms and conditions acceptance
-   */
-  termsAccepted: boolean;
-  
-  /**
-   * Privacy policy acceptance
-   */
-  privacyPolicyAccepted: boolean;
-}
+    /**
+     * User email address
+     */
+    email: string;
 
-/**
- * Registration response payload
- */
-export interface RegistrationResponse extends APIResponse {
-  /**
-   * User ID of the newly created account
-   */
-  userId: string;
-  
-  /**
-   * Indicates if email verification is required
-   */
-  requiresEmailVerification: boolean;
-  
-  /**
-   * Authentication session (if auto-login is enabled)
-   */
-  session?: AuthSession;
-  
-  /**
-   * User profile (if auto-login is enabled)
-   */
-  user?: UserProfile;
-}
+    /**
+     * User's first name
+     */
+    firstName: string;
 
-/**
- * MFA verification request payload
- */
-export interface MFAVerificationRequest extends AuthRequest {
-  /**
-   * MFA token received during login
-   */
-  mfaToken: string;
-  
-  /**
-   * Verification code entered by the user
-   */
-  verificationCode: string;
-  
-  /**
-   * MFA method used for verification
-   */
-  mfaType: MFAType;
-}
+    /**
+     * User's last name
+     */
+    lastName: string;
 
-/**
- * MFA verification response payload
- */
-export interface MFAVerificationResponse extends APIResponse {
+    /**
+     * User's full name (firstName + lastName)
+     */
+    fullName: string;
+
+    /**
+     * User's date of birth (YYYY-MM-DD)
+     */
+    dateOfBirth?: string;
+
+    /**
+     * User's phone number
+     */
+    phoneNumber?: string;
+
+    /**
+     * User's profile picture URL
+     */
+    profilePictureUrl?: string;
+
+    /**
+     * Indicates if email is verified
+     */
+    emailVerified: boolean;
+
+    /**
+     * Indicates if MFA is enabled
+     */
+    mfaEnabled: boolean;
+
+    /**
+     * MFA methods enabled for the user
+     */
+    mfaMethods?: MfaMethod[];
+
+    /**
+     * User's preferred language
+     */
+    preferredLanguage?: string;
+
+    /**
+     * User's roles
+     */
+    roles: string[];
+
+    /**
+     * User's permissions
+     */
+    permissions: string[];
+
+    /**
+     * User's creation date
+     */
+    createdAt: string;
+
+    /**
+     * User's last update date
+     */
+    updatedAt: string;
+
+    /**
+     * User's last login date
+     */
+    lastLoginAt?: string;
+  }
+
   /**
-   * Authentication session with tokens
+   * Update user profile request payload
    */
-  session: AuthSession;
+  export interface UpdateProfileRequest extends BaseAuthRequest {
+    /**
+     * User's first name
+     */
+    firstName?: string;
+
+    /**
+     * User's last name
+     */
+    lastName?: string;
+
+    /**
+     * User's phone number
+     */
+    phoneNumber?: string;
+
+    /**
+     * User's preferred language
+     */
+    preferredLanguage?: string;
+  }
+
+  /**
+   * Update user profile response payload
+   */
+  export interface UpdateProfileResponse {
+    /**
+     * Updated user profile
+     */
+    user: UserProfile;
+  }
+
+  /**
+   * Upload profile picture request payload
+   */
+  export interface UploadProfilePictureRequest extends BaseAuthRequest {
+    /**
+     * Profile picture file
+     * Note: This will be handled as a multipart/form-data request
+     */
+    file: File;
+  }
+
+  /**
+   * Upload profile picture response payload
+   */
+  export interface UploadProfilePictureResponse {
+    /**
+     * URL of the uploaded profile picture
+     */
+    profilePictureUrl: string;
+  }
+
+  /**
+   * Get user sessions request
+   */
+  export interface GetUserSessionsRequest extends BaseAuthRequest {}
+
+  /**
+   * User session information
+   */
+  export interface UserSession {
+    /**
+     * Session ID
+     */
+    id: string;
+
+    /**
+     * Device information
+     */
+    deviceInfo: DeviceInfo;
+
+    /**
+     * IP address
+     */
+    ipAddress: string;
+
+    /**
+     * Location information (if available)
+     */
+    location?: string;
+
+    /**
+     * Session creation date
+     */
+    createdAt: string;
+
+    /**
+     * Last activity date
+     */
+    lastActivityAt: string;
+
+    /**
+     * Indicates if this is the current session
+     */
+    isCurrent: boolean;
+  }
+
+  /**
+   * Get user sessions response
+   */
+  export interface GetUserSessionsResponse {
+    /**
+     * List of user sessions
+     */
+    sessions: UserSession[];
+  }
+
+  /**
+   * Revoke session request
+   */
+  export interface RevokeSessionRequest extends BaseAuthRequest {
+    /**
+     * Session ID to revoke
+     */
+    sessionId: string;
+  }
+
+  /**
+   * Revoke session response
+   */
+  export interface RevokeSessionResponse {
+    /**
+     * Indicates if session was revoked successfully
+     */
+    success: boolean;
+  }
+
+  /**
+   * Social login request payload
+   */
+  export interface SocialLoginRequest extends BaseAuthRequest {
+    /**
+     * Social provider
+     */
+    provider: 'google' | 'facebook' | 'apple' | 'microsoft';
+
+    /**
+     * Access token or authorization code from the social provider
+     */
+    token: string;
+
+    /**
+     * ID token for providers that support it (e.g., Google, Apple)
+     */
+    idToken?: string;
+    
+    /**
+     * OAuth state parameter for CSRF protection
+     */
+    state?: string;
+    
+    /**
+     * OAuth code verifier for PKCE flow
+     */
+    codeVerifier?: string;
+  }
+
+  /**
+   * Social login response payload
+   */
+  export interface SocialLoginResponse {
+    /**
+     * Authentication session with tokens
+     */
+    session: AuthSession;
+
+    /**
+     * User profile information
+     */
+    user: UserProfile;
+
+    /**
+     * Indicates if this is a new user
+     */
+    isNewUser: boolean;
+
+    /**
+     * Indicates if profile completion is required
+     */
+    requiresProfileCompletion?: boolean;
+  }
+
+  /**
+   * Check email availability request
+   */
+  export interface CheckEmailRequest {
+    /**
+     * Email to check
+     */
+    email: string;
+  }
+
+  /**
+   * Check email availability response
+   */
+  export interface CheckEmailResponse {
+    /**
+     * Indicates if email is available (not registered)
+     */
+    available: boolean;
+  }
   
   /**
-   * User profile information
+   * WebAuthn registration request
    */
-  user: UserProfile;
-}
-
-/**
- * Request to initiate MFA setup
- */
-export interface InitiateMFASetupRequest extends AuthRequest {
-  /**
-   * MFA method to set up
-   */
-  mfaType: MFAType;
+  export interface WebAuthnRegistrationRequest extends BaseAuthRequest {
+    /**
+     * User ID
+     */
+    userId: string;
+    
+    /**
+     * Friendly name for the security key/device
+     */
+    deviceName: string;
+  }
   
   /**
-   * Phone number (for SMS verification)
+   * WebAuthn registration response
    */
-  phoneNumber?: string;
+  export interface WebAuthnRegistrationResponse {
+    /**
+     * Indicates if registration was successful
+     */
+    success: boolean;
+    
+    /**
+     * Credential ID of the registered authenticator
+     */
+    credentialId?: string;
+  }
   
   /**
-   * Email address (for email verification)
+   * WebAuthn authentication request
    */
-  email?: string;
-}
-
-/**
- * Response for MFA setup initiation
- */
-export interface InitiateMFASetupResponse extends APIResponse {
-  /**
-   * Setup token for completing MFA configuration
-   */
-  setupToken: string;
+  export interface WebAuthnAuthenticationRequest extends BaseAuthRequest {
+    /**
+     * User ID (optional, can be determined from email in some flows)
+     */
+    userId?: string;
+    
+    /**
+     * User email (optional, can be used to look up the user)
+     */
+    email?: string;
+  }
   
   /**
-   * QR code data URL (for authenticator app)
+   * WebAuthn authentication response
    */
-  qrCodeDataUrl?: string;
-  
-  /**
-   * Secret key (for authenticator app manual entry)
-   */
-  secretKey?: string;
-}
-
-/**
- * Request to complete MFA setup
- */
-export interface CompleteMFASetupRequest extends AuthRequest {
-  /**
-   * Setup token from initiation step
-   */
-  setupToken: string;
-  
-  /**
-   * Verification code entered by the user
-   */
-  verificationCode: string;
-}
-
-/**
- * Response for MFA setup completion
- */
-export interface CompleteMFASetupResponse extends APIResponse {
-  /**
-   * Indicates if MFA setup was successful
-   */
-  success: boolean;
-  
-  /**
-   * List of active MFA methods for the user
-   */
-  activeMfaMethods: MFAType[];
-}
-
-/**
- * Request to refresh authentication tokens
- */
-export interface TokenRefreshRequest extends AuthRequest {
-  /**
-   * Refresh token from current session
-   */
-  refreshToken: string;
-}
-
-/**
- * Response for token refresh
- */
-export interface TokenRefreshResponse extends APIResponse {
-  /**
-   * New authentication session with updated tokens
-   */
-  session: AuthSession;
-}
-
-/**
- * Request to validate a token
- */
-export interface TokenValidationRequest extends AuthRequest {
-  /**
-   * Access token to validate
-   */
-  accessToken: string;
-}
-
-/**
- * Response for token validation
- */
-export interface TokenValidationResponse extends APIResponse {
-  /**
-   * Validation result
-   */
-  result: TokenValidationResult;
-  
-  /**
-   * Decoded token payload (if valid)
-   */
-  payload?: JWTPayload;
-}
-
-/**
- * Request to initiate password reset
- */
-export interface InitiatePasswordResetRequest extends AuthRequest {
-  /**
-   * Email address for the account
-   */
-  email: string;
-}
-
-/**
- * Response for password reset initiation
- */
-export interface InitiatePasswordResetResponse extends APIResponse {
-  /**
-   * Indicates if the reset email was sent
-   */
-  emailSent: boolean;
-}
-
-/**
- * Request to complete password reset
- */
-export interface CompletePasswordResetRequest extends AuthRequest {
-  /**
-   * Reset token from email
-   */
-  resetToken: string;
-  
-  /**
-   * New password
-   */
-  newPassword: string;
-  
-  /**
-   * New password confirmation
-   */
-  newPasswordConfirmation: string;
-}
-
-/**
- * Response for password reset completion
- */
-export interface CompletePasswordResetResponse extends APIResponse {
-  /**
-   * Indicates if password reset was successful
-   */
-  success: boolean;
-  
-  /**
-   * Authentication session (if auto-login is enabled)
-   */
-  session?: AuthSession;
-}
-
-/**
- * Request to change password (authenticated)
- */
-export interface ChangePasswordRequest extends AuthRequest {
-  /**
-   * Current password
-   */
-  currentPassword: string;
-  
-  /**
-   * New password
-   */
-  newPassword: string;
-  
-  /**
-   * New password confirmation
-   */
-  newPasswordConfirmation: string;
-}
-
-/**
- * Response for password change
- */
-export interface ChangePasswordResponse extends APIResponse {
-  /**
-   * Indicates if password change was successful
-   */
-  success: boolean;
-}
-
-/**
- * Request for email verification
- */
-export interface VerifyEmailRequest extends AuthRequest {
-  /**
-   * Verification token from email
-   */
-  verificationToken: string;
-}
-
-/**
- * Response for email verification
- */
-export interface VerifyEmailResponse extends APIResponse {
-  /**
-   * Indicates if email verification was successful
-   */
-  success: boolean;
-  
-  /**
-   * Authentication session (if auto-login is enabled)
-   */
-  session?: AuthSession;
-}
-
-/**
- * Request to initiate social authentication
- */
-export interface SocialAuthRequest extends AuthRequest {
-  /**
-   * Social provider
-   */
-  provider: SocialAuthProvider;
-  
-  /**
-   * Authentication token from social provider
-   */
-  token: string;
-  
-  /**
-   * Additional data from social provider
-   */
-  userData?: Record<string, any>;
-}
-
-/**
- * Response for social authentication
- */
-export interface SocialAuthResponse extends APIResponse {
-  /**
-   * Authentication session with tokens
-   */
-  session: AuthSession;
-  
-  /**
-   * User profile information
-   */
-  user: UserProfile;
-  
-  /**
-   * Indicates if this is a new account
-   */
-  isNewAccount: boolean;
-}
-
-/**
- * Request to log out
- */
-export interface LogoutRequest extends AuthRequest {
-  /**
-   * Refresh token to invalidate
-   */
-  refreshToken: string;
-  
-  /**
-   * Log out from all devices
-   */
-  logoutFromAllDevices?: boolean;
-}
-
-/**
- * Response for logout
- */
-export interface LogoutResponse extends APIResponse {
-  /**
-   * Indicates if logout was successful
-   */
-  success: boolean;
-}
-
-/**
- * Request to get current user profile
- */
-export interface GetUserProfileRequest extends AuthRequest {
-  /**
-   * Include additional user data
-   */
-  includePreferences?: boolean;
-}
-
-/**
- * Response for user profile request
- */
-export interface GetUserProfileResponse extends APIResponse {
-  /**
-   * User profile information
-   */
-  user: UserProfile;
-}
-
-/**
- * Request to update user profile
- */
-export interface UpdateUserProfileRequest extends AuthRequest {
-  /**
-   * User's first name
-   */
-  firstName?: string;
-  
-  /**
-   * User's last name
-   */
-  lastName?: string;
-  
-  /**
-   * User's phone number
-   */
-  phoneNumber?: string;
-  
-  /**
-   * User's preferred language
-   */
-  preferredLanguage?: string;
-  
-  /**
-   * Marketing opt-in preference
-   */
-  marketingOptIn?: boolean;
-  
-  /**
-   * User preferences
-   */
-  preferences?: Record<string, any>;
-}
-
-/**
- * Response for profile update
- */
-export interface UpdateUserProfileResponse extends APIResponse {
-  /**
-   * Updated user profile
-   */
-  user: UserProfile;
+  export interface WebAuthnAuthenticationResponse {
+    /**
+     * Authentication session with tokens
+     */
+    session: AuthSession;
+    
+    /**
+     * User profile information
+     */
+    user: UserProfile;
+  }
 }

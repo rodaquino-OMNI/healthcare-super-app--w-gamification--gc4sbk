@@ -1,289 +1,374 @@
 /**
- * Common date fixtures for testing date utilities
+ * Common date fixtures for testing date-related functionality
  * 
  * This file provides a set of standardized date fixtures used across test files
  * to ensure consistency and reduce duplication in date-related tests.
  */
 
 /**
- * Interface for date fixture objects
+ * Interface for date fixtures with various formats
  */
 export interface DateFixture {
-  /** Date object representation */
+  /** Date object instance */
   date: Date;
   /** ISO string representation */
   isoString: string;
-  /** Timestamp (milliseconds since epoch) */
+  /** Timestamp in milliseconds */
   timestamp: number;
-}
-
-/**
- * Interface for formatted date strings
- */
-export interface FormattedDateFixture {
-  /** Date formatted as dd/MM/yyyy */
-  dateFormat: string;
-  /** Time formatted as HH:mm */
-  timeFormat: string;
-  /** Date and time formatted as dd/MM/yyyy HH:mm */
-  dateTimeFormat: string;
-  /** Date formatted for the Health journey */
-  healthFormat: string;
-  /** Date formatted for the Care journey */
-  careFormat: string;
-  /** Date formatted for the Plan journey */
-  planFormat: string;
+  /** Formatted date string (dd/MM/yyyy) */
+  formatted: string;
+  /** Formatted date-time string (dd/MM/yyyy HH:mm) */
+  formattedDateTime: string;
+  /** Formatted time string (HH:mm) */
+  formattedTime: string;
 }
 
 /**
  * Interface for locale-specific date strings
  */
-export interface LocaleDateFixture {
-  /** Formatted date strings for pt-BR locale */
-  ptBR: FormattedDateFixture;
-  /** Formatted date strings for en-US locale */
-  enUS: FormattedDateFixture;
+export interface LocaleDateStrings {
+  /** Formatted date in default format */
+  date: string;
+  /** Formatted date and time */
+  dateTime: string;
+  /** Formatted time */
+  time: string;
+  /** Relative date description (today, yesterday, etc.) */
+  relative: string;
+  /** Time ago description (5 minutes ago, 1 hour ago, etc.) */
+  timeAgo: string;
 }
 
-// Reference date: 2023-06-15T14:30:45.000Z (fixed date for consistent testing)
-export const REFERENCE_DATE: DateFixture = {
-  date: new Date('2023-06-15T14:30:45.000Z'),
+/**
+ * Interface for timezone-specific date information
+ */
+export interface TimezoneDate {
+  /** Date object in the specific timezone */
+  date: Date;
+  /** Timezone identifier */
+  timezone: string;
+  /** Formatted date string in the timezone */
+  formatted: string;
+  /** ISO string representation */
+  isoString: string;
+}
+
+// Reference date: 2023-05-15 14:30:45 (fixed date for consistent testing)
+const REFERENCE_DATE = new Date(2023, 4, 15, 14, 30, 45);
+
+/**
+ * Reference date fixture (2023-05-15 14:30:45)
+ */
+export const referenceDate: DateFixture = {
+  date: REFERENCE_DATE,
+  isoString: '2023-05-15T14:30:45.000Z',
+  timestamp: REFERENCE_DATE.getTime(),
+  formatted: '15/05/2023',
+  formattedDateTime: '15/05/2023 14:30',
+  formattedTime: '14:30'
+};
+
+/**
+ * Today's date fixture (set to a fixed date for testing)
+ */
+export const today: DateFixture = {
+  date: REFERENCE_DATE,
+  isoString: REFERENCE_DATE.toISOString(),
+  timestamp: REFERENCE_DATE.getTime(),
+  formatted: '15/05/2023',
+  formattedDateTime: '15/05/2023 14:30',
+  formattedTime: '14:30'
+};
+
+/**
+ * Yesterday's date fixture (one day before reference date)
+ */
+export const yesterday: DateFixture = {
+  date: new Date(2023, 4, 14, 14, 30, 45),
+  isoString: '2023-05-14T14:30:45.000Z',
+  timestamp: new Date(2023, 4, 14, 14, 30, 45).getTime(),
+  formatted: '14/05/2023',
+  formattedDateTime: '14/05/2023 14:30',
+  formattedTime: '14:30'
+};
+
+/**
+ * Tomorrow's date fixture (one day after reference date)
+ */
+export const tomorrow: DateFixture = {
+  date: new Date(2023, 4, 16, 14, 30, 45),
+  isoString: '2023-05-16T14:30:45.000Z',
+  timestamp: new Date(2023, 4, 16, 14, 30, 45).getTime(),
+  formatted: '16/05/2023',
+  formattedDateTime: '16/05/2023 14:30',
+  formattedTime: '14:30'
+};
+
+/**
+ * Last week's date fixture (7 days before reference date)
+ */
+export const lastWeek: DateFixture = {
+  date: new Date(2023, 4, 8, 14, 30, 45),
+  isoString: '2023-05-08T14:30:45.000Z',
+  timestamp: new Date(2023, 4, 8, 14, 30, 45).getTime(),
+  formatted: '08/05/2023',
+  formattedDateTime: '08/05/2023 14:30',
+  formattedTime: '14:30'
+};
+
+/**
+ * Next week's date fixture (7 days after reference date)
+ */
+export const nextWeek: DateFixture = {
+  date: new Date(2023, 4, 22, 14, 30, 45),
+  isoString: '2023-05-22T14:30:45.000Z',
+  timestamp: new Date(2023, 4, 22, 14, 30, 45).getTime(),
+  formatted: '22/05/2023',
+  formattedDateTime: '22/05/2023 14:30',
+  formattedTime: '14:30'
+};
+
+/**
+ * Last month's date fixture (one month before reference date)
+ */
+export const lastMonth: DateFixture = {
+  date: new Date(2023, 3, 15, 14, 30, 45),
+  isoString: '2023-04-15T14:30:45.000Z',
+  timestamp: new Date(2023, 3, 15, 14, 30, 45).getTime(),
+  formatted: '15/04/2023',
+  formattedDateTime: '15/04/2023 14:30',
+  formattedTime: '14:30'
+};
+
+/**
+ * Next month's date fixture (one month after reference date)
+ */
+export const nextMonth: DateFixture = {
+  date: new Date(2023, 5, 15, 14, 30, 45),
   isoString: '2023-06-15T14:30:45.000Z',
-  timestamp: 1686839445000
+  timestamp: new Date(2023, 5, 15, 14, 30, 45).getTime(),
+  formatted: '15/06/2023',
+  formattedDateTime: '15/06/2023 14:30',
+  formattedTime: '14:30'
 };
 
-// Today's date at noon (dynamically set but with fixed time for consistency)
-export const TODAY: DateFixture = (() => {
-  const today = new Date();
-  today.setHours(12, 0, 0, 0);
-  return {
-    date: today,
-    isoString: today.toISOString(),
-    timestamp: today.getTime()
-  };
-})();
-
-// Yesterday's date at noon
-export const YESTERDAY: DateFixture = (() => {
-  const yesterday = new Date(TODAY.date);
-  yesterday.setDate(yesterday.getDate() - 1);
-  return {
-    date: yesterday,
-    isoString: yesterday.toISOString(),
-    timestamp: yesterday.getTime()
-  };
-})();
-
-// Tomorrow's date at noon
-export const TOMORROW: DateFixture = (() => {
-  const tomorrow = new Date(TODAY.date);
-  tomorrow.setDate(tomorrow.getDate() + 1);
-  return {
-    date: tomorrow,
-    isoString: tomorrow.toISOString(),
-    timestamp: tomorrow.getTime()
-  };
-})();
-
-// First day of current month
-export const FIRST_DAY_OF_MONTH: DateFixture = (() => {
-  const firstDay = new Date(TODAY.date);
-  firstDay.setDate(1);
-  firstDay.setHours(0, 0, 0, 0);
-  return {
-    date: firstDay,
-    isoString: firstDay.toISOString(),
-    timestamp: firstDay.getTime()
-  };
-})();
-
-// Last day of current month
-export const LAST_DAY_OF_MONTH: DateFixture = (() => {
-  const lastDay = new Date(TODAY.date);
-  lastDay.setMonth(lastDay.getMonth() + 1);
-  lastDay.setDate(0);
-  lastDay.setHours(23, 59, 59, 999);
-  return {
-    date: lastDay,
-    isoString: lastDay.toISOString(),
-    timestamp: lastDay.getTime()
-  };
-})();
-
-// Specific dates for testing age calculations
-export const BIRTHDATE_18_YEARS_AGO: DateFixture = (() => {
-  const date = new Date(TODAY.date);
-  date.setFullYear(date.getFullYear() - 18);
-  return {
-    date,
-    isoString: date.toISOString(),
-    timestamp: date.getTime()
-  };
-})();
-
-export const BIRTHDATE_65_YEARS_AGO: DateFixture = (() => {
-  const date = new Date(TODAY.date);
-  date.setFullYear(date.getFullYear() - 65);
-  return {
-    date,
-    isoString: date.toISOString(),
-    timestamp: date.getTime()
-  };
-})();
-
-// Timezone-specific dates for global testing
-export const TIMEZONE_DATES = {
-  UTC: new Date('2023-06-15T12:00:00.000Z'),
-  BRAZIL: new Date('2023-06-15T12:00:00.000-03:00'), // São Paulo (BRT)
-  NEW_YORK: new Date('2023-06-15T12:00:00.000-04:00'), // Eastern Time
-  LONDON: new Date('2023-06-15T12:00:00.000+01:00'), // British Summer Time
-  TOKYO: new Date('2023-06-15T12:00:00.000+09:00') // Japan Standard Time
+/**
+ * Last year's date fixture (one year before reference date)
+ */
+export const lastYear: DateFixture = {
+  date: new Date(2022, 4, 15, 14, 30, 45),
+  isoString: '2022-05-15T14:30:45.000Z',
+  timestamp: new Date(2022, 4, 15, 14, 30, 45).getTime(),
+  formatted: '15/05/2022',
+  formattedDateTime: '15/05/2022 14:30',
+  formattedTime: '14:30'
 };
 
-// Formatted reference date strings for different locales
-export const FORMATTED_REFERENCE_DATE: LocaleDateFixture = {
-  ptBR: {
-    dateFormat: '15/06/2023',
-    timeFormat: '14:30',
-    dateTimeFormat: '15/06/2023 14:30',
-    healthFormat: '15/06/2023 14:30',
-    careFormat: 'qui, 15 jun 2023',
-    planFormat: '15/06/2023'
+/**
+ * Next year's date fixture (one year after reference date)
+ */
+export const nextYear: DateFixture = {
+  date: new Date(2024, 4, 15, 14, 30, 45),
+  isoString: '2024-05-15T14:30:45.000Z',
+  timestamp: new Date(2024, 4, 15, 14, 30, 45).getTime(),
+  formatted: '15/05/2024',
+  formattedDateTime: '15/05/2024 14:30',
+  formattedTime: '14:30'
+};
+
+/**
+ * Birthdate fixture for age calculation tests (30 years before reference date)
+ */
+export const birthdate: DateFixture = {
+  date: new Date(1993, 4, 15, 14, 30, 45),
+  isoString: '1993-05-15T14:30:45.000Z',
+  timestamp: new Date(1993, 4, 15, 14, 30, 45).getTime(),
+  formatted: '15/05/1993',
+  formattedDateTime: '15/05/1993 14:30',
+  formattedTime: '14:30'
+};
+
+/**
+ * Date range fixtures for testing date range functions
+ */
+export const dateRanges = {
+  /** This week range (Sunday to Saturday) */
+  thisWeek: {
+    startDate: new Date(2023, 4, 14), // Sunday
+    endDate: new Date(2023, 4, 20),   // Saturday
+    formattedRange: '14/05/2023 - 20/05/2023'
   },
-  enUS: {
-    dateFormat: '06/15/2023',
-    timeFormat: '2:30 PM',
-    dateTimeFormat: '06/15/2023 2:30 PM',
-    healthFormat: '06/15/2023 2:30 PM',
-    careFormat: 'Thu, Jun 15 2023',
-    planFormat: '06/15/2023'
+  /** This month range */
+  thisMonth: {
+    startDate: new Date(2023, 4, 1),
+    endDate: new Date(2023, 4, 31),
+    formattedRange: '01/05/2023 - 31/05/2023'
+  },
+  /** Last 7 days range */
+  last7Days: {
+    startDate: new Date(2023, 4, 9),
+    endDate: new Date(2023, 4, 15),
+    formattedRange: '09/05/2023 - 15/05/2023'
+  },
+  /** Last 30 days range */
+  last30Days: {
+    startDate: new Date(2023, 3, 16),
+    endDate: new Date(2023, 4, 15),
+    formattedRange: '16/04/2023 - 15/05/2023'
+  },
+  /** Custom date range */
+  custom: {
+    startDate: new Date(2023, 3, 1),
+    endDate: new Date(2023, 5, 30),
+    formattedRange: '01/04/2023 - 30/06/2023'
   }
 };
 
-// Date ranges for testing
-export const DATE_RANGES = {
-  WEEK: {
-    start: (() => {
-      const date = new Date(REFERENCE_DATE.date);
-      date.setDate(date.getDate() - date.getDay()); // Start of week (Sunday)
-      date.setHours(0, 0, 0, 0);
-      return date;
-    })(),
-    end: (() => {
-      const date = new Date(REFERENCE_DATE.date);
-      date.setDate(date.getDate() + (6 - date.getDay())); // End of week (Saturday)
-      date.setHours(23, 59, 59, 999);
-      return date;
-    })()
+/**
+ * Locale-specific date strings for pt-BR locale
+ */
+export const ptBRDateStrings: LocaleDateStrings = {
+  date: '15/05/2023',
+  dateTime: '15/05/2023 14:30',
+  time: '14:30',
+  relative: 'Hoje',
+  timeAgo: '0 segundos atrás'
+};
+
+/**
+ * Locale-specific date strings for en-US locale
+ */
+export const enUSDateStrings: LocaleDateStrings = {
+  date: '05/15/2023',
+  dateTime: '05/15/2023 2:30 PM',
+  time: '2:30 PM',
+  relative: 'Today',
+  timeAgo: '0 seconds ago'
+};
+
+/**
+ * Journey-specific formatted dates
+ */
+export const journeyDates = {
+  /** Health journey formatted dates */
+  health: {
+    ptBR: '15/05/2023 14:30',
+    enUS: '05/15/2023 2:30 PM'
   },
-  MONTH: {
-    start: (() => {
-      const date = new Date(REFERENCE_DATE.date);
-      date.setDate(1);
-      date.setHours(0, 0, 0, 0);
-      return date;
-    })(),
-    end: (() => {
-      const date = new Date(REFERENCE_DATE.date);
-      date.setMonth(date.getMonth() + 1);
-      date.setDate(0);
-      date.setHours(23, 59, 59, 999);
-      return date;
-    })()
+  /** Care journey formatted dates */
+  care: {
+    ptBR: 'seg, 15 mai 2023',
+    enUS: 'Mon, May 15 2023'
   },
-  YEAR: {
-    start: (() => {
-      const date = new Date(REFERENCE_DATE.date);
-      date.setMonth(0, 1);
-      date.setHours(0, 0, 0, 0);
-      return date;
-    })(),
-    end: (() => {
-      const date = new Date(REFERENCE_DATE.date);
-      date.setMonth(11, 31);
-      date.setHours(23, 59, 59, 999);
-      return date;
-    })()
+  /** Plan journey formatted dates */
+  plan: {
+    ptBR: '15/05/2023',
+    enUS: '05/15/2023'
   }
 };
 
-// Relative time strings for testing getTimeAgo function
-export const RELATIVE_TIME_STRINGS = {
-  ptBR: {
-    justNow: '0 segundos atrás',
-    oneMinute: '1 minuto atrás',
-    fiveMinutes: '5 minutos atrás',
-    oneHour: '1 hora atrás',
-    threeHours: '3 horas atrás',
-    oneDay: '1 dia atrás',
-    threeDays: '3 dias atrás',
-    oneWeek: '1 semana atrás',
-    twoWeeks: '2 semanas atrás',
-    oneMonth: '1 mês atrás',
-    sixMonths: '6 meses atrás',
-    oneYear: '1 ano atrás',
-    fiveYears: '5 anos atrás'
+/**
+ * Timezone-specific date fixtures
+ */
+export const timezoneDates: Record<string, TimezoneDate> = {
+  /** UTC timezone */
+  UTC: {
+    date: new Date('2023-05-15T14:30:45.000Z'),
+    timezone: 'UTC',
+    formatted: '15/05/2023 14:30',
+    isoString: '2023-05-15T14:30:45.000Z'
   },
-  enUS: {
-    justNow: '0 seconds ago',
-    oneMinute: '1 minute ago',
-    fiveMinutes: '5 minutes ago',
-    oneHour: '1 hour ago',
-    threeHours: '3 hours ago',
-    oneDay: '1 day ago',
-    threeDays: '3 days ago',
-    oneWeek: '1 week ago',
-    twoWeeks: '2 weeks ago',
-    oneMonth: '1 month ago',
-    sixMonths: '6 months ago',
-    oneYear: '1 year ago',
-    fiveYears: '5 years ago'
+  /** Brasília timezone (UTC-3) */
+  'America/Sao_Paulo': {
+    date: new Date('2023-05-15T11:30:45.000-03:00'),
+    timezone: 'America/Sao_Paulo',
+    formatted: '15/05/2023 11:30',
+    isoString: '2023-05-15T14:30:45.000Z' // Equivalent UTC time
+  },
+  /** New York timezone (UTC-4 or UTC-5 depending on DST) */
+  'America/New_York': {
+    date: new Date('2023-05-15T10:30:45.000-04:00'),
+    timezone: 'America/New_York',
+    formatted: '15/05/2023 10:30',
+    isoString: '2023-05-15T14:30:45.000Z' // Equivalent UTC time
+  },
+  /** Tokyo timezone (UTC+9) */
+  'Asia/Tokyo': {
+    date: new Date('2023-05-15T23:30:45.000+09:00'),
+    timezone: 'Asia/Tokyo',
+    formatted: '15/05/2023 23:30',
+    isoString: '2023-05-15T14:30:45.000Z' // Equivalent UTC time
   }
 };
 
-// Journey-specific test dates
-export const JOURNEY_TEST_DATES = {
-  HEALTH: {
-    metrics: [
-      new Date('2023-06-01T08:00:00.000Z'),
-      new Date('2023-06-02T08:00:00.000Z'),
-      new Date('2023-06-03T08:00:00.000Z'),
-      new Date('2023-06-04T08:00:00.000Z'),
-      new Date('2023-06-05T08:00:00.000Z')
-    ],
-    goals: {
-      start: new Date('2023-06-01T00:00:00.000Z'),
-      end: new Date('2023-06-30T23:59:59.999Z')
-    }
-  },
-  CARE: {
-    appointments: [
-      new Date('2023-06-15T09:00:00.000Z'),
-      new Date('2023-06-16T14:30:00.000Z'),
-      new Date('2023-06-20T11:15:00.000Z')
-    ],
-    medications: {
-      start: new Date('2023-06-01T00:00:00.000Z'),
-      end: new Date('2023-07-01T00:00:00.000Z')
-    }
-  },
-  PLAN: {
-    claims: [
-      new Date('2023-05-10T00:00:00.000Z'),
-      new Date('2023-05-25T00:00:00.000Z'),
-      new Date('2023-06-05T00:00:00.000Z')
-    ],
-    coverage: {
-      start: new Date('2023-01-01T00:00:00.000Z'),
-      end: new Date('2023-12-31T23:59:59.999Z')
-    }
-  }
-};
-
-// Invalid dates for testing error handling
-export const INVALID_DATES = {
+/**
+ * Invalid date fixtures for testing error handling
+ */
+export const invalidDates = {
+  /** Invalid date string */
   invalidString: 'not-a-date',
+  /** Invalid date object */
   invalidDate: new Date('invalid-date'),
+  /** Null value */
   nullDate: null,
+  /** Undefined value */
   undefinedDate: undefined
+};
+
+/**
+ * Date format strings for testing
+ */
+export const dateFormats = {
+  /** Default date format (dd/MM/yyyy) */
+  default: 'dd/MM/yyyy',
+  /** Default date-time format (dd/MM/yyyy HH:mm) */
+  dateTime: 'dd/MM/yyyy HH:mm',
+  /** Default time format (HH:mm) */
+  time: 'HH:mm',
+  /** ISO date format (yyyy-MM-dd) */
+  iso: 'yyyy-MM-dd',
+  /** Full date format with day name (EEEE, dd 'de' MMMM 'de' yyyy) */
+  full: 'EEEE, dd \'de\' MMMM \'de\' yyyy',
+  /** Short date format (dd/MM/yy) */
+  short: 'dd/MM/yy',
+  /** US date format (MM/dd/yyyy) */
+  us: 'MM/dd/yyyy',
+  /** Custom format for specific use cases */
+  custom: 'dd MMM yyyy, HH:mm'
+};
+
+/**
+ * Time-specific fixtures for testing time functions
+ */
+export const timeFixtures = {
+  /** Morning time (9:30 AM) */
+  morning: {
+    date: new Date(2023, 4, 15, 9, 30, 0),
+    formatted: '09:30',
+    formattedAmPm: '9:30 AM'
+  },
+  /** Noon time (12:00 PM) */
+  noon: {
+    date: new Date(2023, 4, 15, 12, 0, 0),
+    formatted: '12:00',
+    formattedAmPm: '12:00 PM'
+  },
+  /** Afternoon time (2:30 PM) */
+  afternoon: {
+    date: new Date(2023, 4, 15, 14, 30, 0),
+    formatted: '14:30',
+    formattedAmPm: '2:30 PM'
+  },
+  /** Evening time (8:45 PM) */
+  evening: {
+    date: new Date(2023, 4, 15, 20, 45, 0),
+    formatted: '20:45',
+    formattedAmPm: '8:45 PM'
+  },
+  /** Midnight time (12:00 AM) */
+  midnight: {
+    date: new Date(2023, 4, 15, 0, 0, 0),
+    formatted: '00:00',
+    formattedAmPm: '12:00 AM'
+  }
 };

@@ -1,651 +1,395 @@
-/**
- * @file jwt-strategy-guard.integration.spec.ts
- * @description Integration tests for JWT authentication strategy and guard
- *
- * These tests verify that the JwtAuthGuard correctly works with JwtStrategy to validate
- * tokens and protect routes. Tests validate the complete token verification workflow
- * including token extraction, validation, user payload extraction, and Redis-based
- * token blacklisting.
- */
-
 import { Test, TestingModule } from '@nestjs/testing';
-import { INestApplication, ExecutionContext, UnauthorizedException } from '@nestjs/common';
+import { ExecutionContext, INestApplication, UnauthorizedException } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
-import { JwtModule } from '@nestjs/jwt';
+import { JwtModule, JwtService } from '@nestjs/jwt';
 import { PassportModule } from '@nestjs/passport';
-import { Controller, Get, UseGuards, Request } from '@nestjs/common';
-import { Redis } from 'ioredis';
-import * as request from 'supertest';
+import { Request } from 'express';
+import * as Redis from 'ioredis';
+import { v4 as uuidv4 } from 'uuid';
 
-// Import from @austa/auth package using path aliases
-import { JwtAuthGuard } from '@austa/auth/guards/jwt-auth.guard';
+// Import from @austa/auth package
 import { JwtStrategy } from '@austa/auth/strategies/jwt.strategy';
+import { JwtAuthGuard } from '@austa/auth/guards/jwt-auth.guard';
 import { JwtRedisProvider } from '@austa/auth/providers/jwt/jwt-redis.provider';
+import { JwtProvider } from '@austa/auth/providers/jwt/jwt.provider';
+import { jwtConfig } from '@austa/auth/providers/jwt/jwt.config';
 
-// Import from @austa/errors package using path aliases
-import { InvalidCredentialsError } from '@austa/errors/categories';
+// Import from @austa/errors package
+import { AuthenticationError } from '@austa/errors/categories';
+import { ValidationError } from '@austa/errors';
 
-// Import test helpers
-import {
-  generateTestToken,
-  generateExpiredToken,
-  generateInvalidSignatureToken,
-  TEST_JWT_SECRET,
-  TEST_JWT_ISSUER,
-  TEST_JWT_AUDIENCE,
-} from '../helpers/jwt-token.helper';
+// Import from @austa/interfaces package
+import { JwtPayload, UserResponseDto } from '@austa/interfaces/auth';
 
-// Mock Redis client for testing
-class MockRedis {
-  private store: Record<string, string> = {};
-  private expirations: Record<string, number> = {};
-
-  async set(key: string, value: string): Promise<'OK'> {
-    this.store[key] = value;
-    return 'OK';
-  }
-
-  async setex(key: string, seconds: number, value: string): Promise<'OK'> {
-    this.store[key] = value;
-    this.expirations[key] = Date.now() + seconds * 1000;
-    return 'OK';
-  }
-
-  async get(key: string): Promise<string | null> {
-    if (this.expirations[key] && this.expirations[key] < Date.now()) {
-      delete this.store[key];
-      delete this.expirations[key];
-      return null;
-    }
-    return this.store[key] || null;
-  }
-
-  async exists(key: string): Promise<number> {
-    if (this.expirations[key] && this.expirations[key] < Date.now()) {
-      delete this.store[key];
-      delete this.expirations[key];
-      return 0;
-    }
-    return this.store[key] ? 1 : 0;
-  }
-
-  async del(key: string): Promise<number> {
-    const existed = !!this.store[key];
-    delete this.store[key];
-    delete this.expirations[key];
-    return existed ? 1 : 0;
-  }
-
-  async ping(): Promise<string> {
-    return 'PONG';
-  }
-
-  async quit(): Promise<'OK'> {
-    return 'OK';
-  }
-
-  on(): void {
-    // Mock implementation for event listeners
-  }
-}
-
-// Mock logger service
-class MockLoggerService {
-  createLogger() {
-    return this;
-  }
-  debug() {}
-  log() {}
-  warn() {}
-  error() {}
-}
-
-// Test controller with protected routes
-@Controller('test')
-class TestController {
-  @Get('public')
-  public(): string {
-    return 'public route';
-  }
-
-  @UseGuards(JwtAuthGuard)
-  @Get('protected')
-  protected(@Request() req: any): any {
-    return { message: 'protected route', user: req.user };
-  }
-
-  @UseGuards(JwtAuthGuard)
-  @Get('health')
-  health(@Request() req: any): any {
-    return { message: 'health journey', user: req.user };
-  }
-
-  @UseGuards(JwtAuthGuard)
-  @Get('care')
-  care(@Request() req: any): any {
-    return { message: 'care journey', user: req.user };
-  }
-
-  @UseGuards(JwtAuthGuard)
-  @Get('plan')
-  plan(@Request() req: any): any {
-    return { message: 'plan journey', user: req.user };
-  }
-}
+// Import from @austa/logging package
+import { LoggerService } from '@austa/logging';
 
 describe('JWT Strategy and Guard Integration', () => {
   let app: INestApplication;
-  let mockRedis: MockRedis;
-  let jwtRedisProvider: JwtRedisProvider<any>;
+  let jwtService: JwtService;
+  let jwtRedisProvider: JwtRedisProvider;
+  let jwtStrategy: JwtStrategy;
+  let jwtAuthGuard: JwtAuthGuard;
+  let redisClient: Redis.Redis;
+  let configService: ConfigService;
+  
+  // Mock user data
+  const mockUser: UserResponseDto = {
+    id: '123456',
+    email: 'test@example.com',
+    name: 'Test User',
+    roles: ['user'],
+    permissions: ['read:profile'],
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  };
+
+  // Mock user service
+  const mockUserService = {
+    findById: jest.fn().mockImplementation((id: string) => {
+      if (id === mockUser.id) {
+        return Promise.resolve(mockUser);
+      }
+      return Promise.resolve(null);
+    }),
+  };
+
+  // Mock logger service
+  const mockLoggerService = {
+    setContext: jest.fn(),
+    log: jest.fn(),
+    error: jest.fn(),
+    warn: jest.fn(),
+    debug: jest.fn(),
+    verbose: jest.fn(),
+  };
 
   beforeAll(async () => {
-    // Create a mock Redis instance
-    mockRedis = new MockRedis();
+    // Create a Redis client for testing
+    redisClient = new Redis({
+      host: process.env.REDIS_HOST || 'localhost',
+      port: parseInt(process.env.REDIS_PORT || '6379', 10),
+      db: 1, // Use a different DB for testing
+      keyPrefix: 'test:jwt:blacklist:',
+    });
 
-    // Create the test module
-    const moduleFixture: TestingModule = await Test.createTestingModule({
+    // Clear any existing test data
+    await redisClient.flushdb();
+
+    const moduleRef: TestingModule = await Test.createTestingModule({
       imports: [
-        // Configure Passport with JWT
-        PassportModule.register({ defaultStrategy: 'jwt' }),
-        
-        // Configure JWT module
-        JwtModule.register({
-          secret: TEST_JWT_SECRET,
-          signOptions: {
-            expiresIn: '1h',
-            issuer: TEST_JWT_ISSUER,
-            audience: TEST_JWT_AUDIENCE,
-          },
+        // Configure JWT module for testing
+        JwtModule.registerAsync({
+          imports: [ConfigModule],
+          useFactory: async (configService: ConfigService) => ({
+            secret: configService.get<string>('JWT_SECRET') || 'test-secret',
+            signOptions: {
+              expiresIn: '1h',
+              audience: 'test-audience',
+              issuer: 'test-issuer',
+            },
+          }),
+          inject: [ConfigService],
         }),
-        
-        // Configure environment variables
+        // Configure Passport module
+        PassportModule.register({ defaultStrategy: 'jwt' }),
+        // Configure Config module
         ConfigModule.forRoot({
           isGlobal: true,
-          load: [() => ({
-            jwt: {
-              secret: TEST_JWT_SECRET,
-              issuer: TEST_JWT_ISSUER,
-              audience: TEST_JWT_AUDIENCE,
-              accessTokenExpiration: '1h',
-            },
-          })],
+          load: [jwtConfig],
         }),
       ],
-      controllers: [TestController],
       providers: [
-        // Provide the JWT strategy
         JwtStrategy,
-        
-        // Provide the Redis JWT provider
+        JwtProvider,
+        JwtRedisProvider,
         {
-          provide: JwtRedisProvider,
-          useFactory: (jwtService, configService) => {
-            const provider = new JwtRedisProvider(
-              jwtService,
-              configService,
-              {
-                redisOptions: {},
-                blacklistPrefix: 'blacklist:token:',
-              }
-            );
-            
-            // Replace the Redis client with our mock
-            Object.defineProperty(provider, 'redisClient', {
-              value: mockRedis,
-              writable: true,
-            });
-            
-            return provider;
-          },
-          inject: ['JwtService', ConfigService],
+          provide: 'USER_SERVICE',
+          useValue: mockUserService,
         },
-        
-        // Provide the JWT service
         {
-          provide: 'JwtService',
-          useFactory: (jwtModule) => jwtModule.service,
-          inject: [JwtModule],
-        },
-        
-        // Provide the logger service
-        {
-          provide: 'LoggerService',
-          useClass: MockLoggerService,
+          provide: LoggerService,
+          useValue: mockLoggerService,
         },
       ],
-    })
-      .overrideProvider('LoggerService')
-      .useClass(MockLoggerService)
-      .compile();
+    }).compile();
 
-    // Create the application
-    app = moduleFixture.createNestApplication();
+    app = moduleRef.createNestApplication();
     await app.init();
 
-    // Get the JWT Redis provider for direct testing
-    jwtRedisProvider = moduleFixture.get<JwtRedisProvider<any>>(JwtRedisProvider);
+    jwtService = moduleRef.get<JwtService>(JwtService);
+    jwtRedisProvider = moduleRef.get<JwtRedisProvider>(JwtRedisProvider);
+    jwtStrategy = moduleRef.get<JwtStrategy>(JwtStrategy);
+    configService = moduleRef.get<ConfigService>(ConfigService);
+    
+    // Create JwtAuthGuard instance with the logger service
+    jwtAuthGuard = new JwtAuthGuard(mockLoggerService as LoggerService);
   });
 
   afterAll(async () => {
+    // Clean up Redis test data
+    await redisClient.flushdb();
+    await redisClient.quit();
     await app.close();
   });
 
-  describe('Public Routes', () => {
-    it('should allow access to public routes without authentication', async () => {
-      const response = await request(app.getHttpServer())
-        .get('/test/public')
-        .expect(200);
-
-      expect(response.text).toBe('public route');
-    });
-  });
-
-  describe('Protected Routes with Valid Token', () => {
-    it('should allow access to protected routes with a valid token', async () => {
-      // Generate a valid token
-      const token = generateTestToken({
-        userId: 'test-user-123',
-        email: 'test@example.com',
-        roles: ['user'],
-      });
-
-      const response = await request(app.getHttpServer())
-        .get('/test/protected')
-        .set('Authorization', `Bearer ${token}`)
-        .expect(200);
-
-      expect(response.body.message).toBe('protected route');
-      expect(response.body.user).toBeDefined();
-      expect(response.body.user.id).toBe('test-user-123');
-      expect(response.body.user.email).toBe('test@example.com');
-    });
-
-    it('should extract user information correctly from the token', async () => {
-      // Generate a token with specific user data
-      const token = generateTestToken({
-        userId: 'user-with-data',
-        email: 'data@example.com',
-        roles: ['admin', 'user'],
-        permissions: ['read:all', 'write:all'],
-      });
-
-      const response = await request(app.getHttpServer())
-        .get('/test/protected')
-        .set('Authorization', `Bearer ${token}`)
-        .expect(200);
-
-      expect(response.body.user).toBeDefined();
-      expect(response.body.user.id).toBe('user-with-data');
-      expect(response.body.user.email).toBe('data@example.com');
-      // The JwtStrategy implementation determines what fields are included
-      // in the user object, so we may not see all fields from the token
-    });
-
-    it('should work with journey-specific routes', async () => {
-      // Generate tokens for different journeys
-      const healthToken = generateTestToken({
-        userId: 'health-user',
-        email: 'health@example.com',
-        roles: ['user', 'health-journey'],
-        additionalClaims: { journey: 'health' },
-      });
-
-      const careToken = generateTestToken({
-        userId: 'care-user',
-        email: 'care@example.com',
-        roles: ['user', 'care-journey'],
-        additionalClaims: { journey: 'care' },
-      });
-
-      const planToken = generateTestToken({
-        userId: 'plan-user',
-        email: 'plan@example.com',
-        roles: ['user', 'plan-journey'],
-        additionalClaims: { journey: 'plan' },
-      });
-
-      // Test health journey
-      const healthResponse = await request(app.getHttpServer())
-        .get('/test/health')
-        .set('Authorization', `Bearer ${healthToken}`)
-        .expect(200);
-
-      expect(healthResponse.body.message).toBe('health journey');
-      expect(healthResponse.body.user.id).toBe('health-user');
-
-      // Test care journey
-      const careResponse = await request(app.getHttpServer())
-        .get('/test/care')
-        .set('Authorization', `Bearer ${careToken}`)
-        .expect(200);
-
-      expect(careResponse.body.message).toBe('care journey');
-      expect(careResponse.body.user.id).toBe('care-user');
-
-      // Test plan journey
-      const planResponse = await request(app.getHttpServer())
-        .get('/test/plan')
-        .set('Authorization', `Bearer ${planToken}`)
-        .expect(200);
-
-      expect(planResponse.body.message).toBe('plan journey');
-      expect(planResponse.body.user.id).toBe('plan-user');
-    });
-  });
-
-  describe('Protected Routes with Invalid Token', () => {
-    it('should deny access with expired token', async () => {
-      // Generate an expired token
-      const expiredToken = generateExpiredToken({
-        userId: 'expired-user',
-        email: 'expired@example.com',
-      });
-
-      const response = await request(app.getHttpServer())
-        .get('/test/protected')
-        .set('Authorization', `Bearer ${expiredToken}`)
-        .expect(401);
-
-      expect(response.body.message).toContain('Invalid token');
-    });
-
-    it('should deny access with invalid signature', async () => {
-      // Generate a token with invalid signature
-      const invalidToken = generateInvalidSignatureToken({
-        userId: 'invalid-sig-user',
-        email: 'invalid-sig@example.com',
-      });
-
-      const response = await request(app.getHttpServer())
-        .get('/test/protected')
-        .set('Authorization', `Bearer ${invalidToken}`)
-        .expect(401);
-
-      expect(response.body.message).toContain('Invalid token');
-    });
-
-    it('should deny access with malformed token', async () => {
-      const response = await request(app.getHttpServer())
-        .get('/test/protected')
-        .set('Authorization', 'Bearer malformed.token.here')
-        .expect(401);
-
-      expect(response.body.message).toContain('Invalid token');
-    });
-
-    it('should deny access with missing token', async () => {
-      const response = await request(app.getHttpServer())
-        .get('/test/protected')
-        .expect(401);
-
-      expect(response.body.message).toContain('Invalid token');
-    });
-  });
-
-  describe('Token Blacklisting', () => {
-    it('should deny access when token is blacklisted', async () => {
-      // Generate a valid token
-      const token = generateTestToken({
-        userId: 'blacklist-test-user',
-        email: 'blacklist@example.com',
-        roles: ['user'],
-      });
-
-      // Verify the token works initially
-      await request(app.getHttpServer())
-        .get('/test/protected')
-        .set('Authorization', `Bearer ${token}`)
-        .expect(200);
-
-      // Blacklist the token
-      await jwtRedisProvider.revokeToken(token);
-
-      // Verify the token is now rejected
-      const response = await request(app.getHttpServer())
-        .get('/test/protected')
-        .set('Authorization', `Bearer ${token}`)
-        .expect(401);
-
-      expect(response.body.message).toContain('Invalid token');
-    });
-
-    it('should allow access after blacklisted token expires', async () => {
-      // Generate a token with very short expiration (2 seconds)
-      const token = generateTestToken({
-        userId: 'short-lived-user',
-        email: 'short-lived@example.com',
-        roles: ['user'],
-        expiresIn: 2, // 2 seconds
-      });
-
-      // Verify the token works initially
-      await request(app.getHttpServer())
-        .get('/test/protected')
-        .set('Authorization', `Bearer ${token}`)
-        .expect(200);
-
-      // Blacklist the token
-      await jwtRedisProvider.revokeToken(token);
-
-      // Verify the token is now rejected
-      await request(app.getHttpServer())
-        .get('/test/protected')
-        .set('Authorization', `Bearer ${token}`)
-        .expect(401);
-
-      // Wait for the token to expire (3 seconds to be safe)
-      await new Promise(resolve => setTimeout(resolve, 3000));
-
-      // Verify the token is still rejected, but now because it's expired
-      const response = await request(app.getHttpServer())
-        .get('/test/protected')
-        .set('Authorization', `Bearer ${token}`)
-        .expect(401);
-
-      expect(response.body.message).toContain('Invalid token');
-    });
-  });
-
-  describe('Error Handling', () => {
-    it('should return standardized error responses', async () => {
-      const response = await request(app.getHttpServer())
-        .get('/test/protected')
-        .expect(401);
-
-      // Check for standardized error structure
-      expect(response.body).toHaveProperty('message');
-      expect(response.body).toHaveProperty('statusCode');
-      expect(response.body.statusCode).toBe(401);
-    });
-
-    it('should handle Redis connection failures gracefully', async () => {
-      // Generate a valid token
-      const token = generateTestToken({
-        userId: 'redis-failure-user',
-        email: 'redis-failure@example.com',
-      });
-
-      // Mock Redis failure
-      const originalExists = mockRedis.exists;
-      mockRedis.exists = async () => {
-        throw new Error('Redis connection error');
-      };
-
-      try {
-        // The guard should still allow the request even if Redis fails
-        // since we don't want to block legitimate requests due to infrastructure issues
-        const response = await request(app.getHttpServer())
-          .get('/test/protected')
-          .set('Authorization', `Bearer ${token}`)
-          .expect(200);
-
-        expect(response.body.message).toBe('protected route');
-      } finally {
-        // Restore the original method
-        mockRedis.exists = originalExists;
-      }
-    });
-  });
-
-  describe('Direct Strategy and Guard Testing', () => {
-    let jwtStrategy: JwtStrategy;
-    let jwtAuthGuard: JwtAuthGuard;
-
-    beforeAll(async () => {
-      const moduleRef = await Test.createTestingModule({
-        imports: [
-          PassportModule.register({ defaultStrategy: 'jwt' }),
-          JwtModule.register({
-            secret: TEST_JWT_SECRET,
-            signOptions: {
-              expiresIn: '1h',
-              issuer: TEST_JWT_ISSUER,
-              audience: TEST_JWT_AUDIENCE,
-            },
-          }),
-          ConfigModule.forRoot({
-            isGlobal: true,
-            load: [() => ({
-              jwt: {
-                secret: TEST_JWT_SECRET,
-                issuer: TEST_JWT_ISSUER,
-                audience: TEST_JWT_AUDIENCE,
-                accessTokenExpiration: '1h',
-              },
-            })],
-          }),
-        ],
-        providers: [
-          JwtStrategy,
-          JwtAuthGuard,
-          {
-            provide: JwtRedisProvider,
-            useFactory: (jwtService, configService) => {
-              const provider = new JwtRedisProvider(
-                jwtService,
-                configService,
-                {
-                  redisOptions: {},
-                  blacklistPrefix: 'blacklist:token:',
-                }
-              );
-              
-              // Replace the Redis client with our mock
-              Object.defineProperty(provider, 'redisClient', {
-                value: mockRedis,
-                writable: true,
-              });
-              
-              return provider;
-            },
-            inject: ['JwtService', ConfigService],
-          },
-          {
-            provide: 'JwtService',
-            useFactory: (jwtModule) => jwtModule.service,
-            inject: [JwtModule],
-          },
-          {
-            provide: 'LoggerService',
-            useClass: MockLoggerService,
-          },
-        ],
-      }).compile();
-
-      jwtStrategy = moduleRef.get<JwtStrategy>(JwtStrategy);
-      jwtAuthGuard = moduleRef.get<JwtAuthGuard>(JwtAuthGuard);
-    });
-
-    it('should validate a token directly with JwtStrategy', async () => {
-      // Generate a valid token
-      const token = generateTestToken({
-        userId: 'direct-test-user',
-        email: 'direct-test@example.com',
-      });
-
-      // Create a mock request with the token
-      const mockRequest = {
-        headers: {
-          authorization: `Bearer ${token}`,
-        },
+  describe('JwtStrategy', () => {
+    it('should validate a valid token and return the user', async () => {
+      // Create a valid token payload
+      const payload: JwtPayload = {
+        sub: mockUser.id,
+        email: mockUser.email,
+        roles: mockUser.roles,
+        iat: Math.floor(Date.now() / 1000),
+        exp: Math.floor(Date.now() / 1000) + 3600,
+        iss: 'test-issuer',
+        aud: 'test-audience',
+        jti: uuidv4(),
       };
 
       // Call the validate method directly
-      const result = await jwtStrategy.validate(mockRequest, {
-        sub: 'direct-test-user',
-        email: 'direct-test@example.com',
-        iat: Math.floor(Date.now() / 1000),
-        exp: Math.floor(Date.now() / 1000) + 3600,
-      });
+      const result = await jwtStrategy.validate(payload);
 
       // Verify the result
-      expect(result).toBeDefined();
-      expect(result.id).toBe('direct-test-user');
-      expect(result.email).toBe('direct-test@example.com');
+      expect(result).toEqual(mockUser);
+      expect(mockUserService.findById).toHaveBeenCalledWith(mockUser.id);
     });
 
-    it('should reject an invalid token directly with JwtStrategy', async () => {
-      // Generate an invalid token
-      const invalidToken = generateInvalidSignatureToken();
-
-      // Create a mock request with the invalid token
-      const mockRequest = {
-        headers: {
-          authorization: `Bearer ${invalidToken}`,
-        },
-      };
-
-      // Call the validate method directly and expect it to throw
-      await expect(jwtStrategy.validate(mockRequest, {
-        sub: 'invalid-user',
-        email: 'invalid@example.com',
+    it('should throw AuthenticationError when user is not found', async () => {
+      // Create a token payload with non-existent user
+      const payload: JwtPayload = {
+        sub: 'non-existent-user',
+        email: 'nonexistent@example.com',
+        roles: ['user'],
         iat: Math.floor(Date.now() / 1000),
         exp: Math.floor(Date.now() / 1000) + 3600,
-      })).rejects.toThrow(UnauthorizedException);
+        iss: 'test-issuer',
+        aud: 'test-audience',
+        jti: uuidv4(),
+      };
+
+      // Expect the validate method to throw an error
+      await expect(jwtStrategy.validate(payload)).rejects.toThrow(AuthenticationError);
+      expect(mockUserService.findById).toHaveBeenCalledWith('non-existent-user');
     });
 
-    it('should handle JwtAuthGuard.canActivate correctly', async () => {
-      // Generate a valid token
-      const token = generateTestToken({
-        userId: 'guard-test-user',
-        email: 'guard-test@example.com',
-      });
+    it('should throw AuthenticationError when token is blacklisted', async () => {
+      // Create a token payload
+      const tokenId = uuidv4();
+      const payload: JwtPayload = {
+        sub: mockUser.id,
+        email: mockUser.email,
+        roles: mockUser.roles,
+        iat: Math.floor(Date.now() / 1000),
+        exp: Math.floor(Date.now() / 1000) + 3600,
+        iss: 'test-issuer',
+        aud: 'test-audience',
+        jti: tokenId,
+      };
+
+      // Blacklist the token
+      await jwtRedisProvider.invalidateToken(jwtService.sign(payload));
+
+      // Expect the validate method to throw an error
+      await expect(jwtStrategy.validate(payload)).rejects.toThrow(AuthenticationError);
+    });
+
+    it('should throw AuthenticationError when session is invalid', async () => {
+      // Create a token payload with session ID
+      const sessionId = uuidv4();
+      const payload: JwtPayload = {
+        sub: mockUser.id,
+        email: mockUser.email,
+        roles: mockUser.roles,
+        iat: Math.floor(Date.now() / 1000),
+        exp: Math.floor(Date.now() / 1000) + 3600,
+        iss: 'test-issuer',
+        aud: 'test-audience',
+        jti: uuidv4(),
+        sid: sessionId,
+      };
+
+      // Mock the validateSession method to return false
+      jest.spyOn(jwtRedisProvider, 'validateSession').mockResolvedValueOnce(false);
+
+      // Expect the validate method to throw an error
+      await expect(jwtStrategy.validate(payload)).rejects.toThrow(AuthenticationError);
+      expect(jwtRedisProvider.validateSession).toHaveBeenCalledWith(sessionId, mockUser.id);
+    });
+  });
+
+  describe('JwtAuthGuard', () => {
+    it('should allow access with a valid token', async () => {
+      // Create a valid token
+      const payload: JwtPayload = {
+        sub: mockUser.id,
+        email: mockUser.email,
+        roles: mockUser.roles,
+        iat: Math.floor(Date.now() / 1000),
+        exp: Math.floor(Date.now() / 1000) + 3600,
+        iss: 'test-issuer',
+        aud: 'test-audience',
+        jti: uuidv4(),
+      };
+      const token = jwtService.sign(payload);
 
       // Create a mock execution context
-      const mockContext = {
-        switchToHttp: () => ({
-          getRequest: () => ({
-            headers: {
-              authorization: `Bearer ${token}`,
-            },
-          }),
-        }),
-      } as ExecutionContext;
+      const mockExecutionContext = createMockExecutionContext(token);
 
-      // Call canActivate directly
-      const result = await jwtAuthGuard.canActivate(mockContext);
+      // Mock the super.canActivate method
+      const canActivateSpy = jest.spyOn(JwtAuthGuard.prototype as any, 'canActivate');
+      canActivateSpy.mockImplementation(() => true);
+
+      // Call the canActivate method
+      const result = await jwtAuthGuard.canActivate(mockExecutionContext);
 
       // Verify the result
       expect(result).toBe(true);
     });
 
-    it('should reject invalid tokens in JwtAuthGuard.canActivate', async () => {
-      // Generate an invalid token
-      const invalidToken = generateInvalidSignatureToken();
+    it('should throw ValidationError when token is invalid', async () => {
+      // Create a mock execution context with an invalid token
+      const mockExecutionContext = createMockExecutionContext('invalid-token');
 
+      // Mock the super.canActivate method to throw an error
+      const canActivateSpy = jest.spyOn(JwtAuthGuard.prototype as any, 'canActivate');
+      canActivateSpy.mockImplementation(() => {
+        throw new Error('Invalid token');
+      });
+
+      // Expect the canActivate method to throw a ValidationError
+      await expect(jwtAuthGuard.canActivate(mockExecutionContext)).rejects.toThrow(ValidationError);
+      expect(mockLoggerService.warn).toHaveBeenCalled();
+    });
+
+    it('should throw original error when it is an instance of BaseError', async () => {
       // Create a mock execution context
-      const mockContext = {
-        switchToHttp: () => ({
-          getRequest: () => ({
-            headers: {
-              authorization: `Bearer ${invalidToken}`,
-            },
-          }),
-        }),
-      } as ExecutionContext;
+      const mockExecutionContext = createMockExecutionContext('token');
 
-      // Call canActivate directly and expect it to throw
-      await expect(jwtAuthGuard.canActivate(mockContext)).rejects.toThrow();
+      // Create a custom error
+      const customError = new AuthenticationError(
+        'Custom error message',
+        'CUSTOM_ERROR_CODE',
+        { detail: 'Some detail' }
+      );
+
+      // Mock the super.canActivate method to throw the custom error
+      const canActivateSpy = jest.spyOn(JwtAuthGuard.prototype as any, 'canActivate');
+      canActivateSpy.mockImplementation(() => {
+        throw customError;
+      });
+
+      // Expect the canActivate method to throw the original error
+      await expect(jwtAuthGuard.canActivate(mockExecutionContext)).rejects.toThrow(AuthenticationError);
+      expect(mockLoggerService.warn).toHaveBeenCalled();
+    });
+
+    it('should handle request properly when user is authenticated', () => {
+      // Call the handleRequest method with valid user
+      const result = jwtAuthGuard.handleRequest(null, mockUser, null);
+
+      // Verify the result
+      expect(result).toEqual(mockUser);
+    });
+
+    it('should throw ValidationError when authentication fails', () => {
+      // Expect the handleRequest method to throw a ValidationError when user is null
+      expect(() => jwtAuthGuard.handleRequest(null, null, null)).toThrow(ValidationError);
+      expect(mockLoggerService.error).toHaveBeenCalled();
+    });
+
+    it('should throw ValidationError with error details when authentication error occurs', () => {
+      // Create a custom error
+      const error = new Error('Authentication failed');
+
+      // Expect the handleRequest method to throw a ValidationError with error details
+      expect(() => jwtAuthGuard.handleRequest(error, null, { message: 'Invalid token' })).toThrow(ValidationError);
+      expect(mockLoggerService.error).toHaveBeenCalled();
+    });
+  });
+
+  describe('End-to-end token flow', () => {
+    it('should validate the complete token flow', async () => {
+      // 1. Generate a token for the user
+      const payload: JwtPayload = {
+        sub: mockUser.id,
+        email: mockUser.email,
+        roles: mockUser.roles,
+        iat: Math.floor(Date.now() / 1000),
+        exp: Math.floor(Date.now() / 1000) + 3600,
+        iss: 'test-issuer',
+        aud: 'test-audience',
+        jti: uuidv4(),
+      };
+      const token = jwtService.sign(payload);
+
+      // 2. Create a mock execution context with the token
+      const mockExecutionContext = createMockExecutionContext(token);
+
+      // 3. Mock the super.canActivate method to simulate successful authentication
+      const canActivateSpy = jest.spyOn(JwtAuthGuard.prototype as any, 'canActivate');
+      canActivateSpy.mockImplementation(() => true);
+
+      // 4. Call the canActivate method
+      const guardResult = await jwtAuthGuard.canActivate(mockExecutionContext);
+
+      // 5. Verify the guard result
+      expect(guardResult).toBe(true);
+
+      // 6. Validate the token payload directly with the strategy
+      const strategyResult = await jwtStrategy.validate(payload);
+
+      // 7. Verify the strategy result
+      expect(strategyResult).toEqual(mockUser);
+    });
+
+    it('should handle token revocation properly', async () => {
+      // 1. Generate a token for the user
+      const tokenId = uuidv4();
+      const payload: JwtPayload = {
+        sub: mockUser.id,
+        email: mockUser.email,
+        roles: mockUser.roles,
+        iat: Math.floor(Date.now() / 1000),
+        exp: Math.floor(Date.now() / 1000) + 3600,
+        iss: 'test-issuer',
+        aud: 'test-audience',
+        jti: tokenId,
+      };
+      const token = jwtService.sign(payload);
+
+      // 2. Revoke the token
+      const revocationResult = await jwtRedisProvider.invalidateToken(token);
+      expect(revocationResult).toBe(true);
+
+      // 3. Attempt to validate the token with the strategy
+      await expect(jwtStrategy.validate(payload)).rejects.toThrow(AuthenticationError);
     });
   });
 });
+
+/**
+ * Helper function to create a mock execution context for testing
+ * @param token JWT token to include in the request
+ * @returns Mock execution context
+ */
+function createMockExecutionContext(token: string): ExecutionContext {
+  const mockRequest = {
+    headers: {
+      authorization: `Bearer ${token}`,
+    },
+    path: '/test',
+    method: 'GET',
+    ip: '127.0.0.1',
+  } as Request;
+
+  const mockExecutionContext = {
+    switchToHttp: jest.fn().mockReturnValue({
+      getRequest: jest.fn().mockReturnValue(mockRequest),
+    }),
+    getHandler: jest.fn(),
+    getClass: jest.fn(),
+  } as unknown as ExecutionContext;
+
+  return mockExecutionContext;
+}

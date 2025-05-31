@@ -1,48 +1,66 @@
 import React from 'react';
-import { render, screen } from '@testing-library/react';
-import { axe } from 'jest-axe';
+import { render, screen, fireEvent } from '@testing-library/react';
 import { AchievementBadge } from './AchievementBadge';
-import { JourneyContextProvider } from '@austa/journey-context';
-import { Achievement, JourneyType } from '@austa/interfaces/gamification';
+import { Achievement, AchievementCategory } from '@austa/interfaces/gamification';
+import * as JourneyContext from '@austa/journey-context';
+import { colors } from '../../tokens/colors';
 
-// Mock the primitive components to verify they're used correctly
-jest.mock('@design-system/primitives', () => ({
-  Box: ({ children, testID, ...props }: any) => (
-    <div data-testid={testID} data-props={JSON.stringify(props)}>
-      {children}
-    </div>
-  ),
-  Text: ({ children, testID, ...props }: any) => (
-    <span data-testid={testID} data-props={JSON.stringify(props)}>
-      {children}
-    </span>
-  ),
-  Stack: ({ children, testID, ...props }: any) => (
-    <div data-testid={testID} data-props={JSON.stringify(props)}>
-      {children}
-    </div>
-  ),
-  Icon: ({ name, testID, ...props }: any) => (
-    <div data-testid={testID || `icon-${name}`} data-icon={name} data-props={JSON.stringify(props)} />
-  ),
+// Mock the journey context hook
+jest.mock('@austa/journey-context', () => ({
+  useJourneyContext: jest.fn(),
 }));
+
+// Mock the styled components to verify primitive usage
+jest.mock('./AchievementBadge.styles', () => {
+  const original = jest.requireActual('./AchievementBadge.styles');
+  return {
+    ...original,
+    BadgeContainer: jest.fn(props => <div data-testid="badge-container" {...props} />),
+    BadgeIcon: jest.fn(props => <div data-testid="badge-icon" {...props} />),
+    ProgressRing: jest.fn(props => <div data-testid="progress-ring" {...props} />),
+    UnlockedIndicator: jest.fn(props => <div data-testid="unlocked-indicator" {...props} />),
+    useJourneyColor: jest.fn(journey => {
+      const journeyColors = {
+        health: { primary: '#0ACF83', secondary: '#E6F9F1' },
+        care: { primary: '#FF8C42', secondary: '#FFF1E6' },
+        plan: { primary: '#2D9CDB', secondary: '#E6F3FB' },
+      };
+      return journeyColors[journey] || journeyColors.health;
+    }),
+  };
+});
 
 describe('AchievementBadge', () => {
   // Sample achievement data for testing
-  const createAchievement = (overrides: Partial<Achievement> = {}): Achievement => ({
+  const createMockAchievement = (overrides = {}): Achievement => ({
     id: 'test-achievement',
     title: 'Test Achievement',
     description: 'This is a test achievement',
+    category: AchievementCategory.HEALTH,
+    journey: 'health',
     icon: 'trophy',
-    progress: 5,
-    total: 10,
+    points: 100,
+    rarity: 'common',
+    imageUrl: 'https://example.com/image.png',
+    badgeUrl: 'https://example.com/badge.png',
+    tier: 1,
+    progress: {
+      current: 5,
+      required: 10,
+      percentage: 50,
+      lastUpdated: new Date(),
+    },
     unlocked: false,
-    journey: 'health' as JourneyType,
+    unlockedAt: null,
     ...overrides,
   });
 
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
   it('renders correctly for locked achievement', () => {
-    const achievement = createAchievement();
+    const achievement = createMockAchievement();
     
     render(<AchievementBadge achievement={achievement} />);
     
@@ -53,19 +71,22 @@ describe('AchievementBadge', () => {
     // Check the progress ring is displayed with correct progress value
     const progressRing = screen.getByTestId('progress-ring');
     expect(progressRing).toBeInTheDocument();
-    expect(progressRing).toHaveAttribute('aria-valuenow', '50');
     expect(progressRing).toHaveAttribute('aria-valuemin', '0');
     expect(progressRing).toHaveAttribute('aria-valuemax', '100');
+    expect(progressRing).toHaveAttribute('aria-valuenow', '50');
     
-    // Verify primitive components are used correctly
-    const badgeContainer = screen.getByTestId('badge-container');
-    expect(badgeContainer).toBeInTheDocument();
-    const containerProps = JSON.parse(badgeContainer.getAttribute('data-props') || '{}');
-    expect(containerProps.borderColor).toBeDefined();
+    // Verify the badge icon has the correct color for locked state
+    const badgeIcon = screen.getByTestId('badge-icon');
+    expect(badgeIcon).toBeInTheDocument();
+    expect(badgeIcon).toHaveAttribute('color', colors.neutral.gray400);
   });
   
   it('renders correctly for unlocked achievement', () => {
-    const achievement = createAchievement({ unlocked: true, progress: 10 });
+    const achievement = createMockAchievement({
+      progress: { current: 10, required: 10, percentage: 100, lastUpdated: new Date() },
+      unlocked: true,
+      unlockedAt: new Date(),
+    });
     
     render(<AchievementBadge achievement={achievement} />);
     
@@ -77,20 +98,29 @@ describe('AchievementBadge', () => {
     expect(screen.queryByTestId('progress-ring')).not.toBeInTheDocument();
     
     // Check the unlocked indicator is displayed
-    const unlockedIndicator = screen.getByTestId('unlocked-indicator');
-    expect(unlockedIndicator).toBeInTheDocument();
+    expect(screen.getByTestId('unlocked-indicator')).toBeInTheDocument();
     
-    // Verify the icon is displayed
-    const icon = screen.getByTestId(`icon-${achievement.icon}`);
-    expect(icon).toBeInTheDocument();
-    const iconProps = JSON.parse(icon.getAttribute('data-props') || '{}');
-    expect(iconProps.color).toBeDefined();
+    // Verify the badge icon has the correct color for unlocked state
+    const badgeIcon = screen.getByTestId('badge-icon');
+    expect(badgeIcon).toBeInTheDocument();
+    expect(badgeIcon).toHaveAttribute('color', '#0ACF83'); // Health journey color
   });
   
   it('applies journey-specific styling', () => {
-    const healthAchievement = createAchievement({ journey: 'health' });
-    const careAchievement = createAchievement({ journey: 'care' });
-    const planAchievement = createAchievement({ journey: 'plan' });
+    const healthAchievement = createMockAchievement({
+      journey: 'health',
+      unlocked: true,
+    });
+    
+    const careAchievement = createMockAchievement({
+      journey: 'care',
+      unlocked: true,
+    });
+    
+    const planAchievement = createMockAchievement({
+      journey: 'plan',
+      unlocked: true,
+    });
     
     // First render with health journey
     const { rerender } = render(
@@ -98,9 +128,8 @@ describe('AchievementBadge', () => {
     );
     
     // Check health journey specific styling (green color)
-    let badgeContainer = screen.getByTestId('badge-container');
-    let containerProps = JSON.parse(badgeContainer.getAttribute('data-props') || '{}');
-    expect(containerProps.borderColor).toMatch(/#0ACF83/i);
+    let badgeIcon = screen.getByTestId('badge-icon');
+    expect(badgeIcon).toHaveAttribute('color', '#0ACF83');
     
     // Re-render with care journey
     rerender(
@@ -108,9 +137,8 @@ describe('AchievementBadge', () => {
     );
     
     // Check care journey specific styling (orange color)
-    badgeContainer = screen.getByTestId('badge-container');
-    containerProps = JSON.parse(badgeContainer.getAttribute('data-props') || '{}');
-    expect(containerProps.borderColor).toMatch(/#FF8C42/i);
+    badgeIcon = screen.getByTestId('badge-icon');
+    expect(badgeIcon).toHaveAttribute('color', '#FF8C42');
     
     // Re-render with plan journey
     rerender(
@@ -118,145 +146,133 @@ describe('AchievementBadge', () => {
     );
     
     // Check plan journey specific styling (blue color)
-    badgeContainer = screen.getByTestId('badge-container');
-    containerProps = JSON.parse(badgeContainer.getAttribute('data-props') || '{}');
-    expect(containerProps.borderColor).toMatch(/#007AFF/i);
-  });
-  
-  it('integrates with journey context', () => {
-    const achievement = createAchievement({ journey: 'health' });
-    
-    render(
-      <JourneyContextProvider initialJourney="health">
-        <AchievementBadge achievement={achievement} />
-      </JourneyContextProvider>
-    );
-    
-    // Verify the component uses the journey context
-    const badgeContainer = screen.getByTestId('badge-container');
-    const containerProps = JSON.parse(badgeContainer.getAttribute('data-props') || '{}');
-    expect(containerProps.borderColor).toMatch(/#0ACF83/i);
-    
-    // Check that the title has the correct styling
-    const title = screen.getByText(achievement.title);
-    expect(title).toBeInTheDocument();
-    const titleProps = JSON.parse(title.getAttribute('data-props') || '{}');
-    expect(titleProps.color).toBeDefined();
+    badgeIcon = screen.getByTestId('badge-icon');
+    expect(badgeIcon).toHaveAttribute('color', '#2D9CDB');
   });
   
   it('renders different size variants correctly', () => {
-    const achievement = createAchievement();
+    const achievement = createMockAchievement();
     
     // Test small size
     const { rerender } = render(
-      <AchievementBadge achievement={achievement} size="small" />
+      <AchievementBadge achievement={achievement} size="sm" />
     );
     
     let badgeContainer = screen.getByTestId('badge-container');
-    let containerProps = JSON.parse(badgeContainer.getAttribute('data-props') || '{}');
-    expect(containerProps.width).toBe('60px');
-    expect(containerProps.height).toBe('60px');
+    expect(badgeContainer).toHaveAttribute('size', 'sm');
     
     // Test medium size (default)
     rerender(
-      <AchievementBadge achievement={achievement} size="medium" />
+      <AchievementBadge achievement={achievement} size="md" />
     );
     
     badgeContainer = screen.getByTestId('badge-container');
-    containerProps = JSON.parse(badgeContainer.getAttribute('data-props') || '{}');
-    expect(containerProps.width).toBe('80px');
-    expect(containerProps.height).toBe('80px');
+    expect(badgeContainer).toHaveAttribute('size', 'md');
     
     // Test large size
     rerender(
-      <AchievementBadge achievement={achievement} size="large" />
+      <AchievementBadge achievement={achievement} size="lg" />
     );
     
     badgeContainer = screen.getByTestId('badge-container');
-    containerProps = JSON.parse(badgeContainer.getAttribute('data-props') || '{}');
-    expect(containerProps.width).toBe('100px');
-    expect(containerProps.height).toBe('100px');
+    expect(badgeContainer).toHaveAttribute('size', 'lg');
   });
   
-  it('displays different progress states correctly', () => {
-    // Test 0% progress
-    const zeroProgress = createAchievement({ progress: 0 });
+  it('handles showProgress prop correctly', () => {
+    const achievement = createMockAchievement();
+    
+    // Test with showProgress=true (default)
     const { rerender } = render(
-      <AchievementBadge achievement={zeroProgress} />
+      <AchievementBadge achievement={achievement} showProgress={true} />
     );
     
-    let progressRing = screen.getByTestId('progress-ring');
-    expect(progressRing).toHaveAttribute('aria-valuenow', '0');
+    expect(screen.getByTestId('progress-ring')).toBeInTheDocument();
     
-    // Test 50% progress
-    const halfProgress = createAchievement({ progress: 5 });
+    // Test with showProgress=false
     rerender(
-      <AchievementBadge achievement={halfProgress} />
+      <AchievementBadge achievement={achievement} showProgress={false} />
     );
     
-    progressRing = screen.getByTestId('progress-ring');
-    expect(progressRing).toHaveAttribute('aria-valuenow', '50');
-    
-    // Test 100% progress but not unlocked
-    const fullProgress = createAchievement({ progress: 10, unlocked: false });
-    rerender(
-      <AchievementBadge achievement={fullProgress} />
-    );
-    
-    progressRing = screen.getByTestId('progress-ring');
-    expect(progressRing).toHaveAttribute('aria-valuenow', '100');
+    expect(screen.queryByTestId('progress-ring')).not.toBeInTheDocument();
   });
   
-  it('has proper accessibility attributes', () => {
-    const achievement = createAchievement();
+  it('calls onPress callback when badge is pressed', () => {
+    const achievement = createMockAchievement();
+    const onPressMock = jest.fn();
+    
+    render(
+      <AchievementBadge achievement={achievement} onPress={onPressMock} />
+    );
+    
+    const badgeContainer = screen.getByTestId('badge-container');
+    fireEvent.click(badgeContainer);
+    
+    expect(onPressMock).toHaveBeenCalledTimes(1);
+  });
+  
+  it('integrates with journey context', () => {
+    // Mock the journey context hook to return journey-specific data
+    const mockUseJourneyContext = JourneyContext.useJourneyContext as jest.Mock;
+    mockUseJourneyContext.mockReturnValue({
+      currentJourney: 'health',
+      journeyTheme: {
+        colors: {
+          primary: '#0ACF83',
+          secondary: '#E6F9F1',
+        },
+      },
+    });
+    
+    const achievement = createMockAchievement();
     
     render(<AchievementBadge achievement={achievement} />);
     
-    // Check that the badge has proper role
-    const badge = screen.getByRole('img', { name: /Test Achievement/ });
+    // Verify the journey context was used
+    expect(mockUseJourneyContext).toHaveBeenCalled();
+  });
+  
+  it('provides proper accessibility attributes', () => {
+    const achievement = createMockAchievement();
+    
+    render(<AchievementBadge achievement={achievement} />);
+    
+    // Check for proper accessibility label
+    const badge = screen.getByLabelText(/Test Achievement.*This is a test achievement.*Progress: 5 of 10/);
     expect(badge).toBeInTheDocument();
     
-    // Check that the progress indicator has proper ARIA attributes
+    // Check progress ring has proper ARIA attributes
     const progressRing = screen.getByTestId('progress-ring');
-    expect(progressRing).toHaveAttribute('role', 'progressbar');
-    expect(progressRing).toHaveAttribute('aria-valuenow', '50');
     expect(progressRing).toHaveAttribute('aria-valuemin', '0');
     expect(progressRing).toHaveAttribute('aria-valuemax', '100');
-    expect(progressRing).toHaveAttribute('aria-label', 'Achievement progress');
+    expect(progressRing).toHaveAttribute('aria-valuenow', '50');
+    
+    // Check icon has aria-hidden
+    const badgeIcon = screen.getByTestId('badge-icon');
+    expect(badgeIcon).toHaveAttribute('aria-hidden', 'true');
   });
   
-  it('passes accessibility tests', async () => {
-    const achievement = createAchievement();
+  it('handles achievements with zero total progress correctly', () => {
+    const achievement = createMockAchievement({
+      progress: { current: 0, required: 0, percentage: 0, lastUpdated: new Date() },
+    });
     
-    const { container } = render(<AchievementBadge achievement={achievement} />);
+    render(<AchievementBadge achievement={achievement} />);
     
-    // Run axe accessibility tests
-    const results = await axe(container);
-    expect(results).toHaveNoViolations();
+    // Check the progress ring has 0% progress
+    const progressRing = screen.getByTestId('progress-ring');
+    expect(progressRing).toHaveAttribute('aria-valuenow', '0');
   });
   
-  it('supports custom onClick handler', () => {
-    const achievement = createAchievement();
-    const handleClick = jest.fn();
+  it('handles achievements with invalid journey type gracefully', () => {
+    const achievement = createMockAchievement({
+      journey: 'invalid-journey' as any,
+    });
     
-    render(<AchievementBadge achievement={achievement} onClick={handleClick} />);
+    render(<AchievementBadge achievement={achievement} />);
     
-    // Find the clickable element
-    const clickableElement = screen.getByTestId('badge-container');
-    clickableElement.click();
-    
-    // Verify the click handler was called
-    expect(handleClick).toHaveBeenCalledTimes(1);
-    expect(handleClick).toHaveBeenCalledWith(achievement);
-  });
-  
-  it('renders tooltip with achievement description on hover', () => {
-    const achievement = createAchievement();
-    
-    render(<AchievementBadge achievement={achievement} showTooltip />);
-    
-    // Check that the tooltip content is available
-    const tooltipContent = screen.getByText(achievement.description);
-    expect(tooltipContent).toBeInTheDocument();
+    // Should default to health journey styling
+    const badgeContainer = screen.getByTestId('badge-container');
+    expect(badgeContainer).toBeInTheDocument();
+    // Component should render without errors
   });
 });

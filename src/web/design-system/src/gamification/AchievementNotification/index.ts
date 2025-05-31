@@ -1,5 +1,8 @@
+/**
+ * @file Public API for the AchievementNotification component
+ */
+
 export { AchievementNotification } from './AchievementNotification';
 export type { AchievementNotificationProps } from './AchievementNotification';
 
-// Default export for backward compatibility
-export default { AchievementNotification };
+export default AchievementNotification;

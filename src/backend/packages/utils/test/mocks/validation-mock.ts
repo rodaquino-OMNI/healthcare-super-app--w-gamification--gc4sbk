@@ -1,218 +1,321 @@
 /**
- * Validation Mock Library
+ * Validation Mock
  * 
- * Provides mock implementations of validation libraries (class-validator, Yup, Zod, Joi)
- * used across the application. Enables testing of validation-dependent code without the
- * actual validation libraries.
- * 
- * Features:
- * - Configurable validation results
- * - Customizable error messages
- * - Type transformations for comprehensive validation testing
- * - Journey-specific validation rule testing
+ * Provides mock implementations of validation libraries (class-validator, Yup, Zod, Joi) used across the application.
+ * Enables testing of validation-dependent code without the actual validation libraries.
+ * Includes configurable validation results, error messages, and type transformations for comprehensive validation testing.
  */
 
-// ===== Configuration Types =====
+// ===== Mock Configuration Types =====
 
 /**
  * Global configuration for all validation mocks
  */
 export interface ValidationMockConfig {
-  /**
-   * Whether validation should pass by default
-   * @default true
-   */
-  shouldPassByDefault: boolean;
-
-  /**
-   * Default error message when validation fails
-   * @default 'Validation failed'
-   */
-  defaultErrorMessage: string;
-
-  /**
-   * Whether to log validation calls for debugging
-   * @default false
-   */
-  debug: boolean;
+  /** Default validation result if not specified at the validator level */
+  defaultResult?: boolean;
+  /** Whether to track validation calls */
+  trackCalls?: boolean;
+  /** Journey-specific validation behavior */
+  journeyBehavior?: {
+    health?: { defaultResult?: boolean };
+    care?: { defaultResult?: boolean };
+    plan?: { defaultResult?: boolean };
+  };
 }
 
 /**
- * Configuration for a specific validation rule
+ * Configuration for a specific validator
  */
-export interface ValidationRuleConfig {
-  /**
-   * Property name this rule applies to
-   */
-  property?: string;
-
-  /**
-   * Whether validation should pass
-   */
-  shouldPass: boolean;
-
-  /**
-   * Error message when validation fails
-   */
-  errorMessage?: string;
-
-  /**
-   * Journey context for journey-specific validation
-   */
-  journeyContext?: 'health' | 'care' | 'plan' | 'all';
+export interface ValidatorConfig {
+  /** Whether validation should pass or fail */
+  result?: boolean;
+  /** Custom error message when validation fails */
+  message?: string;
+  /** Custom validation function */
+  validate?: (value: any) => boolean;
+  /** Journey-specific validation behavior */
+  journeyBehavior?: {
+    health?: { result?: boolean; message?: string };
+    care?: { result?: boolean; message?: string };
+    plan?: { result?: boolean; message?: string };
+  };
 }
 
-// ===== Global Configuration =====
+/**
+ * Validation call tracking information
+ */
+export interface ValidationCall {
+  /** Name of the validator */
+  validator: string;
+  /** Value that was validated */
+  value: any;
+  /** Whether validation passed */
+  result: boolean;
+  /** Validation context (e.g., journey ID) */
+  context?: Record<string, any>;
+  /** Timestamp of the validation call */
+  timestamp: number;
+}
+
+// ===== Mock State =====
 
 /**
- * Global validation mock configuration
+ * Global configuration for all validation mocks
  */
-let globalConfig: ValidationMockConfig = {
-  shouldPassByDefault: true,
-  defaultErrorMessage: 'Validation failed',
-  debug: false,
+const globalConfig: ValidationMockConfig = {
+  defaultResult: true,
+  trackCalls: true,
+  journeyBehavior: {
+    health: { defaultResult: true },
+    care: { defaultResult: true },
+    plan: { defaultResult: true },
+  },
 };
 
 /**
- * Map of validation rules by property name
+ * Configuration for specific validators
  */
-const validationRules = new Map<string, ValidationRuleConfig>();
+const validatorConfigs: Record<string, ValidatorConfig> = {};
 
 /**
- * Configure global validation mock behavior
+ * History of validation calls
  */
-export function configureValidationMock(config: Partial<ValidationMockConfig>): void {
-  globalConfig = { ...globalConfig, ...config };
+const validationCalls: ValidationCall[] = [];
+
+/**
+ * Current journey context
+ */
+let currentJourney: 'health' | 'care' | 'plan' | null = null;
+
+// ===== Mock Control Functions =====
+
+/**
+ * Configures the global validation mock behavior
+ * 
+ * @param config - Global configuration options
+ */
+export function configureValidationMock(config: ValidationMockConfig): void {
+  Object.assign(globalConfig, config);
 }
 
 /**
- * Configure validation behavior for a specific property
+ * Configures a specific validator's behavior
+ * 
+ * @param validatorName - Name of the validator (e.g., 'IsString', 'z.string', 'Joi.string')
+ * @param config - Validator configuration
  */
-export function configureValidationRule(config: ValidationRuleConfig): void {
-  const key = config.property || '*';
-  validationRules.set(key, config);
+export function configureValidator(validatorName: string, config: ValidatorConfig): void {
+  validatorConfigs[validatorName] = config;
 }
 
 /**
- * Reset all validation configurations to defaults
+ * Sets the current journey context for validation
+ * 
+ * @param journey - Journey identifier or null to clear
+ */
+export function setValidationJourney(journey: 'health' | 'care' | 'plan' | null): void {
+  currentJourney = journey;
+}
+
+/**
+ * Resets all validation mock configurations to defaults
  */
 export function resetValidationMock(): void {
-  globalConfig = {
-    shouldPassByDefault: true,
-    defaultErrorMessage: 'Validation failed',
-    debug: false,
+  Object.keys(validatorConfigs).forEach(key => delete validatorConfigs[key]);
+  validationCalls.length = 0;
+  currentJourney = null;
+  
+  // Reset global config to defaults
+  globalConfig.defaultResult = true;
+  globalConfig.trackCalls = true;
+  globalConfig.journeyBehavior = {
+    health: { defaultResult: true },
+    care: { defaultResult: true },
+    plan: { defaultResult: true },
   };
-  validationRules.clear();
 }
 
 /**
- * Determine if validation should pass for a property
+ * Gets the history of validation calls
+ * 
+ * @returns Array of validation call records
  */
-function shouldValidationPass(property?: string, value?: any): boolean {
-  if (property && validationRules.has(property)) {
-    return validationRules.get(property)!.shouldPass;
-  }
-  
-  // Check for wildcard rule
-  if (validationRules.has('*')) {
-    return validationRules.get('*')!.shouldPass;
-  }
-  
-  return globalConfig.shouldPassByDefault;
+export function getValidationCalls(): ValidationCall[] {
+  return [...validationCalls];
 }
 
 /**
- * Get error message for a failed validation
+ * Gets validation calls for a specific validator
+ * 
+ * @param validatorName - Name of the validator
+ * @returns Array of validation call records for the specified validator
  */
-function getErrorMessage(property?: string): string {
-  if (property && validationRules.has(property)) {
-    return validationRules.get(property)!.errorMessage || globalConfig.defaultErrorMessage;
-  }
-  
-  // Check for wildcard rule
-  if (validationRules.has('*') && validationRules.get('*')!.errorMessage) {
-    return validationRules.get('*')!.errorMessage!;
-  }
-  
-  return globalConfig.defaultErrorMessage;
-}
-
-// ===== class-validator Mock =====
-
-/**
- * Mock implementation of class-validator's ValidationError
- */
-export class ValidationError {
-  constructor(
-    public property: string,
-    public constraints: Record<string, string>,
-    public children: ValidationError[] = []
-  ) {}
+export function getValidatorCalls(validatorName: string): ValidationCall[] {
+  return validationCalls.filter(call => call.validator === validatorName);
 }
 
 /**
- * Create a decorator factory function
+ * Clears the validation call history
  */
-function createValidatorDecorator(name: string) {
+export function clearValidationCalls(): void {
+  validationCalls.length = 0;
+}
+
+/**
+ * Determines if a validation should pass based on configuration
+ * 
+ * @param validatorName - Name of the validator
+ * @param value - Value being validated
+ * @param context - Additional validation context
+ * @returns Whether validation should pass
+ */
+function shouldValidationPass(
+  validatorName: string,
+  value: any,
+  context: Record<string, any> = {}
+): boolean {
+  const config = validatorConfigs[validatorName];
+  
+  // If there's a custom validation function, use it
+  if (config?.validate) {
+    return config.validate(value);
+  }
+  
+  // Check journey-specific behavior
+  if (currentJourney && config?.journeyBehavior?.[currentJourney]?.result !== undefined) {
+    return config.journeyBehavior[currentJourney].result!;
+  }
+  
+  // Check validator-specific result
+  if (config?.result !== undefined) {
+    return config.result;
+  }
+  
+  // Check journey-specific global default
+  if (currentJourney && globalConfig.journeyBehavior?.[currentJourney]?.defaultResult !== undefined) {
+    return globalConfig.journeyBehavior[currentJourney].defaultResult!;
+  }
+  
+  // Fall back to global default
+  return globalConfig.defaultResult ?? true;
+}
+
+/**
+ * Gets the error message for a failed validation
+ * 
+ * @param validatorName - Name of the validator
+ * @returns Error message
+ */
+function getErrorMessage(validatorName: string): string {
+  const config = validatorConfigs[validatorName];
+  
+  // Check journey-specific message
+  if (currentJourney && config?.journeyBehavior?.[currentJourney]?.message) {
+    return config.journeyBehavior[currentJourney].message!;
+  }
+  
+  // Check validator-specific message
+  if (config?.message) {
+    return config.message;
+  }
+  
+  // Default error message
+  return `Validation failed for ${validatorName}`;
+}
+
+/**
+ * Records a validation call if tracking is enabled
+ * 
+ * @param validatorName - Name of the validator
+ * @param value - Value that was validated
+ * @param result - Whether validation passed
+ * @param context - Additional validation context
+ */
+function trackValidation(
+  validatorName: string,
+  value: any,
+  result: boolean,
+  context: Record<string, any> = {}
+): void {
+  if (globalConfig.trackCalls) {
+    validationCalls.push({
+      validator: validatorName,
+      value,
+      result,
+      context: { ...context, journey: currentJourney },
+      timestamp: Date.now(),
+    });
+  }
+}
+
+// ===== class-validator Mocks =====
+
+/**
+ * Creates a mock class-validator decorator
+ * 
+ * @param name - Name of the decorator
+ * @returns Mock decorator function
+ */
+function createDecoratorMock(name: string) {
   return function(...args: any[]) {
     return function(target: any, propertyKey: string) {
-      if (globalConfig.debug) {
-        console.log(`@${name} applied to ${propertyKey}`, args);
-      }
-      // This is just a mock decorator that doesn't do anything at runtime
-      // The actual validation happens when validate() is called
+      // Store metadata about the decoration if needed
+      const existingValidations = Reflect.getMetadata('validations', target.constructor) || {};
+      existingValidations[propertyKey] = existingValidations[propertyKey] || [];
+      existingValidations[propertyKey].push({ decorator: name, args });
+      Reflect.defineMetadata('validations', existingValidations, target.constructor);
+      
+      // Return the actual decorator function (no-op in mock)
+      return target;
     };
   };
 }
 
 /**
  * Mock implementation of class-validator's validate function
+ * 
+ * @param object - Object to validate
+ * @param options - Validation options
+ * @returns Promise resolving to validation errors
  */
-export function validate(object: any, options?: any): Promise<ValidationError[]> {
-  if (globalConfig.debug) {
-    console.log('validate() called with:', object, options);
-  }
-  
-  const errors: ValidationError[] = [];
-  
-  // Check each property in the object
-  for (const prop in object) {
-    if (!shouldValidationPass(prop, object[prop])) {
-      const errorMessage = getErrorMessage(prop);
-      errors.push(new ValidationError(prop, { [prop]: errorMessage }));
-    }
-  }
-  
-  return Promise.resolve(errors);
-}
-
-/**
- * Mock implementation of class-validator's validateOrReject function
- */
-export function validateOrReject(object: any, options?: any): Promise<void> {
-  return validate(object, options).then(errors => {
-    if (errors.length > 0) {
-      return Promise.reject(errors);
-    }
-    return Promise.resolve();
-  });
+export async function validate(object: object, options?: any): Promise<any[]> {
+  return validateSync(object, options);
 }
 
 /**
  * Mock implementation of class-validator's validateSync function
+ * 
+ * @param object - Object to validate
+ * @param options - Validation options
+ * @returns Validation errors
  */
-export function validateSync(object: any, options?: any): ValidationError[] {
-  if (globalConfig.debug) {
-    console.log('validateSync() called with:', object, options);
+export function validateSync(object: object, options?: any): any[] {
+  const result = shouldValidationPass('validateSync', object, { options });
+  trackValidation('validateSync', object, result, { options });
+  
+  if (result) {
+    return [];
   }
   
-  const errors: ValidationError[] = [];
-  
-  // Check each property in the object
-  for (const prop in object) {
-    if (!shouldValidationPass(prop, object[prop])) {
-      const errorMessage = getErrorMessage(prop);
-      errors.push(new ValidationError(prop, { [prop]: errorMessage }));
+  // Create mock validation errors
+  const errors: any[] = [];
+  for (const key in object) {
+    if (Object.prototype.hasOwnProperty.call(object, key)) {
+      const validatorName = `validateSync:${key}`;
+      const propertyResult = shouldValidationPass(validatorName, (object as any)[key]);
+      
+      if (!propertyResult) {
+        errors.push({
+          target: object,
+          property: key,
+          value: (object as any)[key],
+          constraints: {
+            [validatorName]: getErrorMessage(validatorName),
+          },
+          children: [],
+        });
+      }
     }
   }
   
@@ -220,701 +323,636 @@ export function validateSync(object: any, options?: any): ValidationError[] {
 }
 
 // Common class-validator decorators
-export const IsString = createValidatorDecorator('IsString');
-export const IsEmail = createValidatorDecorator('IsEmail');
-export const IsNumber = createValidatorDecorator('IsNumber');
-export const IsBoolean = createValidatorDecorator('IsBoolean');
-export const IsDate = createValidatorDecorator('IsDate');
-export const IsOptional = createValidatorDecorator('IsOptional');
-export const IsNotEmpty = createValidatorDecorator('IsNotEmpty');
-export const MinLength = createValidatorDecorator('MinLength');
-export const MaxLength = createValidatorDecorator('MaxLength');
-export const Min = createValidatorDecorator('Min');
-export const Max = createValidatorDecorator('Max');
-export const IsPositive = createValidatorDecorator('IsPositive');
-export const IsNegative = createValidatorDecorator('IsNegative');
-export const Contains = createValidatorDecorator('Contains');
-export const IsInt = createValidatorDecorator('IsInt');
-export const IsArray = createValidatorDecorator('IsArray');
-export const ArrayMinSize = createValidatorDecorator('ArrayMinSize');
-export const ArrayMaxSize = createValidatorDecorator('ArrayMaxSize');
-export const IsEnum = createValidatorDecorator('IsEnum');
-export const IsFQDN = createValidatorDecorator('IsFQDN');
-export const IsUrl = createValidatorDecorator('IsUrl');
-export const IsUUID = createValidatorDecorator('IsUUID');
-export const Length = createValidatorDecorator('Length');
-export const Matches = createValidatorDecorator('Matches');
-export const IsDefined = createValidatorDecorator('IsDefined');
-export const ValidateNested = createValidatorDecorator('ValidateNested');
+export const IsString = createDecoratorMock('IsString');
+export const IsNumber = createDecoratorMock('IsNumber');
+export const IsBoolean = createDecoratorMock('IsBoolean');
+export const IsDate = createDecoratorMock('IsDate');
+export const IsEmail = createDecoratorMock('IsEmail');
+export const IsOptional = createDecoratorMock('IsOptional');
+export const IsNotEmpty = createDecoratorMock('IsNotEmpty');
+export const MinLength = createDecoratorMock('MinLength');
+export const MaxLength = createDecoratorMock('MaxLength');
+export const Min = createDecoratorMock('Min');
+export const Max = createDecoratorMock('Max');
+export const IsEnum = createDecoratorMock('IsEnum');
+export const IsArray = createDecoratorMock('IsArray');
+export const ArrayMinSize = createDecoratorMock('ArrayMinSize');
+export const ArrayMaxSize = createDecoratorMock('ArrayMaxSize');
+export const IsObject = createDecoratorMock('IsObject');
+export const ValidateNested = createDecoratorMock('ValidateNested');
+export const IsPositive = createDecoratorMock('IsPositive');
+export const IsNegative = createDecoratorMock('IsNegative');
+export const IsInt = createDecoratorMock('IsInt');
+export const IsUrl = createDecoratorMock('IsUrl');
 
-// ===== Zod Mock =====
+// ===== Zod Mocks =====
 
 /**
- * Mock implementation of Zod's ZodError
+ * Creates a mock Zod schema
+ * 
+ * @param schemaType - Type of schema
+ * @returns Mock Zod schema
  */
-export class ZodError extends Error {
-  issues: Array<{ path: string[]; message: string; code: string }>;
+function createZodSchemaMock(schemaType: string) {
+  const schema = {
+    _type: schemaType,
+    
+    // Common schema methods
+    optional: () => createZodSchemaMock(`${schemaType}.optional`),
+    nullable: () => createZodSchemaMock(`${schemaType}.nullable`),
+    nullish: () => createZodSchemaMock(`${schemaType}.nullish`),
+    array: () => createZodSchemaMock(`${schemaType}.array`),
+    or: (schema: any) => createZodSchemaMock(`${schemaType}.or`),
+    and: (schema: any) => createZodSchemaMock(`${schemaType}.and`),
+    
+    // Refinement methods
+    refine: (check: any, message?: any) => createZodSchemaMock(`${schemaType}.refine`),
+    superRefine: (check: any) => createZodSchemaMock(`${schemaType}.superRefine`),
+    transform: (fn: any) => createZodSchemaMock(`${schemaType}.transform`),
+    
+    // Validation methods
+    parse: (data: any) => {
+      const result = shouldValidationPass(`${schemaType}.parse`, data);
+      trackValidation(`${schemaType}.parse`, data, result);
+      
+      if (!result) {
+        throw createZodError(schemaType, data);
+      }
+      
+      return data;
+    },
+    safeParse: (data: any) => {
+      const result = shouldValidationPass(`${schemaType}.safeParse`, data);
+      trackValidation(`${schemaType}.safeParse`, data, result);
+      
+      if (result) {
+        return { success: true, data };
+      } else {
+        return { success: false, error: createZodError(schemaType, data) };
+      }
+    },
+    parseAsync: async (data: any) => {
+      return schema.parse(data);
+    },
+    safeParseAsync: async (data: any) => {
+      return schema.safeParse(data);
+    },
+    
+    // Type-specific methods
+    ...(schemaType === 'string' ? {
+      min: (min: number, message?: string) => createZodSchemaMock(`${schemaType}.min`),
+      max: (max: number, message?: string) => createZodSchemaMock(`${schemaType}.max`),
+      length: (len: number, message?: string) => createZodSchemaMock(`${schemaType}.length`),
+      email: (message?: string) => createZodSchemaMock(`${schemaType}.email`),
+      url: (message?: string) => createZodSchemaMock(`${schemaType}.url`),
+      uuid: (message?: string) => createZodSchemaMock(`${schemaType}.uuid`),
+      regex: (regex: RegExp, message?: string) => createZodSchemaMock(`${schemaType}.regex`),
+    } : {}),
+    
+    ...(schemaType === 'number' ? {
+      min: (min: number, message?: string) => createZodSchemaMock(`${schemaType}.min`),
+      max: (max: number, message?: string) => createZodSchemaMock(`${schemaType}.max`),
+      int: (message?: string) => createZodSchemaMock(`${schemaType}.int`),
+      positive: (message?: string) => createZodSchemaMock(`${schemaType}.positive`),
+      negative: (message?: string) => createZodSchemaMock(`${schemaType}.negative`),
+    } : {}),
+    
+    ...(schemaType === 'array' ? {
+      min: (min: number, message?: string) => createZodSchemaMock(`${schemaType}.min`),
+      max: (max: number, message?: string) => createZodSchemaMock(`${schemaType}.max`),
+      length: (len: number, message?: string) => createZodSchemaMock(`${schemaType}.length`),
+      nonempty: (message?: string) => createZodSchemaMock(`${schemaType}.nonempty`),
+    } : {}),
+    
+    ...(schemaType === 'object' ? {
+      shape: (shape: any) => createZodSchemaMock(`${schemaType}.shape`),
+      extend: (shape: any) => createZodSchemaMock(`${schemaType}.extend`),
+      merge: (schema: any) => createZodSchemaMock(`${schemaType}.merge`),
+      pick: (keys: any) => createZodSchemaMock(`${schemaType}.pick`),
+      omit: (keys: any) => createZodSchemaMock(`${schemaType}.omit`),
+      partial: () => createZodSchemaMock(`${schemaType}.partial`),
+      deepPartial: () => createZodSchemaMock(`${schemaType}.deepPartial`),
+    } : {}),
+    
+    // Error handling
+    catch: (defaultValue: any) => defaultValue,
+    default: (defaultValue: any) => defaultValue,
+    
+    // Metadata
+    describe: (description: string) => schema,
+    pipe: (schema: any) => createZodSchemaMock(`${schemaType}.pipe`),
+    brand: () => createZodSchemaMock(`${schemaType}.brand`),
+    withErrorMap: (errorMap: any) => schema,
+  };
   
-  constructor(issues: Array<{ path: string[]; message: string; code: string }>) {
-    super('Validation failed');
-    this.name = 'ZodError';
-    this.issues = issues;
-  }
-  
-  static create(issues: Array<{ path: string[]; message: string; code: string }>): ZodError {
-    return new ZodError(issues);
-  }
+  return schema;
 }
 
 /**
- * Base class for all Zod schema types
+ * Creates a mock Zod error
+ * 
+ * @param schemaType - Type of schema that produced the error
+ * @param value - Value that failed validation
+ * @returns Mock Zod error
  */
-class ZodType<T> {
-  _type!: T;
+function createZodError(schemaType: string, value: any) {
+  const errorMessage = getErrorMessage(`${schemaType}`);
   
-  constructor(private typeName: string) {}
-  
-  parse(data: unknown): T {
-    if (globalConfig.debug) {
-      console.log(`Zod ${this.typeName}.parse() called with:`, data);
-    }
-    
-    const property = typeof data === 'object' && data !== null ? Object.keys(data)[0] : undefined;
-    
-    if (!shouldValidationPass(property, data)) {
-      const errorMessage = getErrorMessage(property);
-      throw ZodError.create([{ 
-        path: property ? [property] : [], 
-        message: errorMessage, 
-        code: 'invalid_type' 
-      }]);
-    }
-    
-    return data as T;
-  }
-  
-  safeParse(data: unknown): { success: true; data: T } | { success: false; error: ZodError } {
-    try {
-      const result = this.parse(data);
-      return { success: true, data: result };
-    } catch (error) {
-      if (error instanceof ZodError) {
-        return { success: false, error };
-      }
-      throw error;
-    }
-  }
-  
-  optional(): ZodType<T | undefined> {
-    return new ZodType<T | undefined>(`${this.typeName} | undefined`);
-  }
-  
-  nullable(): ZodType<T | null> {
-    return new ZodType<T | null>(`${this.typeName} | null`);
-  }
-  
-  array(): ZodType<T[]> {
-    return new ZodType<T[]>(`${this.typeName}[]`);
-  }
-  
-  // Common validation methods
-  min(value: number, message?: string): this { return this; }
-  max(value: number, message?: string): this { return this; }
-  length(value: number, message?: string): this { return this; }
-  email(message?: string): this { return this; }
-  url(message?: string): this { return this; }
-  uuid(message?: string): this { return this; }
-  regex(pattern: RegExp, message?: string): this { return this; }
-  startsWith(value: string, message?: string): this { return this; }
-  endsWith(value: string, message?: string): this { return this; }
-  transform<U>(fn: (arg: T) => U): ZodType<U> {
-    return new ZodType<U>('transformed');
-  }
+  return {
+    name: 'ZodError',
+    message: errorMessage,
+    errors: [
+      {
+        code: 'custom',
+        path: [],
+        message: errorMessage,
+      },
+    ],
+    format: () => ({
+      _errors: [errorMessage],
+    }),
+    flatten: () => ({
+      formErrors: [errorMessage],
+      fieldErrors: {},
+    }),
+  };
 }
 
 /**
  * Mock implementation of Zod
  */
 export const z = {
-  string: () => new ZodType<string>('string'),
-  number: () => new ZodType<number>('number'),
-  boolean: () => new ZodType<boolean>('boolean'),
-  date: () => new ZodType<Date>('date'),
-  null: () => new ZodType<null>('null'),
-  undefined: () => new ZodType<undefined>('undefined'),
-  any: () => new ZodType<any>('any'),
-  unknown: () => new ZodType<unknown>('unknown'),
-  void: () => new ZodType<void>('void'),
-  never: () => new ZodType<never>('never'),
+  string: (options?: any) => createZodSchemaMock('string'),
+  number: (options?: any) => createZodSchemaMock('number'),
+  boolean: (options?: any) => createZodSchemaMock('boolean'),
+  date: (options?: any) => createZodSchemaMock('date'),
+  array: (schema?: any) => createZodSchemaMock('array'),
+  object: (shape?: any) => createZodSchemaMock('object'),
+  enum: (values: any) => createZodSchemaMock('enum'),
+  union: (schemas: any[]) => createZodSchemaMock('union'),
+  intersection: (schemas: any[]) => createZodSchemaMock('intersection'),
+  literal: (value: any) => createZodSchemaMock('literal'),
+  record: (schema?: any) => createZodSchemaMock('record'),
+  map: (keySchema?: any, valueSchema?: any) => createZodSchemaMock('map'),
+  set: (schema?: any) => createZodSchemaMock('set'),
+  function: () => createZodSchemaMock('function'),
+  lazy: (fn: any) => createZodSchemaMock('lazy'),
+  promise: (schema?: any) => createZodSchemaMock('promise'),
+  any: () => createZodSchemaMock('any'),
+  unknown: () => createZodSchemaMock('unknown'),
+  void: () => createZodSchemaMock('void'),
+  null: () => createZodSchemaMock('null'),
+  undefined: () => createZodSchemaMock('undefined'),
+  never: () => createZodSchemaMock('never'),
+  custom: (validator?: any) => createZodSchemaMock('custom'),
   
-  array: <T>(schema?: ZodType<T>) => new ZodType<T[]>('array'),
+  // Type aliases
+  optional: (schema: any) => schema.optional(),
+  nullable: (schema: any) => schema.nullable(),
   
-  object: <T extends Record<string, any>>(shape?: Record<string, ZodType<any>>) => {
-    const obj = new ZodType<T>('object');
-    
-    // Add additional methods specific to object schemas
-    Object.assign(obj, {
-      shape: <S extends Record<string, ZodType<any>>>(shape: S) => obj,
-      extend: <U extends Record<string, ZodType<any>>>(extension: U) => obj,
-      pick: <K extends keyof T>(keys: K[]) => obj,
-      omit: <K extends keyof T>(keys: K[]) => obj,
-      partial: () => obj,
-      deepPartial: () => obj,
-      required: () => obj,
-      strict: () => obj,
-      passthrough: () => obj,
-      catchall: (schema: ZodType<any>) => obj,
-    });
-    
-    return obj;
+  // Enums for error codes
+  ZodIssueCode: {
+    invalid_type: 'invalid_type',
+    invalid_literal: 'invalid_literal',
+    custom: 'custom',
+    invalid_union: 'invalid_union',
+    invalid_union_discriminator: 'invalid_union_discriminator',
+    invalid_enum_value: 'invalid_enum_value',
+    unrecognized_keys: 'unrecognized_keys',
+    invalid_arguments: 'invalid_arguments',
+    invalid_return_type: 'invalid_return_type',
+    invalid_date: 'invalid_date',
+    invalid_string: 'invalid_string',
+    too_small: 'too_small',
+    too_big: 'too_big',
+    invalid_intersection_types: 'invalid_intersection_types',
+    not_multiple_of: 'not_multiple_of',
+    not_finite: 'not_finite',
   },
   
-  union: <T extends [ZodType<any>, ...ZodType<any>[]]>(types: T) => {
-    return new ZodType<T[number]['_type']>('union');
-  },
-  
-  intersection: <T extends ZodType<any>, U extends ZodType<any>>(a: T, b: U) => {
-    return new ZodType<T['_type'] & U['_type']>('intersection');
-  },
-  
-  literal: <T extends string | number | boolean | null | undefined>(value: T) => {
-    return new ZodType<T>('literal');
-  },
-  
-  enum: <T extends [string, ...string[]]>(values: T) => {
-    return new ZodType<T[number]>('enum');
-  },
-  
-  record: <K extends ZodType<string | number | symbol>, V extends ZodType<any>>(
-    key: K,
-    value: V
-  ) => {
-    return new ZodType<Record<K['_type'], V['_type']>>('record');
-  },
-  
-  function: <Args extends any[], Return>() => {
-    return new ZodType<(...args: Args) => Return>('function');
-  },
-  
-  lazy: <T>(getter: () => ZodType<T>) => {
-    return new ZodType<T>('lazy');
-  },
-  
-  promise: <T>(schema: ZodType<T>) => {
-    return new ZodType<Promise<T>>('promise');
-  },
-  
-  ZodError,
+  // Utility functions
+  NEVER: Symbol('z.NEVER'),
 };
 
-// ===== Joi Mock =====
+// ===== Yup Mocks =====
 
 /**
- * Mock implementation of Joi's ValidationError
+ * Creates a mock Yup schema
+ * 
+ * @param schemaType - Type of schema
+ * @returns Mock Yup schema
  */
-export class JoiValidationError extends Error {
-  details: Array<{ message: string; path: string[]; type: string }>;
-  
-  constructor(message: string, details: Array<{ message: string; path: string[]; type: string }>) {
-    super(message);
-    this.name = 'ValidationError';
-    this.details = details;
-  }
-}
-
-/**
- * Base class for all Joi schema types
- */
-class JoiSchema<T> {
-  constructor(private typeName: string) {}
-  
-  validate(value: any, options?: any): { value: T; error?: JoiValidationError } {
-    if (globalConfig.debug) {
-      console.log(`Joi ${this.typeName}.validate() called with:`, value, options);
-    }
+function createYupSchemaMock(schemaType: string) {
+  const schema = {
+    _type: schemaType,
     
-    const property = typeof value === 'object' && value !== null ? Object.keys(value)[0] : undefined;
+    // Common schema methods
+    optional: () => createYupSchemaMock(`${schemaType}.optional`),
+    required: (message?: string) => createYupSchemaMock(`${schemaType}.required`),
+    nullable: () => createYupSchemaMock(`${schemaType}.nullable`),
+    default: (value: any) => createYupSchemaMock(`${schemaType}.default`),
+    defined: () => createYupSchemaMock(`${schemaType}.defined`),
+    typeError: (message: string) => createYupSchemaMock(`${schemaType}.typeError`),
+    oneOf: (values: any[], message?: string) => createYupSchemaMock(`${schemaType}.oneOf`),
+    notOneOf: (values: any[], message?: string) => createYupSchemaMock(`${schemaType}.notOneOf`),
+    when: (key: string, options: any) => createYupSchemaMock(`${schemaType}.when`),
+    test: (name: string, message: string, test: any) => createYupSchemaMock(`${schemaType}.test`),
+    transform: (fn: any) => createYupSchemaMock(`${schemaType}.transform`),
     
-    if (!shouldValidationPass(property, value)) {
-      const errorMessage = getErrorMessage(property);
-      const error = new JoiValidationError(errorMessage, [
-        { message: errorMessage, path: property ? [property] : [], type: 'any.invalid' }
-      ]);
-      return { value, error };
-    }
+    // Validation methods
+    validate: async (value: any, options?: any) => {
+      const result = shouldValidationPass(`${schemaType}.validate`, value, { options });
+      trackValidation(`${schemaType}.validate`, value, result, { options });
+      
+      if (!result) {
+        throw createYupError(schemaType, value);
+      }
+      
+      return value;
+    },
+    validateSync: (value: any, options?: any) => {
+      const result = shouldValidationPass(`${schemaType}.validateSync`, value, { options });
+      trackValidation(`${schemaType}.validateSync`, value, result, { options });
+      
+      if (!result) {
+        throw createYupError(schemaType, value);
+      }
+      
+      return value;
+    },
+    isValid: async (value: any, options?: any) => {
+      const result = shouldValidationPass(`${schemaType}.isValid`, value, { options });
+      trackValidation(`${schemaType}.isValid`, value, result, { options });
+      return result;
+    },
+    isValidSync: (value: any, options?: any) => {
+      const result = shouldValidationPass(`${schemaType}.isValidSync`, value, { options });
+      trackValidation(`${schemaType}.isValidSync`, value, result, { options });
+      return result;
+    },
+    cast: (value: any, options?: any) => value,
     
-    return { value: value as T };
-  }
-  
-  // Common validation methods
-  required(): this { return this; }
-  optional(): this { return this; }
-  allow(...values: any[]): this { return this; }
-  valid(...values: any[]): this { return this; }
-  invalid(...values: any[]): this { return this; }
-  default(value: any): this { return this; }
-  description(desc: string): this { return this; }
-  notes(notes: string | string[]): this { return this; }
-  tags(tags: string | string[]): this { return this; }
-  meta(meta: object): this { return this; }
-  example(example: any): this { return this; }
-  unit(name: string): this { return this; }
-  options(options: object): this { return this; }
-  strict(isStrict?: boolean): this { return this; }
-  concat(schema: JoiSchema<any>): this { return this; }
-  when(ref: string | object, options: object): this { return this; }
-  label(name: string): this { return this; }
-  raw(isRaw?: boolean): this { return this; }
-  warning(code: string, context?: object): this { return this; }
-  error(err: Error): this { return this; }
-  extend(...extensions: object[]): this { return this; }
-}
-
-/**
- * Mock implementation of Joi's string schema
- */
-class JoiStringSchema extends JoiSchema<string> {
-  constructor() {
-    super('string');
-  }
-  
-  // String-specific validation methods
-  min(limit: number): this { return this; }
-  max(limit: number): this { return this; }
-  length(limit: number): this { return this; }
-  pattern(regex: RegExp, name?: string): this { return this; }
-  regex(pattern: RegExp, name?: string): this { return this; }
-  alphanum(): this { return this; }
-  token(): this { return this; }
-  email(options?: object): this { return this; }
-  ip(options?: object): this { return this; }
-  uri(options?: object): this { return this; }
-  guid(options?: object): this { return this; }
-  hex(options?: object): this { return this; }
-  base64(options?: object): this { return this; }
-  dataUri(options?: object): this { return this; }
-  hostname(): this { return this; }
-  normalize(form?: string): this { return this; }
-  lowercase(): this { return this; }
-  uppercase(): this { return this; }
-  trim(): this { return this; }
-  replace(pattern: RegExp, replacement: string): this { return this; }
-n  truncate(enabled?: boolean): this { return this; }
-  isoDate(): this { return this; }
-  isoDuration(): this { return this; }
-}
-
-/**
- * Mock implementation of Joi's number schema
- */
-class JoiNumberSchema extends JoiSchema<number> {
-  constructor() {
-    super('number');
-  }
-  
-  // Number-specific validation methods
-  min(limit: number): this { return this; }
-  max(limit: number): this { return this; }
-  greater(limit: number): this { return this; }
-  less(limit: number): this { return this; }
-  integer(): this { return this; }
-  precision(limit: number): this { return this; }
-  multiple(base: number): this { return this; }
-  positive(): this { return this; }
-  negative(): this { return this; }
-  port(): this { return this; }
-}
-
-/**
- * Mock implementation of Joi's boolean schema
- */
-class JoiBooleanSchema extends JoiSchema<boolean> {
-  constructor() {
-    super('boolean');
-  }
-  
-  // Boolean-specific validation methods
-  truthy(...values: any[]): this { return this; }
-  falsy(...values: any[]): this { return this; }
-  sensitive(enabled?: boolean): this { return this; }
-}
-
-/**
- * Mock implementation of Joi's date schema
- */
-class JoiDateSchema extends JoiSchema<Date> {
-  constructor() {
-    super('date');
-  }
-  
-  // Date-specific validation methods
-  min(date: Date | string): this { return this; }
-  max(date: Date | string): this { return this; }
-  greater(date: Date | string): this { return this; }
-  less(date: Date | string): this { return this; }
-  iso(): this { return this; }
-  timestamp(type?: 'javascript' | 'unix'): this { return this; }
-}
-
-/**
- * Mock implementation of Joi's array schema
- */
-class JoiArraySchema<T> extends JoiSchema<T[]> {
-  constructor() {
-    super('array');
-  }
-  
-  // Array-specific validation methods
-  items(...types: JoiSchema<any>[]): this { return this; }
-  min(limit: number): this { return this; }
-  max(limit: number): this { return this; }
-  length(limit: number): this { return this; }
-  unique(comparator?: string | Function): this { return this; }
-  has(schema: JoiSchema<any>): this { return this; }
-  sparse(enabled?: boolean): this { return this; }
-  single(enabled?: boolean): this { return this; }
-  ordered(...types: JoiSchema<any>[]): this { return this; }
-}
-
-/**
- * Mock implementation of Joi's object schema
- */
-class JoiObjectSchema<T extends object> extends JoiSchema<T> {
-  constructor() {
-    super('object');
-  }
-  
-  // Object-specific validation methods
-  keys(schema?: object): this { return this; }
-  append(schema?: object): this { return this; }
-  min(limit: number): this { return this; }
-  max(limit: number): this { return this; }
-  length(limit: number): this { return this; }
-  pattern(pattern: RegExp | JoiSchema<any>, schema: JoiSchema<any>): this { return this; }
-  and(...peers: string[]): this { return this; }
-  nand(...peers: string[]): this { return this; }
-  or(...peers: string[]): this { return this; }
-  xor(...peers: string[]): this { return this; }
-  oxor(...peers: string[]): this { return this; }
-  with(key: string, peers: string | string[]): this { return this; }
-  without(key: string, peers: string | string[]): this { return this; }
-  rename(from: string, to: string, options?: object): this { return this; }
-  assert(ref: string | object, schema: JoiSchema<any>, message?: string): this { return this; }
-  unknown(allow?: boolean): this { return this; }
-  type(constructor: Function, name?: string): this { return this; }
-  schema(): this { return this; }
-  requiredKeys(...children: string[]): this { return this; }
-  optionalKeys(...children: string[]): this { return this; }
-  forbiddenKeys(...children: string[]): this { return this; }
-}
-
-/**
- * Mock implementation of Joi
- */
-export const Joi = {
-  string: () => new JoiStringSchema(),
-  number: () => new JoiNumberSchema(),
-  boolean: () => new JoiBooleanSchema(),
-  date: () => new JoiDateSchema(),
-  array: () => new JoiArraySchema(),
-  object: <T extends object>() => new JoiObjectSchema<T>(),
-  
-  any: () => new JoiSchema<any>('any'),
-  alternatives: (...alts: JoiSchema<any>[]) => new JoiSchema<any>('alternatives'),
-  ref: (key: string, options?: object) => ({ key, options }),
-  validate: <T>(value: any, schema: JoiSchema<T>, options?: object) => schema.validate(value, options),
-  
-  ValidationError: JoiValidationError,
-};
-
-// ===== Yup Mock =====
-
-/**
- * Mock implementation of Yup's ValidationError
- */
-export class YupValidationError extends Error {
-  path?: string;
-  errors: string[];
-  inner: YupValidationError[];
-  params: Record<string, any>;
-  value: any;
-  
-  constructor(message: string, errors: string[] = [], path?: string, inner: YupValidationError[] = [], params: Record<string, any> = {}, value?: any) {
-    super(message);
-    this.name = 'ValidationError';
-    this.path = path;
-    this.errors = errors;
-    this.inner = inner;
-    this.params = params;
-    this.value = value;
-  }
-}
-
-/**
- * Base class for all Yup schema types
- */
-class YupSchema<T> {
-  constructor(private typeName: string) {}
-  
-  validate(value: any, options?: any): Promise<T> {
-    if (globalConfig.debug) {
-      console.log(`Yup ${this.typeName}.validate() called with:`, value, options);
-    }
+    // Type-specific methods
+    ...(schemaType === 'string' ? {
+      min: (min: number, message?: string) => createYupSchemaMock(`${schemaType}.min`),
+      max: (max: number, message?: string) => createYupSchemaMock(`${schemaType}.max`),
+      length: (length: number, message?: string) => createYupSchemaMock(`${schemaType}.length`),
+      email: (message?: string) => createYupSchemaMock(`${schemaType}.email`),
+      url: (message?: string) => createYupSchemaMock(`${schemaType}.url`),
+      uuid: (message?: string) => createYupSchemaMock(`${schemaType}.uuid`),
+      matches: (regex: RegExp, message?: string) => createYupSchemaMock(`${schemaType}.matches`),
+      trim: (message?: string) => createYupSchemaMock(`${schemaType}.trim`),
+      lowercase: (message?: string) => createYupSchemaMock(`${schemaType}.lowercase`),
+      uppercase: (message?: string) => createYupSchemaMock(`${schemaType}.uppercase`),
+    } : {}),
     
-    const property = typeof value === 'object' && value !== null ? Object.keys(value)[0] : undefined;
+    ...(schemaType === 'number' ? {
+      min: (min: number, message?: string) => createYupSchemaMock(`${schemaType}.min`),
+      max: (max: number, message?: string) => createYupSchemaMock(`${schemaType}.max`),
+      lessThan: (less: number, message?: string) => createYupSchemaMock(`${schemaType}.lessThan`),
+      moreThan: (more: number, message?: string) => createYupSchemaMock(`${schemaType}.moreThan`),
+      positive: (message?: string) => createYupSchemaMock(`${schemaType}.positive`),
+      negative: (message?: string) => createYupSchemaMock(`${schemaType}.negative`),
+      integer: (message?: string) => createYupSchemaMock(`${schemaType}.integer`),
+    } : {}),
     
-    if (!shouldValidationPass(property, value)) {
-      const errorMessage = getErrorMessage(property);
-      const error = new YupValidationError(
-        errorMessage,
-        [errorMessage],
-        property,
-        [],
-        {},
-        value
-      );
-      return Promise.reject(error);
-    }
+    ...(schemaType === 'array' ? {
+      min: (min: number, message?: string) => createYupSchemaMock(`${schemaType}.min`),
+      max: (max: number, message?: string) => createYupSchemaMock(`${schemaType}.max`),
+      length: (length: number, message?: string) => createYupSchemaMock(`${schemaType}.length`),
+      of: (schema: any) => createYupSchemaMock(`${schemaType}.of`),
+    } : {}),
     
-    return Promise.resolve(value as T);
-  }
-  
-  validateSync(value: any, options?: any): T {
-    if (globalConfig.debug) {
-      console.log(`Yup ${this.typeName}.validateSync() called with:`, value, options);
-    }
+    ...(schemaType === 'object' ? {
+      shape: (shape: any) => createYupSchemaMock(`${schemaType}.shape`),
+      pick: (keys: string[]) => createYupSchemaMock(`${schemaType}.pick`),
+      omit: (keys: string[]) => createYupSchemaMock(`${schemaType}.omit`),
+      from: (fromKey: string, toKey: string, alias: boolean) => createYupSchemaMock(`${schemaType}.from`),
+      noUnknown: (onlyKnownKeys?: boolean, message?: string) => createYupSchemaMock(`${schemaType}.noUnknown`),
+      camelCase: () => createYupSchemaMock(`${schemaType}.camelCase`),
+      constantCase: () => createYupSchemaMock(`${schemaType}.constantCase`),
+    } : {}),
     
-    const property = typeof value === 'object' && value !== null ? Object.keys(value)[0] : undefined;
-    
-    if (!shouldValidationPass(property, value)) {
-      const errorMessage = getErrorMessage(property);
-      const error = new YupValidationError(
-        errorMessage,
-        [errorMessage],
-        property,
-        [],
-        {},
-        value
-      );
-      throw error;
-    }
-    
-    return value as T;
-  }
+    ...(schemaType === 'date' ? {
+      min: (min: Date, message?: string) => createYupSchemaMock(`${schemaType}.min`),
+      max: (max: Date, message?: string) => createYupSchemaMock(`${schemaType}.max`),
+    } : {}),
+  };
   
-  isValid(value: any, options?: any): Promise<boolean> {
-    return this.validate(value, options)
-      .then(() => true)
-      .catch(() => false);
-  }
-  
-  isValidSync(value: any, options?: any): boolean {
-    try {
-      this.validateSync(value, options);
-      return true;
-    } catch (error) {
-      return false;
-    }
-  }
-  
-  cast(value: any, options?: any): T {
-    return value as T;
-  }
-  
-  // Common validation methods
-  required(message?: string): this { return this; }
-  notRequired(): this { return this; }
-  nullable(isNullable?: boolean): this { return this; }
-  default(value: any): this { return this; }
-  oneOf(values: any[], message?: string): this { return this; }
-  notOneOf(values: any[], message?: string): this { return this; }
-  when(keys: string | string[], builder: Function): this { return this; }
-  typeError(message: string): this { return this; }
-  defined(message?: string): this { return this; }
-  strict(isStrict?: boolean): this { return this; }
-  strip(strip?: boolean): this { return this; }
-  test(name: string, message: string, test: Function): this { return this; }
-  transform(fn: Function): this { return this; }
+  return schema;
 }
 
 /**
- * Mock implementation of Yup's string schema
+ * Creates a mock Yup error
+ * 
+ * @param schemaType - Type of schema that produced the error
+ * @param value - Value that failed validation
+ * @returns Mock Yup error
  */
-class YupStringSchema extends YupSchema<string> {
-  constructor() {
-    super('string');
-  }
+function createYupError(schemaType: string, value: any) {
+  const errorMessage = getErrorMessage(`${schemaType}`);
   
-  // String-specific validation methods
-  min(limit: number, message?: string): this { return this; }
-  max(limit: number, message?: string): this { return this; }
-  length(limit: number, message?: string): this { return this; }
-  matches(regex: RegExp, message?: string): this { return this; }
-  email(message?: string): this { return this; }
-  url(message?: string): this { return this; }
-  uuid(message?: string): this { return this; }
-  ensure(): this { return this; }
-  trim(message?: string): this { return this; }
-  lowercase(message?: string): this { return this; }
-  uppercase(message?: string): this { return this; }
-}
-
-/**
- * Mock implementation of Yup's number schema
- */
-class YupNumberSchema extends YupSchema<number> {
-  constructor() {
-    super('number');
-  }
-  
-  // Number-specific validation methods
-  min(limit: number, message?: string): this { return this; }
-  max(limit: number, message?: string): this { return this; }
-  lessThan(max: number, message?: string): this { return this; }
-  moreThan(min: number, message?: string): this { return this; }
-  positive(message?: string): this { return this; }
-  negative(message?: string): this { return this; }
-  integer(message?: string): this { return this; }
-  round(type: 'floor' | 'ceil' | 'trunc' | 'round'): this { return this; }
-}
-
-/**
- * Mock implementation of Yup's boolean schema
- */
-class YupBooleanSchema extends YupSchema<boolean> {
-  constructor() {
-    super('boolean');
-  }
-  
-  // Boolean-specific validation methods
-  isTrue(message?: string): this { return this; }
-  isFalse(message?: string): this { return this; }
-}
-
-/**
- * Mock implementation of Yup's date schema
- */
-class YupDateSchema extends YupSchema<Date> {
-  constructor() {
-    super('date');
-  }
-  
-  // Date-specific validation methods
-  min(limit: Date | string, message?: string): this { return this; }
-  max(limit: Date | string, message?: string): this { return this; }
-}
-
-/**
- * Mock implementation of Yup's array schema
- */
-class YupArraySchema<T> extends YupSchema<T[]> {
-  constructor() {
-    super('array');
-  }
-  
-  // Array-specific validation methods
-  of<U>(schema: YupSchema<U>): YupArraySchema<U> { return this as unknown as YupArraySchema<U>; }
-  min(limit: number, message?: string): this { return this; }
-  max(limit: number, message?: string): this { return this; }
-  length(limit: number, message?: string): this { return this; }
-  ensure(): this { return this; }
-  compact(rejector?: (value: any) => boolean): this { return this; }
-}
-
-/**
- * Mock implementation of Yup's object schema
- */
-class YupObjectSchema<T extends object> extends YupSchema<T> {
-  constructor() {
-    super('object');
-  }
-  
-  // Object-specific validation methods
-  shape<U extends object>(schema: Record<string, YupSchema<any>>, noSortEdges?: Array<[string, string]>): YupObjectSchema<U> { 
-    return this as unknown as YupObjectSchema<U>; 
-  }
-  
-  pick<U extends keyof T>(keys: U[]): YupObjectSchema<Pick<T, U>> { 
-    return this as unknown as YupObjectSchema<Pick<T, U>>; 
-  }
-  
-  omit<U extends keyof T>(keys: U[]): YupObjectSchema<Omit<T, U>> { 
-    return this as unknown as YupObjectSchema<Omit<T, U>>; 
-  }
-  
-  from(fromKey: string, toKey: string, alias?: boolean): this { return this; }
-  noUnknown(noAllow?: boolean, message?: string): this { return this; }
-  camelCase(): this { return this; }
-  constantCase(): this { return this; }
+  return {
+    name: 'ValidationError',
+    message: errorMessage,
+    value,
+    path: '',
+    type: 'validation',
+    errors: [errorMessage],
+    inner: [],
+  };
 }
 
 /**
  * Mock implementation of Yup
  */
 export const yup = {
-  string: () => new YupStringSchema(),
-  number: () => new YupNumberSchema(),
-  boolean: () => new YupBooleanSchema(),
-  date: () => new YupDateSchema(),
-  array: <T>() => new YupArraySchema<T>(),
-  object: <T extends object>() => new YupObjectSchema<T>(),
+  string: () => createYupSchemaMock('string'),
+  number: () => createYupSchemaMock('number'),
+  boolean: () => createYupSchemaMock('boolean'),
+  date: () => createYupSchemaMock('date'),
+  array: (schema?: any) => createYupSchemaMock('array'),
+  object: (shape?: any) => createYupSchemaMock('object'),
+  mixed: () => createYupSchemaMock('mixed'),
+  ref: (path: string, options?: any) => ({ __isYupRef: true, path }),
+  lazy: (fn: any) => createYupSchemaMock('lazy'),
   
-  mixed: <T>() => new YupSchema<T>('mixed'),
-  ref: (path: string, options?: object) => ({ path, options }),
-  lazy: (fn: (value: any) => YupSchema<any>) => new YupSchema<any>('lazy'),
-  
-  setLocale: (locale: object) => {},
-  ValidationError: YupValidationError,
+  // Validation methods
+  reach: (schema: any, path: string) => createYupSchemaMock('reach'),
+  addMethod: (schemaType: any, name: string, method: any) => {},
+  setLocale: (locale: any) => {},
+  isSchema: (obj: any) => true,
+  ValidationError: function(errors: any, value: any, path: string) {
+    return createYupError('ValidationError', value);
+  },
 };
 
-// Export all mocks
-export default {
-  // class-validator
-  validate,
-  validateOrReject,
-  validateSync,
-  ValidationError,
-  IsString,
-  IsEmail,
-  IsNumber,
-  IsBoolean,
-  IsDate,
-  IsOptional,
-  IsNotEmpty,
-  MinLength,
-  MaxLength,
-  Min,
-  Max,
-  IsPositive,
-  IsNegative,
-  Contains,
-  IsInt,
-  IsArray,
-  ArrayMinSize,
-  ArrayMaxSize,
-  IsEnum,
-  IsFQDN,
-  IsUrl,
-  IsUUID,
-  Length,
-  Matches,
-  IsDefined,
-  ValidateNested,
+// ===== Joi Mocks =====
+
+/**
+ * Creates a mock Joi schema
+ * 
+ * @param schemaType - Type of schema
+ * @returns Mock Joi schema
+ */
+function createJoiSchemaMock(schemaType: string) {
+  const schema = {
+    _type: schemaType,
+    
+    // Common schema methods
+    optional: () => createJoiSchemaMock(`${schemaType}.optional`),
+    required: () => createJoiSchemaMock(`${schemaType}.required`),
+    allow: (...values: any[]) => createJoiSchemaMock(`${schemaType}.allow`),
+    valid: (...values: any[]) => createJoiSchemaMock(`${schemaType}.valid`),
+    invalid: (...values: any[]) => createJoiSchemaMock(`${schemaType}.invalid`),
+    default: (value: any) => createJoiSchemaMock(`${schemaType}.default`),
+    description: (desc: string) => createJoiSchemaMock(`${schemaType}.description`),
+    notes: (notes: string | string[]) => createJoiSchemaMock(`${schemaType}.notes`),
+    tags: (tags: string | string[]) => createJoiSchemaMock(`${schemaType}.tags`),
+    example: (example: any) => createJoiSchemaMock(`${schemaType}.example`),
+    unit: (name: string) => createJoiSchemaMock(`${schemaType}.unit`),
+    when: (ref: any, options: any) => createJoiSchemaMock(`${schemaType}.when`),
+    label: (name: string) => createJoiSchemaMock(`${schemaType}.label`),
+    raw: () => createJoiSchemaMock(`${schemaType}.raw`),
+    
+    // Validation methods
+    validate: (value: any, options?: any) => {
+      const result = shouldValidationPass(`${schemaType}.validate`, value, { options });
+      trackValidation(`${schemaType}.validate`, value, result, { options });
+      
+      if (result) {
+        return { value, error: null };
+      } else {
+        return { value, error: createJoiError(schemaType, value) };
+      }
+    },
+    validateAsync: async (value: any, options?: any) => {
+      const result = shouldValidationPass(`${schemaType}.validateAsync`, value, { options });
+      trackValidation(`${schemaType}.validateAsync`, value, result, { options });
+      
+      if (result) {
+        return value;
+      } else {
+        throw createJoiError(schemaType, value);
+      }
+    },
+    
+    // Type-specific methods
+    ...(schemaType === 'string' ? {
+      min: (limit: number) => createJoiSchemaMock(`${schemaType}.min`),
+      max: (limit: number) => createJoiSchemaMock(`${schemaType}.max`),
+      length: (limit: number) => createJoiSchemaMock(`${schemaType}.length`),
+      email: (options?: any) => createJoiSchemaMock(`${schemaType}.email`),
+      uri: (options?: any) => createJoiSchemaMock(`${schemaType}.uri`),
+      uuid: (options?: any) => createJoiSchemaMock(`${schemaType}.uuid`),
+      pattern: (regex: RegExp, name?: string) => createJoiSchemaMock(`${schemaType}.pattern`),
+      alphanum: () => createJoiSchemaMock(`${schemaType}.alphanum`),
+      token: () => createJoiSchemaMock(`${schemaType}.token`),
+      trim: () => createJoiSchemaMock(`${schemaType}.trim`),
+      lowercase: () => createJoiSchemaMock(`${schemaType}.lowercase`),
+      uppercase: () => createJoiSchemaMock(`${schemaType}.uppercase`),
+    } : {}),
+    
+    ...(schemaType === 'number' ? {
+      min: (limit: number) => createJoiSchemaMock(`${schemaType}.min`),
+      max: (limit: number) => createJoiSchemaMock(`${schemaType}.max`),
+      greater: (limit: number) => createJoiSchemaMock(`${schemaType}.greater`),
+      less: (limit: number) => createJoiSchemaMock(`${schemaType}.less`),
+      integer: () => createJoiSchemaMock(`${schemaType}.integer`),
+      precision: (limit: number) => createJoiSchemaMock(`${schemaType}.precision`),
+      multiple: (base: number) => createJoiSchemaMock(`${schemaType}.multiple`),
+      positive: () => createJoiSchemaMock(`${schemaType}.positive`),
+      negative: () => createJoiSchemaMock(`${schemaType}.negative`),
+      port: () => createJoiSchemaMock(`${schemaType}.port`),
+    } : {}),
+    
+    ...(schemaType === 'array' ? {
+      min: (limit: number) => createJoiSchemaMock(`${schemaType}.min`),
+      max: (limit: number) => createJoiSchemaMock(`${schemaType}.max`),
+      length: (limit: number) => createJoiSchemaMock(`${schemaType}.length`),
+      items: (...types: any[]) => createJoiSchemaMock(`${schemaType}.items`),
+      ordered: (...types: any[]) => createJoiSchemaMock(`${schemaType}.ordered`),
+      single: () => createJoiSchemaMock(`${schemaType}.single`),
+      sparse: (enabled?: boolean) => createJoiSchemaMock(`${schemaType}.sparse`),
+      unique: (comparator?: any) => createJoiSchemaMock(`${schemaType}.unique`),
+    } : {}),
+    
+    ...(schemaType === 'object' ? {
+      keys: (schema?: any) => createJoiSchemaMock(`${schemaType}.keys`),
+      append: (schema?: any) => createJoiSchemaMock(`${schemaType}.append`),
+      min: (limit: number) => createJoiSchemaMock(`${schemaType}.min`),
+      max: (limit: number) => createJoiSchemaMock(`${schemaType}.max`),
+      length: (limit: number) => createJoiSchemaMock(`${schemaType}.length`),
+      pattern: (pattern: RegExp, schema: any) => createJoiSchemaMock(`${schemaType}.pattern`),
+      and: (...peers: string[]) => createJoiSchemaMock(`${schemaType}.and`),
+      or: (...peers: string[]) => createJoiSchemaMock(`${schemaType}.or`),
+      xor: (...peers: string[]) => createJoiSchemaMock(`${schemaType}.xor`),
+      unknown: (allow?: boolean) => createJoiSchemaMock(`${schemaType}.unknown`),
+      rename: (from: string, to: string, options?: any) => createJoiSchemaMock(`${schemaType}.rename`),
+      assert: (ref: any, schema: any, message?: string) => createJoiSchemaMock(`${schemaType}.assert`),
+      instance: (constructor: any) => createJoiSchemaMock(`${schemaType}.instance`),
+    } : {}),
+    
+    ...(schemaType === 'date' ? {
+      min: (date: string | number | Date) => createJoiSchemaMock(`${schemaType}.min`),
+      max: (date: string | number | Date) => createJoiSchemaMock(`${schemaType}.max`),
+      greater: (date: string | number | Date) => createJoiSchemaMock(`${schemaType}.greater`),
+      less: (date: string | number | Date) => createJoiSchemaMock(`${schemaType}.less`),
+      iso: () => createJoiSchemaMock(`${schemaType}.iso`),
+      timestamp: (type?: 'javascript' | 'unix') => createJoiSchemaMock(`${schemaType}.timestamp`),
+    } : {}),
+  };
   
-  // Zod
-  z,
-  ZodError,
+  return schema;
+}
+
+/**
+ * Creates a mock Joi error
+ * 
+ * @param schemaType - Type of schema that produced the error
+ * @param value - Value that failed validation
+ * @returns Mock Joi error
+ */
+function createJoiError(schemaType: string, value: any) {
+  const errorMessage = getErrorMessage(`${schemaType}`);
   
-  // Joi
-  Joi,
-  JoiValidationError,
+  return {
+    name: 'ValidationError',
+    isJoi: true,
+    details: [
+      {
+        message: errorMessage,
+        path: [],
+        type: 'any.invalid',
+        context: { value },
+      },
+    ],
+    _object: value,
+    message: errorMessage,
+    annotate: () => errorMessage,
+  };
+}
+
+/**
+ * Mock implementation of Joi
+ */
+export const Joi = {
+  string: () => createJoiSchemaMock('string'),
+  number: () => createJoiSchemaMock('number'),
+  boolean: () => createJoiSchemaMock('boolean'),
+  date: () => createJoiSchemaMock('date'),
+  array: () => createJoiSchemaMock('array'),
+  object: (schema?: any) => createJoiSchemaMock('object'),
+  alternatives: (...alts: any[]) => createJoiSchemaMock('alternatives'),
+  any: () => createJoiSchemaMock('any'),
+  binary: () => createJoiSchemaMock('binary'),
+  func: () => createJoiSchemaMock('function'),
+  symbol: () => createJoiSchemaMock('symbol'),
   
-  // Yup
-  yup,
-  YupValidationError,
+  // Validation methods
+  validate: (value: any, schema: any, options?: any) => {
+    const result = shouldValidationPass('Joi.validate', value, { schema, options });
+    trackValidation('Joi.validate', value, result, { schema, options });
+    
+    if (result) {
+      return { value, error: null };
+    } else {
+      return { value, error: createJoiError('Joi.validate', value) };
+    }
+  },
+  assert: (value: any, schema: any, message?: string) => {
+    const result = shouldValidationPass('Joi.assert', value, { schema, message });
+    trackValidation('Joi.assert', value, result, { schema, message });
+    
+    if (!result) {
+      throw createJoiError('Joi.assert', value);
+    }
+  },
+  attempt: (value: any, schema: any, message?: string) => {
+    const result = shouldValidationPass('Joi.attempt', value, { schema, message });
+    trackValidation('Joi.attempt', value, result, { schema, message });
+    
+    if (!result) {
+      throw createJoiError('Joi.attempt', value);
+    }
+    
+    return value;
+  },
   
-  // Configuration
-  configureValidationMock,
-  configureValidationRule,
-  resetValidationMock,
+  // Utility methods
+  ref: (path: string, options?: any) => ({ isJoiRef: true, path }),
+  isRef: (ref: any) => ref && ref.isJoiRef === true,
+  isSchema: (schema: any) => schema && schema._type !== undefined,
+  expression: (template: string) => ({ isJoiExpression: true, template }),
+  reach: (schema: any, path: string) => createJoiSchemaMock('reach'),
 };
+
+// ===== Journey-Specific Validation Mocks =====
+
+/**
+ * Creates journey-specific validation mocks
+ * 
+ * @param journey - Journey identifier
+ * @returns Journey-specific validation utilities
+ */
+export function createJourneyValidation(journey: 'health' | 'care' | 'plan') {
+  return {
+    /**
+     * Sets the current journey context for validation
+     */
+    setContext: () => {
+      setValidationJourney(journey);
+    },
+    
+    /**
+     * Clears the current journey context
+     */
+    clearContext: () => {
+      setValidationJourney(null);
+    },
+    
+    /**
+     * Configures journey-specific validation behavior
+     * 
+     * @param config - Journey validation configuration
+     */
+    configure: (config: { defaultResult?: boolean }) => {
+      if (!globalConfig.journeyBehavior) {
+        globalConfig.journeyBehavior = {};
+      }
+      globalConfig.journeyBehavior[journey] = config;
+    },
+    
+    /**
+     * Configures a specific validator for this journey
+     * 
+     * @param validatorName - Name of the validator
+     * @param config - Validator configuration for this journey
+     */
+    configureValidator: (validatorName: string, config: { result?: boolean; message?: string }) => {
+      if (!validatorConfigs[validatorName]) {
+        validatorConfigs[validatorName] = { journeyBehavior: {} };
+      }
+      if (!validatorConfigs[validatorName].journeyBehavior) {
+        validatorConfigs[validatorName].journeyBehavior = {};
+      }
+      validatorConfigs[validatorName].journeyBehavior![journey] = config;
+    },
+    
+    /**
+     * Gets validation calls for this journey
+     * 
+     * @returns Array of validation calls for this journey
+     */
+    getValidationCalls: () => {
+      return validationCalls.filter(call => call.context?.journey === journey);
+    },
+  };
+}
+
+/**
+ * Journey-specific validation mocks
+ */
+export const healthValidation = createJourneyValidation('health');
+export const careValidation = createJourneyValidation('care');
+export const planValidation = createJourneyValidation('plan');

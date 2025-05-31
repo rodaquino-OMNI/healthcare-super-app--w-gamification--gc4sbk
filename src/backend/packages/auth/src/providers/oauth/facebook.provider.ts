@@ -1,219 +1,206 @@
+/**
+ * @file Facebook OAuth Provider
+ * 
+ * This file implements the Facebook OAuth provider for the AUSTA SuperApp.
+ * It handles Facebook-specific authentication flow, token validation, and profile normalization.
+ * The provider configures app ID, secret, and callback URL from environment variables and
+ * extracts standardized user profile information from Facebook's graph API responses.
+ */
+
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PassportStrategy } from '@nestjs/passport';
 import { Strategy } from 'passport-facebook';
-import axios from 'axios';
-import * as crypto from 'crypto';
-import { AuthService } from '../../auth.service';
-import { OAuthProfile, FacebookOAuthConfig } from './interfaces';
+import { AuthenticationError } from '@austa/errors/journey';
+import { LoggerService } from '@austa/logging';
+
+import {
+  FacebookProfile,
+  FacebookOAuthConfig,
+  OAuthToken,
+  OAuthUserData
+} from './interfaces';
 
 /**
- * Facebook OAuth provider implementation for the AUSTA SuperApp.
+ * Facebook OAuth provider implementation that extends the PassportStrategy.
  * Handles Facebook-specific authentication flow, token validation, and profile normalization.
  * 
- * This provider extends the PassportStrategy class and configures it with Facebook-specific
- * settings. It extracts standardized user profile information from Facebook's graph API responses
- * and validates Facebook access tokens with improved security checks.
- * 
- * Implements OAuth 2.0 security best practices including:
- * - Token validation with Facebook's Graph API
- * - CSRF protection with state parameter
- * - App secret proof for enhanced security
- * - Minimal scope access
- * - Comprehensive error handling
- * 
- * @example
- * ```typescript
- * // In your auth module
- * @Module({
- *   providers: [FacebookProvider],
- * })
- * export class AuthModule {}
- * 
- * // In your controller
- * @Controller('auth')
- * export class AuthController {
- *   @Get('facebook')
- *   @UseGuards(AuthGuard('facebook'))
- *   async facebookAuth(@Req() req) {
- *     // Generate and store state parameter for CSRF protection
- *     req.session.oauthState = crypto.randomBytes(32).toString('hex');
- *     return { state: req.session.oauthState };
- *   }
- * 
- *   @Get('facebook/callback')
- *   @UseGuards(AuthGuard('facebook'))
- *   async facebookAuthCallback(@Req() req, @Query('state') state: string) {
- *     // Verify state parameter to prevent CSRF attacks
- *     if (state !== req.session.oauthState) {
- *       throw new UnauthorizedException('Invalid OAuth state');
- *     }
- *     // Clear the state after use
- *     delete req.session.oauthState;
- *     return this.authService.login(req.user);
- *   }
- * }
- * ```
+ * This provider is responsible for:
+ * - Configuring the Facebook OAuth strategy with app ID, secret, and callback URL
+ * - Validating Facebook access tokens with improved security checks
+ * - Normalizing Facebook profile data to a standardized format
+ * - Handling Facebook-specific authentication errors
  */
 @Injectable()
-export class FacebookProvider extends PassportStrategy(Strategy, 'facebook') {
-  private readonly logger = new Logger(FacebookProvider.name);
+export class FacebookOAuthProvider extends PassportStrategy(Strategy, 'facebook') {
+  private readonly logger = new Logger(FacebookOAuthProvider.name);
 
   /**
-   * Creates a new FacebookProvider instance.
+   * Creates a new instance of the FacebookOAuthProvider.
    * 
-   * @param configService - The NestJS ConfigService for retrieving environment variables
-   * @param authService - The AuthService for validating and creating users
+   * @param configService - The NestJS config service for accessing environment variables
+   * @param loggerService - The logger service for structured logging
    */
   constructor(
     private readonly configService: ConfigService,
-    private readonly authService: AuthService,
+    private readonly loggerService: LoggerService
   ) {
-    super({
+    // Configure the Facebook OAuth strategy with app ID, secret, and callback URL
+    const config: FacebookOAuthConfig = {
       clientID: configService.get<string>('FACEBOOK_APP_ID'),
       clientSecret: configService.get<string>('FACEBOOK_APP_SECRET'),
       callbackURL: configService.get<string>('FACEBOOK_CALLBACK_URL'),
-      profileFields: ['id', 'displayName', 'name', 'emails', 'photos', 'gender'],
-      scope: ['email', 'public_profile'], // Minimal scope for authentication
-      graphAPIVersion: 'v18.0', // Using the latest stable version
-      enableProof: true, // Enhances security by requiring app secret proof
-      // State parameter is handled in the controller for CSRF protection
-      passReqToCallback: true, // Pass request to callback for state validation
-      authType: 'reauthenticate', // Force re-authentication for better security
-      display: 'popup', // Use popup display for better UX
-    } as FacebookOAuthConfig);
+      profileFields: ['id', 'displayName', 'name', 'emails', 'photos', 'gender', 'birthday'],
+      enableProof: true, // Enhance security by requiring app secret proof
+    };
+
+    super(config);
+
+    this.logger.log('FacebookOAuthProvider initialized');
   }
 
   /**
-   * Validates the Facebook profile and creates or retrieves a user.
+   * Validates the Facebook authentication response and normalizes the profile.
+   * This method is called by Passport.js after successful authentication with Facebook.
    * 
-   * This method is called by Passport.js after a successful Facebook authentication.
-   * It validates the access token, normalizes the profile data, and creates or retrieves
-   * a user from the database.
-   * 
-   * @param req - The request object (if passReqToCallback is true)
    * @param accessToken - The Facebook access token
-   * @param refreshToken - The Facebook refresh token (not typically provided by Facebook)
-   * @param profile - The Facebook profile data
-   * @param done - The Passport.js callback function
+   * @param refreshToken - The Facebook refresh token (if available)
+   * @param profile - The Facebook profile information
+   * @returns A promise that resolves to the normalized user data
+   * @throws AuthenticationError if validation fails
    */
   async validate(
-    req: any,
     accessToken: string,
     refreshToken: string,
-    profile: any,
-    done: (error: any, user?: any) => void,
-  ): Promise<void> {
+    profile: FacebookProfile
+  ): Promise<OAuthUserData> {
     try {
-      this.logger.debug(`Validating Facebook profile: ${profile.id}`);
-      
-      // Validate the Facebook access token with improved security checks
-      const isValidToken = await this.validateFacebookToken(accessToken, profile.id);
-      if (!isValidToken) {
-        this.logger.warn(`Invalid Facebook token for profile: ${profile.id}`);
-        return done(new Error('Invalid Facebook token'), null);
-      }
+      this.loggerService.debug('Validating Facebook profile', {
+        profileId: profile.id,
+        provider: 'facebook'
+      });
 
-      // Map the Facebook profile to our standardized OAuthProfile format
-      const normalizedProfile = this.mapFacebookProfile(profile);
-      
-      // Validate or create the user in our system
-      const user = await this.authService.validateOAuthUser(normalizedProfile);
-      
-      if (!user) {
-        this.logger.warn(`Failed to validate or create user for Facebook profile: ${profile.id}`);
-        return done(new Error('Failed to validate or create user'), null);
-      }
-      
-      // Add additional security information to the user object
-      const secureUser = {
-        ...user,
-        oauthProvider: 'facebook',
-        oauthId: profile.id,
-        // Don't include the access token in the user object for security reasons
-        // It should be stored securely and separately if needed
+      // Validate the Facebook access token
+      await this.validateAccessToken(accessToken, profile.id);
+
+      // Extract and normalize the user data from the Facebook profile
+      const userData: OAuthUserData = {
+        provider: 'facebook',
+        providerId: profile.id,
+        email: this.extractEmail(profile),
+        name: profile.displayName || this.constructName(profile),
+        picture: this.extractProfilePicture(profile),
+        providerData: {
+          accessToken,
+          refreshToken: refreshToken || undefined,
+          gender: profile.gender,
+          birthday: profile.birthday,
+          profileUrl: profile.profileUrl
+        }
       };
-      
-      done(null, secureUser);
+
+      this.loggerService.debug('Facebook profile validated successfully', {
+        userId: userData.providerId,
+        provider: 'facebook'
+      });
+
+      return userData;
     } catch (error) {
-      this.logger.error(`Error validating Facebook profile: ${error.message}`, error.stack);
-      done(error, null);
+      this.loggerService.error('Facebook authentication failed', {
+        error: error.message,
+        profileId: profile?.id,
+        provider: 'facebook'
+      });
+
+      throw new AuthenticationError(
+        'Failed to authenticate with Facebook',
+        { cause: error }
+      );
     }
   }
 
   /**
-   * Validates a Facebook access token by calling the Facebook Graph API.
-   * 
-   * This method enhances security by verifying that the token is valid and belongs to the
-   * expected user. It also checks that the token was issued for our application.
+   * Validates the Facebook access token by making a request to the Facebook Graph API.
    * 
    * @param accessToken - The Facebook access token to validate
    * @param userId - The Facebook user ID to validate against
-   * @returns A boolean indicating whether the token is valid
+   * @returns A promise that resolves if the token is valid
+   * @throws Error if token validation fails
    */
-  private async validateFacebookToken(accessToken: string, userId: string): Promise<boolean> {
+  private async validateAccessToken(accessToken: string, userId: string): Promise<void> {
     try {
-      const appId = this.configService.get<string>('FACEBOOK_APP_ID');
-      const appSecret = this.configService.get<string>('FACEBOOK_APP_SECRET');
-      
-      // Generate app secret proof for enhanced security
-      const appSecretProof = crypto
-        .createHmac('sha256', appSecret)
-        .update(accessToken)
-        .digest('hex');
-      
-      // Call the Facebook Graph API to debug the token with app secret proof
-      const response = await axios.get(
-        `https://graph.facebook.com/debug_token?` +
-        `input_token=${accessToken}&` +
-        `access_token=${appId}|${appSecret}&` +
-        `appsecret_proof=${appSecretProof}`
+      // Facebook token validation endpoint
+      const response = await fetch(
+        `https://graph.facebook.com/debug_token?input_token=${accessToken}&access_token=${this.configService.get<string>('FACEBOOK_APP_ID')}|${this.configService.get<string>('FACEBOOK_APP_SECRET')}`,
+        { method: 'GET' }
       );
-      
-      const data = response.data.data;
-      
-      // Verify that the token is valid, not expired, and issued for our app and the correct user
-      // Also check the scopes to ensure they match what we expect
-      return (
-        data.is_valid &&
-        !data.expired &&
-        data.app_id === appId &&
-        data.user_id === userId &&
-        // Verify the token has the required scopes
-        data.scopes?.includes('email') &&
-        data.scopes?.includes('public_profile')
-      );
+
+      if (!response.ok) {
+        throw new Error(`Token validation failed with status: ${response.status}`);
+      }
+
+      const data = await response.json();
+
+      // Check if the token is valid and matches the user ID
+      if (!data.data?.is_valid || data.data?.user_id !== userId) {
+        throw new Error('Invalid access token or user ID mismatch');
+      }
+
+      this.loggerService.debug('Facebook access token validated', {
+        userId,
+        isValid: data.data?.is_valid
+      });
     } catch (error) {
-      this.logger.error(`Error validating Facebook token: ${error.message}`, error.stack);
-      return false;
+      this.loggerService.error('Facebook token validation failed', {
+        error: error.message,
+        userId
+      });
+      throw error;
     }
   }
 
   /**
-   * Maps a Facebook profile to our standardized OAuthProfile format.
+   * Extracts the email address from the Facebook profile.
    * 
-   * This method extracts the relevant information from the Facebook profile and
-   * normalizes it to our standard format for consistent handling across providers.
-   * 
-   * @param profile - The Facebook profile data
-   * @returns A normalized OAuthProfile object
+   * @param profile - The Facebook profile
+   * @returns The email address or undefined if not available
    */
-  private mapFacebookProfile(profile: any): OAuthProfile {
-    return {
-      id: profile.id,
-      provider: 'facebook',
-      displayName: profile.displayName,
-      firstName: profile.name?.givenName,
-      lastName: profile.name?.familyName,
-      middleName: profile.name?.middleName,
-      email: profile.emails?.[0]?.value,
-      emailVerified: Boolean(profile.emails?.[0]?.value),
-      picture: profile.photos?.[0]?.value,
-      gender: profile.gender,
-      locale: profile._json?.locale,
-      timezone: profile._json?.timezone,
-      _raw: profile._raw,
-      _json: profile._json,
-    };
+  private extractEmail(profile: FacebookProfile): string | undefined {
+    if (profile.emails && profile.emails.length > 0) {
+      return profile.emails[0].value;
+    }
+    return undefined;
+  }
+
+  /**
+   * Constructs a display name from the Facebook profile if displayName is not available.
+   * 
+   * @param profile - The Facebook profile
+   * @returns The constructed name or 'Facebook User' if name components are not available
+   */
+  private constructName(profile: FacebookProfile): string {
+    if (profile._json && profile._json.first_name && profile._json.last_name) {
+      return `${profile._json.first_name} ${profile._json.last_name}`;
+    }
+    return 'Facebook User';
+  }
+
+  /**
+   * Extracts the profile picture URL from the Facebook profile.
+   * 
+   * @param profile - The Facebook profile
+   * @returns The profile picture URL or undefined if not available
+   */
+  private extractProfilePicture(profile: FacebookProfile): string | undefined {
+    if (profile.photos && profile.photos.length > 0) {
+      return profile.photos[0].value;
+    }
+    
+    // Fallback to constructing the picture URL directly
+    if (profile.id) {
+      return `https://graph.facebook.com/${profile.id}/picture?type=large`;
+    }
+    
+    return undefined;
   }
 }

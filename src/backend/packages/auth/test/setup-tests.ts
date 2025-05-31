@@ -6,307 +6,313 @@
  * authentication assertions, and initializes test databases.
  */
 
-import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { LoggerService } from '@austa/logging';
+import { TokenService } from '../src/token.service';
+import { AuthService } from '../src/auth.service';
 import { PrismaService } from '@austa/database';
-import { ITokenPayload, IUser } from '../src/interfaces';
-import * as jwt from 'jsonwebtoken';
+import { ConfigService } from '@nestjs/config';
 
-// Import mocks
-import { 
-  mockLoggerService,
-  mockConfigService,
-  mockJwtService,
-  mockPrismaService,
-  mockTokenService,
-  mockDatabaseAuthProvider,
-  mockRedisService
-} from './mocks';
+// Import Jest types
+import { expect } from '@jest/globals';
 
-// Import test helpers
-import {
-  generateTestToken,
-  createBearerAuthHeader,
-  mockAuthenticatedRequest
-} from './helpers/jwt-token.helper';
-
-// Define global variables for test state
+// Define custom matchers for authentication assertions
 declare global {
-  // eslint-disable-next-line no-var
-  var testJwtSecret: string;
-  // eslint-disable-next-line no-var
-  var testRefreshSecret: string;
-  
   namespace jest {
     interface Matchers<R> {
       /**
-       * Custom matcher to check if a response contains a valid JWT token
+       * Custom matcher to verify if a JWT token is valid
+       * @param expectedPayload Optional expected payload to match against the token
        */
-      toContainValidJwtToken(): R;
+      toBeValidToken(expectedPayload?: Record<string, any>): R;
       
       /**
-       * Custom matcher to check if a user has specific permissions
+       * Custom matcher to verify if a token has specific permissions
+       * @param permissions Array of expected permissions
        */
-      toHavePermission(permission: string): R;
+      toHavePermissions(permissions: string[]): R;
       
       /**
-       * Custom matcher to check if a user belongs to a specific role
+       * Custom matcher to verify if a token belongs to a specific user
+       * @param userId Expected user ID
        */
-      toHaveRole(role: string): R;
+      toBelongToUser(userId: string | number): R;
       
       /**
-       * Custom matcher to check if a token is expired
+       * Custom matcher to verify if a token has specific roles
+       * @param roles Array of expected roles
        */
-      toBeExpiredToken(): R;
-      
-      /**
-       * Custom matcher to check if a token contains specific claims
-       */
-      toContainTokenClaim(claim: string, value?: any): R;
+      toHaveRoles(roles: string[]): R;
     }
   }
 }
 
-// Set up global test variables
-global.testJwtSecret = 'test-jwt-secret-key-for-auth-package-tests';
-global.testRefreshSecret = 'test-refresh-secret-key-for-auth-package-tests';
-
-// Mock external services before tests run
+// Mock services for external dependencies
 jest.mock('@austa/logging', () => ({
-  LoggerService: jest.fn().mockImplementation(() => mockLoggerService),
-}));
-
-jest.mock('@nestjs/config', () => ({
-  ConfigService: jest.fn().mockImplementation(() => mockConfigService),
+  LoggerService: jest.fn().mockImplementation(() => ({
+    log: jest.fn(),
+    error: jest.fn(),
+    warn: jest.fn(),
+    debug: jest.fn(),
+    verbose: jest.fn(),
+  })),
 }));
 
 jest.mock('@nestjs/jwt', () => ({
-  JwtService: jest.fn().mockImplementation(() => mockJwtService),
+  JwtService: jest.fn().mockImplementation(() => ({
+    sign: jest.fn().mockImplementation((payload) => {
+      // Create a mock token with the payload embedded for testing
+      return `mock_token.${Buffer.from(JSON.stringify(payload)).toString('base64')}.signature`;
+    }),
+    verify: jest.fn().mockImplementation((token) => {
+      // Extract and return the payload from the mock token
+      try {
+        const parts = token.split('.');
+        if (parts.length !== 3) throw new Error('Invalid token format');
+        return JSON.parse(Buffer.from(parts[1], 'base64').toString());
+      } catch (error) {
+        throw new Error('Invalid token');
+      }
+    }),
+    decode: jest.fn().mockImplementation((token) => {
+      // Extract and return the payload from the mock token without verification
+      try {
+        const parts = token.split('.');
+        if (parts.length !== 3) return null;
+        return JSON.parse(Buffer.from(parts[1], 'base64').toString());
+      } catch (error) {
+        return null;
+      }
+    }),
+  })),
+}));
+
+jest.mock('@nestjs/config', () => ({
+  ConfigService: jest.fn().mockImplementation(() => ({
+    get: jest.fn().mockImplementation((key) => {
+      // Mock configuration values for testing
+      const config = {
+        'authService.jwt.secret': 'test-secret',
+        'authService.jwt.accessTokenExpiration': '1h',
+        'authService.jwt.refreshTokenExpiration': '7d',
+      };
+      return config[key] || null;
+    }),
+  })),
 }));
 
 jest.mock('@austa/database', () => ({
-  PrismaService: jest.fn().mockImplementation(() => mockPrismaService),
+  PrismaService: jest.fn().mockImplementation(() => ({
+    // Mock database methods as needed for tests
+    user: {
+      findUnique: jest.fn(),
+      findFirst: jest.fn(),
+      findMany: jest.fn(),
+      create: jest.fn(),
+      update: jest.fn(),
+      delete: jest.fn(),
+    },
+    role: {
+      findUnique: jest.fn(),
+      findMany: jest.fn(),
+      create: jest.fn(),
+    },
+    permission: {
+      findMany: jest.fn(),
+      create: jest.fn(),
+    },
+    $transaction: jest.fn().mockImplementation((callback) => callback({
+      user: {
+        findUnique: jest.fn(),
+        findFirst: jest.fn(),
+        findMany: jest.fn(),
+        create: jest.fn(),
+        update: jest.fn(),
+        delete: jest.fn(),
+      },
+      role: {
+        findUnique: jest.fn(),
+        findMany: jest.fn(),
+        create: jest.fn(),
+      },
+      permission: {
+        findMany: jest.fn(),
+        create: jest.fn(),
+      },
+    })),
+    $connect: jest.fn(),
+    $disconnect: jest.fn(),
+  })),
 }));
 
-// Set up Redis mock
-jest.mock('ioredis', () => {
-  return jest.fn().mockImplementation(() => mockRedisService);
-});
-
-// Add custom matchers for authentication testing
+// Implement custom matchers for authentication assertions
 expect.extend({
-  toContainValidJwtToken(received) {
-    if (!received || !received.access_token) {
+  toBeValidToken(received, expectedPayload) {
+    if (typeof received !== 'string') {
       return {
-        message: () => `Expected response to contain a valid JWT token, but no token was found`,
         pass: false,
+        message: () => `Expected ${received} to be a string token`,
       };
     }
-    
+
     try {
-      const decoded = jwt.verify(received.access_token, global.testJwtSecret);
+      // Use the mocked JwtService to verify the token
+      const jwtService = new JwtService();
+      const payload = jwtService.verify(received);
+      
+      // If expectedPayload is provided, check if it matches the actual payload
+      if (expectedPayload) {
+        const hasAllExpectedProperties = Object.keys(expectedPayload).every(
+          (key) => payload[key] === expectedPayload[key]
+        );
+        
+        return {
+          pass: hasAllExpectedProperties,
+          message: () => hasAllExpectedProperties
+            ? `Expected token payload not to match ${JSON.stringify(expectedPayload)}`
+            : `Expected token payload to match ${JSON.stringify(expectedPayload)}, but got ${JSON.stringify(payload)}`,
+        };
+      }
+      
       return {
-        message: () => `Expected response to not contain a valid JWT token, but a valid token was found`,
         pass: true,
+        message: () => `Expected ${received} not to be a valid token`,
       };
     } catch (error) {
       return {
-        message: () => `Expected response to contain a valid JWT token, but token verification failed: ${error.message}`,
         pass: false,
+        message: () => `Expected ${received} to be a valid token, but verification failed: ${error.message}`,
       };
     }
   },
   
-  toHavePermission(received: IUser, permission: string) {
-    if (!received || !received.permissions) {
+  toHavePermissions(received, permissions) {
+    if (typeof received !== 'string') {
       return {
-        message: () => `Expected user to have permission "${permission}", but user has no permissions`,
         pass: false,
+        message: () => `Expected ${received} to be a string token`,
       };
     }
-    
-    const hasPermission = received.permissions.some(p => p.name === permission);
-    return {
-      message: () => hasPermission
-        ? `Expected user to not have permission "${permission}", but it was found`
-        : `Expected user to have permission "${permission}", but it was not found`,
-      pass: hasPermission,
-    };
-  },
-  
-  toHaveRole(received: IUser, role: string) {
-    if (!received || !received.roles) {
-      return {
-        message: () => `Expected user to have role "${role}", but user has no roles`,
-        pass: false,
-      };
-    }
-    
-    const hasRole = received.roles.some(r => r.name === role);
-    return {
-      message: () => hasRole
-        ? `Expected user to not have role "${role}", but it was found`
-        : `Expected user to have role "${role}", but it was not found`,
-      pass: hasRole,
-    };
-  },
-  
-  toBeExpiredToken(received: string) {
-    if (!received) {
-      return {
-        message: () => `Expected token to be expired, but no token was provided`,
-        pass: false,
-      };
-    }
-    
+
     try {
-      jwt.verify(received, global.testJwtSecret);
-      return {
-        message: () => `Expected token to be expired, but it is still valid`,
-        pass: false,
-      };
-    } catch (error) {
-      if (error.name === 'TokenExpiredError') {
-        return {
-          message: () => `Expected token to not be expired, but it is expired`,
-          pass: true,
-        };
-      }
+      // Use the mocked JwtService to decode the token
+      const jwtService = new JwtService();
+      const payload = jwtService.decode(received);
       
-      return {
-        message: () => `Expected token to be expired, but verification failed for another reason: ${error.message}`,
-        pass: false,
-      };
-    }
-  },
-  
-  toContainTokenClaim(received: string, claim: string, value?: any) {
-    if (!received) {
-      return {
-        message: () => `Expected token to contain claim "${claim}", but no token was provided`,
-        pass: false,
-      };
-    }
-    
-    try {
-      const decoded = jwt.decode(received) as ITokenPayload;
-      
-      if (!decoded || typeof decoded !== 'object') {
+      if (!payload || !payload.permissions || !Array.isArray(payload.permissions)) {
         return {
-          message: () => `Expected token to contain claim "${claim}", but token could not be decoded`,
           pass: false,
+          message: () => `Token does not contain permissions array`,
         };
       }
       
-      const hasClaim = claim in decoded;
-      
-      if (value !== undefined) {
-        const hasValue = decoded[claim] === value;
-        return {
-          message: () => hasValue
-            ? `Expected token to not have claim "${claim}" with value ${value}, but it was found`
-            : `Expected token to have claim "${claim}" with value ${value}, but it has ${decoded[claim]}`,
-          pass: hasValue,
-        };
-      }
+      const hasAllPermissions = permissions.every(
+        (permission) => payload.permissions.includes(permission)
+      );
       
       return {
-        message: () => hasClaim
-          ? `Expected token to not have claim "${claim}", but it was found`
-          : `Expected token to have claim "${claim}", but it was not found`,
-        pass: hasClaim,
+        pass: hasAllPermissions,
+        message: () => hasAllPermissions
+          ? `Expected token not to have permissions ${permissions.join(', ')}`
+          : `Expected token to have permissions ${permissions.join(', ')}, but it has ${payload.permissions.join(', ')}`,
       };
     } catch (error) {
       return {
-        message: () => `Expected token to contain claim "${claim}", but token decoding failed: ${error.message}`,
         pass: false,
+        message: () => `Failed to decode token: ${error.message}`,
+      };
+    }
+  },
+  
+  toBelongToUser(received, userId) {
+    if (typeof received !== 'string') {
+      return {
+        pass: false,
+        message: () => `Expected ${received} to be a string token`,
+      };
+    }
+
+    try {
+      // Use the mocked JwtService to decode the token
+      const jwtService = new JwtService();
+      const payload = jwtService.decode(received);
+      
+      if (!payload || !payload.sub) {
+        return {
+          pass: false,
+          message: () => `Token does not contain subject (user ID)`,
+        };
+      }
+      
+      const userIdMatches = payload.sub.toString() === userId.toString();
+      
+      return {
+        pass: userIdMatches,
+        message: () => userIdMatches
+          ? `Expected token not to belong to user ${userId}`
+          : `Expected token to belong to user ${userId}, but it belongs to user ${payload.sub}`,
+      };
+    } catch (error) {
+      return {
+        pass: false,
+        message: () => `Failed to decode token: ${error.message}`,
+      };
+    }
+  },
+  
+  toHaveRoles(received, roles) {
+    if (typeof received !== 'string') {
+      return {
+        pass: false,
+        message: () => `Expected ${received} to be a string token`,
+      };
+    }
+
+    try {
+      // Use the mocked JwtService to decode the token
+      const jwtService = new JwtService();
+      const payload = jwtService.decode(received);
+      
+      if (!payload || !payload.roles || !Array.isArray(payload.roles)) {
+        return {
+          pass: false,
+          message: () => `Token does not contain roles array`,
+        };
+      }
+      
+      const hasAllRoles = roles.every(
+        (role) => payload.roles.includes(role)
+      );
+      
+      return {
+        pass: hasAllRoles,
+        message: () => hasAllRoles
+          ? `Expected token not to have roles ${roles.join(', ')}`
+          : `Expected token to have roles ${roles.join(', ')}, but it has ${payload.roles.join(', ')}`,
+      };
+    } catch (error) {
+      return {
+        pass: false,
+        message: () => `Failed to decode token: ${error.message}`,
       };
     }
   },
 });
 
-// Set up global before/after hooks
-beforeAll(async () => {
-  // Initialize test database if needed
-  await mockPrismaService.$connect();
-  
-  // Configure mock services with test values
-  mockConfigService.get.mockImplementation((key: string) => {
-    switch (key) {
-      case 'authService.jwt.secret':
-      case 'auth.jwt.secret':
-        return global.testJwtSecret;
-      case 'authService.jwt.refreshSecret':
-      case 'auth.jwt.refreshSecret':
-        return global.testRefreshSecret;
-      case 'authService.jwt.accessTokenExpiration':
-      case 'auth.jwt.accessTokenExpiration':
-        return '15m';
-      case 'authService.jwt.refreshTokenExpiration':
-      case 'auth.jwt.refreshTokenExpiration':
-        return '7d';
-      default:
-        return undefined;
-    }
-  });
-  
-  // Configure JWT service mock
-  mockJwtService.sign.mockImplementation((payload: any, options?: any) => {
-    return jwt.sign(payload, global.testJwtSecret, {
-      expiresIn: options?.expiresIn || '15m',
-      ...(options || {}),
-    });
-  });
-  
-  mockJwtService.verify.mockImplementation((token: string) => {
-    return jwt.verify(token, global.testJwtSecret);
-  });
-  
-  mockJwtService.decode.mockImplementation((token: string) => {
-    return jwt.decode(token);
-  });
+// Set up test environment
+beforeAll(() => {
+  // Initialize any global test resources here
+  console.log('Setting up auth package test environment');
 });
 
-afterAll(async () => {
-  // Clean up test database
-  await mockPrismaService.$disconnect();
-});
-
-// Reset mocks between tests
-beforeEach(() => {
+// Clean up after each test to prevent test pollution
+afterEach(() => {
+  // Reset all mocks after each test
   jest.clearAllMocks();
-  
-  // Reset mock implementations to default behavior
-  mockLoggerService.debug.mockClear();
-  mockLoggerService.info.mockClear();
-  mockLoggerService.warn.mockClear();
-  mockLoggerService.error.mockClear();
-  
-  mockConfigService.get.mockClear();
-  mockJwtService.sign.mockClear();
-  mockJwtService.verify.mockClear();
-  mockJwtService.decode.mockClear();
-  
-  mockRedisService.get.mockClear();
-  mockRedisService.set.mockClear();
-  mockRedisService.del.mockClear();
-  
-  // Reset database mock
-  Object.values(mockPrismaService).forEach(model => {
-    if (model && typeof model === 'object') {
-      Object.values(model).forEach(method => {
-        if (jest.isMockFunction(method)) {
-          method.mockClear();
-        }
-      });
-    }
-  });
 });
 
-// Export test utilities for use in test files
-export {
-  generateTestToken,
-  createBearerAuthHeader,
-  mockAuthenticatedRequest,
-};
+// Clean up after all tests
+afterAll(() => {
+  // Clean up any global test resources here
+  console.log('Tearing down auth package test environment');
+});

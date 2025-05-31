@@ -1,421 +1,404 @@
 /**
  * @file NavigationAdapter.ts
  * @description Next.js-specific navigation adapter that provides a unified interface for routing operations,
- * deep linking, and programmatic navigation within the web application.
+ * deep linking, and programmatic navigation within the web application. This adapter abstracts the
+ * Next.js Router implementation details and provides journey-aware navigation capabilities.
  */
+
+'use client';
 
 import { useRouter, usePathname, useSearchParams } from 'next/navigation';
-import { JourneyId, JOURNEY_IDS } from '../../types/journey.types';
-import { WebJourneyContextType } from '../../types/context.types';
-import { WEB_AUTH_ROUTES, WEB_HEALTH_ROUTES, WEB_CARE_ROUTES, WEB_PLAN_ROUTES } from 'src/web/shared/constants/routes';
+import { JourneyId, isValidJourneyId, JOURNEY_IDS } from '../../../types/journey.types';
+import { WEB_AUTH_ROUTES, WEB_HEALTH_ROUTES, WEB_CARE_ROUTES, WEB_PLAN_ROUTES } from '@austa/interfaces/common';
 
 /**
- * Navigation error types for consistent error handling
+ * Navigation options interface
  */
-export enum NavigationErrorType {
-  UNAUTHORIZED = 'UNAUTHORIZED',
-  INVALID_ROUTE = 'INVALID_ROUTE',
-  NAVIGATION_FAILED = 'NAVIGATION_FAILED',
-  JOURNEY_RESTRICTED = 'JOURNEY_RESTRICTED',
-}
-
-/**
- * Navigation error class for handling navigation-specific errors
- */
-export class NavigationError extends Error {
-  type: NavigationErrorType;
-  details?: Record<string, any>;
-
-  constructor(type: NavigationErrorType, message: string, details?: Record<string, any>) {
-    super(message);
-    this.type = type;
-    this.details = details;
-    this.name = 'NavigationError';
-  }
+export interface NavigationOptions {
+  /** Whether to scroll to top after navigation */
+  scroll?: boolean;
+  /** Whether to replace the current history entry instead of adding a new one */
+  replace?: boolean;
+  /** Whether to skip route guards for this navigation */
+  skipGuards?: boolean;
 }
 
 /**
  * Deep link configuration interface
  */
 export interface DeepLinkConfig {
-  /** The journey ID this deep link belongs to */
+  /** Pattern to match against URLs */
+  pattern: string | RegExp;
+  /** Journey ID associated with this pattern */
   journeyId: JourneyId;
-  /** The route pattern to match (e.g., '/health/metrics/:metricId') */
-  pattern: string;
-  /** Whether authentication is required to access this route */
-  requiresAuth: boolean;
-  /** Optional function to validate access to this route */
-  accessValidator?: (params: Record<string, string>) => boolean | Promise<boolean>;
+  /** Handler function for this deep link */
+  handler: (params: Record<string, string>) => string;
 }
 
 /**
- * Navigation options interface
+ * Route guard interface
  */
-export interface NavigationOptions {
-  /** Whether to replace the current history entry instead of adding a new one */
-  replace?: boolean;
-  /** Whether to scroll to the top of the page after navigation */
-  scroll?: boolean;
-  /** Whether to update the journey context when navigating */
-  updateJourney?: boolean;
-  /** Query parameters to include in the URL */
-  query?: Record<string, string>;
+export interface RouteGuard {
+  /** Pattern to match against URLs */
+  pattern: string | RegExp;
+  /** Guard function that returns true if navigation should proceed, or a redirect URL if not */
+  guard: () => boolean | string;
 }
 
 /**
- * Route guard result interface
+ * Web Navigation Adapter class
+ * Provides a unified interface for routing operations in the web application
  */
-export interface RouteGuardResult {
-  /** Whether the navigation should proceed */
-  canProceed: boolean;
-  /** Redirect URL if navigation should not proceed */
-  redirectTo?: string;
-  /** Error message if navigation should not proceed */
-  error?: NavigationError;
-}
+export class NavigationAdapter {
+  private router;
+  private pathname;
+  private searchParams;
+  private deepLinkConfigs: DeepLinkConfig[] = [];
+  private routeGuards: RouteGuard[] = [];
 
-/**
- * Navigation adapter interface
- */
-export interface NavigationAdapterInterface {
+  /**
+   * Creates an instance of NavigationAdapter.
+   */
+  constructor() {
+    // These hooks must be used within a Client Component
+    this.router = useRouter();
+    this.pathname = usePathname();
+    this.searchParams = useSearchParams();
+
+    // Initialize deep link configurations
+    this.initializeDeepLinkConfigs();
+    
+    // Initialize route guards
+    this.initializeRouteGuards();
+  }
+
+  /**
+   * Initialize deep link configurations
+   * @private
+   */
+  private initializeDeepLinkConfigs(): void {
+    this.deepLinkConfigs = [
+      {
+        pattern: /^\/health\/(.*)/,
+        journeyId: JOURNEY_IDS.HEALTH,
+        handler: (params) => `/health/${params[1] || ''}`
+      },
+      {
+        pattern: /^\/care\/(.*)/,
+        journeyId: JOURNEY_IDS.CARE,
+        handler: (params) => `/care/${params[1] || ''}`
+      },
+      {
+        pattern: /^\/plan\/(.*)/,
+        journeyId: JOURNEY_IDS.PLAN,
+        handler: (params) => `/plan/${params[1] || ''}`
+      },
+      // Add more deep link patterns as needed
+    ];
+  }
+
+  /**
+   * Initialize route guards
+   * @private
+   */
+  private initializeRouteGuards(): void {
+    // Example route guards - these would be customized based on application requirements
+    this.routeGuards = [
+      {
+        // Protect health journey routes
+        pattern: /^\/health\/(.*)/,
+        guard: () => {
+          // Check if user is authenticated, otherwise redirect to login
+          const isAuthenticated = this.isAuthenticated();
+          return isAuthenticated || WEB_AUTH_ROUTES.LOGIN;
+        }
+      },
+      {
+        // Protect care journey routes
+        pattern: /^\/care\/(.*)/,
+        guard: () => {
+          // Check if user is authenticated, otherwise redirect to login
+          const isAuthenticated = this.isAuthenticated();
+          return isAuthenticated || WEB_AUTH_ROUTES.LOGIN;
+        }
+      },
+      {
+        // Protect plan journey routes
+        pattern: /^\/plan\/(.*)/,
+        guard: () => {
+          // Check if user is authenticated, otherwise redirect to login
+          const isAuthenticated = this.isAuthenticated();
+          return isAuthenticated || WEB_AUTH_ROUTES.LOGIN;
+        }
+      },
+      // Add more route guards as needed
+    ];
+  }
+
+  /**
+   * Check if the user is authenticated
+   * This is a placeholder implementation - would be replaced with actual auth check
+   * @private
+   * @returns {boolean} Whether the user is authenticated
+   */
+  private isAuthenticated(): boolean {
+    // This would be replaced with actual authentication check
+    // For example, checking if a token exists in localStorage or in an auth context
+    return typeof window !== 'undefined' && !!localStorage.getItem('auth_session');
+  }
+
   /**
    * Navigate to a specific route
-   * @param route The route to navigate to
-   * @param options Navigation options
+   * @param {string} url - The URL to navigate to
+   * @param {NavigationOptions} [options] - Navigation options
+   * @returns {Promise<boolean>} A promise that resolves when navigation is complete
    */
-  navigate(route: string, options?: NavigationOptions): Promise<void>;
-
-  /**
-   * Navigate to a specific journey
-   * @param journeyId The journey ID to navigate to
-   * @param options Navigation options
-   */
-  navigateToJourney(journeyId: JourneyId, options?: NavigationOptions): Promise<void>;
-
-  /**
-   * Get the current journey ID from the URL
-   * @returns The current journey ID or undefined if not in a journey
-   */
-  getCurrentJourneyFromUrl(): JourneyId | undefined;
-
-  /**
-   * Check if a route is accessible based on authentication and journey access
-   * @param route The route to check
-   * @param isAuthenticated Whether the user is authenticated
-   * @param allowedJourneys Optional list of journeys the user has access to
-   * @returns Route guard result
-   */
-  checkRouteAccess(route: string, isAuthenticated: boolean, allowedJourneys?: JourneyId[]): Promise<RouteGuardResult>;
-
-  /**
-   * Register a deep link configuration
-   * @param config The deep link configuration
-   */
-  registerDeepLink(config: DeepLinkConfig): void;
-
-  /**
-   * Process a deep link URL
-   * @param url The URL to process
-   * @param isAuthenticated Whether the user is authenticated
-   * @returns Whether the deep link was processed successfully
-   */
-  processDeepLink(url: string, isAuthenticated: boolean): Promise<boolean>;
-
-  /**
-   * Synchronize journey state with URL parameters
-   * @param setJourney Function to update the journey context
-   */
-  syncJourneyWithUrl(setJourney: WebJourneyContextType['setCurrentJourney']): void;
-}
-
-/**
- * Next.js implementation of the navigation adapter
- */
-export class NavigationAdapter implements NavigationAdapterInterface {
-  private router = useRouter();
-  private pathname = usePathname();
-  private searchParams = useSearchParams();
-  private deepLinks: DeepLinkConfig[] = [];
-
-  /**
-   * Journey route maps for quick lookup
-   */
-  private journeyRouteMaps = {
-    [JOURNEY_IDS.HEALTH]: WEB_HEALTH_ROUTES,
-    [JOURNEY_IDS.CARE]: WEB_CARE_ROUTES,
-    [JOURNEY_IDS.PLAN]: WEB_PLAN_ROUTES,
-  };
-
-  /**
-   * Default routes for each journey
-   */
-  private defaultJourneyRoutes = {
-    [JOURNEY_IDS.HEALTH]: WEB_HEALTH_ROUTES.DASHBOARD,
-    [JOURNEY_IDS.CARE]: WEB_CARE_ROUTES.APPOINTMENTS,
-    [JOURNEY_IDS.PLAN]: WEB_PLAN_ROUTES.DASHBOARD,
-  };
-
-  /**
-   * Navigate to a specific route
-   * @param route The route to navigate to
-   * @param options Navigation options
-   */
-  async navigate(route: string, options: NavigationOptions = {}): Promise<void> {
+  public async navigate(url: string, options?: NavigationOptions): Promise<boolean> {
     try {
-      // Build the URL with query parameters if provided
-      let url = route;
-      if (options.query && Object.keys(options.query).length > 0) {
-        const queryParams = new URLSearchParams();
-        Object.entries(options.query).forEach(([key, value]) => {
-          queryParams.append(key, value);
-        });
-        url = `${route}?${queryParams.toString()}`;
+      // Apply route guards if not skipped
+      if (!options?.skipGuards) {
+        const guardResult = this.applyRouteGuards(url);
+        if (typeof guardResult === 'string') {
+          // Redirect to the URL returned by the guard
+          return this.navigate(guardResult, { ...options, skipGuards: true });
+        } else if (guardResult === false) {
+          // Navigation blocked by guard
+          return false;
+        }
       }
 
       // Perform the navigation
-      if (options.replace) {
-        this.router.replace(url, { scroll: options.scroll !== false });
+      if (options?.replace) {
+        this.router.replace(url, { scroll: options?.scroll });
       } else {
-        this.router.push(url, { scroll: options.scroll !== false });
+        this.router.push(url, { scroll: options?.scroll });
       }
+      return true;
     } catch (error) {
-      console.error('Navigation failed:', error);
-      throw new NavigationError(
-        NavigationErrorType.NAVIGATION_FAILED,
-        `Failed to navigate to ${route}`,
-        { originalError: error }
-      );
-    }
-  }
-
-  /**
-   * Navigate to a specific journey
-   * @param journeyId The journey ID to navigate to
-   * @param options Navigation options
-   */
-  async navigateToJourney(journeyId: JourneyId, options: NavigationOptions = {}): Promise<void> {
-    // Get the default route for the journey
-    const defaultRoute = this.defaultJourneyRoutes[journeyId];
-    if (!defaultRoute) {
-      throw new NavigationError(
-        NavigationErrorType.INVALID_ROUTE,
-        `No default route found for journey: ${journeyId}`
-      );
-    }
-
-    // Navigate to the default route for the journey
-    await this.navigate(defaultRoute, options);
-  }
-
-  /**
-   * Get the current journey ID from the URL
-   * @returns The current journey ID or undefined if not in a journey
-   */
-  getCurrentJourneyFromUrl(): JourneyId | undefined {
-    const path = this.pathname;
-    
-    if (path.startsWith('/health')) {
-      return JOURNEY_IDS.HEALTH;
-    } else if (path.startsWith('/care')) {
-      return JOURNEY_IDS.CARE;
-    } else if (path.startsWith('/plan')) {
-      return JOURNEY_IDS.PLAN;
-    }
-    
-    return undefined;
-  }
-
-  /**
-   * Check if a route is accessible based on authentication and journey access
-   * @param route The route to check
-   * @param isAuthenticated Whether the user is authenticated
-   * @param allowedJourneys Optional list of journeys the user has access to
-   * @returns Route guard result
-   */
-  async checkRouteAccess(
-    route: string,
-    isAuthenticated: boolean,
-    allowedJourneys: JourneyId[] = [JOURNEY_IDS.HEALTH, JOURNEY_IDS.CARE, JOURNEY_IDS.PLAN]
-  ): Promise<RouteGuardResult> {
-    // Check if the route is an auth route (login, register, etc.)
-    const isAuthRoute = Object.values(WEB_AUTH_ROUTES).some(authRoute => route.startsWith(authRoute));
-    
-    // If it's an auth route, authenticated users should be redirected to the default journey
-    if (isAuthRoute && isAuthenticated) {
-      return {
-        canProceed: false,
-        redirectTo: this.defaultJourneyRoutes[JOURNEY_IDS.HEALTH],
-      };
-    }
-    
-    // For non-auth routes, check if authentication is required
-    if (!isAuthRoute && !isAuthenticated) {
-      return {
-        canProceed: false,
-        redirectTo: WEB_AUTH_ROUTES.LOGIN,
-        error: new NavigationError(
-          NavigationErrorType.UNAUTHORIZED,
-          'Authentication required to access this route'
-        ),
-      };
-    }
-    
-    // Check if the route belongs to a journey
-    const journeyId = this.getJourneyIdFromRoute(route);
-    
-    // If the route belongs to a journey, check if the user has access to that journey
-    if (journeyId && !allowedJourneys.includes(journeyId)) {
-      return {
-        canProceed: false,
-        redirectTo: this.defaultJourneyRoutes[allowedJourneys[0] || JOURNEY_IDS.HEALTH],
-        error: new NavigationError(
-          NavigationErrorType.JOURNEY_RESTRICTED,
-          `Access to journey '${journeyId}' is restricted`,
-          { journeyId }
-        ),
-      };
-    }
-    
-    // If all checks pass, allow navigation to proceed
-    return { canProceed: true };
-  }
-
-  /**
-   * Register a deep link configuration
-   * @param config The deep link configuration
-   */
-  registerDeepLink(config: DeepLinkConfig): void {
-    this.deepLinks.push(config);
-  }
-
-  /**
-   * Process a deep link URL
-   * @param url The URL to process
-   * @param isAuthenticated Whether the user is authenticated
-   * @returns Whether the deep link was processed successfully
-   */
-  async processDeepLink(url: string, isAuthenticated: boolean): Promise<boolean> {
-    // Parse the URL
-    let parsedUrl: URL;
-    try {
-      parsedUrl = new URL(url, window.location.origin);
-    } catch (error) {
-      console.error('Invalid deep link URL:', error);
+      console.error('Navigation error:', error);
       return false;
     }
-    
-    const path = parsedUrl.pathname;
-    
-    // Find a matching deep link configuration
-    for (const deepLink of this.deepLinks) {
-      const match = this.matchRoutePattern(path, deepLink.pattern);
-      
-      if (match) {
-        // Check if authentication is required
-        if (deepLink.requiresAuth && !isAuthenticated) {
-          // Redirect to login with a return URL
-          await this.navigate(
-            WEB_AUTH_ROUTES.LOGIN,
-            {
-              query: { returnUrl: encodeURIComponent(url) },
-              replace: true,
-            }
-          );
-          return true;
-        }
-        
-        // Check if access validation is required
-        if (deepLink.accessValidator) {
-          const hasAccess = await Promise.resolve(deepLink.accessValidator(match.params));
-          if (!hasAccess) {
-            console.warn('Access denied to deep link:', url);
-            return false;
+  }
+
+  /**
+   * Replace the current route without adding to history
+   * @param {string} url - The URL to navigate to
+   * @param {NavigationOptions} [options] - Navigation options
+   * @returns {Promise<boolean>} A promise that resolves when navigation is complete
+   */
+  public async replace(url: string, options?: NavigationOptions): Promise<boolean> {
+    return this.navigate(url, { ...options, replace: true });
+  }
+
+  /**
+   * Navigate back in history
+   * @returns {void}
+   */
+  public back(): void {
+    this.router.back();
+  }
+
+  /**
+   * Navigate forward in history
+   * @returns {void}
+   */
+  public forward(): void {
+    this.router.forward();
+  }
+
+  /**
+   * Refresh the current route
+   * @returns {void}
+   */
+  public refresh(): void {
+    this.router.refresh();
+  }
+
+  /**
+   * Prefetch a route for faster navigation
+   * @param {string} url - The URL to prefetch
+   * @returns {void}
+   */
+  public prefetch(url: string): void {
+    this.router.prefetch(url);
+  }
+
+  /**
+   * Parse a deep link URL and return the appropriate route
+   * @param {string} url - The deep link URL to parse
+   * @returns {{ route: string, journeyId: JourneyId | null }} The parsed route and journey ID
+   */
+  public parseDeepLink(url: string): { route: string; journeyId: JourneyId | null } {
+    // Default result
+    const defaultResult = { route: url, journeyId: null };
+
+    // Check if URL is valid
+    if (!url) return defaultResult;
+
+    try {
+      // Try to match the URL against our deep link patterns
+      for (const config of this.deepLinkConfigs) {
+        if (typeof config.pattern === 'string') {
+          if (url.startsWith(config.pattern)) {
+            return {
+              route: config.handler({ '0': url, '1': url.substring(config.pattern.length) }),
+              journeyId: config.journeyId
+            };
+          }
+        } else if (config.pattern instanceof RegExp) {
+          const match = url.match(config.pattern);
+          if (match) {
+            return {
+              route: config.handler(match.groups || match),
+              journeyId: config.journeyId
+            };
           }
         }
-        
-        // Navigate to the deep link URL
-        await this.navigate(path, {
-          query: Object.fromEntries(parsedUrl.searchParams.entries()),
-          updateJourney: true,
-        });
-        
-        return true;
       }
-    }
-    
-    return false;
-  }
 
-  /**
-   * Synchronize journey state with URL parameters
-   * @param setJourney Function to update the journey context
-   */
-  syncJourneyWithUrl(setJourney: WebJourneyContextType['setCurrentJourney']): void {
-    const journeyId = this.getCurrentJourneyFromUrl();
-    if (journeyId) {
-      setJourney(journeyId);
+      // If no pattern matches, try to extract journey from URL path
+      const journeyId = this.getJourneyFromUrl(url);
+      return { route: url, journeyId };
+    } catch (error) {
+      console.error('Error parsing deep link:', error);
+      return defaultResult;
     }
   }
 
   /**
-   * Get the journey ID from a route
-   * @param route The route to check
-   * @returns The journey ID or undefined if not in a journey
-   * @private
+   * Extract journey ID from a URL
+   * @param {string} url - The URL to extract journey from
+   * @returns {JourneyId | null} The extracted journey ID or null if not found
    */
-  private getJourneyIdFromRoute(route: string): JourneyId | undefined {
-    if (route.startsWith('/health')) {
-      return JOURNEY_IDS.HEALTH;
-    } else if (route.startsWith('/care')) {
-      return JOURNEY_IDS.CARE;
-    } else if (route.startsWith('/plan')) {
-      return JOURNEY_IDS.PLAN;
-    }
-    
-    return undefined;
-  }
+  public getJourneyFromUrl(url: string): JourneyId | null {
+    try {
+      // Parse the URL to get the path
+      const urlObj = new URL(url, window.location.origin);
+      const path = urlObj.pathname;
 
-  /**
-   * Match a route against a pattern
-   * @param route The route to match
-   * @param pattern The pattern to match against
-   * @returns Match result with parameters or null if no match
-   * @private
-   */
-  private matchRoutePattern(route: string, pattern: string): { params: Record<string, string> } | null {
-    // Convert pattern to regex
-    const paramNames: string[] = [];
-    const regexPattern = pattern
-      .replace(/:[a-zA-Z0-9_]+/g, (match) => {
-        const paramName = match.slice(1); // Remove the leading :
-        paramNames.push(paramName);
-        return '([^/]+)';
-      })
-      .replace(/\//g, '\\/');
-    
-    const regex = new RegExp(`^${regexPattern}$`);
-    const match = route.match(regex);
-    
-    if (!match) {
+      // Check if path starts with a journey ID
+      const segments = path.split('/').filter(Boolean);
+      if (segments.length > 0 && isValidJourneyId(segments[0])) {
+        return segments[0] as JourneyId;
+      }
+
+      // Check if path contains journey-specific patterns
+      if (path.includes('/health/')) return JOURNEY_IDS.HEALTH;
+      if (path.includes('/care/')) return JOURNEY_IDS.CARE;
+      if (path.includes('/plan/')) return JOURNEY_IDS.PLAN;
+
+      return null;
+    } catch (error) {
+      console.error('Error extracting journey from URL:', error);
       return null;
     }
-    
-    // Extract parameters
-    const params: Record<string, string> = {};
-    paramNames.forEach((name, index) => {
-      params[name] = match[index + 1]; // +1 because the first match is the full string
+  }
+
+  /**
+   * Apply route guards to a URL
+   * @param {string} url - The URL to check against guards
+   * @returns {boolean | string} True if navigation should proceed, a redirect URL if not, or false if blocked
+   * @private
+   */
+  private applyRouteGuards(url: string): boolean | string {
+    try {
+      // Normalize the URL
+      const normalizedUrl = url.startsWith('/') ? url : `/${url}`;
+
+      // Check each guard
+      for (const guard of this.routeGuards) {
+        if (typeof guard.pattern === 'string') {
+          if (normalizedUrl.startsWith(guard.pattern)) {
+            return guard.guard();
+          }
+        } else if (guard.pattern instanceof RegExp) {
+          if (guard.pattern.test(normalizedUrl)) {
+            return guard.guard();
+          }
+        }
+      }
+
+      // If no guard matches, allow navigation
+      return true;
+    } catch (error) {
+      console.error('Error applying route guards:', error);
+      return true; // Allow navigation on error to prevent blocking users
+    }
+  }
+
+  /**
+   * Get the current pathname
+   * @returns {string} The current pathname
+   */
+  public getCurrentPathname(): string {
+    return this.pathname || '';
+  }
+
+  /**
+   * Get the current search parameters
+   * @returns {URLSearchParams} The current search parameters
+   */
+  public getSearchParams(): URLSearchParams {
+    return this.searchParams as URLSearchParams;
+  }
+
+  /**
+   * Get a specific search parameter
+   * @param {string} name - The name of the parameter to get
+   * @returns {string | null} The parameter value or null if not found
+   */
+  public getSearchParam(name: string): string | null {
+    return this.searchParams?.get(name) || null;
+  }
+
+  /**
+   * Build a URL with search parameters
+   * @param {string} baseUrl - The base URL
+   * @param {Record<string, string>} params - The parameters to add
+   * @returns {string} The complete URL with parameters
+   */
+  public buildUrl(baseUrl: string, params: Record<string, string>): string {
+    const url = new URL(baseUrl, window.location.origin);
+    Object.entries(params).forEach(([key, value]) => {
+      if (value) url.searchParams.set(key, value);
     });
+    return url.pathname + url.search;
+  }
+
+  /**
+   * Navigate to a journey route
+   * @param {JourneyId} journeyId - The journey ID
+   * @param {string} [subpath] - Optional subpath within the journey
+   * @param {NavigationOptions} [options] - Navigation options
+   * @returns {Promise<boolean>} A promise that resolves when navigation is complete
+   */
+  public navigateToJourney(journeyId: JourneyId, subpath?: string, options?: NavigationOptions): Promise<boolean> {
+    let route = '/';
     
-    return { params };
+    switch (journeyId) {
+      case JOURNEY_IDS.HEALTH:
+        route = subpath ? `${WEB_HEALTH_ROUTES.DASHBOARD}/${subpath}` : WEB_HEALTH_ROUTES.DASHBOARD;
+        break;
+      case JOURNEY_IDS.CARE:
+        route = subpath ? `${WEB_CARE_ROUTES.APPOINTMENTS}/${subpath}` : WEB_CARE_ROUTES.APPOINTMENTS;
+        break;
+      case JOURNEY_IDS.PLAN:
+        route = subpath ? `${WEB_PLAN_ROUTES.DASHBOARD}/${subpath}` : WEB_PLAN_ROUTES.DASHBOARD;
+        break;
+      default:
+        route = '/';
+    }
+    
+    return this.navigate(route, options);
   }
 }
 
 /**
  * Create a navigation adapter instance
- * @returns NavigationAdapter instance
+ * @returns {NavigationAdapter} A new navigation adapter instance
  */
-export const createNavigationAdapter = (): NavigationAdapter => {
+export function createNavigationAdapter(): NavigationAdapter {
   return new NavigationAdapter();
-};
+}
 
 export default NavigationAdapter;

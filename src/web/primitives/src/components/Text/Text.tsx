@@ -1,17 +1,9 @@
-/**
- * Text primitive component for the AUSTA SuperApp design system.
- * 
- * This component ensures consistent typography across the application with support for
- * font styling, journey-specific theming, accessibility attributes, and element type configuration.
- * It is used throughout the application for all text rendering, ensuring typography consistency
- * and theme compliance.
- */
-
 import React from 'react';
 import { StyledText, TextStyleProps } from './Text.styles';
 
 /**
  * Props for the Text component
+ * Extends TextStyleProps from Text.styles.ts and adds additional props
  */
 export interface TextProps extends TextStyleProps {
   /**
@@ -31,7 +23,8 @@ export interface TextProps extends TextStyleProps {
   'aria-hidden'?: boolean;
   'aria-live'?: 'polite' | 'assertive' | 'off';
   'aria-atomic'?: boolean;
-  role?: string;
+  'aria-relevant'?: string;
+  'role'?: string;
   
   /**
    * Child elements (text content)
@@ -39,9 +32,20 @@ export interface TextProps extends TextStyleProps {
   children: React.ReactNode;
   
   /**
-   * Additional props to be spread to the underlying element
+   * Additional class name
    */
-  [key: string]: any;
+  className?: string;
+  
+  /**
+   * Click handler
+   */
+  onClick?: (event: React.MouseEvent<HTMLElement>) => void;
+  
+  /**
+   * Number of lines to show before truncating (for multiline truncation)
+   * Only works on web platform
+   */
+  numberOfLines?: number;
 }
 
 /**
@@ -59,33 +63,38 @@ export interface TextProps extends TextStyleProps {
  * // With journey-specific theming
  * <Text journey="health">Health journey text</Text>
  * 
- * // As a different HTML element
- * <Text as="h1">Heading</Text>
- * 
  * // With accessibility attributes
  * <Text aria-label="Important information" role="alert">Critical update</Text>
+ * 
+ * // As a different HTML element
+ * <Text as="h1">Page title</Text>
  * ```
  */
 export const Text: React.FC<TextProps> = ({
   as,
   children,
   testID,
-  'aria-label': ariaLabel,
-  'aria-hidden': ariaHidden,
-  'aria-live': ariaLive,
-  'aria-atomic': ariaAtomic,
-  role,
+  numberOfLines,
+  className,
+  onClick,
   ...props
 }) => {
+  // Handle multiline truncation
+  const style = numberOfLines ? {
+    display: '-webkit-box',
+    WebkitLineClamp: numberOfLines,
+    WebkitBoxOrient: 'vertical',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+  } : undefined;
+  
   return (
     <StyledText 
       as={as}
       data-testid={testID}
-      aria-label={ariaLabel}
-      aria-hidden={ariaHidden}
-      aria-live={ariaLive}
-      aria-atomic={ariaAtomic}
-      role={role}
+      className={className}
+      onClick={onClick}
+      style={style}
       {...props}
     >
       {children}
@@ -102,6 +111,10 @@ Text.defaultProps = {
   lineHeight: 'base',
   textAlign: 'left',
   truncate: false,
+  italic: false,
+  underline: false,
+  strikeThrough: false,
+  uppercase: false,
 };
 
 export default Text;

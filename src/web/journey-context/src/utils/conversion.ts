@@ -5,8 +5,8 @@
  * regardless of the format in which journey information is initially provided.
  */
 
-import { Journey, JourneyId } from '@austa/interfaces';
-import { ALL_JOURNEYS } from '@austa/shared/constants/journeys';
+import { Journey, JourneyId } from '../types/journey.types';
+import { ALL_JOURNEYS } from '../constants/journeys';
 
 /**
  * Converts a journey ID to a full Journey object
@@ -14,177 +14,179 @@ import { ALL_JOURNEYS } from '@austa/shared/constants/journeys';
  * @param journeyId - The ID of the journey to convert
  * @returns The full Journey object or undefined if not found
  */
-export const journeyIdToJourney = (journeyId: JourneyId | string | null | undefined): Journey | undefined => {
+export function journeyIdToJourney(journeyId: JourneyId | string | null | undefined): Journey | undefined {
   if (!journeyId) return undefined;
   return ALL_JOURNEYS.find(journey => journey.id === journeyId);
-};
+}
 
 /**
- * Converts a journey ID to a full Journey object with fallback to default
- * 
- * @param journeyId - The ID of the journey to convert
- * @param defaultJourney - Optional default journey to return if journeyId is not found
- * @returns The full Journey object or the default journey
- */
-export const journeyIdToJourneyWithDefault = (
-  journeyId: JourneyId | string | null | undefined,
-  defaultJourney: Journey = ALL_JOURNEYS[0]
-): Journey => {
-  return journeyIdToJourney(journeyId) || defaultJourney;
-};
-
-/**
- * Extracts the ID from a Journey object
+ * Converts a Journey object to its ID
  * 
  * @param journey - The Journey object to extract the ID from
  * @returns The journey ID or undefined if the journey is invalid
  */
-export const journeyToJourneyId = (journey: Journey | null | undefined): JourneyId | undefined => {
+export function journeyToJourneyId(journey: Journey | null | undefined): JourneyId | undefined {
   if (!journey || !journey.id) return undefined;
   return journey.id as JourneyId;
-};
+}
 
 /**
  * Gets the color associated with a journey
  * 
- * @param journeyId - The ID of the journey
+ * @param journeyIdOrObject - Either a journey ID or a Journey object
  * @returns The color associated with the journey or undefined if not found
  */
-export const getJourneyColor = (journeyId: JourneyId | string | null | undefined): string | undefined => {
-  const journey = journeyIdToJourney(journeyId);
+export function getJourneyColor(journeyIdOrObject: JourneyId | Journey | string | null | undefined): string | undefined {
+  if (!journeyIdOrObject) return undefined;
+  
+  // If it's a Journey object, extract the color directly
+  if (typeof journeyIdOrObject === 'object' && journeyIdOrObject.color) {
+    return journeyIdOrObject.color;
+  }
+  
+  // Otherwise, treat it as an ID and look up the Journey
+  const journey = journeyIdToJourney(journeyIdOrObject as string);
   return journey?.color;
-};
+}
 
 /**
- * Gets the color associated with a journey with fallback to default
+ * Gets the display name associated with a journey
  * 
- * @param journeyId - The ID of the journey
- * @param defaultColor - Optional default color to return if journeyId is not found
- * @returns The color associated with the journey or the default color
+ * @param journeyIdOrObject - Either a journey ID or a Journey object
+ * @returns The display name associated with the journey or undefined if not found
  */
-export const getJourneyColorWithDefault = (
-  journeyId: JourneyId | string | null | undefined,
-  defaultColor: string = '#000000'
-): string => {
-  return getJourneyColor(journeyId) || defaultColor;
-};
-
-/**
- * Gets the name associated with a journey
- * 
- * @param journeyId - The ID of the journey
- * @returns The name associated with the journey or undefined if not found
- */
-export const getJourneyName = (journeyId: JourneyId | string | null | undefined): string | undefined => {
-  const journey = journeyIdToJourney(journeyId);
+export function getJourneyName(journeyIdOrObject: JourneyId | Journey | string | null | undefined): string | undefined {
+  if (!journeyIdOrObject) return undefined;
+  
+  // If it's a Journey object, extract the name directly
+  if (typeof journeyIdOrObject === 'object' && journeyIdOrObject.name) {
+    return journeyIdOrObject.name;
+  }
+  
+  // Otherwise, treat it as an ID and look up the Journey
+  const journey = journeyIdToJourney(journeyIdOrObject as string);
   return journey?.name;
-};
-
-/**
- * Gets the name associated with a journey with fallback to default
- * 
- * @param journeyId - The ID of the journey
- * @param defaultName - Optional default name to return if journeyId is not found
- * @returns The name associated with the journey or the default name
- */
-export const getJourneyNameWithDefault = (
-  journeyId: JourneyId | string | null | undefined,
-  defaultName: string = 'Unknown Journey'
-): string => {
-  return getJourneyName(journeyId) || defaultName;
-};
-
-/**
- * Gets the icon associated with a journey
- * 
- * @param journeyId - The ID of the journey
- * @returns The icon associated with the journey or undefined if not found
- */
-export const getJourneyIcon = (journeyId: JourneyId | string | null | undefined): string | undefined => {
-  const journey = journeyIdToJourney(journeyId);
-  return journey?.icon;
-};
-
-/**
- * Gets the icon associated with a journey with fallback to default
- * 
- * @param journeyId - The ID of the journey
- * @param defaultIcon - Optional default icon to return if journeyId is not found
- * @returns The icon associated with the journey or the default icon
- */
-export const getJourneyIconWithDefault = (
-  journeyId: JourneyId | string | null | undefined,
-  defaultIcon: string = 'default-icon'
-): string => {
-  return getJourneyIcon(journeyId) || defaultIcon;
-};
+}
 
 /**
  * Gets the route path associated with a journey
  * 
- * @param journeyId - The ID of the journey
+ * @param journeyIdOrObject - Either a journey ID or a Journey object
  * @returns The route path associated with the journey or undefined if not found
  */
-export const getJourneyPath = (journeyId: JourneyId | string | null | undefined): string | undefined => {
-  const journey = journeyIdToJourney(journeyId);
-  return journey?.path;
-};
+export function getJourneyRoute(journeyIdOrObject: JourneyId | Journey | string | null | undefined): string | undefined {
+  if (!journeyIdOrObject) return undefined;
+  
+  // If it's a Journey object, extract the route directly
+  if (typeof journeyIdOrObject === 'object' && journeyIdOrObject.route) {
+    return journeyIdOrObject.route;
+  }
+  
+  // Otherwise, treat it as an ID and look up the Journey
+  const journey = journeyIdToJourney(journeyIdOrObject as string);
+  return journey?.route;
+}
 
 /**
- * Gets the route path associated with a journey with fallback to default
+ * Gets the icon associated with a journey
  * 
- * @param journeyId - The ID of the journey
- * @param defaultPath - Optional default path to return if journeyId is not found
- * @returns The route path associated with the journey or the default path
+ * @param journeyIdOrObject - Either a journey ID or a Journey object
+ * @returns The icon associated with the journey or undefined if not found
  */
-export const getJourneyPathWithDefault = (
-  journeyId: JourneyId | string | null | undefined,
-  defaultPath: string = '/'
-): string => {
-  return getJourneyPath(journeyId) || defaultPath;
-};
+export function getJourneyIcon(journeyIdOrObject: JourneyId | Journey | string | null | undefined): string | undefined {
+  if (!journeyIdOrObject) return undefined;
+  
+  // If it's a Journey object, extract the icon directly
+  if (typeof journeyIdOrObject === 'object' && journeyIdOrObject.icon) {
+    return journeyIdOrObject.icon;
+  }
+  
+  // Otherwise, treat it as an ID and look up the Journey
+  const journey = journeyIdToJourney(journeyIdOrObject as string);
+  return journey?.icon;
+}
 
 /**
- * Gets a specific property from a journey
+ * Converts a web journey context format to a mobile journey context format
  * 
- * @param journeyId - The ID of the journey
- * @param propertyName - The name of the property to retrieve
- * @returns The value of the property or undefined if not found
+ * @param currentJourney - The current journey ID from web context
+ * @returns The journey ID in mobile format
  */
-export const getJourneyProperty = <T>(
-  journeyId: JourneyId | string | null | undefined,
-  propertyName: keyof Journey
-): T | undefined => {
-  const journey = journeyIdToJourney(journeyId);
-  return journey ? (journey[propertyName] as unknown as T) : undefined;
-};
+export function webToMobileJourneyFormat(currentJourney: string | null | undefined): JourneyId | undefined {
+  if (!currentJourney) return undefined;
+  const journey = journeyIdToJourney(currentJourney);
+  return journey?.id as JourneyId | undefined;
+}
 
 /**
- * Gets a specific property from a journey with fallback to default
+ * Converts a mobile journey context format to a web journey context format
  * 
- * @param journeyId - The ID of the journey
- * @param propertyName - The name of the property to retrieve
- * @param defaultValue - Optional default value to return if property is not found
- * @returns The value of the property or the default value
+ * @param journey - The journey ID from mobile context
+ * @returns The journey ID in web format
  */
-export const getJourneyPropertyWithDefault = <T>(
-  journeyId: JourneyId | string | null | undefined,
-  propertyName: keyof Journey,
-  defaultValue: T
-): T => {
-  return getJourneyProperty<T>(journeyId, propertyName) ?? defaultValue;
-};
+export function mobileToWebJourneyFormat(journey: JourneyId | null | undefined): string | undefined {
+  if (!journey) return undefined;
+  return journey;
+}
 
 /**
- * Checks if a journey ID matches a specific journey
+ * Extracts a journey ID from various possible journey representations
  * 
- * @param journeyId - The ID to check
- * @param targetJourneyId - The target journey ID to compare against
- * @returns True if the journeyId matches the targetJourneyId, false otherwise
+ * @param journeyInput - A journey ID, Journey object, or any object with an id property
+ * @returns The extracted journey ID or undefined if not found
  */
-export const isJourney = (
-  journeyId: JourneyId | string | null | undefined,
-  targetJourneyId: JourneyId
-): boolean => {
-  return journeyId === targetJourneyId;
-};
+export function extractJourneyId(journeyInput: JourneyId | Journey | { id: string } | string | null | undefined): JourneyId | undefined {
+  if (!journeyInput) return undefined;
+  
+  // If it's a string, assume it's already a journey ID
+  if (typeof journeyInput === 'string') {
+    return journeyInput as JourneyId;
+  }
+  
+  // If it's an object with an id property, extract the id
+  if (typeof journeyInput === 'object' && 'id' in journeyInput) {
+    return journeyInput.id as JourneyId;
+  }
+  
+  return undefined;
+}
+
+/**
+ * Checks if a journey has a specific attribute
+ * 
+ * @param journeyIdOrObject - Either a journey ID or a Journey object
+ * @param attributeName - The name of the attribute to check
+ * @returns True if the journey has the attribute, false otherwise
+ */
+export function hasJourneyAttribute(journeyIdOrObject: JourneyId | Journey | string | null | undefined, attributeName: keyof Journey): boolean {
+  if (!journeyIdOrObject) return false;
+  
+  // If it's a Journey object, check the attribute directly
+  if (typeof journeyIdOrObject === 'object') {
+    return attributeName in journeyIdOrObject && journeyIdOrObject[attributeName] !== undefined;
+  }
+  
+  // Otherwise, treat it as an ID and look up the Journey
+  const journey = journeyIdToJourney(journeyIdOrObject as string);
+  return journey !== undefined && attributeName in journey && journey[attributeName] !== undefined;
+}
+
+/**
+ * Gets any attribute from a journey by name
+ * 
+ * @param journeyIdOrObject - Either a journey ID or a Journey object
+ * @param attributeName - The name of the attribute to retrieve
+ * @returns The value of the attribute or undefined if not found
+ */
+export function getJourneyAttribute<K extends keyof Journey>(journeyIdOrObject: JourneyId | Journey | string | null | undefined, attributeName: K): Journey[K] | undefined {
+  if (!journeyIdOrObject) return undefined;
+  
+  // If it's a Journey object, extract the attribute directly
+  if (typeof journeyIdOrObject === 'object' && attributeName in journeyIdOrObject) {
+    return journeyIdOrObject[attributeName];
+  }
+  
+  // Otherwise, treat it as an ID and look up the Journey
+  const journey = journeyIdToJourney(journeyIdOrObject as string);
+  return journey?.[attributeName];
+}

@@ -1,432 +1,527 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { StorageError } from '../../types/errors';
-import { StorageAdapter as StorageAdapterInterface } from '../../types/storage';
 
 /**
- * Maximum size for AsyncStorage items in bytes
- * AsyncStorage typically has a limit of 2MB per item
+ * Error types that can occur during storage operations
  */
-const MAX_ITEM_SIZE = 1.8 * 1024 * 1024; // 1.8MB to leave some buffer
+export enum StorageErrorType {
+  STORAGE_LIMIT_EXCEEDED = 'STORAGE_LIMIT_EXCEEDED',
+  SERIALIZATION_ERROR = 'SERIALIZATION_ERROR',
+  DESERIALIZATION_ERROR = 'DESERIALIZATION_ERROR',
+  STORAGE_UNAVAILABLE = 'STORAGE_UNAVAILABLE',
+  ITEM_NOT_FOUND = 'ITEM_NOT_FOUND',
+  UNKNOWN_ERROR = 'UNKNOWN_ERROR',
+}
 
 /**
- * Prefix for all storage keys to avoid conflicts with other app storage
+ * Custom error class for storage operations
  */
-const STORAGE_KEY_PREFIX = '@AUSTA_JOURNEY:';
+export class StorageError extends Error {
+  type: StorageErrorType;
+  key?: string;
+  originalError?: Error;
+
+  constructor(type: StorageErrorType, message: string, key?: string, originalError?: Error) {
+    super(message);
+    this.name = 'StorageError';
+    this.type = type;
+    this.key = key;
+    this.originalError = originalError;
+  }
+}
 
 /**
- * Current schema version for stored data
- * Increment this when making breaking changes to data structure
+ * Options for storage operations
  */
-const SCHEMA_VERSION = 1;
+export interface StorageOptions {
+  /** Version of the data schema, used for migrations */
+  schemaVersion?: number;
+  /** Function to migrate data from older schema versions */
+  migrationFn?: (data: any, fromVersion: number, toVersion: number) => any;
+  /** Maximum retry attempts for storage operations */
+  maxRetries?: number;
+  /** Whether to use batch operations when possible */
+  useBatch?: boolean;
+  /** Fallback storage keys to try if primary storage fails */
+  fallbackKeys?: string[];
+}
 
 /**
- * Key for storing schema version information
+ * Default storage options
  */
-const SCHEMA_VERSION_KEY = `${STORAGE_KEY_PREFIX}schema_version`;
+const DEFAULT_OPTIONS: StorageOptions = {
+  schemaVersion: 1,
+  maxRetries: 3,
+  useBatch: true,
+};
 
 /**
- * StorageAdapter for mobile platforms
- * 
- * Provides a wrapper around AsyncStorage with enhanced error handling,
- * automatic serialization/deserialization, storage limit detection,
- * and data migration capabilities.
+ * Metadata stored with each value to support versioning and migrations
  */
-export class StorageAdapter implements StorageAdapterInterface {
+interface StorageMetadata {
+  schemaVersion: number;
+  timestamp: number;
+}
+
+/**
+ * Structure of data stored in AsyncStorage
+ */
+interface StorageData<T> {
+  metadata: StorageMetadata;
+  data: T;
+}
+
+/**
+ * AsyncStorage wrapper with enhanced error handling and features
+ * for mobile storage operations within the journey context.
+ */
+export class StorageAdapter {
+  private options: StorageOptions;
+
   /**
-   * Initializes the storage adapter and performs schema migration if needed
+   * Creates a new StorageAdapter instance
+   * @param options Configuration options for the adapter
    */
-  public async initialize(): Promise<void> {
-    try {
-      await this.migrateSchemaIfNeeded();
-    } catch (error) {
-      console.error('Failed to initialize storage adapter:', error);
-      throw new StorageError('initialization_failed', 'Failed to initialize storage adapter', { cause: error });
-    }
+  constructor(options: StorageOptions = {}) {
+    this.options = { ...DEFAULT_OPTIONS, ...options };
   }
 
   /**
-   * Stores data with the given key
-   * 
-   * @param key - Storage key (will be prefixed automatically)
-   * @param data - Data to store (will be serialized automatically)
-   * @throws {StorageError} If storage operation fails
+   * Stores a value in AsyncStorage with metadata
+   * @param key Storage key
+   * @param value Value to store
+   * @param options Operation-specific options (overrides instance options)
+   * @returns Promise that resolves when the operation completes
    */
-  public async setItem<T>(key: string, data: T): Promise<void> {
-    try {
-      const prefixedKey = this.getPrefixedKey(key);
-      const serializedData = this.serialize(data);
-      
-      // Check if data exceeds size limit
-      if (serializedData.length > MAX_ITEM_SIZE) {
+  async setItem<T>(key: string, value: T, options?: StorageOptions): Promise<void> {
+    const mergedOptions = { ...this.options, ...options };
+    const { schemaVersion, maxRetries = 3 } = mergedOptions;
+
+    // Create storage data with metadata
+    const storageData: StorageData<T> = {
+      metadata: {
+        schemaVersion: schemaVersion || 1,
+        timestamp: Date.now(),
+      },
+      data: value,
+    };
+
+    let attempts = 0;
+    let lastError: Error | undefined;
+
+    while (attempts < maxRetries) {
+      try {
+        const serializedData = JSON.stringify(storageData);
+        await AsyncStorage.setItem(key, serializedData);
+        return;
+      } catch (error) {
+        attempts++;
+        lastError = error as Error;
+
+        // Check if error is due to storage limit
+        if (error instanceof Error && error.message.includes('quota exceeded')) {
+          // Try to store in fallback keys if available
+          if (mergedOptions.fallbackKeys && mergedOptions.fallbackKeys.length > 0) {
+            try {
+              const fallbackKey = mergedOptions.fallbackKeys[0];
+              const serializedData = JSON.stringify(storageData);
+              await AsyncStorage.setItem(fallbackKey, serializedData);
+              return;
+            } catch (fallbackError) {
+              // Continue with retry logic if fallback fails
+            }
+          }
+
+          throw new StorageError(
+            StorageErrorType.STORAGE_LIMIT_EXCEEDED,
+            `Storage limit exceeded for key: ${key}`,
+            key,
+            error as Error
+          );
+        }
+
+        // If this is the last attempt, throw the error
+        if (attempts >= maxRetries) {
+          break;
+        }
+
+        // Exponential backoff before retry
+        await new Promise(resolve => setTimeout(resolve, 100 * Math.pow(2, attempts)));
+      }
+    }
+
+    // If we've exhausted all retries, throw the appropriate error
+    if (lastError) {
+      if (lastError.message.includes('serializing')) {
         throw new StorageError(
-          'storage_limit_exceeded',
-          `Data size exceeds storage limit of ${MAX_ITEM_SIZE} bytes`,
-          { size: serializedData.length, limit: MAX_ITEM_SIZE }
+          StorageErrorType.SERIALIZATION_ERROR,
+          `Failed to serialize data for key: ${key}`,
+          key,
+          lastError
+        );
+      } else {
+        throw new StorageError(
+          StorageErrorType.UNKNOWN_ERROR,
+          `Failed to store data for key: ${key} after ${maxRetries} attempts`,
+          key,
+          lastError
         );
       }
-      
-      await AsyncStorage.setItem(prefixedKey, serializedData);
-    } catch (error) {
-      if (error instanceof StorageError) {
-        throw error;
-      }
-      
-      console.error(`Failed to store data for key '${key}':`, error);
-      throw new StorageError('set_failed', `Failed to store data for key '${key}'`, { cause: error, key });
     }
   }
 
   /**
-   * Retrieves data for the given key
-   * 
-   * @param key - Storage key (will be prefixed automatically)
-   * @returns The stored data, or null if not found
-   * @throws {StorageError} If retrieval operation fails
+   * Retrieves a value from AsyncStorage and handles migrations if needed
+   * @param key Storage key
+   * @param options Operation-specific options (overrides instance options)
+   * @returns Promise that resolves with the stored value or null if not found
    */
-  public async getItem<T>(key: string): Promise<T | null> {
+  async getItem<T>(key: string, options?: StorageOptions): Promise<T | null> {
+    const mergedOptions = { ...this.options, ...options };
+    const { schemaVersion, migrationFn, fallbackKeys } = mergedOptions;
+
     try {
-      const prefixedKey = this.getPrefixedKey(key);
-      const serializedData = await AsyncStorage.getItem(prefixedKey);
-      
+      const serializedData = await AsyncStorage.getItem(key);
+
+      // If no data found, try fallback keys if available
+      if (serializedData === null && fallbackKeys && fallbackKeys.length > 0) {
+        for (const fallbackKey of fallbackKeys) {
+          const fallbackData = await AsyncStorage.getItem(fallbackKey);
+          if (fallbackData !== null) {
+            return this.parseAndMigrate<T>(fallbackData, fallbackKey, mergedOptions);
+          }
+        }
+        return null;
+      }
+
+      // If no data found in primary or fallback keys
       if (serializedData === null) {
         return null;
       }
-      
-      return this.deserialize<T>(serializedData);
-    } catch (error) {
-      console.error(`Failed to retrieve data for key '${key}':`, error);
-      throw new StorageError('get_failed', `Failed to retrieve data for key '${key}'`, { cause: error, key });
-    }
-  }
 
-  /**
-   * Removes data for the given key
-   * 
-   * @param key - Storage key (will be prefixed automatically)
-   * @throws {StorageError} If removal operation fails
-   */
-  public async removeItem(key: string): Promise<void> {
-    try {
-      const prefixedKey = this.getPrefixedKey(key);
-      await AsyncStorage.removeItem(prefixedKey);
+      return this.parseAndMigrate<T>(serializedData, key, mergedOptions);
     } catch (error) {
-      console.error(`Failed to remove data for key '${key}':`, error);
-      throw new StorageError('remove_failed', `Failed to remove data for key '${key}'`, { cause: error, key });
-    }
-  }
-
-  /**
-   * Stores multiple items in a single batch operation for better performance
-   * 
-   * @param items - Array of key-value pairs to store
-   * @throws {StorageError} If batch operation fails
-   */
-  public async multiSet(items: Array<[string, any]>): Promise<void> {
-    try {
-      const prefixedItems = items.map(([key, data]) => {
-        const prefixedKey = this.getPrefixedKey(key);
-        const serializedData = this.serialize(data);
-        
-        // Check if any item exceeds size limit
-        if (serializedData.length > MAX_ITEM_SIZE) {
-          throw new StorageError(
-            'storage_limit_exceeded',
-            `Data size for key '${key}' exceeds storage limit of ${MAX_ITEM_SIZE} bytes`,
-            { size: serializedData.length, limit: MAX_ITEM_SIZE, key }
-          );
-        }
-        
-        return [prefixedKey, serializedData];
-      });
-      
-      await AsyncStorage.multiSet(prefixedItems);
-    } catch (error) {
+      // Handle specific error cases
       if (error instanceof StorageError) {
         throw error;
       }
-      
-      console.error('Failed to store multiple items:', error);
-      throw new StorageError('multi_set_failed', 'Failed to store multiple items', { cause: error });
+
+      throw new StorageError(
+        StorageErrorType.UNKNOWN_ERROR,
+        `Failed to retrieve data for key: ${key}`,
+        key,
+        error as Error
+      );
     }
   }
 
   /**
-   * Retrieves multiple items in a single batch operation for better performance
-   * 
-   * @param keys - Array of keys to retrieve
-   * @returns Array of key-value pairs with deserialized data
-   * @throws {StorageError} If batch operation fails
+   * Removes a value from AsyncStorage
+   * @param key Storage key
+   * @returns Promise that resolves when the operation completes
    */
-  public async multiGet(keys: string[]): Promise<Array<[string, any]>> {
+  async removeItem(key: string): Promise<void> {
     try {
-      const prefixedKeys = keys.map(key => this.getPrefixedKey(key));
-      const results = await AsyncStorage.multiGet(prefixedKeys);
-      
-      return results.map(([prefixedKey, serializedData]) => {
-        const originalKey = this.getOriginalKey(prefixedKey);
-        const data = serializedData ? this.deserialize(serializedData) : null;
-        return [originalKey, data];
+      await AsyncStorage.removeItem(key);
+    } catch (error) {
+      throw new StorageError(
+        StorageErrorType.UNKNOWN_ERROR,
+        `Failed to remove data for key: ${key}`,
+        key,
+        error as Error
+      );
+    }
+  }
+
+  /**
+   * Stores multiple values in AsyncStorage efficiently using batch operations
+   * @param keyValuePairs Array of key-value pairs to store
+   * @param options Operation-specific options (overrides instance options)
+   * @returns Promise that resolves when the operation completes
+   */
+  async multiSet<T>(keyValuePairs: Array<[string, T]>, options?: StorageOptions): Promise<void> {
+    const mergedOptions = { ...this.options, ...options };
+    const { schemaVersion, useBatch = true } = mergedOptions;
+
+    try {
+      // Prepare data with metadata
+      const storageItems = keyValuePairs.map(([key, value]) => {
+        const storageData: StorageData<T> = {
+          metadata: {
+            schemaVersion: schemaVersion || 1,
+            timestamp: Date.now(),
+          },
+          data: value,
+        };
+        return [key, JSON.stringify(storageData)];
       });
-    } catch (error) {
-      console.error('Failed to retrieve multiple items:', error);
-      throw new StorageError('multi_get_failed', 'Failed to retrieve multiple items', { cause: error });
-    }
-  }
 
-  /**
-   * Removes multiple items in a single batch operation for better performance
-   * 
-   * @param keys - Array of keys to remove
-   * @throws {StorageError} If batch operation fails
-   */
-  public async multiRemove(keys: string[]): Promise<void> {
-    try {
-      const prefixedKeys = keys.map(key => this.getPrefixedKey(key));
-      await AsyncStorage.multiRemove(prefixedKeys);
-    } catch (error) {
-      console.error('Failed to remove multiple items:', error);
-      throw new StorageError('multi_remove_failed', 'Failed to remove multiple items', { cause: error });
-    }
-  }
-
-  /**
-   * Clears all journey-related data from storage
-   * Only removes items with the journey prefix
-   * 
-   * @throws {StorageError} If clear operation fails
-   */
-  public async clear(): Promise<void> {
-    try {
-      // Get all keys
-      const allKeys = await AsyncStorage.getAllKeys();
-      
-      // Filter for journey-related keys
-      const journeyKeys = allKeys.filter(key => key.startsWith(STORAGE_KEY_PREFIX));
-      
-      // Remove all journey-related keys
-      if (journeyKeys.length > 0) {
-        await AsyncStorage.multiRemove(journeyKeys);
+      if (useBatch) {
+        // Use batch operation for better performance
+        await AsyncStorage.multiSet(storageItems);
+      } else {
+        // Fall back to individual operations if batch is disabled
+        await Promise.all(
+          keyValuePairs.map(([key, value]) => this.setItem(key, value, mergedOptions))
+        );
       }
     } catch (error) {
-      console.error('Failed to clear journey storage:', error);
-      throw new StorageError('clear_failed', 'Failed to clear journey storage', { cause: error });
+      // Check if error is due to storage limit
+      if (error instanceof Error && error.message.includes('quota exceeded')) {
+        throw new StorageError(
+          StorageErrorType.STORAGE_LIMIT_EXCEEDED,
+          'Storage limit exceeded during batch operation',
+          undefined,
+          error as Error
+        );
+      }
+
+      throw new StorageError(
+        StorageErrorType.UNKNOWN_ERROR,
+        'Failed to store multiple items',
+        undefined,
+        error as Error
+      );
     }
   }
 
   /**
-   * Gets all keys for journey-related data
-   * 
-   * @returns Array of original keys (without prefix)
-   * @throws {StorageError} If operation fails
+   * Retrieves multiple values from AsyncStorage efficiently
+   * @param keys Array of keys to retrieve
+   * @param options Operation-specific options (overrides instance options)
+   * @returns Promise that resolves with an array of key-value pairs
    */
-  public async getAllKeys(): Promise<string[]> {
+  async multiGet<T>(keys: string[], options?: StorageOptions): Promise<Array<[string, T | null]>> {
+    const mergedOptions = { ...this.options, ...options };
+    const { useBatch = true } = mergedOptions;
+
     try {
-      // Get all keys
-      const allKeys = await AsyncStorage.getAllKeys();
-      
-      // Filter for journey-related keys and remove prefix
-      return allKeys
-        .filter(key => key.startsWith(STORAGE_KEY_PREFIX))
-        .map(key => this.getOriginalKey(key));
+      if (useBatch) {
+        // Use batch operation for better performance
+        const results = await AsyncStorage.multiGet(keys);
+        return Promise.all(
+          results.map(async ([key, serializedData]) => {
+            if (serializedData === null) {
+              return [key, null];
+            }
+            try {
+              const value = await this.parseAndMigrate<T>(serializedData, key, mergedOptions);
+              return [key, value];
+            } catch (error) {
+              // If we can't parse an individual item, return null for that item
+              console.warn(`Failed to parse data for key: ${key}`, error);
+              return [key, null];
+            }
+          })
+        );
+      } else {
+        // Fall back to individual operations if batch is disabled
+        return Promise.all(
+          keys.map(async key => {
+            try {
+              const value = await this.getItem<T>(key, mergedOptions);
+              return [key, value];
+            } catch (error) {
+              // If we can't retrieve an individual item, return null for that item
+              console.warn(`Failed to retrieve data for key: ${key}`, error);
+              return [key, null];
+            }
+          })
+        );
+      }
     } catch (error) {
-      console.error('Failed to get all keys:', error);
-      throw new StorageError('get_keys_failed', 'Failed to get all keys', { cause: error });
+      throw new StorageError(
+        StorageErrorType.UNKNOWN_ERROR,
+        'Failed to retrieve multiple items',
+        undefined,
+        error as Error
+      );
     }
   }
 
   /**
-   * Checks if storage is available and working properly
-   * 
-   * @returns True if storage is available, false otherwise
+   * Removes multiple values from AsyncStorage efficiently
+   * @param keys Array of keys to remove
+   * @returns Promise that resolves when the operation completes
    */
-  public async isAvailable(): Promise<boolean> {
+  async multiRemove(keys: string[]): Promise<void> {
     try {
-      const testKey = `${STORAGE_KEY_PREFIX}test`;
-      const testValue = 'test';
-      
-      // Try to write and read a test value
-      await AsyncStorage.setItem(testKey, testValue);
-      const result = await AsyncStorage.getItem(testKey);
+      await AsyncStorage.multiRemove(keys);
+    } catch (error) {
+      throw new StorageError(
+        StorageErrorType.UNKNOWN_ERROR,
+        'Failed to remove multiple items',
+        undefined,
+        error as Error
+      );
+    }
+  }
+
+  /**
+   * Clears all storage for the application
+   * @returns Promise that resolves when the operation completes
+   */
+  async clear(): Promise<void> {
+    try {
+      await AsyncStorage.clear();
+    } catch (error) {
+      throw new StorageError(
+        StorageErrorType.UNKNOWN_ERROR,
+        'Failed to clear storage',
+        undefined,
+        error as Error
+      );
+    }
+  }
+
+  /**
+   * Gets all keys stored in AsyncStorage
+   * @returns Promise that resolves with an array of keys
+   */
+  async getAllKeys(): Promise<string[]> {
+    try {
+      return await AsyncStorage.getAllKeys();
+    } catch (error) {
+      throw new StorageError(
+        StorageErrorType.UNKNOWN_ERROR,
+        'Failed to get all keys',
+        undefined,
+        error as Error
+      );
+    }
+  }
+
+  /**
+   * Checks if storage is available and working
+   * @returns Promise that resolves with true if storage is available, false otherwise
+   */
+  async isStorageAvailable(): Promise<boolean> {
+    const testKey = '__storage_test__';
+    try {
+      await AsyncStorage.setItem(testKey, 'test');
       await AsyncStorage.removeItem(testKey);
-      
-      return result === testValue;
+      return true;
     } catch (error) {
-      console.error('Storage availability check failed:', error);
       return false;
     }
   }
 
   /**
-   * Gets the current schema version from storage
-   * 
-   * @returns The current schema version, or 0 if not set
+   * Helper method to parse serialized data and handle migrations
+   * @param serializedData Serialized data from AsyncStorage
+   * @param key Storage key (for error reporting)
+   * @param options Storage options
+   * @returns Parsed and migrated data
    */
-  private async getCurrentSchemaVersion(): Promise<number> {
+  private async parseAndMigrate<T>(
+    serializedData: string,
+    key: string,
+    options: StorageOptions
+  ): Promise<T> {
     try {
-      const versionString = await AsyncStorage.getItem(SCHEMA_VERSION_KEY);
-      return versionString ? parseInt(versionString, 10) : 0;
-    } catch (error) {
-      console.error('Failed to get schema version:', error);
-      return 0;
-    }
-  }
+      // Parse the serialized data
+      const parsedData = JSON.parse(serializedData) as StorageData<T>;
 
-  /**
-   * Updates the schema version in storage
-   * 
-   * @param version - The new schema version
-   */
-  private async updateSchemaVersion(version: number): Promise<void> {
-    try {
-      await AsyncStorage.setItem(SCHEMA_VERSION_KEY, version.toString());
-    } catch (error) {
-      console.error('Failed to update schema version:', error);
-      throw new StorageError('schema_update_failed', 'Failed to update schema version', { cause: error });
-    }
-  }
-
-  /**
-   * Migrates data schema if needed
-   * This is called during initialization to ensure data compatibility
-   */
-  private async migrateSchemaIfNeeded(): Promise<void> {
-    const currentVersion = await this.getCurrentSchemaVersion();
-    
-    if (currentVersion < SCHEMA_VERSION) {
-      console.log(`Migrating storage schema from version ${currentVersion} to ${SCHEMA_VERSION}`);
-      
-      // Perform migration based on version differences
-      if (currentVersion === 0) {
-        // Initial migration - no previous schema
-        await this.migrateFromV0ToV1();
+      // Handle legacy data format (no metadata)
+      if (!parsedData.metadata) {
+        // Assume this is raw data from before we added metadata
+        return serializedData as unknown as T;
       }
-      // Add more migration steps as needed for future versions
-      // if (currentVersion === 1) {
-      //   await this.migrateFromV1ToV2();
-      // }
-      
-      // Update schema version after successful migration
-      await this.updateSchemaVersion(SCHEMA_VERSION);
-    }
-  }
 
-  /**
-   * Migrates data from version 0 (no schema) to version 1
-   * This handles the initial migration of legacy data
-   */
-  private async migrateFromV0ToV1(): Promise<void> {
-    try {
-      // Get all keys
-      const allKeys = await AsyncStorage.getAllKeys();
-      
-      // Find legacy journey data (without proper prefix)
-      const legacyKeys = allKeys.filter(key => 
-        key.startsWith('@AUSTA:') && 
-        !key.startsWith(STORAGE_KEY_PREFIX) &&
-        (key.includes('journey') || key.includes('health') || 
-         key.includes('care') || key.includes('plan'))
+      // Check if migration is needed
+      const currentVersion = options.schemaVersion || 1;
+      const dataVersion = parsedData.metadata.schemaVersion;
+
+      if (dataVersion < currentVersion && options.migrationFn) {
+        // Migrate the data to the current version
+        parsedData.data = options.migrationFn(parsedData.data, dataVersion, currentVersion);
+        parsedData.metadata.schemaVersion = currentVersion;
+
+        // Save the migrated data back to storage
+        const updatedSerializedData = JSON.stringify(parsedData);
+        await AsyncStorage.setItem(key, updatedSerializedData);
+      }
+
+      return parsedData.data;
+    } catch (error) {
+      throw new StorageError(
+        StorageErrorType.DESERIALIZATION_ERROR,
+        `Failed to parse data for key: ${key}`,
+        key,
+        error as Error
       );
-      
-      if (legacyKeys.length > 0) {
-        console.log(`Found ${legacyKeys.length} legacy keys to migrate`);
+    }
+  }
+
+  /**
+   * Estimates the size of stored data for a key
+   * @param key Storage key
+   * @returns Promise that resolves with the estimated size in bytes, or null if key not found
+   */
+  async getItemSize(key: string): Promise<number | null> {
+    try {
+      const data = await AsyncStorage.getItem(key);
+      if (data === null) {
+        return null;
+      }
+      // Rough estimate: 2 bytes per character in UTF-16
+      return data.length * 2;
+    } catch (error) {
+      throw new StorageError(
+        StorageErrorType.UNKNOWN_ERROR,
+        `Failed to get size for key: ${key}`,
+        key,
+        error as Error
+      );
+    }
+  }
+
+  /**
+   * Attempts to recover corrupted data by applying a recovery function
+   * @param key Storage key
+   * @param recoveryFn Function that attempts to recover data from corrupted state
+   * @returns Promise that resolves with recovered data or null if recovery failed
+   */
+  async recoverCorruptedData<T>(
+    key: string,
+    recoveryFn: (corruptedData: string) => T | null
+  ): Promise<T | null> {
+    try {
+      // Get the raw data without parsing
+      const rawData = await AsyncStorage.getItem(key);
+      if (rawData === null) {
+        return null;
+      }
+
+      // Try to parse normally first
+      try {
+        const parsedData = JSON.parse(rawData) as StorageData<T>;
+        return parsedData.data;
+      } catch (parseError) {
+        // If parsing fails, try recovery function
+        const recoveredData = recoveryFn(rawData);
         
-        // Get all legacy data
-        const legacyData = await AsyncStorage.multiGet(legacyKeys);
+        // If recovery successful, save the recovered data
+        if (recoveredData !== null) {
+          const storageData: StorageData<T> = {
+            metadata: {
+              schemaVersion: this.options.schemaVersion || 1,
+              timestamp: Date.now(),
+            },
+            data: recoveredData,
+          };
+          
+          await AsyncStorage.setItem(key, JSON.stringify(storageData));
+        }
         
-        // Transform and store with new prefix
-        const migrationPromises = legacyData.map(async ([oldKey, value]) => {
-          if (value) {
-            try {
-              // Parse the old data
-              const data = JSON.parse(value);
-              
-              // Create a new key with proper prefix
-              const newKey = oldKey.replace('@AUSTA:', STORAGE_KEY_PREFIX);
-              
-              // Store with new key
-              await AsyncStorage.setItem(newKey, JSON.stringify(data));
-              
-              // Remove old key after successful migration
-              await AsyncStorage.removeItem(oldKey);
-              
-              console.log(`Migrated ${oldKey} to ${newKey}`);
-            } catch (error) {
-              console.error(`Failed to migrate key ${oldKey}:`, error);
-              // Continue with other keys even if one fails
-            }
-          }
-        });
-        
-        await Promise.all(migrationPromises);
+        return recoveredData;
       }
     } catch (error) {
-      console.error('Migration from v0 to v1 failed:', error);
-      throw new StorageError('migration_failed', 'Failed to migrate from schema v0 to v1', { cause: error });
-    }
-  }
-
-  /**
-   * Prefixes a key with the storage prefix
-   * 
-   * @param key - Original key
-   * @returns Prefixed key
-   */
-  private getPrefixedKey(key: string): string {
-    return `${STORAGE_KEY_PREFIX}${key}`;
-  }
-
-  /**
-   * Removes the prefix from a storage key
-   * 
-   * @param prefixedKey - Key with prefix
-   * @returns Original key without prefix
-   */
-  private getOriginalKey(prefixedKey: string): string {
-    return prefixedKey.replace(STORAGE_KEY_PREFIX, '');
-  }
-
-  /**
-   * Serializes data to a string
-   * 
-   * @param data - Data to serialize
-   * @returns Serialized string
-   * @throws {StorageError} If serialization fails
-   */
-  private serialize(data: any): string {
-    try {
-      return JSON.stringify(data);
-    } catch (error) {
-      console.error('Failed to serialize data:', error);
-      throw new StorageError('serialization_failed', 'Failed to serialize data', { cause: error });
-    }
-  }
-
-  /**
-   * Deserializes a string to data
-   * 
-   * @param serialized - Serialized string
-   * @returns Deserialized data
-   * @throws {StorageError} If deserialization fails
-   */
-  private deserialize<T>(serialized: string): T {
-    try {
-      return JSON.parse(serialized) as T;
-    } catch (error) {
-      console.error('Failed to deserialize data:', error);
-      throw new StorageError('deserialization_failed', 'Failed to deserialize data', { cause: error });
+      throw new StorageError(
+        StorageErrorType.UNKNOWN_ERROR,
+        `Failed to recover data for key: ${key}`,
+        key,
+        error as Error
+      );
     }
   }
 }
-
-/**
- * Creates and initializes a new StorageAdapter instance
- * 
- * @returns Initialized StorageAdapter
- */
-export async function createStorageAdapter(): Promise<StorageAdapter> {
-  const adapter = new StorageAdapter();
-  await adapter.initialize();
-  return adapter;
-}
-
-export default StorageAdapter;

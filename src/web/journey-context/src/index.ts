@@ -1,17 +1,69 @@
 /**
- * AUSTA Journey Context
+ * Journey Context Package
  * 
- * This package provides context providers and hooks for managing journey state
- * across the AUSTA SuperApp. It abstracts platform-specific implementations
- * to provide a consistent API for both web and mobile applications.
+ * This is the main entry point for the journey-context package, which provides
+ * a unified API for accessing journey context across both web and mobile platforms.
+ * It centralizes the export of all journey context providers, hooks, types, and utilities.
+ * 
+ * The package supports the three distinct user journeys (Health, Care, Plan) that form
+ * the foundation of the AUSTA SuperApp's user experience model.
  */
 
-// Initialize auth adapter
-import './adapters';
+// Re-export providers
+export { 
+  AuthProvider,
+  GamificationProvider, 
+  JourneyProvider,
+  NotificationProvider 
+} from './providers';
 
-// Export hooks
-export { default as useAuth } from './hooks/useAuth';
-export { default as useStorage } from './hooks/useStorage';
+// Re-export hooks
+export {
+  useAuth,
+  useGamification,
+  useJourney,
+  useNotification,
+  useStorage
+} from './hooks';
 
-// Export types
-export * from './types';
+// Re-export contexts for direct access if needed
+export { 
+  JourneyContext 
+} from './providers/JourneyContext';
+
+// Re-export types
+export type {
+  JourneyId,
+  Journey,
+  JourneyConfig,
+  JourneyContextType,
+  JourneyProviderProps
+} from './types';
+
+// Re-export constants
+export {
+  JOURNEY_IDS,
+  ALL_JOURNEYS,
+  DEFAULT_JOURNEY,
+  JOURNEY_ROUTES
+} from './constants';
+
+// Re-export utilities
+export {
+  isValidJourneyId,
+  isValidJourney,
+  getJourneyById,
+  getJourneyColor,
+  getJourneyName,
+  getJourneyPath,
+  extractJourneyFromPath
+} from './utils';
+
+// Export storage for advanced usage
+export {
+  createJourneyStorage,
+  type IJourneyStorage
+} from './storage';
+
+// Export adapters for platform-specific implementations
+export { getAdapter } from './adapters';

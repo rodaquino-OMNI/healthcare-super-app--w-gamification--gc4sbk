@@ -1,303 +1,309 @@
 /**
- * Utilities for deep merging objects, essential for combining configuration objects,
- * state updates, and data structures across journey services.
- * 
- * This module provides functions to intelligently combine nested objects while
- * preserving immutability, with support for different merge strategies.
+ * Object merging utilities for combining configuration objects, state updates, and data structures.
+ * These utilities provide deep merging capabilities with configurable strategies for handling arrays
+ * and nested objects while preserving immutability.
  */
 
 /**
- * Defines the strategy to use when merging arrays.
+ * Determines if a value is a plain object (not an array, null, or built-in object type).
+ * 
+ * @param {unknown} value - The value to check
+ * @returns {boolean} True if the value is a plain object, false otherwise
  */
-export enum MergeStrategy {
+const isPlainObject = (value: unknown): value is Record<string, any> => {
+  if (value === null || typeof value !== 'object') {
+    return false;
+  }
+  
+  const prototype = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null;
+};
+
+/**
+ * Strategy to use when merging arrays.
+ */
+export enum ArrayMergeStrategy {
   /**
-   * Replace the target array with the source array.
+   * Replace the target array with the source array
    */
   REPLACE = 'replace',
   
   /**
-   * Combine arrays, removing duplicates (based on strict equality).
+   * Combine arrays, removing duplicates (for primitive values only)
    */
   COMBINE = 'combine',
   
   /**
-   * Append source array items to the target array (may contain duplicates).
+   * Append source array items to the target array
    */
-  APPEND = 'append'
+  APPEND = 'append',
+  
+  /**
+   * Merge arrays by index (objects at the same index position will be deep merged)
+   */
+  MERGE_BY_INDEX = 'mergeByIndex'
 }
 
 /**
- * Options for controlling the deep merge behavior.
+ * Options for configuring the deep merge behavior.
  */
-export interface DeepMergeOptions {
+export interface MergeOptions {
   /**
-   * Strategy to use when merging arrays.
-   * @default MergeStrategy.REPLACE
+   * Strategy to use when merging arrays
+   * @default ArrayMergeStrategy.REPLACE
    */
-  arrayStrategy?: MergeStrategy;
+  arrayMergeStrategy?: ArrayMergeStrategy;
   
   /**
-   * Maximum depth to traverse when merging objects.
-   * Use to prevent stack overflow with deeply nested objects.
+   * Maximum depth for deep merging (to prevent issues with circular references)
    * @default 100
    */
   maxDepth?: number;
   
   /**
-   * Current depth in the merge operation (used internally).
-   * @internal
+   * Whether to clone the source objects during merge to ensure complete immutability
+   * @default false
    */
-  _currentDepth?: number;
+  clone?: boolean;
+  
+  /**
+   * Custom merge function for specific object types or properties
+   * Return undefined to use the default merge strategy
+   */
+  customMerge?: (key: string, target: any, source: any, options: MergeOptions) => any | undefined;
 }
 
 /**
- * Type guard to check if a value is a plain object (not null, not an array, not a date, etc.)
- * 
- * @param value - The value to check
- * @returns True if the value is a plain object
+ * Default merge options.
  */
-function isPlainObject(value: unknown): value is Record<string, any> {
-  return (
-    typeof value === 'object' &&
-    value !== null &&
-    !Array.isArray(value) &&
-    Object.prototype.toString.call(value) === '[object Object]'
-  );
-}
+const defaultMergeOptions: MergeOptions = {
+  arrayMergeStrategy: ArrayMergeStrategy.REPLACE,
+  maxDepth: 100,
+  clone: false
+};
 
 /**
- * Deeply merges two or more objects together, with configurable merge strategies.
+ * Merges arrays based on the specified strategy.
  * 
- * This function intelligently combines nested objects while preserving immutability.
- * It supports different strategies for merging arrays and handles edge cases like
- * null values, circular references (up to maxDepth), and type mismatches.
- * 
- * @param target - The target object to merge into
- * @param sources - One or more source objects to merge from
- * @param options - Options to control merge behavior
- * @returns A new object with the merged properties
- * 
- * @example
- * // Basic merge
- * const result = deepMerge({ a: 1 }, { b: 2 });
- * // result: { a: 1, b: 2 }
- * 
- * @example
- * // Nested merge
- * const result = deepMerge(
- *   { user: { name: 'John', age: 30 } },
- *   { user: { age: 31, role: 'admin' } }
- * );
- * // result: { user: { name: 'John', age: 31, role: 'admin' } }
- * 
- * @example
- * // Array merge with different strategies
- * const target = { tags: ['important', 'urgent'] };
- * const source = { tags: ['approved', 'urgent'] };
- * 
- * // Replace strategy (default)
- * deepMerge(target, source);
- * // result: { tags: ['approved', 'urgent'] }
- * 
- * // Combine strategy (removes duplicates)
- * deepMerge(target, source, { arrayStrategy: MergeStrategy.COMBINE });
- * // result: { tags: ['important', 'urgent', 'approved'] }
- * 
- * // Append strategy (keeps duplicates)
- * deepMerge(target, source, { arrayStrategy: MergeStrategy.APPEND });
- * // result: { tags: ['important', 'urgent', 'approved', 'urgent'] }
+ * @template T - The type of array elements
+ * @param {T[]} target - The target array
+ * @param {T[]} source - The source array
+ * @param {MergeOptions} options - Merge options
+ * @param {number} depth - Current recursion depth
+ * @returns {T[]} The merged array
  */
-export function deepMerge<T extends Record<string, any>, S extends Record<string, any>[]>(
+const mergeArrays = <T>(
+  target: T[],
+  source: T[],
+  options: MergeOptions,
+  depth: number
+): T[] => {
+  const { arrayMergeStrategy } = options;
+  
+  switch (arrayMergeStrategy) {
+    case ArrayMergeStrategy.REPLACE:
+      return options.clone ? [...source] : source;
+      
+    case ArrayMergeStrategy.COMBINE:
+      // For primitive values, remove duplicates
+      const targetSet = new Set(target);
+      source.forEach(item => targetSet.add(item));
+      return Array.from(targetSet);
+      
+    case ArrayMergeStrategy.APPEND:
+      return [...target, ...source];
+      
+    case ArrayMergeStrategy.MERGE_BY_INDEX:
+      const result = [...target];
+      
+      source.forEach((sourceItem, index) => {
+        if (index < result.length) {
+          // If both items at this index are objects, deep merge them
+          if (isPlainObject(result[index]) && isPlainObject(sourceItem)) {
+            result[index] = deepMergeInternal(
+              result[index],
+              sourceItem,
+              options,
+              depth + 1
+            );
+          } else {
+            // Otherwise replace the target item with the source item
+            result[index] = sourceItem;
+          }
+        } else {
+          // If the source array is longer, append the remaining items
+          result.push(sourceItem);
+        }
+      });
+      
+      return result;
+      
+    default:
+      return options.clone ? [...source] : source;
+  }
+};
+
+/**
+ * Internal implementation of deep merge with depth tracking.
+ * 
+ * @template T - The type of the target object
+ * @template S - The type of the source object
+ * @param {T} target - The target object
+ * @param {S} source - The source object
+ * @param {MergeOptions} options - Merge options
+ * @param {number} depth - Current recursion depth
+ * @returns {T & S} The merged object
+ */
+const deepMergeInternal = <T extends Record<string, any>, S extends Record<string, any>>(
   target: T,
-  ...sources: S
-): T & S[number] {
-  // Handle case with no sources
-  if (sources.length === 0) {
-    return { ...target } as T & S[number];
+  source: S,
+  options: MergeOptions,
+  depth: number
+): T & S => {
+  // Prevent infinite recursion
+  if (depth > (options.maxDepth || defaultMergeOptions.maxDepth!)) {
+    throw new Error(`Maximum merge depth of ${options.maxDepth} exceeded. Possible circular reference.`);
   }
   
-  return deepMergeWithOptions(target, sources, {});
-}
-
-/**
- * Deeply merges two or more objects together with explicit options.
- * 
- * @param target - The target object to merge into
- * @param sources - One or more source objects to merge from
- * @param options - Options to control merge behavior
- * @returns A new object with the merged properties
- */
-export function deepMergeWithOptions<T extends Record<string, any>, S extends Record<string, any>[]>(
-  target: T,
-  sources: S,
-  options: DeepMergeOptions
-): T & S[number] {
-  if (!isPlainObject(target)) {
-    throw new TypeError('Target must be a plain object');
-  }
+  const result: Record<string, any> = { ...target };
   
-  const {
-    arrayStrategy = MergeStrategy.REPLACE,
-    maxDepth = 100,
-    _currentDepth = 0
-  } = options;
-  
-  // Prevent stack overflow with deeply nested objects
-  if (_currentDepth > maxDepth) {
-    throw new Error(`Maximum merge depth of ${maxDepth} exceeded. Possible circular reference detected.`);
-  }
-  
-  // Create a new object to avoid mutating the target
-  const result = { ...target } as Record<string, any>;
-  
-  // Process each source object
-  for (const source of sources) {
-    // Skip null or undefined sources
-    if (source == null) {
+  for (const key in source) {
+    if (!Object.prototype.hasOwnProperty.call(source, key)) {
       continue;
     }
     
-    if (!isPlainObject(source)) {
-      throw new TypeError('Source must be a plain object');
-    }
-    
-    // Merge each property from the source object
-    for (const key in source) {
-      if (Object.prototype.hasOwnProperty.call(source, key)) {
-        const targetValue = result[key];
-        const sourceValue = source[key];
-        
-        // Handle different value types
-        if (isPlainObject(targetValue) && isPlainObject(sourceValue)) {
-          // Recursively merge nested objects
-          result[key] = deepMergeWithOptions(
-            targetValue,
-            [sourceValue],
-            {
-              arrayStrategy,
-              maxDepth,
-              _currentDepth: _currentDepth + 1
-            }
-          );
-        } else if (Array.isArray(targetValue) && Array.isArray(sourceValue)) {
-          // Handle arrays according to the specified strategy
-          switch (arrayStrategy) {
-            case MergeStrategy.REPLACE:
-              result[key] = [...sourceValue];
-              break;
-              
-            case MergeStrategy.COMBINE:
-              // Combine arrays, removing duplicates
-              const combined = [...targetValue];
-              for (const item of sourceValue) {
-                if (!combined.includes(item)) {
-                  combined.push(item);
-                }
-              }
-              result[key] = combined;
-              break;
-              
-            case MergeStrategy.APPEND:
-              // Append source array to target array
-              result[key] = [...targetValue, ...sourceValue];
-              break;
-              
-            default:
-              throw new Error(`Unknown array merge strategy: ${arrayStrategy}`);
-          }
-        } else if (sourceValue === undefined) {
-          // Skip undefined values to allow for partial updates
-          continue;
-        } else {
-          // For all other types, use the source value
-          result[key] = sourceValue;
-        }
+    // Apply custom merge function if provided
+    if (options.customMerge) {
+      const customResult = options.customMerge(key, target[key], source[key], options);
+      if (customResult !== undefined) {
+        result[key] = customResult;
+        continue;
       }
     }
+    
+    // If the key doesn't exist in target, just assign the source value
+    if (!(key in target)) {
+      result[key] = options.clone && (isPlainObject(source[key]) || Array.isArray(source[key]))
+        ? JSON.parse(JSON.stringify(source[key]))
+        : source[key];
+      continue;
+    }
+    
+    // Handle arrays
+    if (Array.isArray(target[key]) && Array.isArray(source[key])) {
+      result[key] = mergeArrays(target[key], source[key], options, depth);
+      continue;
+    }
+    
+    // Handle nested objects
+    if (isPlainObject(target[key]) && isPlainObject(source[key])) {
+      result[key] = deepMergeInternal(
+        target[key],
+        source[key],
+        options,
+        depth + 1
+      );
+      continue;
+    }
+    
+    // For all other cases, source value overwrites target value
+    result[key] = source[key];
   }
   
-  return result as T & S[number];
-}
+  return result as T & S;
+};
 
 /**
- * Merges configuration objects with special handling for environment-specific overrides.
+ * Deeply merges multiple objects together, with later objects overriding properties from earlier ones.
+ * Unlike the simple merge function, this performs a deep merge, recursively merging nested objects and
+ * providing configurable strategies for handling arrays.
  * 
- * This is a specialized version of deepMerge optimized for configuration objects.
- * It automatically applies environment-specific overrides based on the current NODE_ENV.
- * 
- * @param baseConfig - The base configuration object
- * @param envConfigs - Environment-specific configuration overrides
- * @returns The merged configuration with environment overrides applied
+ * @template T - The type of the merged object
+ * @param {MergeOptions} [options] - Options to configure merge behavior
+ * @param {...Record<string, any>[]} objects - Objects to merge
+ * @returns {T} A new object with deeply merged properties
+ * @throws {Error} If any input is not an object or if maximum recursion depth is exceeded
  * 
  * @example
- * const config = mergeConfig(
- *   { apiUrl: 'https://api.example.com', timeout: 5000 },
- *   {
- *     development: { apiUrl: 'http://localhost:3000', debug: true },
- *     production: { timeout: 3000 }
- *   }
- * );
+ * // Basic usage
+ * const defaults = { theme: { colors: { primary: 'blue', secondary: 'gray' } }, fontSize: 12 };
+ * const userPrefs = { theme: { colors: { primary: 'dark' } } };
+ * const settings = deepMerge(defaults, userPrefs);
+ * // { theme: { colors: { primary: 'dark', secondary: 'gray' } }, fontSize: 12 }
  * 
- * // In development environment:
- * // { apiUrl: 'http://localhost:3000', timeout: 5000, debug: true }
- * 
- * // In production environment:
- * // { apiUrl: 'https://api.example.com', timeout: 3000 }
+ * @example
+ * // With array merge strategy
+ * const baseConfig = { features: ['basic', 'advanced'], limits: { users: 5 } };
+ * const extendedConfig = { features: ['premium'], limits: { storage: 100 } };
+ * const config = deepMerge({ arrayMergeStrategy: ArrayMergeStrategy.APPEND }, baseConfig, extendedConfig);
+ * // { features: ['basic', 'advanced', 'premium'], limits: { users: 5, storage: 100 } }
  */
-export function mergeConfig<T extends Record<string, any>>(
-  baseConfig: T,
-  envConfigs: Record<string, Partial<T>> = {}
-): T {
-  if (!isPlainObject(baseConfig)) {
-    throw new TypeError('Base configuration must be a plain object');
+export const deepMerge = <T extends Record<string, any>>(
+  ...args: (Record<string, any> | MergeOptions)[]
+): T => {
+  // Extract options if provided as first argument
+  let options: MergeOptions = { ...defaultMergeOptions };
+  let objectsToMerge: Record<string, any>[] = [...args];
+  
+  if (args.length > 0 && !isPlainObject(args[0]) && typeof args[0] === 'object') {
+    options = { ...defaultMergeOptions, ...args[0] };
+    objectsToMerge = args.slice(1);
   }
   
-  // Get current environment
-  const env = process.env.NODE_ENV || 'development';
+  // Validate inputs
+  if (objectsToMerge.length === 0) {
+    return {} as T;
+  }
   
-  // Get environment-specific config
-  const envConfig = envConfigs[env] || {};
+  if (objectsToMerge.some(obj => obj === null || typeof obj !== 'object')) {
+    throw new Error('All inputs must be non-null objects');
+  }
   
-  // Merge base config with environment-specific overrides
-  return deepMergeWithOptions(baseConfig, [envConfig], {
-    arrayStrategy: MergeStrategy.REPLACE
-  });
-}
+  // Handle single object case
+  if (objectsToMerge.length === 1) {
+    return options.clone 
+      ? JSON.parse(JSON.stringify(objectsToMerge[0])) 
+      : { ...objectsToMerge[0] } as T;
+  }
+  
+  // Merge all objects sequentially
+  return objectsToMerge.reduce((result, obj) => {
+    return deepMergeInternal(result, obj, options, 0);
+  }, {}) as T;
+};
 
 /**
- * Merges journey-specific configuration with base configuration.
+ * Deeply merges two objects together, with the source object overriding properties from the target.
+ * This is a convenience function that calls deepMerge with exactly two objects.
  * 
- * This function is specialized for the journey-centered architecture of the AUSTA SuperApp.
- * It allows each journey (Health, Care, Plan) to have its own configuration that extends
- * the base application configuration.
- * 
- * @param baseConfig - The base application configuration
- * @param journeyConfig - Journey-specific configuration overrides
- * @param options - Options to control merge behavior
- * @returns The merged configuration with journey-specific overrides applied
+ * @template T - The type of the target object
+ * @template S - The type of the source object
+ * @param {T} target - The target object
+ * @param {S} source - The source object
+ * @param {MergeOptions} [options] - Options to configure merge behavior
+ * @returns {T & S} A new object with deeply merged properties
+ * @throws {Error} If any input is not an object or if maximum recursion depth is exceeded
  * 
  * @example
- * const appConfig = { theme: 'light', apiTimeout: 5000 };
- * const healthJourneyConfig = { theme: 'health-theme', metrics: { refresh: 60 } };
- * 
- * const config = mergeJourneyConfig(appConfig, healthJourneyConfig);
- * // { theme: 'health-theme', apiTimeout: 5000, metrics: { refresh: 60 } }
+ * const baseUser = { id: 1, profile: { name: 'John', settings: { theme: 'light' } } };
+ * const updates = { profile: { settings: { theme: 'dark', fontSize: 14 } } };
+ * const updatedUser = deepMergeObjects(baseUser, updates);
+ * // { id: 1, profile: { name: 'John', settings: { theme: 'dark', fontSize: 14 } } }
  */
-export function mergeJourneyConfig<T extends Record<string, any>, J extends Record<string, any>>(
-  baseConfig: T,
-  journeyConfig: J,
-  options: DeepMergeOptions = {}
-): T & J {
-  if (!isPlainObject(baseConfig)) {
-    throw new TypeError('Base configuration must be a plain object');
+export const deepMergeObjects = <T extends Record<string, any>, S extends Record<string, any>>(
+  target: T,
+  source: S,
+  options?: MergeOptions
+): T & S => {
+  // Validate inputs
+  if (target === null || typeof target !== 'object') {
+    throw new Error('Target must be a non-null object');
   }
   
-  if (!isPlainObject(journeyConfig)) {
-    throw new TypeError('Journey configuration must be a plain object');
+  if (source === null || typeof source !== 'object') {
+    throw new Error('Source must be a non-null object');
   }
   
-  return deepMergeWithOptions(baseConfig, [journeyConfig], {
-    arrayStrategy: options.arrayStrategy || MergeStrategy.REPLACE,
-    maxDepth: options.maxDepth || 100
-  });
-}
+  const mergeOptions = { ...defaultMergeOptions, ...options };
+  return deepMergeInternal(target, source, mergeOptions, 0);
+};

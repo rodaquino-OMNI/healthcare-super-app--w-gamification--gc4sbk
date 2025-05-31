@@ -1,273 +1,269 @@
 /**
- * @file local.strategy.spec.ts
- * @description Tests for the LocalStrategy implementation, ensuring it correctly extracts and validates
- * email and password credentials, properly integrates with AuthService.login() for authentication,
- * logs authentication attempts, and throws appropriate errors for invalid credentials.
+ * @file Local Strategy Unit Tests
+ * 
+ * This file contains unit tests for the LocalStrategy, which is responsible for authenticating
+ * users via username (email) and password credentials. The tests verify proper extraction of
+ * credentials, integration with AuthService for validation, error handling, and logging.
  */
 
-import { Test } from '@nestjs/testing';
-import { UnauthorizedException } from '@nestjs/common';
+import { Test, TestingModule } from '@nestjs/testing';
+import { ConfigService } from '@nestjs/config';
+import { Logger } from '@nestjs/common';
 
-// Import using standardized path aliases
-import { LocalStrategy } from '@austa/auth/strategies/local.strategy';
-import { AuthService } from '@austa/auth/auth.service';
-import { LoggerService } from '@austa/logging';
-import { BaseError, ErrorType, ValidationError } from '@austa/errors';
-import { AUTH_ERROR_CODES } from '@austa/auth/constants';
+// Import from @austa/errors for standardized error handling
+import { 
+  InvalidCredentialsError, 
+  MissingParameterError,
+  ServiceUnavailableError
+} from '@austa/errors';
 
-// Import test utilities and fixtures
-import { MockAuthService, MockLoggerService } from './strategy.mocks';
-import { validUserCredentials, invalidPasswordCredentials, nonExistentUserCredentials } from './strategy.fixtures';
+// Import from @austa/interfaces for shared types
+import { IUser } from '@austa/interfaces/user';
+
+// Local imports
+import { LocalStrategy } from '../../../src/strategies/local.strategy';
+import { IAuthService } from '../../../src/interfaces/services.interface';
+
+// Mock user data
+const mockUser: IUser = {
+  id: 'user-123',
+  name: 'Test User',
+  email: 'test@example.com',
+  password: 'hashed_password',
+  createdAt: new Date(),
+  updatedAt: new Date(),
+};
+
+// Mock AuthService
+const mockAuthService = {
+  validateCredentials: jest.fn(),
+};
+
+// Mock ConfigService
+const mockConfigService = {
+  get: jest.fn(),
+};
+
+// Mock Logger
+jest.mock('@nestjs/common', () => {
+  const originalModule = jest.requireActual('@nestjs/common');
+  return {
+    ...originalModule,
+    Logger: jest.fn().mockImplementation(() => ({
+      log: jest.fn(),
+      error: jest.fn(),
+      warn: jest.fn(),
+      debug: jest.fn(),
+    })),
+  };
+});
 
 describe('LocalStrategy', () => {
-  let localStrategy: LocalStrategy;
-  let mockAuthService: MockAuthService;
-  let mockLoggerService: MockLoggerService;
+  let strategy: LocalStrategy;
+  let authService: IAuthService;
+  let configService: ConfigService;
 
   beforeEach(async () => {
-    // Create testing module with mocked dependencies
-    const moduleRef = await Test.createTestingModule({
+    // Reset all mocks before each test
+    jest.clearAllMocks();
+
+    const module: TestingModule = await Test.createTestingModule({
       providers: [
         LocalStrategy,
-        {
-          provide: AuthService,
-          useClass: MockAuthService,
-        },
-        {
-          provide: LoggerService,
-          useClass: MockLoggerService,
-        },
+        { provide: IAuthService, useValue: mockAuthService },
+        { provide: ConfigService, useValue: mockConfigService },
       ],
     }).compile();
 
-    // Get instances of strategy and mocked services
-    localStrategy = moduleRef.get<LocalStrategy>(LocalStrategy);
-    mockAuthService = moduleRef.get<AuthService>(AuthService) as unknown as MockAuthService;
-    mockLoggerService = moduleRef.get<LoggerService>(LoggerService) as unknown as MockLoggerService;
+    strategy = module.get<LocalStrategy>(LocalStrategy);
+    authService = module.get<IAuthService>(IAuthService);
+    configService = module.get<ConfigService>(ConfigService);
+  });
 
-    // Reset mocks before each test
-    mockAuthService.resetCalls();
-    mockLoggerService.clearLogs();
+  it('should be defined', () => {
+    expect(strategy).toBeDefined();
   });
 
   describe('constructor', () => {
-    it('should be defined', () => {
-      expect(localStrategy).toBeDefined();
+    it('should configure passport with email as usernameField and password as passwordField', () => {
+      // The super() call in the constructor should be called with the correct options
+      // We can verify this by checking if the strategy has the correct properties
+      expect((strategy as any).options.usernameField).toBe('email');
+      expect((strategy as any).options.passwordField).toBe('password');
+      expect((strategy as any).options.passReqToCallback).toBe(false);
     });
 
-    it('should configure passport to use email and password fields', () => {
-      // This test verifies that the strategy is configured with the correct options
-      // We can't directly access the options, but we can test the behavior
-      expect(localStrategy).toHaveProperty('validate');
+    it('should initialize the logger', () => {
+      // Verify that the logger was initialized with the correct context
+      expect(Logger).toHaveBeenCalledWith(LocalStrategy.name);
+      expect((strategy as any).logger.log).toHaveBeenCalledWith('LocalStrategy initialized');
     });
   });
 
   describe('validate', () => {
-    it('should successfully authenticate with valid credentials', async () => {
-      // Arrange
-      const { email, password } = validUserCredentials;
+    it('should successfully validate credentials and return the user', async () => {
+      // Setup
+      mockAuthService.validateCredentials.mockResolvedValue(mockUser);
 
-      // Act
-      const result = await localStrategy.validate(email, password);
+      // Execute
+      const result = await strategy.validate('test@example.com', 'Password123!');
 
-      // Assert
-      expect(result).toBeDefined();
-      expect(result.id).toBeDefined();
-      expect(result.email).toBe(email);
-      expect(mockAuthService.loginCalls.length).toBe(1);
-      expect(mockAuthService.loginCalls[0].email).toBe(email);
-      expect(mockAuthService.loginCalls[0].password).toBe(password);
-
-      // Verify logging
-      const debugLogs = mockLoggerService.getLogsByLevel('debug');
-      expect(debugLogs.length).toBeGreaterThan(0);
-      expect(debugLogs[0].message).toContain('Validating user credentials');
-      expect(debugLogs[0].meta).toHaveProperty('email', email);
-
-      const infoLogs = mockLoggerService.getLogsByLevel('info');
-      expect(infoLogs.length).toBeGreaterThan(0);
-      expect(infoLogs[0].message).toContain('User authenticated successfully');
-    });
-
-    it('should throw ValidationError when credentials are missing', async () => {
-      // Arrange
-      const email = '';
-      const password = '';
-
-      // Act & Assert
-      await expect(localStrategy.validate(email, password)).rejects.toThrow(ValidationError);
-      
-      // Verify no login attempt was made
-      expect(mockAuthService.loginCalls.length).toBe(0);
-
-      // Verify logging
-      const warnLogs = mockLoggerService.getLogsByLevel('warn');
-      expect(warnLogs.length).toBeGreaterThan(0);
-      expect(warnLogs[0].message).toContain('Authentication failed: Missing credentials');
-    });
-
-    it('should throw ValidationError when email is missing', async () => {
-      // Arrange
-      const email = '';
-      const { password } = validUserCredentials;
-
-      // Act & Assert
-      await expect(localStrategy.validate(email, password)).rejects.toThrow(ValidationError);
-      
-      // Verify no login attempt was made
-      expect(mockAuthService.loginCalls.length).toBe(0);
-
-      // Verify logging
-      const warnLogs = mockLoggerService.getLogsByLevel('warn');
-      expect(warnLogs.length).toBeGreaterThan(0);
-      expect(warnLogs[0].message).toContain('Authentication failed: Missing credentials');
-    });
-
-    it('should throw ValidationError when password is missing', async () => {
-      // Arrange
-      const { email } = validUserCredentials;
-      const password = '';
-
-      // Act & Assert
-      await expect(localStrategy.validate(email, password)).rejects.toThrow(ValidationError);
-      
-      // Verify no login attempt was made
-      expect(mockAuthService.loginCalls.length).toBe(0);
-
-      // Verify logging
-      const warnLogs = mockLoggerService.getLogsByLevel('warn');
-      expect(warnLogs.length).toBeGreaterThan(0);
-      expect(warnLogs[0].message).toContain('Authentication failed: Missing credentials');
-    });
-
-    it('should throw ValidationError when credentials are invalid', async () => {
-      // Arrange
-      const { email, password } = invalidPasswordCredentials;
-      
-      // Mock AuthService to throw ValidationError for invalid credentials
-      mockAuthService.login = jest.fn().mockRejectedValue(
-        new ValidationError({
-          code: AUTH_ERROR_CODES.INVALID_CREDENTIALS,
-          message: 'Invalid email or password',
+      // Verify
+      expect(result).toEqual(mockUser);
+      expect(mockAuthService.validateCredentials).toHaveBeenCalledWith('test@example.com', 'Password123!');
+      expect((strategy as any).logger.debug).toHaveBeenCalledWith(
+        'Attempting to authenticate user: test@example.com',
+        expect.objectContaining({
+          authMethod: 'local',
+          email: 'test@example.com'
         })
       );
-
-      // Act & Assert
-      await expect(localStrategy.validate(email, password)).rejects.toThrow(ValidationError);
-      expect(mockAuthService.login).toHaveBeenCalledWith(email, password);
-
-      // Verify logging
-      const warnLogs = mockLoggerService.getLogsByLevel('warn');
-      expect(warnLogs.length).toBeGreaterThan(0);
-    });
-
-    it('should throw ValidationError when user does not exist', async () => {
-      // Arrange
-      const { email, password } = nonExistentUserCredentials;
-      
-      // Mock AuthService to throw ValidationError for non-existent user
-      mockAuthService.login = jest.fn().mockRejectedValue(
-        new ValidationError({
-          code: AUTH_ERROR_CODES.INVALID_CREDENTIALS,
-          message: 'Invalid email or password',
+      expect((strategy as any).logger.log).toHaveBeenCalledWith(
+        'User authenticated successfully: test@example.com',
+        expect.objectContaining({
+          authMethod: 'local',
+          userId: mockUser.id,
+          email: mockUser.email
         })
       );
-
-      // Act & Assert
-      await expect(localStrategy.validate(email, password)).rejects.toThrow(ValidationError);
-      expect(mockAuthService.login).toHaveBeenCalledWith(email, password);
-
-      // Verify logging
-      const warnLogs = mockLoggerService.getLogsByLevel('warn');
-      expect(warnLogs.length).toBeGreaterThan(0);
     });
 
-    it('should throw ValidationError when AuthService.login returns null', async () => {
-      // Arrange
-      const { email, password } = validUserCredentials;
+    it('should throw MissingParameterError if email is missing', async () => {
+      // Execute & Verify
+      await expect(strategy.validate('', 'Password123!')).rejects.toThrow(MissingParameterError);
+      await expect(strategy.validate('', 'Password123!')).rejects.toThrow('Email is required for authentication');
       
-      // Mock AuthService to return null
-      mockAuthService.login = jest.fn().mockResolvedValue(null);
-
-      // Act & Assert
-      await expect(localStrategy.validate(email, password)).rejects.toThrow(ValidationError);
-      expect(mockAuthService.login).toHaveBeenCalledWith(email, password);
-
-      // Verify logging
-      const warnLogs = mockLoggerService.getLogsByLevel('warn');
-      expect(warnLogs.length).toBeGreaterThan(0);
-      expect(warnLogs[0].message).toContain('Authentication failed: Invalid credentials');
+      expect(mockAuthService.validateCredentials).not.toHaveBeenCalled();
+      expect((strategy as any).logger.warn).toHaveBeenCalledWith('Authentication attempt with missing email');
     });
 
-    it('should throw ValidationError when AuthService.login returns object without user', async () => {
-      // Arrange
-      const { email, password } = validUserCredentials;
+    it('should throw MissingParameterError if password is missing', async () => {
+      // Execute & Verify
+      await expect(strategy.validate('test@example.com', '')).rejects.toThrow(MissingParameterError);
+      await expect(strategy.validate('test@example.com', '')).rejects.toThrow('Password is required for authentication');
       
-      // Mock AuthService to return object without user
-      mockAuthService.login = jest.fn().mockResolvedValue({ tokens: {} });
-
-      // Act & Assert
-      await expect(localStrategy.validate(email, password)).rejects.toThrow(ValidationError);
-      expect(mockAuthService.login).toHaveBeenCalledWith(email, password);
-
-      // Verify logging
-      const warnLogs = mockLoggerService.getLogsByLevel('warn');
-      expect(warnLogs.length).toBeGreaterThan(0);
-      expect(warnLogs[0].message).toContain('Authentication failed: Invalid credentials');
+      expect(mockAuthService.validateCredentials).not.toHaveBeenCalled();
+      expect((strategy as any).logger.warn).toHaveBeenCalledWith(
+        'Authentication attempt for test@example.com with missing password'
+      );
     });
 
-    it('should wrap unexpected errors in BaseError with TECHNICAL type', async () => {
-      // Arrange
-      const { email, password } = validUserCredentials;
+    it('should throw InvalidCredentialsError if credentials are invalid', async () => {
+      // Setup
+      mockAuthService.validateCredentials.mockResolvedValue(null);
+
+      // Execute & Verify
+      await expect(strategy.validate('test@example.com', 'WrongPassword')).rejects.toThrow(InvalidCredentialsError);
+      await expect(strategy.validate('test@example.com', 'WrongPassword')).rejects.toThrow('Invalid email or password');
       
-      // Mock AuthService to throw unexpected error
-      const unexpectedError = new Error('Unexpected database error');
-      mockAuthService.login = jest.fn().mockRejectedValue(unexpectedError);
-
-      // Act & Assert
-      try {
-        await localStrategy.validate(email, password);
-        fail('Should have thrown an error');
-      } catch (error) {
-        expect(error).toBeInstanceOf(BaseError);
-        expect(error.type).toBe(ErrorType.TECHNICAL);
-        expect(error.code).toBe(AUTH_ERROR_CODES.AUTHENTICATION_FAILED);
-        expect(error.cause).toBe(unexpectedError);
-      }
-
-      // Verify logging
-      const errorLogs = mockLoggerService.getLogsByLevel('error');
-      expect(errorLogs.length).toBeGreaterThan(0);
-      expect(errorLogs[0].message).toContain('Authentication failed with unexpected error');
+      expect(mockAuthService.validateCredentials).toHaveBeenCalledWith('test@example.com', 'WrongPassword');
+      expect((strategy as any).logger.warn).toHaveBeenCalledWith(
+        'Failed authentication attempt for user: test@example.com',
+        expect.objectContaining({
+          authMethod: 'local',
+          email: 'test@example.com',
+          reason: 'invalid_credentials'
+        })
+      );
     });
 
-    it('should transform authenticated user to AuthenticatedUser format', async () => {
-      // Arrange
-      const { email, password } = validUserCredentials;
-      
-      // Mock AuthService to return user with roles as objects
-      mockAuthService.login = jest.fn().mockResolvedValue({
-        user: {
-          id: '123e4567-e89b-12d3-a456-426614174000',
-          email: 'user@example.com',
-          name: 'Test User',
-          roles: [
-            { id: 1, name: 'user' },
-            { id: 2, name: 'health-journey-user' }
-          ]
-        }
+    it('should rethrow InvalidCredentialsError from auth service', async () => {
+      // Setup
+      const error = new InvalidCredentialsError('Invalid email or password', {
+        attemptedEmail: 'test@example.com',
       });
+      mockAuthService.validateCredentials.mockRejectedValue(error);
 
-      // Act
-      const result = await localStrategy.validate(email, password);
+      // Execute & Verify
+      await expect(strategy.validate('test@example.com', 'WrongPassword')).rejects.toThrow(InvalidCredentialsError);
+      await expect(strategy.validate('test@example.com', 'WrongPassword')).rejects.toThrow('Invalid email or password');
+      
+      expect(mockAuthService.validateCredentials).toHaveBeenCalledWith('test@example.com', 'WrongPassword');
+    });
 
-      // Assert
-      expect(result).toBeDefined();
-      expect(result.id).toBe('123e4567-e89b-12d3-a456-426614174000');
-      expect(result.email).toBe('user@example.com');
-      expect(result.name).toBe('Test User');
-      expect(result.roles).toEqual(['user', 'health-journey-user']);
-      expect(result.lastAuthenticated).toBeInstanceOf(Date);
+    it('should rethrow MissingParameterError from auth service', async () => {
+      // Setup
+      const error = new MissingParameterError('Required parameter missing', {
+        paramName: 'email',
+        location: 'body'
+      });
+      mockAuthService.validateCredentials.mockRejectedValue(error);
+
+      // Execute & Verify
+      await expect(strategy.validate('test@example.com', 'Password123!')).rejects.toThrow(MissingParameterError);
+      await expect(strategy.validate('test@example.com', 'Password123!')).rejects.toThrow('Required parameter missing');
+      
+      expect(mockAuthService.validateCredentials).toHaveBeenCalledWith('test@example.com', 'Password123!');
+    });
+
+    it('should throw ServiceUnavailableError if auth service is unavailable', async () => {
+      // Setup
+      const error = new Error('Database connection failed');
+      error.name = 'ServiceUnavailableError';
+      mockAuthService.validateCredentials.mockRejectedValue(error);
+
+      // Execute & Verify
+      await expect(strategy.validate('test@example.com', 'Password123!')).rejects.toThrow(ServiceUnavailableError);
+      await expect(strategy.validate('test@example.com', 'Password123!')).rejects.toThrow('Authentication service is currently unavailable');
+      
+      expect(mockAuthService.validateCredentials).toHaveBeenCalledWith('test@example.com', 'Password123!');
+      expect((strategy as any).logger.error).toHaveBeenCalledWith(
+        'Authentication error for test@example.com: Database connection failed',
+        expect.objectContaining({
+          authMethod: 'local',
+          email: 'test@example.com',
+          errorName: 'ServiceUnavailableError',
+          errorMessage: 'Database connection failed',
+        })
+      );
+    });
+
+    it('should throw InvalidCredentialsError for other errors (security by obscurity)', async () => {
+      // Setup
+      const error = new Error('Unknown error');
+      mockAuthService.validateCredentials.mockRejectedValue(error);
+      mockConfigService.get.mockReturnValue('production'); // Non-development environment
+
+      // Execute & Verify
+      await expect(strategy.validate('test@example.com', 'Password123!')).rejects.toThrow(InvalidCredentialsError);
+      await expect(strategy.validate('test@example.com', 'Password123!')).rejects.toThrow('Invalid email or password');
+      
+      expect(mockAuthService.validateCredentials).toHaveBeenCalledWith('test@example.com', 'Password123!');
+      expect((strategy as any).logger.error).toHaveBeenCalledWith(
+        'Authentication error for test@example.com: Unknown error',
+        expect.objectContaining({
+          authMethod: 'local',
+          email: 'test@example.com',
+          errorName: 'Error',
+          errorMessage: 'Unknown error',
+        })
+      );
+      expect(mockConfigService.get).toHaveBeenCalledWith('NODE_ENV');
+    });
+
+    it('should include original error in development environment', async () => {
+      // Setup
+      const error = new Error('Unknown error');
+      mockAuthService.validateCredentials.mockRejectedValue(error);
+      mockConfigService.get.mockReturnValue('development');
+
+      // Execute
+      try {
+        await strategy.validate('test@example.com', 'Password123!');
+        fail('Expected error to be thrown');
+      } catch (e) {
+        // Verify
+        expect(e).toBeInstanceOf(InvalidCredentialsError);
+        expect(e.message).toBe('Invalid email or password');
+        expect(e.context).toEqual(expect.objectContaining({
+          attemptedEmail: 'test@example.com',
+          authMethod: 'local',
+          originalError: 'Unknown error',
+        }));
+      }
+      
+      expect(mockAuthService.validateCredentials).toHaveBeenCalledWith('test@example.com', 'Password123!');
+      expect(mockConfigService.get).toHaveBeenCalledWith('NODE_ENV');
     });
   });
 });

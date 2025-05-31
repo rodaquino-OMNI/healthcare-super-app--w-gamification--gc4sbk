@@ -1,5 +1,7 @@
 import styled from 'styled-components';
-import { colors, spacing } from '../../../tokens';
+import { colors } from '../../../tokens/colors';
+import { spacing } from '../../../tokens/spacing';
+import { typography } from '../../../tokens/typography';
 
 interface IconProps {
   size?: keyof typeof spacing;

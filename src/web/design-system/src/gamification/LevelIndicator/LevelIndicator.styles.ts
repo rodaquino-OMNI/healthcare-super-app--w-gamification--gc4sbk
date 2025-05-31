@@ -1,9 +1,14 @@
+/**
+ * Styles for the LevelIndicator component
+ * 
+ * This file defines the styled components used in the LevelIndicator component,
+ * which displays the user's current level and progress with journey-specific styling.
+ */
 import styled from 'styled-components';
-import { colors } from '@design-system/primitives/tokens/colors';
-import { typography } from '@design-system/primitives/tokens/typography';
-import { spacing } from '@design-system/primitives/tokens/spacing';
-import { breakpoints } from '@design-system/primitives/tokens/breakpoints';
-import { JourneyType } from '@austa/interfaces/common';
+import { colors, typography, spacing, mediaQueries } from '@design-system/primitives/tokens';
+
+// Import JourneyType from shared interfaces
+import type { JourneyType } from '@austa/interfaces/common';
 
 /**
  * Container for the entire LevelIndicator component.
@@ -19,9 +24,9 @@ export const LevelContainer = styled.div<{ journey?: JourneyType }>`
   border-left: 4px solid ${props => 
     props.journey ? colors.journeys[props.journey].primary : colors.neutral.gray400};
   margin-bottom: ${spacing.md};
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
-
-  @media ${breakpoints.md} {
+  box-shadow: ${props => props.theme.shadows?.sm || '0 2px 4px rgba(0, 0, 0, 0.05)'};
+  
+  @media ${mediaQueries.md} {
     padding: ${spacing.lg};
   }
 `;
@@ -38,9 +43,9 @@ export const LevelText = styled.div<{ journey?: JourneyType }>`
   font-weight: ${typography.fontWeight.bold};
   color: ${props => 
     props.journey ? colors.journeys[props.journey].primary : colors.neutral.gray800};
-
-  @media ${breakpoints.sm} {
-    margin-bottom: ${spacing.sm};
+  
+  @media ${mediaQueries.sm} {
+    font-size: ${typography.fontSize['2xl']};
   }
 `;
 
@@ -51,10 +56,7 @@ export const LevelProgress = styled.div`
   display: flex;
   flex-direction: column;
   margin-top: ${spacing.sm};
-
-  @media ${breakpoints.md} {
-    margin-top: ${spacing.md};
-  }
+  width: 100%;
 `;
 
 /**
@@ -74,8 +76,8 @@ export const LevelBadge = styled.div<{ journey?: JourneyType }>`
   font-size: ${typography.fontSize.lg};
   margin-right: ${spacing.sm};
   flex-shrink: 0;
-
-  @media ${breakpoints.md} {
+  
+  @media ${mediaQueries.md} {
     width: 48px;
     height: 48px;
     font-size: ${typography.fontSize.xl};
@@ -97,8 +99,8 @@ export const LevelTitle = styled.span`
   font-size: ${typography.fontSize.sm};
   color: ${colors.neutral.gray600};
   margin-bottom: ${spacing.xs};
-
-  @media ${breakpoints.md} {
+  
+  @media ${mediaQueries.sm} {
     font-size: ${typography.fontSize.md};
   }
 `;

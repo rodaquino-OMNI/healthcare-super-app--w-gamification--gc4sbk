@@ -4,26 +4,31 @@
  */
 
 declare module 'next/server' {
-  export interface NextRequest {
+  export interface CookieListItem {
+    name: string;
+    value: string;
+    path?: string;
+    expires?: Date;
+    maxAge?: number;
+    domain?: string;
+    secure?: boolean;
+    httpOnly?: boolean;
+    sameSite?: 'strict' | 'lax' | 'none';
+  }
+
+  export interface RequestCookies {
+    get(name: string): { name: string; value: string } | undefined;
+    getAll(name?: string): { name: string; value: string }[];
+    has(name: string): boolean;
+    set(name: string, value: string, options?: Partial<CookieListItem>): void;
+    delete(name: string): boolean;
+  }
+
+  export interface NextRequest extends Request {
     headers: Headers;
     url: string;
     nextUrl: URL;
-    cookies: {
-      get(name: string): { name: string; value: string } | undefined;
-      getAll(name?: string): { name: string; value: string }[];
-      set(name: string, value: string, options?: {
-        path?: string;
-        expires?: Date;
-        maxAge?: number;
-        domain?: string;
-        secure?: boolean;
-        httpOnly?: boolean;
-        sameSite?: 'strict' | 'lax' | 'none';
-      }): void;
-      has(name: string): boolean;
-      delete(name: string): boolean;
-      clear(): void;
-    };
+    cookies: RequestCookies;
     geo?: {
       city?: string;
       country?: string;
@@ -39,6 +44,8 @@ declare module 'next/server' {
   }
 
   export interface ResponseCookies {
+    get(name: string): { name: string; value: string } | undefined;
+    getAll(name?: string): { name: string; value: string }[];
     set(name: string, value: string, options?: {
       path?: string;
       expires?: Date;
@@ -48,19 +55,23 @@ declare module 'next/server' {
       httpOnly?: boolean;
       sameSite?: 'strict' | 'lax' | 'none';
     }): void;
-    get(name: string): { name: string; value: string } | undefined;
-    getAll(name?: string): { name: string; value: string }[];
     delete(name: string): boolean;
   }
 
-  export interface NextResponse {
+  export interface NextResponseInit extends ResponseInit {
+    request?: {
+      headers?: HeadersInit;
+    };
+  }
+
+  export interface NextResponse extends Response {
     cookies: ResponseCookies;
     headers: Headers;
     statusText: string;
     status: number;
     redirect(url: string | URL, init?: number | ResponseInit): NextResponse;
     rewrite(url: string | URL, init?: number | ResponseInit): NextResponse;
-    next(init?: ResponseInit): NextResponse;
+    next(init?: NextResponseInit): NextResponse;
     json<T>(body: T, init?: ResponseInit): NextResponse;
   }
 
@@ -74,13 +85,11 @@ declare module 'next/server' {
     new(body?: BodyInit | null, init?: ResponseInit): NextResponse;
     redirect(url: string | URL, init?: number | ResponseInit): NextResponse;
     rewrite(url: string | URL, init?: number | ResponseInit): NextResponse;
-    next(init?: ResponseInit): NextResponse;
+    next(init?: NextResponseInit): NextResponse;
     json<T>(body: T, init?: ResponseInit): NextResponse;
   };
 
-  export function userAgent(request: NextRequest | Request): {
-    isBot: boolean;
-    ua: string;
+  export interface UserAgentData {
     browser: {
       name?: string;
       version?: string;
@@ -101,5 +110,8 @@ declare module 'next/server' {
     cpu: {
       architecture?: string;
     };
-  };
+    isBot: boolean;
+  }
+
+  export function userAgent(request: NextRequest | Request): UserAgentData;
 }

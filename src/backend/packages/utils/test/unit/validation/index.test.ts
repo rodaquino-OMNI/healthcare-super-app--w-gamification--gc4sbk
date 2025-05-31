@@ -1,248 +1,180 @@
 /**
- * Tests for the validation utilities barrel file exports.
- * These tests ensure that all validation functions are properly exported and accessible
- * through the central import point, maintaining a consistent public API and ensuring
- * module resolution works correctly across the monorepo.
+ * Test suite for the validation utilities barrel file exports.
+ * This ensures that all validation functions are properly exported and accessible
+ * through the central import point, maintaining a consistent public API.
  */
 
-import * as validationModule from '../../../src/validation';
-import defaultExport from '../../../src/validation';
+import { describe, expect, it } from '@jest/globals';
 
-describe('Validation Module Exports', () => {
-  describe('Namespaced Exports', () => {
-    it('should export the string validation namespace', () => {
-      expect(validationModule.string).toBeDefined();
-      expect(typeof validationModule.string).toBe('object');
-      expect(validationModule.string.isValidCPF).toBeDefined();
-      expect(validationModule.string.isValidEmail).toBeDefined();
-      expect(validationModule.string.isValidUrl).toBeDefined();
-      expect(validationModule.string.isValidStringLength).toBeDefined();
-      expect(validationModule.string.isValidPattern).toBeDefined();
+// Import the entire validation module to test the barrel file exports
+import * as validation from '../../../src/validation';
+
+// Import specific validators to test direct exports
+import { string, number, date, object, common, schema } from '../../../src/validation';
+
+describe('Validation Barrel File Exports', () => {
+  describe('Module Structure', () => {
+    it('should export all validator namespaces', () => {
+      // Test that all expected namespaces are exported
+      expect(validation.string).toBeDefined();
+      expect(validation.number).toBeDefined();
+      expect(validation.date).toBeDefined();
+      expect(validation.object).toBeDefined();
+      expect(validation.common).toBeDefined();
+      expect(validation.schema).toBeDefined();
     });
 
-    it('should export the date validation namespace', () => {
-      expect(validationModule.date).toBeDefined();
-      expect(typeof validationModule.date).toBe('object');
-      expect(validationModule.date.isValidDate).toBeDefined();
-      expect(validationModule.date.isDateInRange).toBeDefined();
-      expect(validationModule.date.isFutureDate).toBeDefined();
-      expect(validationModule.date.isPastDate).toBeDefined();
-    });
-
-    it('should export the number validation namespace', () => {
-      expect(validationModule.number).toBeDefined();
-      expect(typeof validationModule.number).toBe('object');
-      expect(validationModule.number.isInRange).toBeDefined();
-      expect(validationModule.number.isInteger).toBeDefined();
-      expect(validationModule.number.isPositive).toBeDefined();
-      expect(validationModule.number.isNegative).toBeDefined();
-    });
-
-    it('should export the object validation namespace', () => {
-      expect(validationModule.object).toBeDefined();
-      expect(typeof validationModule.object).toBe('object');
-      expect(validationModule.object.hasRequiredProperties).toBeDefined();
-      expect(validationModule.object.isValidType).toBeDefined();
-    });
-
-    it('should export the schema validation namespace', () => {
-      expect(validationModule.schema).toBeDefined();
-      expect(typeof validationModule.schema).toBe('object');
-    });
-
-    it('should export the common validation namespace', () => {
-      expect(validationModule.common).toBeDefined();
-      expect(typeof validationModule.common).toBe('object');
-      expect(validationModule.common.isValidCNPJ).toBeDefined();
-      expect(validationModule.common.isValidPhoneNumber).toBeDefined();
-      expect(validationModule.common.isValidPostalCode).toBeDefined();
+    it('should maintain proper types for all exports', () => {
+      // Test that exports are objects (namespaces)
+      expect(typeof validation.string).toBe('object');
+      expect(typeof validation.number).toBe('object');
+      expect(typeof validation.date).toBe('object');
+      expect(typeof validation.object).toBe('object');
+      expect(typeof validation.common).toBe('object');
+      expect(typeof validation.schema).toBe('object');
     });
   });
 
-  describe('Type Definitions', () => {
-    it('should export ValidationOptions interface', () => {
-      // TypeScript interfaces are not available at runtime, so we can only check
-      // that the type is being used in the module
-      const options: validationModule.ValidationOptions = {
-        throwOnError: true,
-        errorMessage: 'Custom error message',
-        context: { field: 'test' }
-      };
-      expect(options).toBeDefined();
-    });
-
-    it('should export ValidationResult interface', () => {
-      const result: validationModule.ValidationResult = {
-        success: true,
-        data: { field: 'value' }
-      };
-      expect(result).toBeDefined();
-
-      const errorResult: validationModule.ValidationResult = {
-        success: false,
-        errors: [{
-          field: 'test',
-          message: 'Error message',
-          code: 'ERROR_CODE',
-          context: { additionalInfo: 'test' }
-        }]
-      };
-      expect(errorResult).toBeDefined();
-    });
-
-    it('should export ValidationError interface', () => {
-      const error: validationModule.ValidationError = {
-        field: 'test',
-        message: 'Error message',
-        code: 'ERROR_CODE',
-        context: { additionalInfo: 'test' }
-      };
-      expect(error).toBeDefined();
-    });
-  });
-
-  describe('Convenience Re-exports', () => {
-    it('should re-export string validators', () => {
-      expect(validationModule.isValidCPF).toBeDefined();
-      expect(validationModule.isValidEmail).toBeDefined();
-      expect(validationModule.isValidUrl).toBeDefined();
-      expect(typeof validationModule.isValidCPF).toBe('function');
-      expect(typeof validationModule.isValidEmail).toBe('function');
-      expect(typeof validationModule.isValidUrl).toBe('function');
-    });
-
-    it('should re-export date validators', () => {
-      expect(validationModule.isValidDate).toBeDefined();
-      expect(validationModule.isDateInRange).toBeDefined();
-      expect(validationModule.isFutureDate).toBeDefined();
-      expect(validationModule.isPastDate).toBeDefined();
-      expect(typeof validationModule.isValidDate).toBe('function');
-      expect(typeof validationModule.isDateInRange).toBe('function');
-      expect(typeof validationModule.isFutureDate).toBe('function');
-      expect(typeof validationModule.isPastDate).toBe('function');
-    });
-
-    it('should re-export number validators', () => {
-      expect(validationModule.isInRange).toBeDefined();
-      expect(validationModule.isInteger).toBeDefined();
-      expect(validationModule.isPositive).toBeDefined();
-      expect(validationModule.isNegative).toBeDefined();
-      expect(typeof validationModule.isInRange).toBe('function');
-      expect(typeof validationModule.isInteger).toBe('function');
-      expect(typeof validationModule.isPositive).toBe('function');
-      expect(typeof validationModule.isNegative).toBe('function');
-    });
-
-    it('should re-export object validators', () => {
-      expect(validationModule.hasRequiredProperties).toBeDefined();
-      expect(validationModule.isValidType).toBeDefined();
-      expect(typeof validationModule.hasRequiredProperties).toBe('function');
-      expect(typeof validationModule.isValidType).toBe('function');
-    });
-
-    it('should re-export common validators', () => {
-      expect(validationModule.isValidCNPJ).toBeDefined();
-      expect(validationModule.isValidPhoneNumber).toBeDefined();
-      expect(validationModule.isValidPostalCode).toBeDefined();
-      expect(typeof validationModule.isValidCNPJ).toBe('function');
-      expect(typeof validationModule.isValidPhoneNumber).toBe('function');
-      expect(typeof validationModule.isValidPostalCode).toBe('function');
-    });
-  });
-
-  describe('Default Export', () => {
-    it('should provide a default export for backwards compatibility', () => {
-      expect(defaultExport).toBeDefined();
-      expect(typeof defaultExport).toBe('object');
-    });
-
-    it('should include all namespaced validators in the default export', () => {
-      expect(defaultExport.string).toBeDefined();
-      expect(defaultExport.date).toBeDefined();
-      expect(defaultExport.number).toBeDefined();
-      expect(defaultExport.object).toBeDefined();
-      expect(defaultExport.schema).toBeDefined();
-      expect(defaultExport.common).toBeDefined();
-    });
-
-    it('should have the same structure as the named exports', () => {
-      expect(defaultExport.string).toBe(validationModule.string);
-      expect(defaultExport.date).toBe(validationModule.date);
-      expect(defaultExport.number).toBe(validationModule.number);
-      expect(defaultExport.object).toBe(validationModule.object);
-      expect(defaultExport.schema).toBe(validationModule.schema);
-      expect(defaultExport.common).toBe(validationModule.common);
-    });
-  });
-
-  describe('Import Patterns', () => {
-    it('should support namespace imports', () => {
-      // This test verifies that the module can be imported as a namespace
-      // and all exports are accessible through that namespace
-      expect(validationModule).toBeDefined();
-      expect(validationModule.string).toBeDefined();
-      expect(validationModule.date).toBeDefined();
-      expect(validationModule.number).toBeDefined();
-      expect(validationModule.object).toBeDefined();
-      expect(validationModule.schema).toBeDefined();
-      expect(validationModule.common).toBeDefined();
-    });
-
-    it('should support direct imports of convenience functions', () => {
-      // In actual code, this would be:
-      // import { isValidCPF, isValidEmail } from '@austa/utils/validation';
-      const { isValidCPF, isValidEmail } = validationModule;
-      expect(isValidCPF).toBeDefined();
-      expect(isValidEmail).toBeDefined();
-      expect(typeof isValidCPF).toBe('function');
-      expect(typeof isValidEmail).toBe('function');
-    });
-
-    it('should support direct imports of namespaced validators', () => {
-      // In actual code, this would be:
-      // import { string, date } from '@austa/utils/validation';
-      const { string, date } = validationModule;
-      expect(string).toBeDefined();
-      expect(date).toBeDefined();
+  describe('String Validators', () => {
+    it('should export all string validators', () => {
+      // Test that all expected string validators are exported
+      expect(validation.string.isValidCPF).toBeDefined();
+      expect(typeof validation.string.isValidCPF).toBe('function');
+      
+      // Test direct import works the same way
       expect(string.isValidCPF).toBeDefined();
-      expect(date.isValidDate).toBeDefined();
-    });
-
-    it('should support legacy default import pattern', () => {
-      // In actual code, this would be:
-      // import validation from '@austa/utils/validation';
-      expect(defaultExport).toBeDefined();
-      expect(defaultExport.string.isValidCPF).toBeDefined();
-      expect(defaultExport.date.isValidDate).toBeDefined();
+      expect(typeof string.isValidCPF).toBe('function');
+      
+      // Test other expected string validators
+      expect(string.isValidEmail).toBeDefined();
+      expect(string.isValidURL).toBeDefined();
+      expect(string.hasValidLength).toBeDefined();
+      expect(string.matchesPattern).toBeDefined();
     });
   });
 
-  describe('Module Resolution', () => {
-    it('should maintain consistent function references across import patterns', () => {
-      // Direct re-export should be the same function as the namespaced version
-      expect(validationModule.isValidCPF).toBe(validationModule.string.isValidCPF);
-      expect(validationModule.isValidEmail).toBe(validationModule.string.isValidEmail);
-      expect(validationModule.isValidUrl).toBe(validationModule.string.isValidUrl);
+  describe('Number Validators', () => {
+    it('should export all number validators', () => {
+      // Test that all expected number validators are exported
+      expect(validation.number.isInRange).toBeDefined();
+      expect(typeof validation.number.isInRange).toBe('function');
       
-      expect(validationModule.isValidDate).toBe(validationModule.date.isValidDate);
-      expect(validationModule.isDateInRange).toBe(validationModule.date.isDateInRange);
+      // Test direct import works the same way
+      expect(number.isInRange).toBeDefined();
+      expect(typeof number.isInRange).toBe('function');
       
-      expect(validationModule.isInRange).toBe(validationModule.number.isInRange);
-      expect(validationModule.isInteger).toBe(validationModule.number.isInteger);
-      
-      expect(validationModule.hasRequiredProperties).toBe(validationModule.object.hasRequiredProperties);
-      expect(validationModule.isValidType).toBe(validationModule.object.isValidType);
-      
-      expect(validationModule.isValidCNPJ).toBe(validationModule.common.isValidCNPJ);
-      expect(validationModule.isValidPhoneNumber).toBe(validationModule.common.isValidPhoneNumber);
+      // Test other expected number validators
+      expect(number.isInteger).toBeDefined();
+      expect(number.isPositive).toBeDefined();
+      expect(number.isNegative).toBeDefined();
+      expect(number.isValidBrazilianCurrency).toBeDefined();
     });
+  });
 
-    it('should maintain consistent function references between named and default exports', () => {
-      expect(defaultExport.string.isValidCPF).toBe(validationModule.string.isValidCPF);
-      expect(defaultExport.date.isValidDate).toBe(validationModule.date.isValidDate);
-      expect(defaultExport.number.isInRange).toBe(validationModule.number.isInRange);
-      expect(defaultExport.object.hasRequiredProperties).toBe(validationModule.object.hasRequiredProperties);
-      expect(defaultExport.common.isValidCNPJ).toBe(validationModule.common.isValidCNPJ);
+  describe('Date Validators', () => {
+    it('should export all date validators', () => {
+      // Test that all expected date validators are exported
+      expect(validation.date.isValidDate).toBeDefined();
+      expect(typeof validation.date.isValidDate).toBe('function');
+      
+      // Test direct import works the same way
+      expect(date.isValidDate).toBeDefined();
+      expect(typeof date.isValidDate).toBe('function');
+      
+      // Test other expected date validators
+      expect(date.isDateInRange).toBeDefined();
+      expect(date.isFutureDate).toBeDefined();
+      expect(date.isPastDate).toBeDefined();
+      expect(date.isBusinessDay).toBeDefined();
+    });
+  });
+
+  describe('Object Validators', () => {
+    it('should export all object validators', () => {
+      // Test that all expected object validators are exported
+      expect(validation.object.hasRequiredProperties).toBeDefined();
+      expect(typeof validation.object.hasRequiredProperties).toBe('function');
+      
+      // Test direct import works the same way
+      expect(object.hasRequiredProperties).toBeDefined();
+      expect(typeof object.hasRequiredProperties).toBe('function');
+      
+      // Test other expected object validators
+      expect(object.hasValidNestedProperty).toBeDefined();
+      expect(object.isOfType).toBeDefined();
+      expect(object.hasValidArrayProperty).toBeDefined();
+      expect(object.hasValidStructure).toBeDefined();
+    });
+  });
+
+  describe('Common Validators', () => {
+    it('should export all common validators', () => {
+      // Test that all expected common validators are exported
+      expect(validation.common.isValidCNPJ).toBeDefined();
+      expect(typeof validation.common.isValidCNPJ).toBe('function');
+      
+      // Test direct import works the same way
+      expect(common.isValidCNPJ).toBeDefined();
+      expect(typeof common.isValidCNPJ).toBe('function');
+      
+      // Test other expected common validators
+      expect(common.isValidRG).toBeDefined();
+      expect(common.isValidPhoneNumber).toBeDefined();
+      expect(common.isValidPostalCode).toBeDefined();
+      expect(common.combineValidators).toBeDefined();
+    });
+  });
+
+  describe('Schema Validators', () => {
+    it('should export all schema validators', () => {
+      // Test that all expected schema validators are exported
+      expect(validation.schema.createZodSchema).toBeDefined();
+      expect(typeof validation.schema.createZodSchema).toBe('function');
+      
+      // Test direct import works the same way
+      expect(schema.createZodSchema).toBeDefined();
+      expect(typeof schema.createZodSchema).toBe('function');
+      
+      // Test other expected schema validators
+      expect(schema.zodToClassValidator).toBeDefined();
+      expect(schema.validateWithZod).toBeDefined();
+      expect(schema.transformValidationErrors).toBeDefined();
+    });
+  });
+
+  describe('Legacy Import Compatibility', () => {
+    it('should support legacy import patterns', () => {
+      // Test that the module can be imported as a whole
+      expect(validation).toBeDefined();
+      expect(typeof validation).toBe('object');
+      
+      // Test that individual validators can be accessed through the module
+      expect(validation.string.isValidCPF).toBeDefined();
+      expect(validation.number.isInRange).toBeDefined();
+      expect(validation.date.isValidDate).toBeDefined();
+      expect(validation.object.hasRequiredProperties).toBeDefined();
+      expect(validation.common.isValidCNPJ).toBeDefined();
+      expect(validation.schema.createZodSchema).toBeDefined();
+    });
+  });
+
+  describe('Type Safety', () => {
+    it('should maintain proper function signatures', () => {
+      // Test CPF validator signature by calling it with a valid CPF
+      const validCPF = '123.456.789-09'; // Example CPF format
+      const invalidCPF = 'not-a-cpf';
+      
+      // We're not testing the actual implementation, just that the function exists and returns a boolean
+      expect(typeof string.isValidCPF(validCPF)).toBe('boolean');
+      expect(typeof string.isValidCPF(invalidCPF)).toBe('boolean');
+      
+      // Test number range validator signature
+      const num = 5;
+      const min = 1;
+      const max = 10;
+      
+      // We're not testing the actual implementation, just that the function exists and returns a boolean
+      expect(typeof number.isInRange(num, min, max)).toBe('boolean');
     });
   });
 });

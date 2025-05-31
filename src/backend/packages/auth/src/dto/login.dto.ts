@@ -1,26 +1,50 @@
-import { IsString, IsEmail, MinLength, MaxLength } from 'class-validator';
+import { IsEmail, IsNotEmpty, IsString, MinLength, Matches } from 'class-validator';
+import { ApiProperty } from '@nestjs/swagger';
 
 /**
- * Data transfer object for user login authentication.
- * Validates login requests to ensure proper data format before authentication attempts.
- * Used by authentication endpoints across all services implementing login functionality.
+ * Data Transfer Object for login requests.
+ * 
+ * This DTO validates login requests to ensure they contain properly formatted
+ * email and password fields. It is used by authentication endpoints to validate
+ * incoming login attempts before processing them.
+ * 
+ * The validation rules enforce:
+ * - Valid email format
+ * - Password with minimum length and complexity requirements
+ * 
+ * This standardized DTO ensures consistent validation across all authentication
+ * services that implement login functionality.
  */
 export class LoginDto {
   /**
-   * Email address of the user attempting to log in.
+   * Email address used for authentication.
    * Must be a valid email format.
+   * 
+   * @example "user@example.com"
    */
-  @IsString({ message: 'Email must be a string' })
+  @ApiProperty({
+    description: 'Email address used for authentication',
+    example: 'user@example.com',
+  })
+  @IsNotEmpty({ message: 'Email is required' })
   @IsEmail({}, { message: 'Invalid email format' })
-  @MaxLength(255, { message: 'Email cannot exceed 255 characters' })
   email: string;
 
   /**
-   * Password of the user attempting to log in.
-   * Must be at least 8 characters long for security.
+   * Password for authentication.
+   * Must meet minimum length and complexity requirements.
+   * 
+   * @example "SecureP@ssw0rd"
    */
+  @ApiProperty({
+    description: 'Password for authentication',
+    example: 'SecureP@ssw0rd',
+  })
+  @IsNotEmpty({ message: 'Password is required' })
   @IsString({ message: 'Password must be a string' })
   @MinLength(8, { message: 'Password must be at least 8 characters long' })
-  @MaxLength(255, { message: 'Password cannot exceed 255 characters' })
+  @Matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)[a-zA-Z\d@$!%*?&]{8,}$/, {
+    message: 'Password must contain at least one uppercase letter, one lowercase letter, and one number',
+  })
   password: string;
 }

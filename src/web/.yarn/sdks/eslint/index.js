@@ -1,179 +1,169 @@
 #!/usr/bin/env node
 
 /**
- * ESLint SDK for Yarn Plug'n'Play
- *
+ * @file ESLint SDK integration for Yarn Plug'n'Play
+ * 
  * This file provides a consistent interface for ESLint to work with the PnP module resolution system,
  * ensuring that ESLint can correctly resolve plugins and configurations in both IDE integrations and CI environments.
  * 
- * Without this file, ESLint would fail to resolve dependencies in a Yarn PnP environment,
- * which would break code linting in development and CI/CD pipelines.
+ * It addresses path resolution failures causing build errors as mentioned in the Summary of Changes,
+ * standardizes module resolution across the monorepo, and enables proper ESLint integration with Yarn Plug'n'Play.
+ *
+ * Key features:
+ * - Implements PnP-aware module resolution for ESLint dependencies
+ * - Adds support for path alias resolution in ESLint
+ * - Creates standardized integration point for IDE plugins
+ * - Handles both older and newer versions of ESLint
  */
 
-const {existsSync} = require('fs');
-const {createRequire, findPnpApi} = require('module');
-const {resolve, dirname} = require('path');
+const {existsSync, readFileSync} = require('fs');
+const {createRequire, createRequireFromPath} = require('module');
+const {resolve, dirname, join} = require('path');
 
-// Locate the nearest PnP API from the current file
-const pnpApi = findPnpApi(__filename);
+// Determine which require function to use based on Node.js version
+const relPnpApiPath = '../../../.pnp.cjs';
+const absPnpApiPath = resolve(__dirname, relPnpApiPath);
 
-// If we couldn't find the PnP API, something is wrong with the setup
-if (!pnpApi) {
+// Check if the PnP API file exists
+if (!existsSync(absPnpApiPath)) {
   throw new Error(
-    `Failed to locate the PnP API. This is likely because this file is being executed outside of a Yarn PnP environment.\n` +
-    `Make sure you are using Yarn with PnP enabled and that this file is being executed within the project.`
+    `Could not find the PnP API file (${absPnpApiPath}). ` +
+    `This likely means that the ESLint SDK was generated incorrectly. ` +
+    `Please run 'yarn dlx @yarnpkg/sdks vscode' to regenerate the SDK.`
   );
 }
 
-// Create a require function that's aware of the PnP environment
-const pnpRequire = createRequire(__filename);
+// Setup the PnP loader
+const pnpApi = require(absPnpApiPath);
 
-// Resolve the path to the actual ESLint package
-let eslintPath;
-try {
-  // Attempt to resolve the ESLint package using the PnP API
-  eslintPath = pnpApi.resolveRequest('eslint', __filename);
-} catch (error) {
+// Ensure the PnP API is properly setup
+if (!pnpApi.setup) {
   throw new Error(
-    `Failed to resolve the ESLint package. Make sure ESLint is installed as a dependency in your project.\n` +
-    `Original error: ${error.message}`
+    `The PnP API file (${absPnpApiPath}) is not properly initialized. ` +
+    `This likely means that your Yarn installation is corrupted. ` +
+    `Please reinstall Yarn and try again.`
   );
 }
 
-// Check if the resolved path exists
-if (!existsSync(eslintPath)) {
-  throw new Error(
-    `The resolved ESLint path (${eslintPath}) does not exist. This might indicate an issue with your Yarn PnP setup.`
-  );
-}
+// Setup the PnP loader
+pnpApi.setup();
 
-// Create a require function specific to the ESLint package directory
-const eslintRequire = createRequire(eslintPath);
+// Create a require function that uses the PnP loader
+const makeRequire = createRequire || createRequireFromPath;
+const require = makeRequire(absPnpApiPath);
 
-// Determine the ESLint CLI path
-let eslintCliPath;
-try {
-  // First try to resolve the modern ESLint CLI path (ESLint v8+)
-  eslintCliPath = resolve(dirname(eslintPath), './bin/eslint.js');
+/**
+ * Helper function to find the project root
+ * This is used to resolve path aliases defined in tsconfig.json
+ */
+function findProjectRoot() {
+  let currentDir = __dirname;
   
-  // If that doesn't exist, fall back to the legacy path
-  if (!existsSync(eslintCliPath)) {
-    eslintCliPath = resolve(dirname(eslintPath), './bin/eslint');
+  // Navigate up until we find a package.json file
+  while (currentDir !== '/') {
+    const packageJsonPath = join(currentDir, 'package.json');
+    if (existsSync(packageJsonPath)) {
+      return currentDir;
+    }
+    currentDir = dirname(currentDir);
   }
   
-  // If that still doesn't exist, try to resolve it through the package
-  if (!existsSync(eslintCliPath)) {
-    const eslintPkg = eslintRequire('./package.json');
-    if (eslintPkg.bin && eslintPkg.bin.eslint) {
-      eslintCliPath = resolve(dirname(eslintPath), eslintPkg.bin.eslint);
-    }
-  }
-} catch (error) {
-  throw new Error(
-    `Failed to locate the ESLint CLI. This might indicate an incompatible ESLint version.\n` +
-    `Original error: ${error.message}`
-  );
+  // If we can't find a package.json, return the current directory
+  return __dirname;
 }
 
-// Check if the resolved CLI path exists
-if (!existsSync(eslintCliPath)) {
-  throw new Error(
-    `The resolved ESLint CLI path (${eslintCliPath}) does not exist. This might indicate an incompatible ESLint version.`
-  );
-}
-
-// Export a function that will properly set up the PnP environment and then execute ESLint
-module.exports = {
-  // Export the path to the ESLint CLI for tools that need to spawn ESLint as a child process
-  eslintCliPath,
+/**
+ * Helper function to resolve path aliases
+ * This allows ESLint to correctly resolve imports that use path aliases
+ * defined in tsconfig.json (e.g., @app/shared, @austa/*, etc.)
+ */
+function setupPathAliasResolution() {
+  const projectRoot = findProjectRoot();
+  const tsconfigPath = join(projectRoot, 'tsconfig.json');
   
-  // Export a function to run ESLint programmatically
-  runESLint: (args = process.argv.slice(2)) => {
-    // Ensure the PnP loader is properly set up
-    require(pnpApi.resolveRequest('eslint', __filename));
-    
-    // Run ESLint with the provided arguments
-    return eslintRequire(eslintCliPath).execute(args);
-  },
-  
-  // Export a function to create an ESLint instance
-  createESLint: (options = {}) => {
-    // Ensure the PnP loader is properly set up
-    const ESLint = eslintRequire('eslint').ESLint;
-    
-    // Create a new ESLint instance with the provided options
-    return new ESLint(options);
-  },
-  
-  // Export a function to resolve ESLint plugins and configs in a PnP-aware manner
-  resolveESLintModule: (moduleName, relativeTo = __filename) => {
+  if (existsSync(tsconfigPath)) {
     try {
-      return pnpApi.resolveRequest(moduleName, relativeTo);
-    } catch (error) {
-      // If the module is an ESLint plugin or config, try with the appropriate prefix
-      if (moduleName.startsWith('eslint-plugin-') || 
-          moduleName.startsWith('eslint-config-') ||
-          moduleName.startsWith('@') && (
-            moduleName.includes('/eslint-plugin-') ||
-            moduleName.includes('/eslint-config-')
-          )) {
-        return pnpApi.resolveRequest(moduleName, relativeTo);
-      }
+      const tsconfig = JSON.parse(readFileSync(tsconfigPath, 'utf8'));
+      const paths = tsconfig.compilerOptions?.paths;
       
-      // Try with the eslint-plugin- prefix
-      try {
-        return pnpApi.resolveRequest(`eslint-plugin-${moduleName}`, relativeTo);
-      } catch {}
-      
-      // Try with the eslint-config- prefix
-      try {
-        return pnpApi.resolveRequest(`eslint-config-${moduleName}`, relativeTo);
-      } catch {}
-      
-      // Re-throw the original error if all resolution attempts fail
-      throw error;
-    }
-  },
-  
-  // For compatibility with older versions of the ESLint extension
-  // that might expect the default export to be the ESLint constructor
-  get ESLint() {
-    return eslintRequire('eslint').ESLint;
-  },
-  
-  // For compatibility with tools that might expect to find the CLI engine
-  get CLIEngine() {
-    // Try to get the CLIEngine (deprecated in ESLint v8+)
-    try {
-      return eslintRequire('eslint').CLIEngine;
-    } catch {
-      // If CLIEngine is not available, provide a compatibility wrapper around ESLint
-      const ESLint = eslintRequire('eslint').ESLint;
-      
-      // Create a minimal compatibility layer for tools expecting CLIEngine
-      function CLIEngineCompat(options) {
-        this._eslint = new ESLint(options);
-      }
-      
-      CLIEngineCompat.prototype.executeOnText = async function(text, filePath, warnIgnored) {
-        const results = await this._eslint.lintText(text, {
-          filePath,
-          warnIgnored
-        });
-        
-        return {
-          results,
-          errorCount: results.reduce((count, result) => count + result.errorCount, 0),
-          warningCount: results.reduce((count, result) => count + result.warningCount, 0)
+      if (paths) {
+        // Store the path aliases for use in ESLint configuration
+        global.__YARN_PNP_ESLINT_PATHS__ = {
+          projectRoot,
+          paths
         };
-      };
-      
-      return CLIEngineCompat;
+      }
+    } catch (error) {
+      // If we can't parse the tsconfig.json, just continue without path aliases
+      console.warn(`[ESLint SDK] Warning: Could not parse tsconfig.json: ${error.message}`);
     }
   }
-};
+}
 
-// If this file is being executed directly, run ESLint
+// Setup path alias resolution
+setupPathAliasResolution();
+
+/**
+ * Patch ESLint's module resolution to work with PnP
+ * This is necessary because ESLint uses a custom module resolution system
+ * that doesn't work well with PnP by default
+ */
+function patchESLintModuleResolution(eslint) {
+  // Only patch if the eslint object exists and has a ModuleResolver
+  if (eslint && eslint.ModuleResolver && eslint.ModuleResolver.prototype) {
+    const originalResolve = eslint.ModuleResolver.prototype.resolve;
+    
+    // Override the resolve method to use PnP-aware resolution
+    eslint.ModuleResolver.prototype.resolve = function(name, relTo) {
+      try {
+        // First try the original resolution method
+        return originalResolve.call(this, name, relTo);
+      } catch (error) {
+        // If that fails, try to resolve using PnP
+        try {
+          return require.resolve(name, { paths: [dirname(relTo)] });
+        } catch (pnpError) {
+          // If both methods fail, throw the original error
+          throw error;
+        }
+      }
+    };
+  }
+  
+  return eslint;
+}
+
+// Try to load ESLint
+let eslint;
+try {
+  // First try to load the main ESLint package
+  eslint = require('eslint');
+  
+  // Patch ESLint's module resolution
+  eslint = patchESLintModuleResolution(eslint);
+} catch (error) {
+  // If loading the main package fails, provide a detailed error message
+  console.error(`[ESLint SDK] Error loading ESLint: ${error.message}`);
+  console.error(`This might be due to a missing or incompatible ESLint version.`);
+  console.error(`Please ensure ESLint is installed in your project by running 'yarn add -D eslint'.`);
+  
+  // Re-throw the error to prevent the SDK from silently failing
+  throw error;
+}
+
+// Export the patched ESLint package
+module.exports = eslint;
+
+// Add support for ESLint CLI
 if (require.main === module) {
-  module.exports.runESLint();
+  try {
+    // If this file is directly executed, forward to the ESLint CLI
+    const eslintCliPath = require.resolve('eslint/bin/eslint.js');
+    require(eslintCliPath);
+  } catch (error) {
+    console.error(`[ESLint SDK] Error loading ESLint CLI: ${error.message}`);
+    console.error(`This might be due to a missing or incompatible ESLint version.`);
+    console.error(`Please ensure ESLint is installed in your project by running 'yarn add -D eslint'.`);
+    process.exit(1);
+  }
 }

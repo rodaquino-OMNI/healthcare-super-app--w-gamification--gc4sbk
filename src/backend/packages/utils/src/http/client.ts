@@ -1,496 +1,443 @@
 import axios, { AxiosInstance, AxiosRequestConfig, AxiosResponse, AxiosError } from 'axios';
-import { BaseError } from '@austa/errors/base';
-import { ErrorType } from '@austa/errors/types';
-import { TracingService } from '@austa/tracing';
-import { LoggerService } from '@austa/logging';
+import { v4 as uuidv4 } from 'uuid';
 
 /**
- * HTTP client error types for categorizing different kinds of failures
+ * HTTP client error types for better error classification and handling
  */
-export enum HttpClientErrorType {
-  /** Network-related errors (connection refused, timeout, etc.) */
-  NETWORK = 'NETWORK',
-  /** Client errors (4xx status codes) */
-  CLIENT = 'CLIENT',
-  /** Server errors (5xx status codes) */
-  SERVER = 'SERVER',
-  /** Request cancellation */
-  CANCELLED = 'CANCELLED',
-  /** Unknown or uncategorized errors */
-  UNKNOWN = 'UNKNOWN'
+export enum HttpErrorType {
+  CLIENT_ERROR = 'CLIENT_ERROR',       // 4xx errors - client-side issues
+  SERVER_ERROR = 'SERVER_ERROR',       // 5xx errors - server-side issues
+  NETWORK_ERROR = 'NETWORK_ERROR',     // Network connectivity issues
+  TIMEOUT_ERROR = 'TIMEOUT_ERROR',     // Request timeout
+  VALIDATION_ERROR = 'VALIDATION_ERROR', // Response validation failed
+  SSRF_ERROR = 'SSRF_ERROR',           // Server-side request forgery attempt
+  UNKNOWN_ERROR = 'UNKNOWN_ERROR'      // Unclassified errors
 }
 
 /**
- * HTTP client error that extends BaseError with additional HTTP-specific context
+ * Extended HTTP error with additional context for better debugging and handling
  */
-export class HttpClientError extends BaseError {
-  /** The original Axios error that caused this error */
-  public readonly originalError: AxiosError;
-  /** The HTTP status code if available */
-  public readonly statusCode?: number;
-  /** The HTTP client error type category */
-  public readonly httpErrorType: HttpClientErrorType;
-  /** The URL that was being accessed when the error occurred */
-  public readonly url: string;
-  /** The HTTP method that was being used */
-  public readonly method: string;
+export class HttpClientError extends Error {
+  public readonly type: HttpErrorType;
+  public readonly status?: number;
+  public readonly code?: string;
+  public readonly requestId?: string;
+  public readonly url?: string;
+  public readonly method?: string;
+  public readonly originalError?: Error;
+  public readonly response?: any;
 
-  /**
-   * Creates a new HttpClientError
-   * 
-   * @param message - Error message
-   * @param originalError - The original Axios error
-   */
-  constructor(message: string, originalError: AxiosError) {
-    const statusCode = originalError.response?.status;
-    const url = originalError.config?.url || 'unknown';
-    const method = originalError.config?.method?.toUpperCase() || 'UNKNOWN';
-    const httpErrorType = HttpClientError.categorizeError(originalError);
-    
-    super(message, {
-      cause: originalError,
-      errorType: HttpClientError.mapToBaseErrorType(httpErrorType),
-      metadata: {
-        statusCode,
-        url,
-        method,
-        httpErrorType,
-        code: originalError.code,
-        isAxiosError: originalError.isAxiosError
-      }
-    });
-
-    this.originalError = originalError;
-    this.statusCode = statusCode;
-    this.httpErrorType = httpErrorType;
+  constructor({
+    message,
+    type = HttpErrorType.UNKNOWN_ERROR,
+    status,
+    code,
+    requestId,
+    url,
+    method,
+    originalError,
+    response
+  }: {
+    message: string;
+    type?: HttpErrorType;
+    status?: number;
+    code?: string;
+    requestId?: string;
+    url?: string;
+    method?: string;
+    originalError?: Error;
+    response?: any;
+  }) {
+    super(message);
+    this.name = 'HttpClientError';
+    this.type = type;
+    this.status = status;
+    this.code = code;
+    this.requestId = requestId;
     this.url = url;
     this.method = method;
+    this.originalError = originalError;
+    this.response = response;
+
+    // Ensure proper prototype chain for instanceof checks
+    Object.setPrototypeOf(this, HttpClientError.prototype);
   }
 
   /**
-   * Categorizes an Axios error into an HttpClientErrorType
-   * 
-   * @param error - The Axios error to categorize
-   * @returns The appropriate HttpClientErrorType
+   * Creates a structured error object for logging or serialization
    */
-  private static categorizeError(error: AxiosError): HttpClientErrorType {
-    if (error.code === 'ECONNABORTED' || error.code === 'ETIMEDOUT') {
-      return HttpClientErrorType.NETWORK;
-    }
+  toJSON() {
+    return {
+      name: this.name,
+      message: this.message,
+      type: this.type,
+      status: this.status,
+      code: this.code,
+      requestId: this.requestId,
+      url: this.url,
+      method: this.method,
+      response: this.response,
+      stack: this.stack
+    };
+  }
 
-    if (error.code === 'ERR_CANCELED') {
-      return HttpClientErrorType.CANCELLED;
-    }
+  /**
+   * Factory method to create an HttpClientError from an AxiosError
+   */
+  static fromAxiosError(error: AxiosError, requestId?: string): HttpClientError {
+    const { config, response, code, message } = error;
+    const status = response?.status;
+    const url = config?.url;
+    const method = config?.method?.toUpperCase();
+    
+    // Determine error type based on status code and error code
+    let type = HttpErrorType.UNKNOWN_ERROR;
+    let errorMessage = message;
 
-    if (error.response) {
-      const status = error.response.status;
+    if (error.code === 'ECONNABORTED') {
+      type = HttpErrorType.TIMEOUT_ERROR;
+      errorMessage = `Request timeout exceeded (${config?.timeout}ms)`;
+    } else if (error.code === 'ECONNREFUSED' || error.code === 'ENOTFOUND' || error.code === 'ETIMEDOUT') {
+      type = HttpErrorType.NETWORK_ERROR;
+      errorMessage = `Network error: ${error.code} - ${message}`;
+    } else if (status) {
       if (status >= 400 && status < 500) {
-        return HttpClientErrorType.CLIENT;
+        type = HttpErrorType.CLIENT_ERROR;
+        errorMessage = `Client error (${status}): ${response?.data?.message || message}`;
+      } else if (status >= 500) {
+        type = HttpErrorType.SERVER_ERROR;
+        errorMessage = `Server error (${status}): ${response?.data?.message || message}`;
       }
-      if (status >= 500) {
-        return HttpClientErrorType.SERVER;
-      }
     }
 
-    if (error.code === 'ECONNREFUSED' || error.code === 'ENOTFOUND' || 
-        error.code === 'EAI_AGAIN' || error.code === 'ECONNRESET') {
-      return HttpClientErrorType.NETWORK;
-    }
-
-    return HttpClientErrorType.UNKNOWN;
-  }
-
-  /**
-   * Maps an HttpClientErrorType to a base ErrorType
-   * 
-   * @param httpErrorType - The HTTP client error type
-   * @returns The corresponding base ErrorType
-   */
-  private static mapToBaseErrorType(httpErrorType: HttpClientErrorType): ErrorType {
-    switch (httpErrorType) {
-      case HttpClientErrorType.CLIENT:
-        return ErrorType.VALIDATION;
-      case HttpClientErrorType.SERVER:
-        return ErrorType.TECHNICAL;
-      case HttpClientErrorType.NETWORK:
-      case HttpClientErrorType.CANCELLED:
-        return ErrorType.EXTERNAL;
-      default:
-        return ErrorType.TECHNICAL;
-    }
-  }
-
-  /**
-   * Creates a user-friendly error message based on the error details
-   * 
-   * @param error - The Axios error
-   * @returns A user-friendly error message
-   */
-  public static createErrorMessage(error: AxiosError): string {
-    if (error.response) {
-      const status = error.response.status;
-      const url = error.config?.url || 'unknown';
-      const method = error.config?.method?.toUpperCase() || 'UNKNOWN';
-      
-      return `HTTP ${status} error occurred while ${method} ${url}: ${error.message}`;
-    }
-
-    if (error.code === 'ECONNABORTED' || error.code === 'ETIMEDOUT') {
-      return `Request timeout: ${error.message}`;
-    }
-
-    if (error.code === 'ERR_CANCELED') {
-      return `Request cancelled: ${error.message}`;
-    }
-
-    if (error.code === 'ECONNREFUSED') {
-      return `Connection refused: ${error.message}`;
-    }
-
-    if (error.code === 'ENOTFOUND') {
-      return `Host not found: ${error.message}`;
-    }
-
-    return `HTTP request failed: ${error.message}`;
+    return new HttpClientError({
+      message: errorMessage,
+      type,
+      status,
+      code: error.code || response?.data?.code,
+      requestId,
+      url,
+      method,
+      originalError: error,
+      response: response?.data
+    });
   }
 }
 
 /**
- * Retry strategy function type for determining delay between retry attempts
- */
-export type RetryDelayStrategy = (retryCount: number, error?: AxiosError) => number;
-
-/**
- * Retry condition function type for determining if a request should be retried
- */
-export type RetryCondition = (error: AxiosError) => boolean;
-
-/**
- * Configuration options for HTTP client retry mechanism
+ * Retry configuration options for failed requests
  */
 export interface RetryConfig {
   /** Maximum number of retry attempts */
-  retries: number;
-  /** Strategy for determining delay between retries */
-  retryDelay: RetryDelayStrategy;
-  /** Function to determine if a request should be retried */
-  retryCondition?: RetryCondition;
-  /** HTTP methods that should be retried */
-  httpMethodsToRetry?: string[];
+  maxRetries: number;
+  /** Initial delay in milliseconds before the first retry */
+  initialDelayMs: number;
+  /** Factor by which the delay increases with each retry attempt */
+  backoffFactor: number;
+  /** Maximum delay in milliseconds between retries */
+  maxDelayMs: number;
   /** HTTP status codes that should trigger a retry */
-  statusCodesToRetry?: number[][];
-  /** Maximum timeout for a single request attempt */
-  timeout?: number;
-  /** Whether to respect the Retry-After header if present */
-  respectRetryAfter?: boolean;
-}
-
-/**
- * Configuration options for HTTP client
- */
-export interface HttpClientConfig extends AxiosRequestConfig {
-  /** Retry configuration */
-  retry?: Partial<RetryConfig>;
-  /** Logger service for request/response logging */
-  logger?: LoggerService;
-  /** Tracing service for distributed tracing */
-  tracer?: TracingService;
+  retryStatusCodes: number[];
+  /** Error types that should trigger a retry */
+  retryErrorTypes: HttpErrorType[];
 }
 
 /**
  * Default retry configuration
  */
-const DEFAULT_RETRY_CONFIG: RetryConfig = {
-  retries: 3,
-  retryDelay: exponentialDelay,
-  httpMethodsToRetry: ['GET', 'HEAD', 'OPTIONS', 'DELETE', 'PUT'],
-  statusCodesToRetry: [[408, 408], [429, 429], [500, 599]],
-  timeout: 10000,
-  respectRetryAfter: true
+export const DEFAULT_RETRY_CONFIG: RetryConfig = {
+  maxRetries: 3,
+  initialDelayMs: 300,
+  backoffFactor: 2,
+  maxDelayMs: 10000,
+  retryStatusCodes: [408, 429, 500, 502, 503, 504],
+  retryErrorTypes: [HttpErrorType.NETWORK_ERROR, HttpErrorType.TIMEOUT_ERROR, HttpErrorType.SERVER_ERROR]
 };
 
 /**
- * Implements an exponential backoff delay strategy
- * 
- * @param retryCount - The current retry attempt number (starting from 1)
- * @param error - The error that triggered the retry
- * @returns The delay in milliseconds before the next retry
+ * Configuration options for the HTTP client
  */
-export function exponentialDelay(retryCount: number, error?: AxiosError): number {
-  const delay = Math.pow(2, retryCount) * 100;
-  const randomSum = delay * 0.2 * Math.random(); // 0-20% jitter
-  
-  // If we have a Retry-After header and respectRetryAfter is true, use that
-  if (error?.response?.headers['retry-after'] && DEFAULT_RETRY_CONFIG.respectRetryAfter) {
-    const retryAfter = error.response.headers['retry-after'];
-    if (retryAfter && /^\d+$/.test(retryAfter)) {
-      return parseInt(retryAfter, 10) * 1000; // Convert to milliseconds
-    }
-  }
-  
-  return delay + randomSum;
+export interface HttpClientConfig extends AxiosRequestConfig {
+  /** Enable SSRF protection to block requests to private IP ranges */
+  enableSsrfProtection?: boolean;
+  /** Enable request and response logging */
+  enableLogging?: boolean;
+  /** Custom logger function */
+  logger?: (message: string, data?: any) => void;
+  /** Enable automatic response validation */
+  enableResponseValidation?: boolean;
+  /** Custom response validator function */
+  responseValidator?: (response: AxiosResponse) => boolean | Promise<boolean>;
+  /** Retry configuration for failed requests */
+  retry?: Partial<RetryConfig>;
 }
 
 /**
- * Implements a linear delay strategy
- * 
- * @param baseDelay - The base delay in milliseconds
- * @returns A function that calculates linear delay based on retry count
+ * Default HTTP client configuration
  */
-export function linearDelay(baseDelay = 300): RetryDelayStrategy {
-  return (retryCount: number): number => {
-    return retryCount * baseDelay;
-  };
-}
+export const DEFAULT_HTTP_CLIENT_CONFIG: HttpClientConfig = {
+  timeout: 30000,
+  headers: {
+    'Content-Type': 'application/json'
+  },
+  enableSsrfProtection: true,
+  enableLogging: false,
+  enableResponseValidation: false,
+  retry: DEFAULT_RETRY_CONFIG
+};
 
 /**
- * No delay strategy - retries immediately
- * 
- * @returns Always returns 0 (no delay)
- */
-export function noDelay(): number {
-  return 0;
-}
-
-/**
- * Default retry condition that determines if a request should be retried
- * 
- * @param error - The error that occurred
- * @param config - The retry configuration
- * @returns True if the request should be retried, false otherwise
- */
-function defaultRetryCondition(error: AxiosError, config: RetryConfig): boolean {
-  // Don't retry if we don't have a config object
-  if (!error.config) {
-    return false;
-  }
-
-  // Don't retry if the request method is not in the allowed list
-  const method = error.config.method?.toUpperCase() || '';
-  if (config.httpMethodsToRetry && !config.httpMethodsToRetry.includes(method)) {
-    return false;
-  }
-
-  // Retry on network errors
-  if (!error.response) {
-    return true;
-  }
-
-  // Don't retry if the status code is not in the allowed list
-  const status = error.response.status;
-  if (config.statusCodesToRetry) {
-    return config.statusCodesToRetry.some(([min, max]) => {
-      return status >= min && status <= max;
-    });
-  }
-
-  return false;
-}
-
-/**
- * Creates an HTTP client with enhanced error handling and retry capabilities
+ * Creates an HTTP client with enhanced features including error handling, logging, and retry mechanisms
  * 
  * @param config - Configuration options for the HTTP client
- * @returns An Axios instance with enhanced capabilities
+ * @returns A configured Axios instance with additional features
  */
 export function createHttpClient(config: HttpClientConfig = {}): AxiosInstance {
-  const { retry, logger, tracer, ...axiosConfig } = config;
-  
-  // Create the Axios instance
-  const instance = axios.create(axiosConfig);
-  
-  // Configure retry mechanism if enabled
-  if (retry) {
-    const retryConfig: RetryConfig = {
+  // Merge default config with provided config
+  const mergedConfig: HttpClientConfig = {
+    ...DEFAULT_HTTP_CLIENT_CONFIG,
+    ...config,
+    retry: {
       ...DEFAULT_RETRY_CONFIG,
-      ...retry
-    };
+      ...(config.retry || {})
+    },
+    headers: {
+      ...DEFAULT_HTTP_CLIENT_CONFIG.headers,
+      ...(config.headers || {})
+    }
+  };
 
-    // Add request interceptor for timeout
-    instance.interceptors.request.use((config) => {
-      // Set timeout if specified in retry config and not already set
-      if (retryConfig.timeout && !config.timeout) {
-        config.timeout = retryConfig.timeout;
-      }
-      return config;
-    });
+  // Create axios instance
+  const instance = axios.create(mergedConfig);
+  
+  // Default logger function
+  const logger = mergedConfig.logger || ((message: string, data?: any) => {
+    if (data) {
+      console.log(`[HttpClient] ${message}`, data);
+    } else {
+      console.log(`[HttpClient] ${message}`);
+    }
+  });
 
-    // Add response interceptor for retries
-    instance.interceptors.response.use(undefined, async (error: AxiosError) => {
-      // Extract request config and create retry state if not exists
-      const config = error.config;
-      if (!config) {
-        return Promise.reject(error);
-      }
-
-      // Initialize retry count if not exists
-      config.headers = config.headers || {};
-      const retryCount = parseInt(config.headers['x-retry-count'] as string, 10) || 0;
-
-      // Check if we should retry the request
-      const shouldRetry = retryConfig.retryCondition 
-        ? retryConfig.retryCondition(error)
-        : defaultRetryCondition(error, retryConfig);
-
-      if (shouldRetry && retryCount < retryConfig.retries) {
-        // Increment retry count
-        const nextRetryCount = retryCount + 1;
-        config.headers['x-retry-count'] = nextRetryCount.toString();
-
-        // Calculate delay before next retry
-        const delay = retryConfig.retryDelay(nextRetryCount, error);
-
-        // Log retry attempt
-        if (logger) {
-          logger.debug(
-            `Retrying request to ${config.url} (attempt ${nextRetryCount}/${retryConfig.retries}) after ${delay}ms`,
-            {
-              url: config.url,
-              method: config.method,
-              retryCount: nextRetryCount,
-              maxRetries: retryConfig.retries,
-              delay,
-              errorCode: error.code,
-              statusCode: error.response?.status
-            }
-          );
+  // Add request interceptor for SSRF protection
+  if (mergedConfig.enableSsrfProtection) {
+    instance.interceptors.request.use(reqConfig => {
+      if (!reqConfig.url) return reqConfig;
+      
+      try {
+        const url = new URL(reqConfig.url, reqConfig.baseURL);
+        const hostname = url.hostname;
+        
+        // Block requests to private IP ranges
+        if (
+          /^(10\.|172\.(1[6-9]|2[0-9]|3[0-1])\.|192\.168\.|127\.|0\.0\.0\.0|localhost)/.test(hostname) ||
+          hostname === '::1' ||
+          hostname === 'fe80::' ||
+          hostname.endsWith('.local')
+        ) {
+          throw new HttpClientError({
+            message: 'SSRF Protection: Blocked request to private or local network',
+            type: HttpErrorType.SSRF_ERROR,
+            url: reqConfig.url,
+            method: reqConfig.method?.toUpperCase()
+          });
         }
-
-        // Wait for the delay and then retry the request
-        await new Promise(resolve => setTimeout(resolve, delay));
-        return instance(config);
+      } catch (error) {
+        if (error instanceof HttpClientError) {
+          throw error;
+        }
+        // If there's an error parsing the URL, continue with the request
       }
-
-      // If we shouldn't retry or have exceeded max retries, reject with enhanced error
-      const errorMessage = HttpClientError.createErrorMessage(error);
-      return Promise.reject(new HttpClientError(errorMessage, error));
+      
+      return reqConfig;
     });
   }
 
-  // Add request interceptor for tracing
-  if (tracer) {
-    instance.interceptors.request.use((config) => {
-      const span = tracer.startSpan('HTTP Request');
-      span.setAttributes({
-        'http.method': config.method?.toUpperCase() || 'UNKNOWN',
-        'http.url': config.url || 'unknown',
-        'http.request.headers': JSON.stringify(config.headers || {})
-      });
+  // Add request ID and logging
+  instance.interceptors.request.use(reqConfig => {
+    // Generate a unique request ID for tracing
+    const requestId = uuidv4();
+    reqConfig.headers = reqConfig.headers || {};
+    reqConfig.headers['X-Request-ID'] = requestId;
+    
+    // Store request ID in config for later use
+    (reqConfig as any).requestId = requestId;
+    
+    // Log request if logging is enabled
+    if (mergedConfig.enableLogging) {
+      const logData = {
+        requestId,
+        method: reqConfig.method?.toUpperCase(),
+        url: reqConfig.url,
+        headers: { ...reqConfig.headers },
+        params: reqConfig.params,
+        // Don't log sensitive data like auth tokens
+        data: reqConfig.data ? '(request data)' : undefined
+      };
+      
+      logger('Request sent', logData);
+    }
+    
+    return reqConfig;
+  });
 
-      // Store span in request config for later use
-      config.headers = config.headers || {};
-      config.headers['x-trace-id'] = span.spanContext().traceId;
-      config.headers['x-span-id'] = span.spanContext().spanId;
-
-      // Store span in request for later retrieval
-      (config as any).__span = span;
-
-      return config;
-    });
-
-    // Add response interceptor for tracing
-    instance.interceptors.response.use(
-      (response) => {
-        const config = response.config;
-        const span = (config as any).__span;
-
-        if (span) {
-          span.setAttributes({
-            'http.status_code': response.status,
-            'http.response.headers': JSON.stringify(response.headers || {}),
-            'http.response.size': JSON.stringify(response.data || '').length
-          });
-          span.end();
-        }
-
-        return response;
-      },
-      (error: AxiosError) => {
-        const config = error.config;
-        const span = config && (config as any).__span;
-
-        if (span) {
-          span.setAttributes({
-            'http.status_code': error.response?.status,
-            'error': true,
-            'error.message': error.message,
-            'error.code': error.code
-          });
-          span.end();
-        }
-
-        return Promise.reject(error);
-      }
-    );
-  }
-
-  // Add request/response logging
-  if (logger) {
-    // Add request logging interceptor
-    instance.interceptors.request.use((config) => {
-      logger.debug(`HTTP ${config.method?.toUpperCase() || 'UNKNOWN'} request to ${config.url}`, {
-        url: config.url,
-        method: config.method,
-        headers: config.headers,
-        params: config.params,
-        // Don't log request body for security reasons unless explicitly configured
-        ...(config.data && config.logRequestBody ? { body: config.data } : {})
-      });
-      return config;
-    });
-
-    // Add response logging interceptor
-    instance.interceptors.response.use(
-      (response) => {
-        logger.debug(`HTTP ${response.status} response from ${response.config.url}`, {
-          url: response.config.url,
-          method: response.config.method,
+  // Add response validation, logging and error handling
+  instance.interceptors.response.use(
+    async (response) => {
+      const requestId = (response.config as any).requestId;
+      
+      // Log response if logging is enabled
+      if (mergedConfig.enableLogging) {
+        const logData = {
+          requestId,
           status: response.status,
           statusText: response.statusText,
-          headers: response.headers,
-          // Don't log response body for security reasons unless explicitly configured
-          ...(response.data && response.config.logResponseBody ? { body: response.data } : {})
-        });
-        return response;
-      },
-      (error: AxiosError) => {
-        if (error.response) {
-          logger.error(`HTTP ${error.response.status} error from ${error.config?.url}`, {
-            url: error.config?.url,
-            method: error.config?.method,
-            status: error.response.status,
-            statusText: error.response.statusText,
-            headers: error.response.headers,
-            // Don't log response body for security reasons unless explicitly configured
-            ...(error.response.data && error.config?.logResponseBody ? { body: error.response.data } : {})
-          });
-        } else {
-          logger.error(`HTTP request error: ${error.message}`, {
-            url: error.config?.url,
-            method: error.config?.method,
-            code: error.code,
-            message: error.message
+          headers: { ...response.headers },
+          // Don't log potentially large response data
+          data: '(response data)'
+        };
+        
+        logger('Response received', logData);
+      }
+      
+      // Validate response if enabled
+      if (mergedConfig.enableResponseValidation && mergedConfig.responseValidator) {
+        try {
+          const isValid = await mergedConfig.responseValidator(response);
+          if (!isValid) {
+            throw new HttpClientError({
+              message: 'Response validation failed',
+              type: HttpErrorType.VALIDATION_ERROR,
+              status: response.status,
+              requestId,
+              url: response.config.url,
+              method: response.config.method?.toUpperCase(),
+              response: response.data
+            });
+          }
+        } catch (error) {
+          if (error instanceof HttpClientError) {
+            throw error;
+          }
+          throw new HttpClientError({
+            message: `Response validation error: ${(error as Error).message}`,
+            type: HttpErrorType.VALIDATION_ERROR,
+            status: response.status,
+            requestId,
+            url: response.config.url,
+            method: response.config.method?.toUpperCase(),
+            originalError: error as Error,
+            response: response.data
           });
         }
-        return Promise.reject(error);
       }
-    );
-  }
+      
+      return response;
+    },
+    async (error: AxiosError) => {
+      // Get request ID from config if available
+      const requestId = (error.config as any)?.requestId;
+      
+      // Convert to HttpClientError for better error handling
+      const httpError = HttpClientError.fromAxiosError(error, requestId);
+      
+      // Log error if logging is enabled
+      if (mergedConfig.enableLogging) {
+        logger('Request error', httpError.toJSON());
+      }
+      
+      // Implement retry logic for certain errors
+      if (error.config && mergedConfig.retry) {
+        const { maxRetries, initialDelayMs, backoffFactor, maxDelayMs, retryStatusCodes, retryErrorTypes } = 
+          mergedConfig.retry as RetryConfig;
+        
+        // Get current retry attempt from config or initialize to 0
+        const currentRetryAttempt = (error.config as any).retryAttempt || 0;
+        
+        // Check if we should retry based on error type and status
+        const shouldRetryStatus = error.response?.status && retryStatusCodes.includes(error.response.status);
+        const shouldRetryErrorType = retryErrorTypes.includes(httpError.type);
+        
+        if ((shouldRetryStatus || shouldRetryErrorType) && currentRetryAttempt < maxRetries) {
+          // Calculate delay with exponential backoff
+          const delay = Math.min(
+            initialDelayMs * Math.pow(backoffFactor, currentRetryAttempt),
+            maxDelayMs
+          );
+          
+          // Log retry attempt
+          if (mergedConfig.enableLogging) {
+            logger(`Retrying request (attempt ${currentRetryAttempt + 1}/${maxRetries}) after ${delay}ms`, {
+              requestId,
+              url: error.config.url,
+              method: error.config.method?.toUpperCase(),
+              errorType: httpError.type,
+              status: error.response?.status
+            });
+          }
+          
+          // Wait for the calculated delay
+          await new Promise(resolve => setTimeout(resolve, delay));
+          
+          // Increment retry attempt counter
+          (error.config as any).retryAttempt = currentRetryAttempt + 1;
+          
+          // Retry the request
+          return instance(error.config);
+        }
+      }
+      
+      // If we shouldn't retry or have exceeded max retries, throw the error
+      throw httpError;
+    }
+  );
 
   return instance;
 }
 
 /**
- * Creates a simple HTTP client with default configuration
+ * Creates a secure HTTP client with SSRF protection and standard configuration
  * 
- * @returns An Axios instance with default configuration
+ * @returns A configured HTTP client with security measures
  */
-export function createSimpleHttpClient(): AxiosInstance {
+export function createSecureHttpClient(): AxiosInstance {
   return createHttpClient({
-    timeout: 30000,
+    enableSsrfProtection: true,
+    timeout: 30000
+  });
+}
+
+/**
+ * Creates an HTTP client configured for internal API communication
+ * 
+ * @param baseURL - The base URL for the API
+ * @param headers - Additional headers to include with requests
+ * @param options - Additional configuration options
+ * @returns A configured HTTP client for internal API communication
+ */
+export function createInternalApiClient(
+  baseURL: string,
+  headers: Record<string, string> = {},
+  options: Partial<HttpClientConfig> = {}
+): AxiosInstance {
+  return createHttpClient({
+    baseURL,
     headers: {
-      'Content-Type': 'application/json'
-    }
+      'Content-Type': 'application/json',
+      ...headers
+    },
+    timeout: 10000,
+    enableSsrfProtection: true,
+    enableLogging: process.env.NODE_ENV !== 'production',
+    retry: {
+      maxRetries: 2,
+      initialDelayMs: 200,
+      backoffFactor: 2,
+      maxDelayMs: 2000,
+      retryStatusCodes: [408, 429, 500, 502, 503, 504],
+      retryErrorTypes: [HttpErrorType.NETWORK_ERROR, HttpErrorType.TIMEOUT_ERROR]
+    },
+    ...options
   });
 }
 

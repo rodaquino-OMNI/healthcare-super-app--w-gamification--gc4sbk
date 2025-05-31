@@ -1,494 +1,367 @@
-/**
- * Unit tests for object merging utilities
- * 
- * These tests verify that objects are correctly merged at all nesting levels,
- * with appropriate handling of arrays, primitive values, and edge cases including
- * null/undefined values and conflicting property types.
- */
-
-import { 
-  deepMerge, 
-  deepMergeWithOptions, 
-  MergeStrategy, 
-  mergeConfig,
-  mergeJourneyConfig
-} from '../../../src/object/merge';
+import { deepMerge } from '../../../src/object/merge';
 
 describe('Object Merge Utilities', () => {
   describe('deepMerge', () => {
-    it('should merge shallow objects correctly', () => {
-      const target = { a: 1, b: 2 };
-      const source = { b: 3, c: 4 };
-      
-      const result = deepMerge(target, source);
-      
-      expect(result).toEqual({ a: 1, b: 3, c: 4 });
-      // Original objects should not be modified
-      expect(target).toEqual({ a: 1, b: 2 });
-      expect(source).toEqual({ b: 3, c: 4 });
+    // Basic merging tests
+    describe('basic merging', () => {
+      it('should merge two shallow objects correctly', () => {
+        const obj1 = { a: 1, b: 2 };
+        const obj2 = { b: 3, c: 4 };
+        const result = deepMerge(obj1, obj2);
+
+        expect(result).toEqual({ a: 1, b: 3, c: 4 });
+        // Ensure original objects are not modified
+        expect(obj1).toEqual({ a: 1, b: 2 });
+        expect(obj2).toEqual({ b: 3, c: 4 });
+      });
+
+      it('should merge multiple objects from left to right', () => {
+        const obj1 = { a: 1, b: 2 };
+        const obj2 = { b: 3, c: 4 };
+        const obj3 = { c: 5, d: 6 };
+        const result = deepMerge(obj1, obj2, obj3);
+
+        expect(result).toEqual({ a: 1, b: 3, c: 5, d: 6 });
+      });
+
+      it('should return a new object even when only one object is provided', () => {
+        const obj = { a: 1, b: 2 };
+        const result = deepMerge(obj);
+
+        expect(result).toEqual(obj);
+        expect(result).not.toBe(obj); // Should be a new reference
+      });
+
+      it('should handle primitive values in source objects', () => {
+        const obj1 = { a: 1, b: 'string', c: true };
+        const obj2 = { b: 'new string', d: false };
+        const result = deepMerge(obj1, obj2);
+
+        expect(result).toEqual({ a: 1, b: 'new string', c: true, d: false });
+      });
     });
-    
-    it('should merge multiple source objects from left to right', () => {
-      const target = { a: 1, b: 2 };
-      const source1 = { b: 3, c: 4 };
-      const source2 = { c: 5, d: 6 };
-      
-      const result = deepMerge(target, source1, source2);
-      
-      expect(result).toEqual({ a: 1, b: 3, c: 5, d: 6 });
+
+    // Deep merging tests
+    describe('deep merging', () => {
+      it('should merge nested objects recursively', () => {
+        const obj1 = { a: { b: 1, c: 2 }, d: 3 };
+        const obj2 = { a: { c: 4, e: 5 }, f: 6 };
+        const result = deepMerge(obj1, obj2);
+
+        expect(result).toEqual({ a: { b: 1, c: 4, e: 5 }, d: 3, f: 6 });
+      });
+
+      it('should handle deeply nested objects', () => {
+        const obj1 = { a: { b: { c: { d: 1 } } } };
+        const obj2 = { a: { b: { c: { e: 2 } } } };
+        const obj3 = { a: { b: { f: 3 } } };
+        const result = deepMerge(obj1, obj2, obj3);
+
+        expect(result).toEqual({ a: { b: { c: { d: 1, e: 2 }, f: 3 } } });
+      });
+
+      it('should merge nested objects even when they only exist in one source', () => {
+        const obj1 = { a: { b: 1 } };
+        const obj2 = { c: { d: 2 } };
+        const result = deepMerge(obj1, obj2);
+
+        expect(result).toEqual({ a: { b: 1 }, c: { d: 2 } });
+      });
     });
-    
-    it('should return a copy of the target when no sources are provided', () => {
-      const target = { a: 1, b: 2 };
-      
-      const result = deepMerge(target);
-      
-      expect(result).toEqual(target);
-      expect(result).not.toBe(target); // Should be a new object
+
+    // Array handling tests
+    describe('array handling', () => {
+      it('should replace arrays by default', () => {
+        const obj1 = { a: [1, 2, 3] };
+        const obj2 = { a: [4, 5] };
+        const result = deepMerge(obj1, obj2);
+
+        expect(result.a).toEqual([4, 5]);
+      });
+
+      it('should combine arrays when using combine option', () => {
+        const obj1 = { a: [1, 2, 3] };
+        const obj2 = { a: [4, 5] };
+        const result = deepMerge(obj1, obj2, { arrays: 'combine' });
+
+        // Should contain all unique elements from both arrays
+        expect(result.a).toEqual(expect.arrayContaining([1, 2, 3, 4, 5]));
+        expect(result.a.length).toBe(5);
+      });
+
+      it('should append arrays when using append option', () => {
+        const obj1 = { a: [1, 2, 3] };
+        const obj2 = { a: [4, 5] };
+        const result = deepMerge(obj1, obj2, { arrays: 'append' });
+
+        expect(result.a).toEqual([1, 2, 3, 4, 5]);
+      });
+
+      it('should handle arrays of objects with proper merging', () => {
+        const obj1 = { a: [{ id: 1, value: 'a' }, { id: 2, value: 'b' }] };
+        const obj2 = { a: [{ id: 2, name: 'B' }, { id: 3, value: 'c' }] };
+        
+        // With replace option (default)
+        const resultReplace = deepMerge(obj1, obj2);
+        expect(resultReplace.a).toEqual([{ id: 2, name: 'B' }, { id: 3, value: 'c' }]);
+        
+        // With append option
+        const resultAppend = deepMerge(obj1, obj2, { arrays: 'append' });
+        expect(resultAppend.a).toEqual([
+          { id: 1, value: 'a' }, 
+          { id: 2, value: 'b' },
+          { id: 2, name: 'B' }, 
+          { id: 3, value: 'c' }
+        ]);
+      });
+
+      it('should handle nested arrays', () => {
+        const obj1 = { a: { b: [1, 2, [3, 4]] } };
+        const obj2 = { a: { b: [5, [6, 7]] } };
+        
+        // With replace option (default)
+        const resultReplace = deepMerge(obj1, obj2);
+        expect(resultReplace.a.b).toEqual([5, [6, 7]]);
+        
+        // With append option
+        const resultAppend = deepMerge(obj1, obj2, { arrays: 'append' });
+        expect(resultAppend.a.b).toEqual([1, 2, [3, 4], 5, [6, 7]]);
+      });
     });
-    
-    it('should deeply merge nested objects', () => {
-      const target = { 
-        user: { 
-          name: 'John', 
-          age: 30,
-          address: {
-            city: 'New York',
-            zip: '10001'
+
+    // Conflicting property types tests
+    describe('conflicting property types', () => {
+      it('should handle conflicting property types by using the latter value', () => {
+        const obj1 = { a: { b: 1 } };
+        const obj2 = { a: 'string' };
+        const result = deepMerge(obj1, obj2);
+
+        expect(result.a).toBe('string');
+      });
+
+      it('should handle object replacing primitive and vice versa', () => {
+        const obj1 = { a: 1, b: { c: 2 } };
+        const obj2 = { a: { d: 3 }, b: 4 };
+        const result = deepMerge(obj1, obj2);
+
+        expect(result).toEqual({ a: { d: 3 }, b: 4 });
+      });
+
+      it('should handle array replacing object and vice versa', () => {
+        const obj1 = { a: [1, 2], b: { c: 3 } };
+        const obj2 = { a: { d: 4 }, b: [5, 6] };
+        const result = deepMerge(obj1, obj2);
+
+        expect(result).toEqual({ a: { d: 4 }, b: [5, 6] });
+      });
+
+      it('should handle null and undefined values correctly', () => {
+        const obj1 = { a: null, b: undefined, c: 1 };
+        const obj2 = { a: 2, b: 3, c: undefined };
+        const result = deepMerge(obj1, obj2);
+
+        expect(result).toEqual({ a: 2, b: 3, c: undefined });
+      });
+    });
+
+    // Circular reference tests
+    describe('circular reference handling', () => {
+      it('should detect and handle circular references', () => {
+        const obj1: any = { a: 1 };
+        obj1.self = obj1; // Circular reference
+
+        const obj2 = { b: 2 };
+        const result = deepMerge(obj1, obj2);
+
+        expect(result.a).toBe(1);
+        expect(result.b).toBe(2);
+        expect(result.self).toBe(result); // Circular reference should be preserved
+      });
+
+      it('should handle nested circular references', () => {
+        const obj1: any = { a: { b: 1 } };
+        obj1.a.parent = obj1; // Nested circular reference
+
+        const obj2 = { c: 2 };
+        const result = deepMerge(obj1, obj2);
+
+        expect(result.a.b).toBe(1);
+        expect(result.c).toBe(2);
+        expect(result.a.parent).toBe(result); // Circular reference should be preserved
+      });
+
+      it('should handle circular references in arrays', () => {
+        const obj1: any = { a: [1, 2] };
+        obj1.a.push(obj1); // Circular reference in array
+
+        const obj2 = { b: 3 };
+        const result = deepMerge(obj1, obj2);
+
+        expect(result.a[0]).toBe(1);
+        expect(result.a[1]).toBe(2);
+        expect(result.a[2]).toBe(result); // Circular reference should be preserved
+        expect(result.b).toBe(3);
+      });
+    });
+
+    // Edge cases tests
+    describe('edge cases', () => {
+      it('should handle empty objects', () => {
+        const obj1 = {};
+        const obj2 = {};
+        const result = deepMerge(obj1, obj2);
+
+        expect(result).toEqual({});
+      });
+
+      it('should handle null or undefined sources', () => {
+        const obj = { a: 1 };
+        const result1 = deepMerge(obj, null);
+        const result2 = deepMerge(obj, undefined);
+
+        expect(result1).toEqual(obj);
+        expect(result2).toEqual(obj);
+      });
+
+      it('should handle all null or undefined sources', () => {
+        const result = deepMerge(null, undefined);
+        expect(result).toEqual({});
+      });
+
+      it('should handle non-object sources', () => {
+        const obj = { a: 1 };
+        // @ts-expect-error Testing with invalid input
+        const result1 = deepMerge(obj, 'string');
+        // @ts-expect-error Testing with invalid input
+        const result2 = deepMerge(obj, 123);
+
+        expect(result1).toEqual(obj);
+        expect(result2).toEqual(obj);
+      });
+
+      it('should handle Date objects', () => {
+        const date1 = new Date('2023-01-01');
+        const date2 = new Date('2023-02-01');
+        const obj1 = { date: date1 };
+        const obj2 = { date: date2 };
+        const result = deepMerge(obj1, obj2);
+
+        expect(result.date).toEqual(date2);
+        expect(result.date).not.toBe(date1);
+        expect(result.date).toBe(date2);
+      });
+
+      it('should handle RegExp objects', () => {
+        const regex1 = /test1/;
+        const regex2 = /test2/g;
+        const obj1 = { regex: regex1 };
+        const obj2 = { regex: regex2 };
+        const result = deepMerge(obj1, obj2);
+
+        expect(result.regex).toEqual(regex2);
+        expect(result.regex).not.toBe(regex1);
+        expect(result.regex).toBe(regex2);
+      });
+
+      it('should handle functions', () => {
+        const fn1 = () => 'test1';
+        const fn2 = () => 'test2';
+        const obj1 = { fn: fn1 };
+        const obj2 = { fn: fn2 };
+        const result = deepMerge(obj1, obj2);
+
+        expect(result.fn).toBe(fn2);
+        expect(result.fn()).toBe('test2');
+      });
+
+      it('should handle Map and Set objects', () => {
+        const map1 = new Map([['a', 1]]);
+        const map2 = new Map([['b', 2]]);
+        const set1 = new Set([1, 2]);
+        const set2 = new Set([3, 4]);
+        
+        const obj1 = { map: map1, set: set1 };
+        const obj2 = { map: map2, set: set2 };
+        const result = deepMerge(obj1, obj2);
+
+        expect(result.map).toBe(map2);
+        expect(result.set).toBe(set2);
+      });
+
+      it('should handle property overwrites with undefined', () => {
+        const obj1 = { a: 1, b: 2 };
+        const obj2 = { a: undefined };
+        const result = deepMerge(obj1, obj2);
+
+        expect(result).toEqual({ a: undefined, b: 2 });
+        expect(result).toHaveProperty('a');
+        expect(result.a).toBeUndefined();
+      });
+    });
+
+    // Performance considerations
+    describe('performance considerations', () => {
+      it('should handle large objects efficiently', () => {
+        // Create a large object with many nested properties
+        const createLargeObject = (prefix: string, depth: number, breadth: number): Record<string, any> => {
+          if (depth <= 0) return { [`${prefix}_value`]: Math.random() };
+          
+          const obj: Record<string, any> = {};
+          for (let i = 0; i < breadth; i++) {
+            obj[`${prefix}_${i}`] = createLargeObject(`${prefix}_${i}`, depth - 1, breadth);
           }
-        } 
-      };
-      
-      const source = { 
-        user: { 
-          age: 31, 
-          role: 'admin',
-          address: {
-            street: 'Broadway',
-            zip: '10002'
-          }
-        } 
-      };
-      
-      const result = deepMerge(target, source);
-      
-      expect(result).toEqual({
-        user: {
-          name: 'John',
-          age: 31,
-          role: 'admin',
-          address: {
-            city: 'New York',
-            street: 'Broadway',
-            zip: '10002'
-          }
-        }
+          return obj;
+        };
+
+        const largeObj1 = createLargeObject('obj1', 3, 5);
+        const largeObj2 = createLargeObject('obj2', 3, 5);
+
+        // This is more of a smoke test to ensure it doesn't crash or timeout
+        const start = Date.now();
+        const result = deepMerge(largeObj1, largeObj2);
+        const end = Date.now();
+
+        expect(result).toBeTruthy();
+        expect(end - start).toBeLessThan(1000); // Should complete in less than 1 second
       });
     });
-    
-    it('should replace arrays by default', () => {
-      const target = { tags: ['important', 'urgent'] };
-      const source = { tags: ['approved', 'urgent'] };
-      
-      const result = deepMerge(target, source);
-      
-      expect(result.tags).toEqual(['approved', 'urgent']);
-      // Should be a new array
-      expect(result.tags).not.toBe(source.tags);
-    });
-    
-    it('should handle null sources by skipping them', () => {
-      const target = { a: 1, b: 2 };
-      const source1 = null;
-      const source2 = { c: 3 };
-      
-      // @ts-ignore - Testing null handling
-      const result = deepMerge(target, source1, source2);
-      
-      expect(result).toEqual({ a: 1, b: 2, c: 3 });
-    });
-    
-    it('should throw an error if target is not a plain object', () => {
-      const target = ['not', 'an', 'object'];
-      const source = { a: 1 };
-      
-      // @ts-ignore - Testing type validation
-      expect(() => deepMerge(target, source)).toThrow(TypeError);
-    });
-    
-    it('should throw an error if source is not a plain object', () => {
-      const target = { a: 1 };
-      const source = ['not', 'an', 'object'];
-      
-      // @ts-ignore - Testing type validation
-      expect(() => deepMerge(target, source)).toThrow(TypeError);
-    });
-  });
-  
-  describe('deepMergeWithOptions', () => {
-    it('should combine arrays when using COMBINE strategy', () => {
-      const target = { tags: ['important', 'urgent'] };
-      const source = { tags: ['approved', 'urgent'] };
-      
-      const result = deepMergeWithOptions(target, [source], {
-        arrayStrategy: MergeStrategy.COMBINE
+
+    // Custom merge options tests
+    describe('custom merge options', () => {
+      it('should respect custom merge options for arrays', () => {
+        const obj1 = { a: [1, 2, 3] };
+        const obj2 = { a: [4, 5] };
+        
+        // Test with replace option
+        const resultReplace = deepMerge(obj1, obj2, { arrays: 'replace' });
+        expect(resultReplace.a).toEqual([4, 5]);
+        
+        // Test with combine option
+        const resultCombine = deepMerge(obj1, obj2, { arrays: 'combine' });
+        expect(resultCombine.a.length).toBe(5);
+        expect(resultCombine.a).toEqual(expect.arrayContaining([1, 2, 3, 4, 5]));
+        
+        // Test with append option
+        const resultAppend = deepMerge(obj1, obj2, { arrays: 'append' });
+        expect(resultAppend.a).toEqual([1, 2, 3, 4, 5]);
       });
-      
-      // Should combine arrays and remove duplicates
-      expect(result.tags).toEqual(['important', 'urgent', 'approved']);
-    });
-    
-    it('should append arrays when using APPEND strategy', () => {
-      const target = { tags: ['important', 'urgent'] };
-      const source = { tags: ['approved', 'urgent'] };
-      
-      const result = deepMergeWithOptions(target, [source], {
-        arrayStrategy: MergeStrategy.APPEND
+
+      it('should handle custom merge depth option', () => {
+        const obj1 = { a: { b: { c: 1, d: 2 }, e: 3 } };
+        const obj2 = { a: { b: { c: 4, f: 5 }, g: 6 } };
+        
+        // With unlimited depth (default)
+        const resultUnlimited = deepMerge(obj1, obj2);
+        expect(resultUnlimited).toEqual({ a: { b: { c: 4, d: 2, f: 5 }, e: 3, g: 6 } });
+        
+        // With depth = 1 (only merge top level)
+        const resultDepth1 = deepMerge(obj1, obj2, { depth: 1 });
+        expect(resultDepth1).toEqual({ a: { b: { c: 4, f: 5 }, g: 6 } });
+        
+        // With depth = 2 (merge up to second level)
+        const resultDepth2 = deepMerge(obj1, obj2, { depth: 2 });
+        expect(resultDepth2).toEqual({ a: { b: { c: 4, f: 5 }, e: 3, g: 6 } });
       });
-      
-      // Should append source array to target array (with duplicates)
-      expect(result.tags).toEqual(['important', 'urgent', 'approved', 'urgent']);
-    });
-    
-    it('should throw an error for unknown array strategy', () => {
-      const target = { tags: ['important'] };
-      const source = { tags: ['approved'] };
-      
-      expect(() => deepMergeWithOptions(target, [source], {
-        // @ts-ignore - Testing invalid strategy
-        arrayStrategy: 'invalid-strategy'
-      })).toThrow(/Unknown array merge strategy/);
-    });
-    
-    it('should respect maxDepth to prevent stack overflow', () => {
-      // Create a deeply nested object
-      let deeplyNested = {};
-      let current = deeplyNested;
-      
-      // Create an object with 10 levels of nesting
-      for (let i = 0; i < 10; i++) {
-        current['level'] = {};
-        current = current['level'];
-      }
-      
-      // Set maxDepth to 5 (less than our nesting)
-      expect(() => deepMergeWithOptions({}, [deeplyNested], {
-        maxDepth: 5
-      })).toThrow(/Maximum merge depth of 5 exceeded/);
-    });
-    
-    it('should skip undefined source values', () => {
-      const target = { a: 1, b: 2 };
-      const source = { b: undefined, c: 3 };
-      
-      const result = deepMergeWithOptions(target, [source], {});
-      
-      // Should keep the original value for b
-      expect(result).toEqual({ a: 1, b: 2, c: 3 });
-    });
-    
-    it('should handle conflicting property types by using source value', () => {
-      const target = { 
-        prop: { nested: 'value' } 
-      };
-      
-      const source = { 
-        prop: 'string value' 
-      };
-      
-      const result = deepMergeWithOptions(target, [source], {});
-      
-      // Should use the source value when types conflict
-      expect(result.prop).toBe('string value');
-    });
-    
-    it('should handle array to object type conflicts', () => {
-      const target = { 
-        prop: ['array', 'value'] 
-      };
-      
-      const source = { 
-        prop: { key: 'object value' } 
-      };
-      
-      const result = deepMergeWithOptions(target, [source], {});
-      
-      // Should use the source value when types conflict
-      expect(result.prop).toEqual({ key: 'object value' });
-    });
-    
-    it('should handle object to array type conflicts', () => {
-      const target = { 
-        prop: { key: 'object value' } 
-      };
-      
-      const source = { 
-        prop: ['array', 'value'] 
-      };
-      
-      const result = deepMergeWithOptions(target, [source], {});
-      
-      // Should use the source value when types conflict
-      expect(result.prop).toEqual(['array', 'value']);
-    });
-  });
-  
-  describe('mergeConfig', () => {
-    const originalNodeEnv = process.env.NODE_ENV;
-    
-    afterEach(() => {
-      // Restore original NODE_ENV after each test
-      process.env.NODE_ENV = originalNodeEnv;
-    });
-    
-    it('should merge base config with environment-specific overrides', () => {
-      // Set environment to development
-      process.env.NODE_ENV = 'development';
-      
-      const baseConfig = { 
-        apiUrl: 'https://api.example.com', 
-        timeout: 5000 
-      };
-      
-      const envConfigs = {
-        development: { 
-          apiUrl: 'http://localhost:3000', 
-          debug: true 
-        },
-        production: { 
-          timeout: 3000 
-        }
-      };
-      
-      const result = mergeConfig(baseConfig, envConfigs);
-      
-      // Should apply development overrides
-      expect(result).toEqual({
-        apiUrl: 'http://localhost:3000',
-        timeout: 5000,
-        debug: true
-      });
-    });
-    
-    it('should use production environment overrides when NODE_ENV is production', () => {
-      // Set environment to production
-      process.env.NODE_ENV = 'production';
-      
-      const baseConfig = { 
-        apiUrl: 'https://api.example.com', 
-        timeout: 5000 
-      };
-      
-      const envConfigs = {
-        development: { 
-          apiUrl: 'http://localhost:3000', 
-          debug: true 
-        },
-        production: { 
-          timeout: 3000 
-        }
-      };
-      
-      const result = mergeConfig(baseConfig, envConfigs);
-      
-      // Should apply production overrides
-      expect(result).toEqual({
-        apiUrl: 'https://api.example.com',
-        timeout: 3000
-      });
-    });
-    
-    it('should use default environment when NODE_ENV is not set', () => {
-      // Unset NODE_ENV
-      delete process.env.NODE_ENV;
-      
-      const baseConfig = { 
-        apiUrl: 'https://api.example.com', 
-        timeout: 5000 
-      };
-      
-      const envConfigs = {
-        development: { 
-          apiUrl: 'http://localhost:3000', 
-          debug: true 
-        }
-      };
-      
-      const result = mergeConfig(baseConfig, envConfigs);
-      
-      // Should default to development
-      expect(result).toEqual({
-        apiUrl: 'http://localhost:3000',
-        timeout: 5000,
-        debug: true
-      });
-    });
-    
-    it('should handle missing environment config', () => {
-      // Set to an environment that doesn't exist in the config
-      process.env.NODE_ENV = 'staging';
-      
-      const baseConfig = { 
-        apiUrl: 'https://api.example.com', 
-        timeout: 5000 
-      };
-      
-      const envConfigs = {
-        development: { 
-          apiUrl: 'http://localhost:3000' 
-        },
-        production: { 
-          timeout: 3000 
-        }
-      };
-      
-      const result = mergeConfig(baseConfig, envConfigs);
-      
-      // Should use base config without overrides
-      expect(result).toEqual(baseConfig);
-    });
-    
-    it('should handle empty environment configs', () => {
-      const baseConfig = { 
-        apiUrl: 'https://api.example.com', 
-        timeout: 5000 
-      };
-      
-      const result = mergeConfig(baseConfig);
-      
-      // Should return base config unchanged
-      expect(result).toEqual(baseConfig);
-    });
-    
-    it('should throw an error if base config is not a plain object', () => {
-      // @ts-ignore - Testing type validation
-      expect(() => mergeConfig(['not', 'an', 'object'])).toThrow(TypeError);
-    });
-  });
-  
-  describe('mergeJourneyConfig', () => {
-    it('should merge journey-specific configuration with base configuration', () => {
-      const baseConfig = { 
-        theme: 'light', 
-        apiTimeout: 5000 
-      };
-      
-      const journeyConfig = { 
-        theme: 'health-theme', 
-        metrics: { refresh: 60 } 
-      };
-      
-      const result = mergeJourneyConfig(baseConfig, journeyConfig);
-      
-      expect(result).toEqual({
-        theme: 'health-theme',
-        apiTimeout: 5000,
-        metrics: { refresh: 60 }
-      });
-    });
-    
-    it('should use custom array strategy when provided', () => {
-      const baseConfig = { 
-        features: ['base1', 'base2'] 
-      };
-      
-      const journeyConfig = { 
-        features: ['journey1', 'journey2'] 
-      };
-      
-      const result = mergeJourneyConfig(baseConfig, journeyConfig, {
-        arrayStrategy: MergeStrategy.COMBINE
-      });
-      
-      // Should combine arrays without duplicates
-      expect(result.features).toEqual(['base1', 'base2', 'journey1', 'journey2']);
-    });
-    
-    it('should handle deeply nested journey configuration', () => {
-      const baseConfig = { 
-        theme: {
-          colors: {
-            primary: '#1a73e8',
-            secondary: '#f50057'
-          },
-          fonts: {
-            main: 'Roboto'
-          }
-        },
-        api: {
-          timeout: 5000
-        }
-      };
-      
-      const journeyConfig = { 
-        theme: {
-          colors: {
-            primary: '#00796b',  // Override primary color
-            tertiary: '#ffab00'  // Add new color
-          },
-          spacing: {             // Add new theme property
-            unit: 8
-          }
-        },
-        features: ['metrics', 'goals']
-      };
-      
-      const result = mergeJourneyConfig(baseConfig, journeyConfig);
-      
-      expect(result).toEqual({
-        theme: {
-          colors: {
-            primary: '#00796b',    // Overridden
-            secondary: '#f50057',  // Preserved
-            tertiary: '#ffab00'    // Added
-          },
-          fonts: {
-            main: 'Roboto'         // Preserved
-          },
-          spacing: {               // Added
-            unit: 8
-          }
-        },
-        api: {
-          timeout: 5000            // Preserved
-        },
-        features: ['metrics', 'goals'] // Added
-      });
-    });
-    
-    it('should throw an error if base config is not a plain object', () => {
-      const baseConfig = ['not', 'an', 'object'];
-      const journeyConfig = { theme: 'health' };
-      
-      // @ts-ignore - Testing type validation
-      expect(() => mergeJourneyConfig(baseConfig, journeyConfig))
-        .toThrow(TypeError);
-    });
-    
-    it('should throw an error if journey config is not a plain object', () => {
-      const baseConfig = { theme: 'light' };
-      const journeyConfig = ['not', 'an', 'object'];
-      
-      // @ts-ignore - Testing type validation
-      expect(() => mergeJourneyConfig(baseConfig, journeyConfig))
-        .toThrow(TypeError);
-    });
-    
-    it('should use custom maxDepth when provided', () => {
-      // Create a deeply nested object
-      let deeplyNested = {};
-      let current = deeplyNested;
-      
-      // Create an object with 10 levels of nesting
-      for (let i = 0; i < 10; i++) {
-        current['level'] = {};
-        current = current['level'];
-      }
-      
-      // Set maxDepth to 5 (less than our nesting)
-      expect(() => mergeJourneyConfig({}, deeplyNested, {
-        maxDepth: 5
-      })).toThrow(/Maximum merge depth of 5 exceeded/);
     });
   });
 });

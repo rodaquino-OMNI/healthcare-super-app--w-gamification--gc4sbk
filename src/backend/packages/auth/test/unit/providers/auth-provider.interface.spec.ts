@@ -1,500 +1,361 @@
-/**
- * @file Unit tests for the authentication provider interface
- * 
- * These tests validate that the IAuthProvider interface defines the correct method signatures
- * and enforces the contract that all authentication providers must implement.
- */
-
-import { Test } from '@nestjs/testing';
 import { JwtPayload } from '@austa/interfaces/auth';
-import { IAuthProvider } from '../../../src/providers/auth-provider.interface';
+import { AuthProvider } from '../../../src/providers/auth-provider.interface';
 
-// Define test types for user and credentials
-interface TestUser {
-  id: string;
-  email: string;
-  name: string;
-  roles: string[];
-  permissions: string[];
-}
-
-interface TestCredentials {
-  username: string;
-  password: string;
-}
-
-interface ExtendedUser extends TestUser {
-  profilePicture: string;
-  lastLogin: Date;
-  preferences: Record<string, any>;
-}
-
-interface ExtendedCredentials extends TestCredentials {
-  rememberMe: boolean;
-  deviceId: string;
-}
-
-interface CustomTokenPayload extends JwtPayload {
-  deviceInfo: {
+/**
+ * These tests validate that the AuthProvider interface correctly defines
+ * the contract that all authentication providers must implement.
+ */
+describe('AuthProvider Interface', () => {
+  // Define a simple user type for testing
+  interface TestUser {
     id: string;
+    email: string;
     name: string;
-    platform: string;
-  };
-  customClaims: Record<string, any>;
-}
-
-/**
- * Complete implementation of the auth provider interface for testing
- */
-class CompleteAuthProvider implements IAuthProvider<TestUser, TestCredentials> {
-  async validateCredentials(credentials: TestCredentials): Promise<TestUser | null> {
-    return {
-      id: '1',
-      email: 'test@example.com',
-      name: 'Test User',
-      roles: ['user'],
-      permissions: ['read:profile']
-    };
   }
 
-  async validateToken(token: string): Promise<TestUser | null> {
-    return {
-      id: '1',
-      email: 'test@example.com',
-      name: 'Test User',
-      roles: ['user'],
-      permissions: ['read:profile']
-    };
+  // Define simple credentials type for testing
+  interface TestCredentials {
+    email: string;
+    password: string;
   }
 
-  async getUserById(id: string): Promise<TestUser | null> {
-    return {
-      id,
-      email: 'test@example.com',
-      name: 'Test User',
-      roles: ['user'],
-      permissions: ['read:profile']
-    };
-  }
-
-  async generateToken(user: TestUser, expiresIn?: number): Promise<string> {
-    return 'test-token';
-  }
-
-  async decodeToken(token: string): Promise<JwtPayload | null> {
-    return {
-      sub: '1',
-      email: 'test@example.com',
-      name: 'Test User',
-      roles: ['user'],
-      permissions: ['read:profile'],
-      iat: Math.floor(Date.now() / 1000),
-      exp: Math.floor(Date.now() / 1000) + 3600
-    };
-  }
-
-  extractTokenFromRequest(request: any): string | null {
-    return 'test-token';
-  }
-
-  async revokeToken(token: string): Promise<boolean> {
-    return true;
-  }
-
-  async refreshToken(refreshToken: string): Promise<string | null> {
-    return 'new-test-token';
-  }
-}
-
-/**
- * Implementation with extended user and credential types
- */
-class ExtendedAuthProvider implements IAuthProvider<ExtendedUser, ExtendedCredentials, CustomTokenPayload> {
-  async validateCredentials(credentials: ExtendedCredentials): Promise<ExtendedUser | null> {
-    return {
-      id: '1',
-      email: 'test@example.com',
-      name: 'Test User',
-      roles: ['user'],
-      permissions: ['read:profile'],
-      profilePicture: 'https://example.com/profile.jpg',
-      lastLogin: new Date(),
-      preferences: { theme: 'dark' }
-    };
-  }
-
-  async validateToken(token: string): Promise<ExtendedUser | null> {
-    return {
-      id: '1',
-      email: 'test@example.com',
-      name: 'Test User',
-      roles: ['user'],
-      permissions: ['read:profile'],
-      profilePicture: 'https://example.com/profile.jpg',
-      lastLogin: new Date(),
-      preferences: { theme: 'dark' }
-    };
-  }
-
-  async getUserById(id: string): Promise<ExtendedUser | null> {
-    return {
-      id,
-      email: 'test@example.com',
-      name: 'Test User',
-      roles: ['user'],
-      permissions: ['read:profile'],
-      profilePicture: 'https://example.com/profile.jpg',
-      lastLogin: new Date(),
-      preferences: { theme: 'dark' }
-    };
-  }
-
-  async generateToken(user: ExtendedUser, expiresIn?: number): Promise<string> {
-    return 'extended-test-token';
-  }
-
-  async decodeToken(token: string): Promise<CustomTokenPayload | null> {
-    return {
-      sub: '1',
-      email: 'test@example.com',
-      name: 'Test User',
-      roles: ['user'],
-      permissions: ['read:profile'],
-      iat: Math.floor(Date.now() / 1000),
-      exp: Math.floor(Date.now() / 1000) + 3600,
-      deviceInfo: {
-        id: 'device-123',
-        name: 'iPhone 13',
-        platform: 'iOS'
-      },
-      customClaims: {
-        journeyContext: 'health'
+  describe('Valid Implementation', () => {
+    // This class correctly implements the AuthProvider interface
+    class ValidAuthProvider implements AuthProvider<TestUser, TestCredentials> {
+      async validateCredentials(credentials: TestCredentials): Promise<TestUser | null> {
+        // Mock implementation
+        return credentials.email === 'valid@example.com'
+          ? { id: '1', email: credentials.email, name: 'Test User' }
+          : null;
       }
-    };
-  }
 
-  extractTokenFromRequest(request: any): string | null {
-    return 'extended-test-token';
-  }
+      async validateToken(payload: JwtPayload): Promise<TestUser | null> {
+        // Mock implementation
+        return payload.sub
+          ? { id: payload.sub, email: 'valid@example.com', name: 'Test User' }
+          : null;
+      }
 
-  async revokeToken(token: string): Promise<boolean> {
-    return true;
-  }
+      async findUserById(userId: string): Promise<TestUser | null> {
+        // Mock implementation
+        return userId === '1'
+          ? { id: userId, email: 'valid@example.com', name: 'Test User' }
+          : null;
+      }
 
-  async refreshToken(refreshToken: string): Promise<string | null> {
-    return 'new-extended-test-token';
-  }
-}
+      async findUserByEmail(email: string): Promise<TestUser | null> {
+        // Mock implementation
+        return email === 'valid@example.com'
+          ? { id: '1', email, name: 'Test User' }
+          : null;
+      }
 
-/**
- * Incomplete implementation missing required methods
- * This is used to verify that the interface enforces the contract
- * TypeScript should show compilation errors for this class
- */
-// @ts-expect-error - Intentionally incomplete implementation
-class IncompleteAuthProvider implements IAuthProvider<TestUser, TestCredentials> {
-  async validateCredentials(credentials: TestCredentials): Promise<TestUser | null> {
-    return {
-      id: '1',
-      email: 'test@example.com',
-      name: 'Test User',
-      roles: ['user'],
-      permissions: ['read:profile']
-    };
-  }
+      async createAccessToken(user: TestUser): Promise<string> {
+        // Mock implementation
+        return `access-token-for-${user.id}`;
+      }
 
-  // Missing validateToken method
+      async createRefreshToken(user: TestUser): Promise<string> {
+        // Mock implementation
+        return `refresh-token-for-${user.id}`;
+      }
 
-  async getUserById(id: string): Promise<TestUser | null> {
-    return {
-      id,
-      email: 'test@example.com',
-      name: 'Test User',
-      roles: ['user'],
-      permissions: ['read:profile']
-    };
-  }
+      async refreshAccessToken(refreshToken: string): Promise<string | null> {
+        // Mock implementation
+        return refreshToken.startsWith('refresh-token-for-')
+          ? `new-access-token-for-${refreshToken.split('-').pop()}`
+          : null;
+      }
 
-  // Missing other required methods
-}
+      async revokeTokens(userId: string): Promise<void> {
+        // Mock implementation - just a no-op for testing
+        return;
+      }
+    }
 
-/**
- * Implementation with incorrect method signatures
- * This is used to verify that the interface enforces correct method signatures
- * TypeScript should show compilation errors for this class
- */
-// @ts-expect-error - Intentionally incorrect method signatures
-class IncorrectSignatureAuthProvider implements IAuthProvider<TestUser, TestCredentials> {
-  // Incorrect return type (string instead of Promise<TestUser | null>)
-  validateCredentials(credentials: TestCredentials): string {
-    return 'invalid-return-type';
-  }
-
-  // Incorrect parameter type (number instead of string)
-  async validateToken(token: number): Promise<TestUser | null> {
-    return null;
-  }
-
-  // Other methods with correct signatures
-  async getUserById(id: string): Promise<TestUser | null> {
-    return null;
-  }
-
-  async generateToken(user: TestUser, expiresIn?: number): Promise<string> {
-    return '';
-  }
-
-  async decodeToken(token: string): Promise<JwtPayload | null> {
-    return null;
-  }
-
-  extractTokenFromRequest(request: any): string | null {
-    return null;
-  }
-
-  async revokeToken(token: string): Promise<boolean> {
-    return false;
-  }
-
-  async refreshToken(refreshToken: string): Promise<string | null> {
-    return null;
-  }
-}
-
-describe('IAuthProvider Interface', () => {
-  let completeProvider: IAuthProvider<TestUser, TestCredentials>;
-  let extendedProvider: IAuthProvider<ExtendedUser, ExtendedCredentials, CustomTokenPayload>;
-
-  beforeEach(async () => {
-    const moduleRef = await Test.createTestingModule({
-      providers: [
-        {
-          provide: 'CompleteAuthProvider',
-          useClass: CompleteAuthProvider,
-        },
-        {
-          provide: 'ExtendedAuthProvider',
-          useClass: ExtendedAuthProvider,
-        },
-      ],
-    }).compile();
-
-    completeProvider = moduleRef.get<IAuthProvider<TestUser, TestCredentials>>('CompleteAuthProvider');
-    extendedProvider = moduleRef.get<IAuthProvider<ExtendedUser, ExtendedCredentials, CustomTokenPayload>>('ExtendedAuthProvider');
-  });
-
-  describe('Interface Contract', () => {
-    it('should define validateCredentials method', () => {
-      expect(completeProvider.validateCredentials).toBeDefined();
-      expect(typeof completeProvider.validateCredentials).toBe('function');
+    it('should allow instantiation of a valid implementation', () => {
+      const provider = new ValidAuthProvider();
+      expect(provider).toBeInstanceOf(ValidAuthProvider);
     });
 
-    it('should define validateToken method', () => {
-      expect(completeProvider.validateToken).toBeDefined();
-      expect(typeof completeProvider.validateToken).toBe('function');
+    it('should have all required methods', () => {
+      const provider = new ValidAuthProvider();
+      expect(typeof provider.validateCredentials).toBe('function');
+      expect(typeof provider.validateToken).toBe('function');
+      expect(typeof provider.findUserById).toBe('function');
+      expect(typeof provider.findUserByEmail).toBe('function');
+      expect(typeof provider.createAccessToken).toBe('function');
+      expect(typeof provider.createRefreshToken).toBe('function');
+      expect(typeof provider.refreshAccessToken).toBe('function');
+      expect(typeof provider.revokeTokens).toBe('function');
     });
 
-    it('should define getUserById method', () => {
-      expect(completeProvider.getUserById).toBeDefined();
-      expect(typeof completeProvider.getUserById).toBe('function');
+    it('should correctly validate credentials', async () => {
+      const provider = new ValidAuthProvider();
+      const validCredentials: TestCredentials = { email: 'valid@example.com', password: 'password' };
+      const invalidCredentials: TestCredentials = { email: 'invalid@example.com', password: 'password' };
+
+      const validResult = await provider.validateCredentials(validCredentials);
+      const invalidResult = await provider.validateCredentials(invalidCredentials);
+
+      expect(validResult).not.toBeNull();
+      expect(validResult?.id).toBe('1');
+      expect(validResult?.email).toBe('valid@example.com');
+      expect(invalidResult).toBeNull();
     });
 
-    it('should define generateToken method', () => {
-      expect(completeProvider.generateToken).toBeDefined();
-      expect(typeof completeProvider.generateToken).toBe('function');
+    it('should correctly validate tokens', async () => {
+      const provider = new ValidAuthProvider();
+      const validPayload: JwtPayload = { sub: '1', iat: 1234567890, exp: 1234567890 };
+      const invalidPayload: JwtPayload = { iat: 1234567890, exp: 1234567890 };
+
+      const validResult = await provider.validateToken(validPayload);
+      const invalidResult = await provider.validateToken(invalidPayload);
+
+      expect(validResult).not.toBeNull();
+      expect(validResult?.id).toBe('1');
+      expect(invalidResult).toBeNull();
     });
 
-    it('should define decodeToken method', () => {
-      expect(completeProvider.decodeToken).toBeDefined();
-      expect(typeof completeProvider.decodeToken).toBe('function');
+    it('should correctly find users by ID', async () => {
+      const provider = new ValidAuthProvider();
+      const validUser = await provider.findUserById('1');
+      const invalidUser = await provider.findUserById('999');
+
+      expect(validUser).not.toBeNull();
+      expect(validUser?.id).toBe('1');
+      expect(invalidUser).toBeNull();
     });
 
-    it('should define extractTokenFromRequest method', () => {
-      expect(completeProvider.extractTokenFromRequest).toBeDefined();
-      expect(typeof completeProvider.extractTokenFromRequest).toBe('function');
+    it('should correctly find users by email', async () => {
+      const provider = new ValidAuthProvider();
+      const validUser = await provider.findUserByEmail('valid@example.com');
+      const invalidUser = await provider.findUserByEmail('invalid@example.com');
+
+      expect(validUser).not.toBeNull();
+      expect(validUser?.email).toBe('valid@example.com');
+      expect(invalidUser).toBeNull();
     });
 
-    it('should define revokeToken method', () => {
-      expect(completeProvider.revokeToken).toBeDefined();
-      expect(typeof completeProvider.revokeToken).toBe('function');
+    it('should create access tokens', async () => {
+      const provider = new ValidAuthProvider();
+      const user: TestUser = { id: '1', email: 'valid@example.com', name: 'Test User' };
+      const token = await provider.createAccessToken(user);
+
+      expect(token).toBe('access-token-for-1');
     });
 
-    it('should define refreshToken method', () => {
-      expect(completeProvider.refreshToken).toBeDefined();
-      expect(typeof completeProvider.refreshToken).toBe('function');
+    it('should create refresh tokens', async () => {
+      const provider = new ValidAuthProvider();
+      const user: TestUser = { id: '1', email: 'valid@example.com', name: 'Test User' };
+      const token = await provider.createRefreshToken(user);
+
+      expect(token).toBe('refresh-token-for-1');
+    });
+
+    it('should refresh access tokens', async () => {
+      const provider = new ValidAuthProvider();
+      const validToken = 'refresh-token-for-1';
+      const invalidToken = 'invalid-token';
+
+      const newToken = await provider.refreshAccessToken(validToken);
+      const nullToken = await provider.refreshAccessToken(invalidToken);
+
+      expect(newToken).toBe('new-access-token-for-1');
+      expect(nullToken).toBeNull();
+    });
+
+    it('should revoke tokens', async () => {
+      const provider = new ValidAuthProvider();
+      // Just testing that the method exists and can be called without errors
+      await expect(provider.revokeTokens('1')).resolves.not.toThrow();
     });
   });
 
-  describe('Method Signatures', () => {
-    it('validateCredentials should return a Promise resolving to user or null', async () => {
-      const credentials: TestCredentials = { username: 'test', password: 'password' };
-      const result = await completeProvider.validateCredentials(credentials);
-      
-      expect(result).toBeDefined();
-      expect(result).toHaveProperty('id');
-      expect(result).toHaveProperty('email');
-      expect(result).toHaveProperty('roles');
+  describe('Invalid Implementations', () => {
+    it('should not allow missing methods', () => {
+      // This class is missing required methods
+      class InvalidAuthProvider implements Partial<AuthProvider<TestUser, TestCredentials>> {
+        async validateCredentials(credentials: TestCredentials): Promise<TestUser | null> {
+          return null;
+        }
+
+        // Missing other required methods
+      }
+
+      // TypeScript should catch this at compile time, but we can verify at runtime
+      const provider = new InvalidAuthProvider() as unknown as AuthProvider<TestUser, TestCredentials>;
+      expect(provider.validateCredentials).toBeDefined();
+      expect(provider.validateToken).toBeUndefined();
+      expect(provider.findUserById).toBeUndefined();
+      expect(provider.findUserByEmail).toBeUndefined();
+      expect(provider.createAccessToken).toBeUndefined();
+      expect(provider.createRefreshToken).toBeUndefined();
+      expect(provider.refreshAccessToken).toBeUndefined();
+      expect(provider.revokeTokens).toBeUndefined();
     });
 
-    it('validateToken should accept a string and return a Promise resolving to user or null', async () => {
-      const result = await completeProvider.validateToken('test-token');
-      
-      expect(result).toBeDefined();
-      expect(result).toHaveProperty('id');
-      expect(result).toHaveProperty('email');
-      expect(result).toHaveProperty('roles');
-    });
+    it('should not allow incorrect method signatures', () => {
+      // This class has incorrect method signatures
+      class IncorrectSignatureProvider {
+        // Wrong return type (string instead of Promise<TestUser | null>)
+        validateCredentials(credentials: TestCredentials): string {
+          return 'not-a-user';
+        }
 
-    it('getUserById should accept a string and return a Promise resolving to user or null', async () => {
-      const result = await completeProvider.getUserById('1');
-      
-      expect(result).toBeDefined();
-      expect(result).toHaveProperty('id');
-      expect(result).toHaveProperty('email');
-      expect(result).toHaveProperty('roles');
-    });
+        // Wrong parameter type (string instead of JwtPayload)
+        async validateToken(token: string): Promise<TestUser | null> {
+          return null;
+        }
 
-    it('generateToken should accept a user and optional expiresIn and return a Promise resolving to string', async () => {
-      const user: TestUser = {
-        id: '1',
-        email: 'test@example.com',
-        name: 'Test User',
-        roles: ['user'],
-        permissions: ['read:profile']
-      };
-      
-      const result = await completeProvider.generateToken(user);
-      expect(typeof result).toBe('string');
-      
-      const resultWithExpiration = await completeProvider.generateToken(user, 3600);
-      expect(typeof resultWithExpiration).toBe('string');
-    });
+        // Other methods with incorrect signatures...
+      }
 
-    it('decodeToken should accept a string and return a Promise resolving to payload or null', async () => {
-      const result = await completeProvider.decodeToken('test-token');
-      
-      expect(result).toBeDefined();
-      expect(result).toHaveProperty('sub');
-      expect(result).toHaveProperty('email');
-      expect(result).toHaveProperty('roles');
-    });
-
-    it('extractTokenFromRequest should accept a request and return a string or null', () => {
-      const mockRequest = { headers: { authorization: 'Bearer test-token' } };
-      const result = completeProvider.extractTokenFromRequest(mockRequest);
-      
-      expect(typeof result).toBe('string');
-    });
-
-    it('revokeToken should accept a string and return a Promise resolving to boolean', async () => {
-      const result = await completeProvider.revokeToken('test-token');
-      
-      expect(typeof result).toBe('boolean');
-    });
-
-    it('refreshToken should accept a string and return a Promise resolving to string or null', async () => {
-      const result = await completeProvider.refreshToken('refresh-token');
-      
-      expect(typeof result).toBe('string');
+      // TypeScript should catch this at compile time
+      // This is just a runtime check to ensure the methods exist but have wrong signatures
+      const provider = new IncorrectSignatureProvider() as unknown as AuthProvider<TestUser, TestCredentials>;
+      expect(typeof provider.validateCredentials).toBe('function');
+      expect(provider.validateCredentials({ email: '', password: '' })).not.toBeInstanceOf(Promise);
     });
   });
 
   describe('Generic Type Parameters', () => {
-    it('should work with extended user and credential types', async () => {
-      const credentials: ExtendedCredentials = { 
-        username: 'test', 
-        password: 'password',
-        rememberMe: true,
-        deviceId: 'device-123'
+    // Test with different user type
+    interface AdminUser {
+      id: string;
+      email: string;
+      role: 'admin' | 'superadmin';
+      permissions: string[];
+    }
+
+    // Test with different credentials type
+    interface ApiKeyCredentials {
+      apiKey: string;
+      clientId: string;
+    }
+
+    it('should support different user types', () => {
+      class AdminAuthProvider implements AuthProvider<AdminUser> {
+        async validateCredentials(credentials: { email: string; password: string }): Promise<AdminUser | null> {
+          return {
+            id: '1',
+            email: credentials.email,
+            role: 'admin',
+            permissions: ['read', 'write']
+          };
+        }
+
+        async validateToken(payload: JwtPayload): Promise<AdminUser | null> {
+          return payload.sub ? {
+            id: payload.sub,
+            email: 'admin@example.com',
+            role: 'admin',
+            permissions: ['read', 'write']
+          } : null;
+        }
+
+        async findUserById(userId: string): Promise<AdminUser | null> {
+          return {
+            id: userId,
+            email: 'admin@example.com',
+            role: 'admin',
+            permissions: ['read', 'write']
+          };
+        }
+
+        async findUserByEmail(email: string): Promise<AdminUser | null> {
+          return {
+            id: '1',
+            email,
+            role: 'admin',
+            permissions: ['read', 'write']
+          };
+        }
+
+        async createAccessToken(user: AdminUser): Promise<string> {
+          return `admin-access-token-for-${user.id}`;
+        }
+
+        async createRefreshToken(user: AdminUser): Promise<string> {
+          return `admin-refresh-token-for-${user.id}`;
+        }
+
+        async refreshAccessToken(refreshToken: string): Promise<string | null> {
+          return refreshToken.startsWith('admin-refresh-token-for-') ? 
+            `new-admin-access-token-for-${refreshToken.split('-').pop()}` : null;
+        }
+
+        async revokeTokens(userId: string): Promise<void> {
+          return;
+        }
+      }
+
+      const provider = new AdminAuthProvider();
+      expect(provider).toBeInstanceOf(AdminAuthProvider);
+    });
+
+    it('should support different credentials types', () => {
+      class ApiKeyAuthProvider implements AuthProvider<TestUser, ApiKeyCredentials> {
+        async validateCredentials(credentials: ApiKeyCredentials): Promise<TestUser | null> {
+          return credentials.apiKey === 'valid-key' ? {
+            id: '1',
+            email: 'api@example.com',
+            name: 'API User'
+          } : null;
+        }
+
+        async validateToken(payload: JwtPayload): Promise<TestUser | null> {
+          return payload.sub ? {
+            id: payload.sub,
+            email: 'api@example.com',
+            name: 'API User'
+          } : null;
+        }
+
+        async findUserById(userId: string): Promise<TestUser | null> {
+          return {
+            id: userId,
+            email: 'api@example.com',
+            name: 'API User'
+          };
+        }
+
+        async findUserByEmail(email: string): Promise<TestUser | null> {
+          return {
+            id: '1',
+            email,
+            name: 'API User'
+          };
+        }
+
+        async createAccessToken(user: TestUser): Promise<string> {
+          return `api-access-token-for-${user.id}`;
+        }
+
+        async createRefreshToken(user: TestUser): Promise<string> {
+          return `api-refresh-token-for-${user.id}`;
+        }
+
+        async refreshAccessToken(refreshToken: string): Promise<string | null> {
+          return refreshToken.startsWith('api-refresh-token-for-') ?
+            `new-api-access-token-for-${refreshToken.split('-').pop()}` : null;
+        }
+
+        async revokeTokens(userId: string): Promise<void> {
+          return;
+        }
+      }
+
+      const provider = new ApiKeyAuthProvider();
+      expect(provider).toBeInstanceOf(ApiKeyAuthProvider);
+
+      // Test with API key credentials
+      const testCredentials: ApiKeyCredentials = {
+        apiKey: 'valid-key',
+        clientId: 'client-1'
       };
-      
-      const result = await extendedProvider.validateCredentials(credentials);
-      
-      expect(result).toBeDefined();
-      expect(result).toHaveProperty('id');
-      expect(result).toHaveProperty('email');
-      expect(result).toHaveProperty('roles');
-      expect(result).toHaveProperty('profilePicture');
-      expect(result).toHaveProperty('lastLogin');
-      expect(result).toHaveProperty('preferences');
-    });
 
-    it('should work with custom token payload type', async () => {
-      const result = await extendedProvider.decodeToken('extended-test-token');
-      
-      expect(result).toBeDefined();
-      expect(result).toHaveProperty('sub');
-      expect(result).toHaveProperty('email');
-      expect(result).toHaveProperty('deviceInfo');
-      expect(result).toHaveProperty('customClaims');
-      expect(result?.deviceInfo).toHaveProperty('id');
-      expect(result?.deviceInfo).toHaveProperty('platform');
-    });
-  });
-
-  describe('Type Safety', () => {
-    it('should enforce correct parameter types', async () => {
-      // These tests verify compile-time type checking
-      // They don't actually run assertions but ensure the TypeScript compiler enforces types
-      
-      // @ts-expect-error - Intentionally incorrect parameter type
-      await completeProvider.validateCredentials('invalid-parameter');
-      
-      // @ts-expect-error - Intentionally incorrect parameter type
-      await completeProvider.validateToken(123);
-      
-      // @ts-expect-error - Intentionally incorrect parameter type
-      await completeProvider.getUserById(123);
-      
-      // @ts-expect-error - Intentionally incorrect parameter type
-      await completeProvider.generateToken('invalid-user');
-      
-      // @ts-expect-error - Intentionally incorrect parameter type
-      await completeProvider.decodeToken(123);
-      
-      // @ts-expect-error - Intentionally incorrect parameter type
-      completeProvider.extractTokenFromRequest('invalid-request');
-      
-      // @ts-expect-error - Intentionally incorrect parameter type
-      await completeProvider.revokeToken(123);
-      
-      // @ts-expect-error - Intentionally incorrect parameter type
-      await completeProvider.refreshToken(123);
-      
-      // These should pass type checking
-      await completeProvider.validateCredentials({ username: 'test', password: 'password' });
-      await completeProvider.validateToken('valid-token');
-      await completeProvider.getUserById('valid-id');
-    });
-  });
-
-  describe('Implementation Compatibility', () => {
-    it('should allow assignment of complete implementation to interface type', () => {
-      // This test verifies that a complete implementation can be assigned to the interface type
-      const provider: IAuthProvider<TestUser, TestCredentials> = new CompleteAuthProvider();
-      expect(provider).toBeInstanceOf(CompleteAuthProvider);
-    });
-
-    it('should allow assignment of extended implementation to interface type', () => {
-      // This test verifies that an extended implementation can be assigned to the interface type
-      const provider: IAuthProvider<ExtendedUser, ExtendedCredentials, CustomTokenPayload> = new ExtendedAuthProvider();
-      expect(provider).toBeInstanceOf(ExtendedAuthProvider);
-    });
-
-    it('should not allow assignment of incomplete implementation to interface type', () => {
-      // This test verifies compile-time type checking
-      // It doesn't actually run assertions but ensures the TypeScript compiler enforces the contract
-      
-      // @ts-expect-error - Intentionally incomplete implementation
-      const provider: IAuthProvider<TestUser, TestCredentials> = new IncompleteAuthProvider();
-    });
-
-    it('should not allow assignment of implementation with incorrect signatures to interface type', () => {
-      // This test verifies compile-time type checking
-      // It doesn't actually run assertions but ensures the TypeScript compiler enforces method signatures
-      
-      // @ts-expect-error - Intentionally incorrect method signatures
-      const provider: IAuthProvider<TestUser, TestCredentials> = new IncorrectSignatureAuthProvider();
+      expect(() => provider.validateCredentials(testCredentials)).not.toThrow();
     });
   });
 });

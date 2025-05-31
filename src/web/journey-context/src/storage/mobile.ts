@@ -1,372 +1,288 @@
 /**
- * Mobile Journey Storage Implementation
- * 
- * This module implements the IJourneyStorage interface for React Native mobile applications
- * using AsyncStorage. It handles persisting, retrieving, and removing journey state with
- * proper serialization, error handling, and mobile-specific optimizations.
+ * @file Mobile Storage Implementation
+ * @description Implements the IJourneyStorage interface for React Native mobile applications
+ * using AsyncStorage with proper serialization, error handling, and mobile-specific optimizations.
  */
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { IJourneyStorage, StorageOptions } from './interface';
+import { StorageResult, StorageError, StorageValue } from './types';
 
 /**
- * Storage options interface
- * Will be imported from interface.ts when it's available
+ * Default expiration time for stored items (24 hours in milliseconds)
  */
-interface StorageOptions {
-  /** Time in milliseconds after which the stored item should expire */
-  expireIn?: number;
-  /** Whether to encrypt the stored data (not implemented in this version) */
-  encrypt?: boolean;
-}
+const DEFAULT_EXPIRATION = 24 * 60 * 60 * 1000;
 
 /**
- * Journey Storage interface
- * Will be imported from interface.ts when it's available
- */
-interface IJourneyStorage {
-  /**
-   * Store a value with the given key
-   */
-  setItem<T>(key: string, value: T, options?: StorageOptions): Promise<void>;
-  
-  /**
-   * Retrieve a value for the given key
-   */
-  getItem<T>(key: string): Promise<T | null>;
-  
-  /**
-   * Remove a value with the given key
-   */
-  removeItem(key: string): Promise<void>;
-  
-  /**
-   * Check if a key exists in storage
-   */
-  hasItem(key: string): Promise<boolean>;
-  
-  /**
-   * Clear all stored values
-   */
-  clear(): Promise<void>;
-}
-
-/**
- * Storage item wrapper that includes metadata like expiration
- */
-interface StorageItem<T> {
-  /** The actual data being stored */
-  value: T;
-  /** When the item was stored */
-  timestamp: number;
-  /** When the item should expire (if applicable) */
-  expireAt?: number;
-}
-
-/**
- * Mobile implementation of IJourneyStorage using AsyncStorage
+ * Implementation of IJourneyStorage for React Native mobile applications
+ * using AsyncStorage with proper serialization and error handling.
  */
 export class MobileJourneyStorage implements IJourneyStorage {
   /**
-   * Maximum batch size for multi-operations to optimize performance
-   * AsyncStorage performance can degrade with very large operations
-   */
-  private readonly BATCH_SIZE = 50;
-  
-  /**
-   * Store a value with the given key
-   * 
+   * Stores a value in AsyncStorage with the given key
    * @param key - The storage key
    * @param value - The value to store
-   * @param options - Storage options like expiration
+   * @param options - Optional storage configuration
+   * @returns A promise that resolves to a StorageResult
    */
-  async setItem<T>(key: string, value: T, options?: StorageOptions): Promise<void> {
+  async set<T>(key: string, value: T, options?: StorageOptions): Promise<StorageResult<T>> {
     try {
-      const now = Date.now();
-      const storageItem: StorageItem<T> = {
+      // Prepare the storage item with metadata
+      const storageItem: StorageValue<T> = {
         value,
-        timestamp: now,
+        timestamp: Date.now(),
+        expiration: options?.expiration ?? DEFAULT_EXPIRATION,
       };
-      
-      // Set expiration if provided
-      if (options?.expireIn) {
-        storageItem.expireAt = now + options.expireIn;
-      }
-      
-      // AsyncStorage only accepts strings, so we need to serialize the data
+
+      // Serialize the storage item to a string
       const serializedItem = JSON.stringify(storageItem);
+
+      // Store the serialized item in AsyncStorage
       await AsyncStorage.setItem(key, serializedItem);
+
+      return {
+        success: true,
+        data: value,
+      };
     } catch (error) {
-      console.error(`Error storing item with key ${key}:`, error);
-      throw new Error(`Failed to store item with key ${key}: ${error instanceof Error ? error.message : String(error)}`);
+      console.error(`[MobileJourneyStorage] Error storing value for key ${key}:`, error);
+      return {
+        success: false,
+        error: {
+          code: 'storage_set_error',
+          message: `Failed to store value for key: ${key}`,
+          details: error instanceof Error ? error.message : String(error),
+        },
+      };
     }
   }
-  
+
   /**
-   * Retrieve a value for the given key
-   * 
+   * Retrieves a value from AsyncStorage by key
    * @param key - The storage key
-   * @returns The stored value, or null if not found or expired
+   * @returns A promise that resolves to a StorageResult
    */
-  async getItem<T>(key: string): Promise<T | null> {
+  async get<T>(key: string): Promise<StorageResult<T>> {
     try {
+      // Retrieve the serialized item from AsyncStorage
       const serializedItem = await AsyncStorage.getItem(key);
-      
-      if (!serializedItem) {
-        return null;
+
+      // If no item exists for the key, return null
+      if (serializedItem === null) {
+        return {
+          success: true,
+          data: null as unknown as T,
+        };
       }
-      
-      const storageItem: StorageItem<T> = JSON.parse(serializedItem);
-      
+
+      // Parse the serialized item
+      const storageItem: StorageValue<T> = JSON.parse(serializedItem);
+
       // Check if the item has expired
-      if (storageItem.expireAt && storageItem.expireAt < Date.now()) {
-        // Item has expired, remove it and return null
-        await this.removeItem(key);
-        return null;
+      const now = Date.now();
+      const expirationTime = storageItem.timestamp + storageItem.expiration;
+      const isExpired = expirationTime < now;
+
+      // If the item has expired, remove it and return null
+      if (isExpired) {
+        await this.remove(key);
+        return {
+          success: true,
+          data: null as unknown as T,
+        };
       }
-      
-      return storageItem.value;
+
+      // Return the value
+      return {
+        success: true,
+        data: storageItem.value,
+      };
     } catch (error) {
-      console.error(`Error retrieving item with key ${key}:`, error);
-      // Return null instead of throwing to make the API more resilient
-      // This matches the behavior of AsyncStorage.getItem
-      return null;
+      console.error(`[MobileJourneyStorage] Error retrieving value for key ${key}:`, error);
+      return {
+        success: false,
+        error: {
+          code: 'storage_get_error',
+          message: `Failed to retrieve value for key: ${key}`,
+          details: error instanceof Error ? error.message : String(error),
+        },
+      };
     }
   }
-  
+
   /**
-   * Remove a value with the given key
-   * 
+   * Removes a value from AsyncStorage by key
    * @param key - The storage key
+   * @returns A promise that resolves to a StorageResult
    */
-  async removeItem(key: string): Promise<void> {
+  async remove(key: string): Promise<StorageResult<void>> {
     try {
       await AsyncStorage.removeItem(key);
+      return {
+        success: true,
+      };
     } catch (error) {
-      console.error(`Error removing item with key ${key}:`, error);
-      throw new Error(`Failed to remove item with key ${key}: ${error instanceof Error ? error.message : String(error)}`);
+      console.error(`[MobileJourneyStorage] Error removing value for key ${key}:`, error);
+      return {
+        success: false,
+        error: {
+          code: 'storage_remove_error',
+          message: `Failed to remove value for key: ${key}`,
+          details: error instanceof Error ? error.message : String(error),
+        },
+      };
     }
   }
-  
+
   /**
-   * Check if a key exists in storage and is not expired
-   * 
+   * Checks if a key exists in AsyncStorage
    * @param key - The storage key
-   * @returns True if the key exists and is not expired, false otherwise
+   * @returns A promise that resolves to a boolean indicating if the key exists
    */
-  async hasItem(key: string): Promise<boolean> {
+  async has(key: string): Promise<boolean> {
     try {
-      const serializedItem = await AsyncStorage.getItem(key);
-      
-      if (!serializedItem) {
-        return false;
-      }
-      
-      const storageItem: StorageItem<any> = JSON.parse(serializedItem);
-      
-      // Check if the item has expired
-      if (storageItem.expireAt && storageItem.expireAt < Date.now()) {
-        // Item has expired, remove it and return false
-        await this.removeItem(key);
-        return false;
-      }
-      
-      return true;
-    } catch (error) {
-      console.error(`Error checking item with key ${key}:`, error);
+      const result = await this.get(key);
+      return result.success && result.data !== null;
+    } catch {
       return false;
     }
   }
-  
+
   /**
-   * Clear all stored values
+   * Clears all values from AsyncStorage with an optional prefix filter
+   * @param prefix - Optional key prefix to limit which keys are cleared
+   * @returns A promise that resolves to a StorageResult
    */
-  async clear(): Promise<void> {
+  async clear(prefix?: string): Promise<StorageResult<void>> {
     try {
-      await AsyncStorage.clear();
-    } catch (error) {
-      console.error('Error clearing storage:', error);
-      throw new Error(`Failed to clear storage: ${error instanceof Error ? error.message : String(error)}`);
-    }
-  }
-  
-  /**
-   * Clean up expired items to free up storage space
-   * This method can be called periodically to remove expired items
-   */
-  async cleanupExpiredItems(): Promise<void> {
-    try {
-      const now = Date.now();
-      const allKeys = await AsyncStorage.getAllKeys();
-      
-      // Process keys in batches to avoid performance issues
-      for (let i = 0; i < allKeys.length; i += this.BATCH_SIZE) {
-        const batchKeys = allKeys.slice(i, i + this.BATCH_SIZE);
-        const batchValues = await AsyncStorage.multiGet(batchKeys);
+      if (prefix) {
+        // Get all keys from AsyncStorage
+        const allKeys = await AsyncStorage.getAllKeys();
         
-        const keysToRemove: string[] = [];
+        // Filter keys that start with the prefix
+        const keysToRemove = allKeys.filter(key => key.startsWith(prefix));
         
-        for (const [key, value] of batchValues) {
-          if (!value) continue;
-          
-          try {
-            const storageItem: StorageItem<any> = JSON.parse(value);
-            
-            if (storageItem.expireAt && storageItem.expireAt < now) {
-              keysToRemove.push(key);
-            }
-          } catch (parseError) {
-            // Skip items that can't be parsed
-            console.warn(`Skipping cleanup for key ${key} due to parse error:`, parseError);
-          }
-        }
-        
+        // Remove the filtered keys
         if (keysToRemove.length > 0) {
           await AsyncStorage.multiRemove(keysToRemove);
         }
+      } else {
+        // Clear all keys if no prefix is provided
+        await AsyncStorage.clear();
       }
+      
+      return {
+        success: true,
+      };
     } catch (error) {
-      console.error('Error cleaning up expired items:', error);
-      throw new Error(`Failed to clean up expired items: ${error instanceof Error ? error.message : String(error)}`);
+      console.error(`[MobileJourneyStorage] Error clearing storage${prefix ? ` with prefix ${prefix}` : ''}:`, error);
+      return {
+        success: false,
+        error: {
+          code: 'storage_clear_error',
+          message: `Failed to clear storage${prefix ? ` with prefix ${prefix}` : ''}`,
+          details: error instanceof Error ? error.message : String(error),
+        },
+      };
     }
   }
-  
+
   /**
-   * Get all keys that match a specific prefix
-   * Useful for retrieving all keys related to a specific journey
-   * 
-   * @param prefix - The key prefix to match
-   * @returns Array of matching keys
+   * Gets all keys from AsyncStorage with an optional prefix filter
+   * @param prefix - Optional key prefix to filter keys
+   * @returns A promise that resolves to an array of keys
    */
-  async getKeysByPrefix(prefix: string): Promise<string[]> {
+  async getKeys(prefix?: string): Promise<string[]> {
     try {
       const allKeys = await AsyncStorage.getAllKeys();
-      return allKeys.filter(key => key.startsWith(prefix));
-    } catch (error) {
-      console.error(`Error getting keys by prefix ${prefix}:`, error);
-      throw new Error(`Failed to get keys by prefix ${prefix}: ${error instanceof Error ? error.message : String(error)}`);
-    }
-  }
-  
-  /**
-   * Remove all items with keys that match a specific prefix
-   * Useful for clearing all data related to a specific journey
-   * 
-   * @param prefix - The key prefix to match
-   */
-  async removeItemsByPrefix(prefix: string): Promise<void> {
-    try {
-      const keysToRemove = await this.getKeysByPrefix(prefix);
       
-      if (keysToRemove.length === 0) {
-        return;
+      if (prefix) {
+        return allKeys.filter(key => key.startsWith(prefix));
       }
       
-      // Process keys in batches to avoid performance issues
-      for (let i = 0; i < keysToRemove.length; i += this.BATCH_SIZE) {
-        const batchKeys = keysToRemove.slice(i, i + this.BATCH_SIZE);
-        await AsyncStorage.multiRemove(batchKeys);
-      }
+      return allKeys;
     } catch (error) {
-      console.error(`Error removing items by prefix ${prefix}:`, error);
-      throw new Error(`Failed to remove items by prefix ${prefix}: ${error instanceof Error ? error.message : String(error)}`);
+      console.error(`[MobileJourneyStorage] Error getting keys${prefix ? ` with prefix ${prefix}` : ''}:`, error);
+      return [];
     }
   }
-  
+
   /**
-   * Get multiple items at once
-   * Optimized for mobile by using AsyncStorage.multiGet
-   * 
-   * @param keys - Array of storage keys
-   * @returns Object with key-value pairs of retrieved items
+   * Performs a cleanup of expired items in AsyncStorage
+   * @param prefix - Optional key prefix to limit which keys are checked
+   * @returns A promise that resolves to the number of removed items
    */
-  async multiGet<T>(keys: string[]): Promise<Record<string, T | null>> {
+  async cleanupExpired(prefix?: string): Promise<number> {
     try {
-      const now = Date.now();
-      const result: Record<string, T | null> = {};
-      
-      // Initialize all keys with null values
-      keys.forEach(key => {
-        result[key] = null;
-      });
-      
-      // Process keys in batches to avoid performance issues
-      for (let i = 0; i < keys.length; i += this.BATCH_SIZE) {
-        const batchKeys = keys.slice(i, i + this.BATCH_SIZE);
-        const batchValues = await AsyncStorage.multiGet(batchKeys);
-        
-        for (const [key, value] of batchValues) {
-          if (!value) continue;
+      // Get all keys or keys with the specified prefix
+      const keys = await this.getKeys(prefix);
+      let removedCount = 0;
+
+      // Check each key for expiration
+      for (const key of keys) {
+        try {
+          const serializedItem = await AsyncStorage.getItem(key);
           
-          try {
-            const storageItem: StorageItem<T> = JSON.parse(value);
+          if (serializedItem !== null) {
+            const storageItem = JSON.parse(serializedItem) as StorageValue<unknown>;
+            const now = Date.now();
+            const expirationTime = storageItem.timestamp + storageItem.expiration;
             
-            // Check if the item has expired
-            if (storageItem.expireAt && storageItem.expireAt < now) {
-              // Item has expired, mark for removal
-              result[key] = null;
-              await this.removeItem(key);
-            } else {
-              result[key] = storageItem.value;
+            if (expirationTime < now) {
+              await AsyncStorage.removeItem(key);
+              removedCount++;
             }
-          } catch (parseError) {
-            // Skip items that can't be parsed
-            console.warn(`Skipping item with key ${key} due to parse error:`, parseError);
-            result[key] = null;
           }
+        } catch {
+          // Skip keys that can't be parsed
+          continue;
         }
       }
-      
-      return result;
+
+      return removedCount;
     } catch (error) {
-      console.error('Error retrieving multiple items:', error);
-      throw new Error(`Failed to retrieve multiple items: ${error instanceof Error ? error.message : String(error)}`);
+      console.error(`[MobileJourneyStorage] Error cleaning up expired items:`, error);
+      return 0;
     }
   }
-  
+
   /**
-   * Set multiple items at once
-   * Optimized for mobile by using AsyncStorage.multiSet
-   * 
-   * @param items - Object with key-value pairs to store
-   * @param options - Storage options like expiration
+   * Gets the total size of data stored in AsyncStorage (approximate)
+   * @param prefix - Optional key prefix to limit which keys are included
+   * @returns A promise that resolves to the approximate size in bytes
    */
-  async multiSet<T>(items: Record<string, T>, options?: StorageOptions): Promise<void> {
+  async getSize(prefix?: string): Promise<number> {
     try {
-      const now = Date.now();
-      const entries = Object.entries(items);
-      
-      // Process items in batches to avoid performance issues
-      for (let i = 0; i < entries.length; i += this.BATCH_SIZE) {
-        const batchEntries = entries.slice(i, i + this.BATCH_SIZE);
-        const batchItems: [string, string][] = [];
-        
-        for (const [key, value] of batchEntries) {
-          const storageItem: StorageItem<T> = {
-            value,
-            timestamp: now,
-          };
-          
-          // Set expiration if provided
-          if (options?.expireIn) {
-            storageItem.expireAt = now + options.expireIn;
+      const keys = await this.getKeys(prefix);
+      let totalSize = 0;
+
+      for (const key of keys) {
+        try {
+          const value = await AsyncStorage.getItem(key);
+          if (value) {
+            // Calculate size: key length + value length in bytes (approximate)
+            totalSize += key.length + value.length;
           }
-          
-          // AsyncStorage only accepts strings, so we need to serialize the data
-          const serializedItem = JSON.stringify(storageItem);
-          batchItems.push([key, serializedItem]);
+        } catch {
+          // Skip keys that can't be retrieved
+          continue;
         }
-        
-        await AsyncStorage.multiSet(batchItems);
       }
+
+      return totalSize;
     } catch (error) {
-      console.error('Error storing multiple items:', error);
-      throw new Error(`Failed to store multiple items: ${error instanceof Error ? error.message : String(error)}`);
+      console.error(`[MobileJourneyStorage] Error calculating storage size:`, error);
+      return 0;
     }
   }
 }
 
-// Export a singleton instance for convenience
-export const mobileJourneyStorage = new MobileJourneyStorage();
+/**
+ * Creates a new instance of MobileJourneyStorage
+ * @returns A new MobileJourneyStorage instance
+ */
+export function createMobileStorage(): IJourneyStorage {
+  return new MobileJourneyStorage();
+}
 
-// Default export for the class
 export default MobileJourneyStorage;

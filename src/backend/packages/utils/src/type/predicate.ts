@@ -1,455 +1,400 @@
 /**
- * Type predicates for narrowing types in a type-safe way during runtime checks.
+ * Type predicate utilities for accurate type narrowing in TypeScript.
  * 
- * These predicates serve as type guards that inform the TypeScript compiler about
- * the resulting type when the function returns true, enabling proper type narrowing
- * in conditional blocks.
+ * These predicates serve as type guards that inform the TypeScript compiler
+ * about the resulting type when the function returns true, enabling proper
+ * type narrowing in conditional blocks.
  * 
- * @packageDocumentation
+ * @module
  */
 
-import { FilterDto, PaginationDto, SortDto } from '@austa/interfaces/common/dto';
-
-// ===== Basic Type Predicates =====
+import { isArray, isObject, isString, isNumber, isBoolean, isDate, isFunction } from './guard';
 
 /**
- * Type predicate to check if a value is defined (not null or undefined).
+ * Type predicate to check if a value is a non-null object of a specific interface type.
  * 
+ * @template T - The interface type to check against
  * @param value - The value to check
- * @returns True if the value is defined, false otherwise
+ * @returns Type predicate indicating if the value is a non-null object of type T
  * 
  * @example
- * ```typescript
- * const processValue = (value: string | null | undefined) => {
- *   if (isDefined(value)) {
- *     // TypeScript knows value is string here (not null or undefined)
- *     return value.toUpperCase();
+ * interface User { id: string; name: string }
+ * 
+ * function processData(data: User | string) {
+ *   if (isInterface<User>(data)) {
+ *     // TypeScript now knows data is User
+ *     console.log(data.name);
+ *   } else {
+ *     // TypeScript now knows data is string
+ *     console.log(data.toUpperCase());
  *   }
- *   return '';
- * };
- * ```
+ * }
  */
-export function isDefined<T>(value: T | null | undefined): value is T {
-  return value !== null && value !== undefined;
+export function isInterface<T extends object>(value: unknown): value is T {
+  return isObject(value);
 }
-
-/**
- * Type predicate to check if a value is not null.
- * 
- * @param value - The value to check
- * @returns True if the value is not null, false otherwise
- * 
- * @example
- * ```typescript
- * const processValue = (value: string | null) => {
- *   if (isNotNull(value)) {
- *     // TypeScript knows value is string here (not null)
- *     return value.toUpperCase();
- *   }
- *   return '';
- * };
- * ```
- */
-export function isNotNull<T>(value: T | null): value is T {
-  return value !== null;
-}
-
-/**
- * Type predicate to check if a value is not undefined.
- * 
- * @param value - The value to check
- * @returns True if the value is not undefined, false otherwise
- * 
- * @example
- * ```typescript
- * const processValue = (value: string | undefined) => {
- *   if (isNotUndefined(value)) {
- *     // TypeScript knows value is string here (not undefined)
- *     return value.toUpperCase();
- *   }
- *   return '';
- * };
- * ```
- */
-export function isNotUndefined<T>(value: T | undefined): value is T {
-  return value !== undefined;
-}
-
-// ===== Array Type Predicates =====
-
-/**
- * Type predicate to check if an array is non-empty.
- * 
- * @param arr - The array to check
- * @returns True if the array is non-empty, false otherwise
- * 
- * @example
- * ```typescript
- * const processItems = (items: string[]) => {
- *   if (isNonEmptyArray(items)) {
- *     // TypeScript knows items is a non-empty array here
- *     const first = items[0]; // Safe access
- *     return first;
- *   }
- *   return '';
- * };
- * ```
- */
-export function isNonEmptyArray<T>(arr: T[]): arr is [T, ...T[]] {
-  return Array.isArray(arr) && arr.length > 0;
-}
-
-/**
- * Type predicate to check if an array has a specific length.
- * 
- * @param arr - The array to check
- * @param length - The expected length
- * @returns True if the array has the specified length, false otherwise
- * 
- * @example
- * ```typescript
- * const processCoordinates = (coords: number[]) => {
- *   if (isArrayOfLength(coords, 2)) {
- *     // TypeScript knows coords has exactly 2 elements
- *     const [x, y] = coords; // Safe destructuring
- *     return { x, y };
- *   }
- *   return null;
- * };
- * ```
- */
-export function isArrayOfLength<T, N extends number>(
-  arr: T[], 
-  length: N
-): arr is T[] & { length: N } {
-  return Array.isArray(arr) && arr.length === length;
-}
-
-/**
- * Type predicate to check if an array contains elements of a specific type.
- * 
- * @param arr - The array to check
- * @param predicate - A type predicate function to check each element
- * @returns True if all elements satisfy the predicate, false otherwise
- * 
- * @example
- * ```typescript
- * const isString = (value: unknown): value is string => typeof value === 'string';
- * 
- * const processItems = (items: unknown[]) => {
- *   if (isArrayOf(items, isString)) {
- *     // TypeScript knows items is string[] here
- *     return items.map(item => item.toUpperCase());
- *   }
- *   return [];
- * };
- * ```
- */
-export function isArrayOf<T, U extends T>(
-  arr: T[], 
-  predicate: (value: T) => value is U
-): arr is U[] {
-  return Array.isArray(arr) && arr.every(predicate);
-}
-
-// ===== Object Type Predicates =====
-
-/**
- * Type predicate to check if an object has a specific property.
- * 
- * @param obj - The object to check
- * @param prop - The property name to check for
- * @returns True if the object has the property, false otherwise
- * 
- * @example
- * ```typescript
- * const processUser = (user: unknown) => {
- *   if (hasProperty(user, 'name')) {
- *     // TypeScript knows user has a 'name' property here
- *     console.log(user.name);
- *   }
- * };
- * ```
- */
-export function hasProperty<K extends string>(
-  obj: unknown, 
-  prop: K
-): obj is Record<K, unknown> {
-  return !!obj && typeof obj === 'object' && prop in obj;
-}
-
-/**
- * Type predicate to check if an object has a specific property of a specific type.
- * 
- * @param obj - The object to check
- * @param prop - The property name to check for
- * @param predicate - A type predicate function to check the property value
- * @returns True if the object has the property and it satisfies the predicate, false otherwise
- * 
- * @example
- * ```typescript
- * const isString = (value: unknown): value is string => typeof value === 'string';
- * 
- * const processUser = (user: unknown) => {
- *   if (hasPropertyOfType(user, 'name', isString)) {
- *     // TypeScript knows user has a 'name' property of type string here
- *     console.log(user.name.toUpperCase());
- *   }
- * };
- * ```
- */
-export function hasPropertyOfType<K extends string, T>(
-  obj: unknown, 
-  prop: K, 
-  predicate: (value: unknown) => value is T
-): obj is Record<K, T> {
-  return hasProperty(obj, prop) && predicate(obj[prop]);
-}
-
-/**
- * Type predicate to check if an object has all the specified properties.
- * 
- * @param obj - The object to check
- * @param props - The property names to check for
- * @returns True if the object has all the properties, false otherwise
- * 
- * @example
- * ```typescript
- * const processUser = (user: unknown) => {
- *   if (hasProperties(user, ['name', 'email', 'age'])) {
- *     // TypeScript knows user has 'name', 'email', and 'age' properties here
- *     console.log(`${user.name} (${user.age}): ${user.email}`);
- *   }
- * };
- * ```
- */
-export function hasProperties<K extends string>(
-  obj: unknown, 
-  props: K[]
-): obj is Record<K, unknown> {
-  return !!obj && typeof obj === 'object' && props.every(prop => prop in obj);
-}
-
-// ===== Class Instance Type Predicates =====
 
 /**
  * Type predicate to check if a value is an instance of a specific class.
  * 
+ * @template T - The class type to check against
  * @param value - The value to check
- * @param constructor - The class constructor to check against
- * @returns True if the value is an instance of the class, false otherwise
+ * @param classConstructor - The class constructor to check against
+ * @returns Type predicate indicating if the value is an instance of the specified class
  * 
  * @example
- * ```typescript
- * class User { /* ... */ }
+ * class HealthMetric { 
+ *   constructor(public value: number, public unit: string) {}
+ * }
  * 
- * const processEntity = (entity: unknown) => {
- *   if (isInstanceOf(entity, User)) {
- *     // TypeScript knows entity is a User instance here
- *     console.log(entity.name);
+ * function processMetric(data: HealthMetric | { value: number }) {
+ *   if (isInstanceOf(data, HealthMetric)) {
+ *     // TypeScript now knows data is HealthMetric
+ *     console.log(data.unit);
+ *   } else {
+ *     // TypeScript now knows data is { value: number }
+ *     console.log(data.value);
  *   }
- * };
- * ```
+ * }
  */
-export function isInstanceOf<T>(
-  value: unknown, 
-  constructor: new (...args: any[]) => T
-): value is T {
-  return value instanceof constructor;
+export function isInstanceOf<T>(value: unknown, classConstructor: new (...args: any[]) => T): value is T {
+  return value instanceof classConstructor;
 }
 
 /**
- * Type predicate to check if a value is an instance of one of the specified classes.
+ * Type predicate to check if an object has a specific property.
  * 
- * @param value - The value to check
- * @param constructors - The class constructors to check against
- * @returns True if the value is an instance of any of the classes, false otherwise
- * 
- * @example
- * ```typescript
- * class User { /* ... */ }
- * class Admin { /* ... */ }
- * 
- * const processEntity = (entity: unknown) => {
- *   if (isInstanceOfAny(entity, [User, Admin])) {
- *     // TypeScript knows entity is a User or Admin instance here
- *     console.log(entity.id);
- *   }
- * };
- * ```
- */
-export function isInstanceOfAny<T>(
-  value: unknown, 
-  constructors: Array<new (...args: any[]) => T>
-): value is T {
-  return constructors.some(constructor => value instanceof constructor);
-}
-
-// ===== Journey-Specific Type Predicates =====
-
-/**
- * Type predicate to check if a value is a valid FilterDto.
- * 
- * @param value - The value to check
- * @returns True if the value is a valid FilterDto, false otherwise
- * 
- * @example
- * ```typescript
- * const processQuery = (query: unknown) => {
- *   if (isFilterDto(query)) {
- *     // TypeScript knows query is a FilterDto here
- *     return repository.findAll(query);
- *   }
- *   return [];
- * };
- * ```
- */
-export function isFilterDto(value: unknown): value is FilterDto {
-  return (
-    !!value &&
-    typeof value === 'object' &&
-    ('where' in value || 'include' in value || 'select' in value)
-  );
-}
-
-/**
- * Type predicate to check if a value is a valid PaginationDto.
- * 
- * @param value - The value to check
- * @returns True if the value is a valid PaginationDto, false otherwise
- * 
- * @example
- * ```typescript
- * const processQuery = (query: unknown) => {
- *   if (isPaginationDto(query)) {
- *     // TypeScript knows query is a PaginationDto here
- *     return repository.findWithPagination(query);
- *   }
- *   return { items: [], total: 0 };
- * };
- * ```
- */
-export function isPaginationDto(value: unknown): value is PaginationDto {
-  return (
-    !!value &&
-    typeof value === 'object' &&
-    (('page' in value && 'limit' in value) || 'cursor' in value)
-  );
-}
-
-/**
- * Type predicate to check if a value is a valid SortDto.
- * 
- * @param value - The value to check
- * @returns True if the value is a valid SortDto, false otherwise
- * 
- * @example
- * ```typescript
- * const processQuery = (query: unknown) => {
- *   if (isSortDto(query)) {
- *     // TypeScript knows query is a SortDto here
- *     return repository.findWithSorting(query);
- *   }
- *   return [];
- * };
- * ```
- */
-export function isSortDto(value: unknown): value is SortDto {
-  return (
-    !!value &&
-    typeof value === 'object' &&
-    'orderBy' in value &&
-    !!value.orderBy &&
-    typeof value.orderBy === 'object'
-  );
-}
-
-// ===== Union Type Predicates =====
-
-/**
- * Type predicate to check if a value is one of the specified values.
- * 
- * @param value - The value to check
- * @param validValues - The valid values to check against
- * @returns True if the value is one of the valid values, false otherwise
- * 
- * @example
- * ```typescript
- * type Status = 'pending' | 'active' | 'completed';
- * 
- * const processStatus = (status: string) => {
- *   if (isOneOf(status, ['pending', 'active', 'completed'] as const)) {
- *     // TypeScript knows status is a Status here
- *     return handleStatus(status);
- *   }
- *   return handleInvalidStatus(status);
- * };
- * ```
- */
-export function isOneOf<T extends U, U>(
-  value: U, 
-  validValues: readonly T[]
-): value is T {
-  return validValues.includes(value as any);
-}
-
-/**
- * Type predicate to check if a value matches one of the specified predicates.
- * 
- * @param value - The value to check
- * @param predicates - The predicates to check against
- * @returns True if the value matches any of the predicates, false otherwise
- * 
- * @example
- * ```typescript
- * const isString = (value: unknown): value is string => typeof value === 'string';
- * const isNumber = (value: unknown): value is number => typeof value === 'number';
- * 
- * const processValue = (value: unknown) => {
- *   if (isOneOfType(value, [isString, isNumber])) {
- *     // TypeScript knows value is string | number here
- *     return value.toString();
- *   }
- *   return '';
- * };
- * ```
- */
-export function isOneOfType<T, U extends T>(
-  value: T, 
-  predicates: Array<(value: T) => value is U>
-): value is U {
-  return predicates.some(predicate => predicate(value));
-}
-
-// ===== Discriminated Union Type Predicates =====
-
-/**
- * Type predicate to check if an object has a specific discriminator property with a specific value.
- * 
+ * @template T - The object type
+ * @template K - The property key type (string | number | symbol)
  * @param obj - The object to check
- * @param discriminator - The discriminator property name
- * @param value - The expected discriminator value
- * @returns True if the object has the discriminator property with the expected value, false otherwise
+ * @param prop - The property to check for
+ * @returns Type predicate indicating if the object has the specified property
  * 
  * @example
- * ```typescript
- * type Shape = 
- *   | { kind: 'circle'; radius: number }
- *   | { kind: 'rectangle'; width: number; height: number };
+ * interface BasicUser { id: string; }
+ * interface AdminUser extends BasicUser { permissions: string[]; }
  * 
- * const processShape = (shape: Shape) => {
- *   if (hasDiscriminator(shape, 'kind', 'circle')) {
- *     // TypeScript knows shape is { kind: 'circle'; radius: number } here
- *     return Math.PI * shape.radius * shape.radius;
+ * function hasAdminAccess(user: BasicUser) {
+ *   if (hasProperty(user, 'permissions')) {
+ *     // TypeScript now knows user has permissions property
+ *     return user.permissions.includes('ADMIN');
  *   }
- *   return shape.width * shape.height;
- * };
- * ```
+ *   return false;
+ * }
  */
-export function hasDiscriminator<T extends object, K extends keyof T, V extends T[K]>(
+export function hasProperty<T, K extends PropertyKey>(
   obj: T, 
-  discriminator: K, 
-  value: V
-): obj is Extract<T, Record<K, V>> {
-  return obj[discriminator] === value;
+  prop: K
+): obj is T & Record<K, unknown> {
+  return isObject(obj) && prop in obj;
+}
+
+/**
+ * Type predicate to check if an object has a property of a specific type.
+ * 
+ * @template T - The object type
+ * @template K - The property key type (string | number | symbol)
+ * @template V - The expected property value type
+ * @param obj - The object to check
+ * @param prop - The property to check for
+ * @param typePredicate - A type predicate function to validate the property value
+ * @returns Type predicate indicating if the object has the property with the specified type
+ * 
+ * @example
+ * interface User { id: string; metadata?: { roles?: string[] } }
+ * 
+ * function hasAdminRole(user: User) {
+ *   if (hasPropertyOfType(user, 'metadata', isObject) && 
+ *       hasPropertyOfType(user.metadata, 'roles', isArray)) {
+ *     // TypeScript now knows user.metadata.roles is an array
+ *     return user.metadata.roles.includes('ADMIN');
+ *   }
+ *   return false;
+ * }
+ */
+export function hasPropertyOfType<T, K extends PropertyKey, V>(
+  obj: T, 
+  prop: K, 
+  typePredicate: (value: unknown) => value is V
+): obj is T & Record<K, V> {
+  return hasProperty(obj, prop) && typePredicate(obj[prop as keyof T]);
+}
+
+/**
+ * Type predicate to check if a value is a non-empty array.
+ * 
+ * @template T - The array element type
+ * @param value - The value to check
+ * @returns Type predicate indicating if the value is a non-empty array of type T
+ * 
+ * @example
+ * function processItems<T>(items: T[] | null | undefined) {
+ *   if (isNonEmptyArray(items)) {
+ *     // TypeScript now knows items is a non-empty array
+ *     const firstItem = items[0]; // Safe access
+ *     // Process items...
+ *   } else {
+ *     console.log('No items to process');
+ *   }
+ * }
+ */
+export function isNonEmptyArray<T>(value: unknown): value is [T, ...T[]] {
+  return isArray(value) && value.length > 0;
+}
+
+/**
+ * Type predicate to check if a value is a non-empty array of a specific element type.
+ * 
+ * @template T - The expected array element type
+ * @param value - The value to check
+ * @param elementPredicate - A type predicate function to validate each array element
+ * @returns Type predicate indicating if the value is a non-empty array with elements of type T
+ * 
+ * @example
+ * function processStringItems(items: unknown) {
+ *   if (isNonEmptyArrayOf(items, isString)) {
+ *     // TypeScript now knows items is a non-empty array of strings
+ *     const uppercased = items.map(item => item.toUpperCase());
+ *     // Process string items...
+ *   }
+ * }
+ */
+export function isNonEmptyArrayOf<T>(
+  value: unknown, 
+  elementPredicate: (element: unknown) => element is T
+): value is [T, ...T[]] {
+  return isNonEmptyArray(value) && value.every(elementPredicate);
+}
+
+/**
+ * Type predicate to check if a value is a string with content (non-empty after trimming).
+ * 
+ * @param value - The value to check
+ * @returns Type predicate indicating if the value is a non-empty string
+ * 
+ * @example
+ * function processName(name: string | null | undefined) {
+ *   if (isNonEmptyString(name)) {
+ *     // TypeScript now knows name is a non-empty string
+ *     return `Hello, ${name}!`;
+ *   }
+ *   return 'Hello, Guest!';
+ * }
+ */
+export function isNonEmptyString(value: unknown): value is string {
+  return isString(value) && value.trim().length > 0;
+}
+
+/**
+ * Type predicate to check if a value is a finite number (not NaN or Infinity).
+ * 
+ * @param value - The value to check
+ * @returns Type predicate indicating if the value is a finite number
+ * 
+ * @example
+ * function calculateAverage(values: Array<number | null | undefined>) {
+ *   const validNumbers = values.filter(isFiniteNumber);
+ *   if (isNonEmptyArray(validNumbers)) {
+ *     // TypeScript now knows validNumbers is a non-empty array of finite numbers
+ *     return validNumbers.reduce((sum, num) => sum + num, 0) / validNumbers.length;
+ *   }
+ *   return 0;
+ * }
+ */
+export function isFiniteNumber(value: unknown): value is number {
+  return isNumber(value) && Number.isFinite(value);
+}
+
+/**
+ * Type predicate to check if a value is a valid Date object (not Invalid Date).
+ * 
+ * @param value - The value to check
+ * @returns Type predicate indicating if the value is a valid Date object
+ * 
+ * @example
+ * function formatDate(date: Date | string | null) {
+ *   if (isValidDate(date)) {
+ *     // TypeScript now knows date is a valid Date object
+ *     return date.toLocaleDateString();
+ *   } else if (isString(date)) {
+ *     const parsedDate = new Date(date);
+ *     return isValidDate(parsedDate) ? parsedDate.toLocaleDateString() : 'Invalid date';
+ *   }
+ *   return 'No date provided';
+ * }
+ */
+export function isValidDate(value: unknown): value is Date {
+  return isDate(value) && !isNaN(value.getTime());
+}
+
+/**
+ * Type predicate to check if a value is a Promise.
+ * 
+ * @template T - The type that the Promise resolves to
+ * @param value - The value to check
+ * @returns Type predicate indicating if the value is a Promise of type T
+ * 
+ * @example
+ * async function processResult<T>(result: T | Promise<T>) {
+ *   if (isPromise<T>(result)) {
+ *     // TypeScript now knows result is a Promise<T>
+ *     return await result;
+ *   }
+ *   // TypeScript now knows result is T
+ *   return result;
+ * }
+ */
+export function isPromise<T = unknown>(value: unknown): value is Promise<T> {
+  return (
+    value !== null &&
+    value !== undefined &&
+    typeof (value as any).then === 'function' &&
+    typeof (value as any).catch === 'function'
+  );
+}
+
+/**
+ * Type predicate to check if a value is a record with string keys and values of a specific type.
+ * 
+ * @template T - The expected value type in the record
+ * @param value - The value to check
+ * @param valuePredicate - A type predicate function to validate each value in the record
+ * @returns Type predicate indicating if the value is a record with values of type T
+ * 
+ * @example
+ * function processUserRoles(roles: unknown) {
+ *   if (isRecordOf(roles, isBoolean)) {
+ *     // TypeScript now knows roles is a Record<string, boolean>
+ *     const activeRoles = Object.entries(roles)
+ *       .filter(([_, isActive]) => isActive)
+ *       .map(([role]) => role);
+ *     // Process active roles...
+ *   }
+ * }
+ */
+export function isRecordOf<T>(
+  value: unknown, 
+  valuePredicate: (value: unknown) => value is T
+): value is Record<string, T> {
+  if (!isObject(value) || isArray(value)) {
+    return false;
+  }
+  
+  return Object.values(value).every(valuePredicate);
+}
+
+/**
+ * Type predicate to check if a value is one of a specific set of literal values.
+ * 
+ * @template T - The union type of allowed values
+ * @param value - The value to check
+ * @param allowedValues - Array of allowed values
+ * @returns Type predicate indicating if the value is one of the allowed values
+ * 
+ * @example
+ * type JourneyType = 'health' | 'care' | 'plan';
+ * 
+ * function processJourney(journey: string) {
+ *   if (isOneOf<JourneyType>(journey, ['health', 'care', 'plan'])) {
+ *     // TypeScript now knows journey is a JourneyType
+ *     switch (journey) {
+ *       case 'health': return processHealthJourney();
+ *       case 'care': return processCareJourney();
+ *       case 'plan': return processPlanJourney();
+ *     }
+ *   }
+ *   throw new Error(`Invalid journey type: ${journey}`);
+ * }
+ */
+export function isOneOf<T extends string | number | boolean>(
+  value: unknown, 
+  allowedValues: readonly T[]
+): value is T {
+  return allowedValues.includes(value as T);
+}
+
+/**
+ * Type predicate to check if all properties of an object satisfy a type predicate.
+ * 
+ * @template T - The expected property value type
+ * @param obj - The object to check
+ * @param valuePredicate - A type predicate function to validate each property value
+ * @returns Type predicate indicating if all properties satisfy the predicate
+ * 
+ * @example
+ * interface Config {
+ *   timeouts: Record<string, number>;
+ * }
+ * 
+ * function validateConfig(config: unknown): config is Config {
+ *   return (
+ *     isObject(config) &&
+ *     hasPropertyOfType(config, 'timeouts', (value): value is Record<string, number> => 
+ *       isObject(value) && hasAllPropertiesOfType(value, isFiniteNumber))
+ *   );
+ * }
+ */
+export function hasAllPropertiesOfType<T>(
+  obj: unknown, 
+  valuePredicate: (value: unknown) => value is T
+): obj is Record<string, T> {
+  if (!isObject(obj)) {
+    return false;
+  }
+  
+  return Object.values(obj).every(valuePredicate);
+}
+
+/**
+ * Type predicate to check if a value is a function with a specific signature.
+ * 
+ * @template T - The function type
+ * @param value - The value to check
+ * @returns Type predicate indicating if the value is a function of type T
+ * 
+ * @example
+ * type EventHandler = (event: string, data: unknown) => void;
+ * 
+ * function registerHandler(handler: unknown) {
+ *   if (isFunctionOfType<EventHandler>(handler)) {
+ *     // TypeScript now knows handler is an EventHandler
+ *     return { trigger: (event: string, data: unknown) => handler(event, data) };
+ *   }
+ *   throw new Error('Invalid event handler');
+ * }
+ */
+export function isFunctionOfType<T extends (...args: any[]) => any>(
+  value: unknown
+): value is T {
+  return isFunction(value);
+}
+
+/**
+ * Type predicate to check if a value is a tuple of a specific structure.
+ * 
+ * @template T - The tuple type
+ * @param value - The value to check
+ * @param predicates - Array of type predicates for each tuple element
+ * @returns Type predicate indicating if the value matches the tuple structure
+ * 
+ * @example
+ * type UserTuple = [string, number, boolean]; // [name, age, isActive]
+ * 
+ * function processUserData(data: unknown) {
+ *   if (isTuple<UserTuple>(data, [isString, isFiniteNumber, isBoolean])) {
+ *     // TypeScript now knows data is [string, number, boolean]
+ *     const [name, age, isActive] = data;
+ *     // Process user data...
+ *   }
+ * }
+ */
+export function isTuple<T extends unknown[]>(
+  value: unknown,
+  predicates: { [K in keyof T]: (value: unknown) => value is T[K] }
+): value is T {
+  if (!isArray(value) || value.length !== predicates.length) {
+    return false;
+  }
+  
+  return predicates.every((predicate, index) => predicate(value[index]));
 }

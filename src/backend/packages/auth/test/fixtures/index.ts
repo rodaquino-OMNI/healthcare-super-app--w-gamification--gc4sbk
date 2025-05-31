@@ -8,12 +8,12 @@
  *
  * @example
  * // Import all fixtures
- * import * as authFixtures from '@austa/auth/test/fixtures';
+ * import * as AuthFixtures from '@austa/auth/test/fixtures';
  *
  * // Import specific fixture categories
- * import { userFixtures, tokenFixtures } from '@austa/auth/test/fixtures';
+ * import { UserFixtures, TokenFixtures } from '@austa/auth/test/fixtures';
  *
- * // Import specific fixtures
+ * // Import specific fixtures directly
  * import { adminUser, regularUser } from '@austa/auth/test/fixtures';
  */
 
@@ -24,127 +24,94 @@ export * from './credentials';
 export * from './tokens';
 export * from './oauth-profiles';
 
-// Re-export with categorized namespaces for better organization
-import * as users from './users';
-import * as roles from './roles';
-import * as credentials from './credentials';
-import * as tokens from './tokens';
-import * as oauthProfiles from './oauth-profiles';
+// Re-export as categorized namespaces for better organization
+import * as UserFixtures from './users';
+import * as RoleFixtures from './roles';
+import * as CredentialFixtures from './credentials';
+import * as TokenFixtures from './tokens';
+import * as OAuthFixtures from './oauth-profiles';
 
 /**
- * User-related test fixtures including admin users, regular users,
- * and users with specific role combinations.
+ * Categorized exports for different testing scenarios
  */
-export const userFixtures = users;
-
-/**
- * Role-based access control test fixtures including role definitions,
- * permission sets, and role hierarchies.
- */
-export const roleFixtures = roles;
-
-/**
- * Authentication credential test fixtures for testing login flows
- * and validation.
- */
-export const credentialFixtures = credentials;
-
-/**
- * JWT token test fixtures with various states (valid, expired, malformed)
- * for testing token validation and guard behavior.
- */
-export const tokenFixtures = tokens;
-
-/**
- * OAuth profile test fixtures from different providers (Google, Facebook, Apple)
- * for testing OAuth authentication strategies.
- */
-export const oauthFixtures = oauthProfiles;
-
-// Grouped fixtures by testing scenario
-
-/**
- * Authentication test fixtures for local strategy testing.
- */
-export const localAuthFixtures = {
-  users: userFixtures,
-  credentials: credentialFixtures,
+export {
+  UserFixtures,
+  RoleFixtures,
+  CredentialFixtures,
+  TokenFixtures,
+  OAuthFixtures,
 };
 
 /**
- * Authentication test fixtures for JWT strategy testing.
+ * Combined fixtures for journey-specific testing
  */
-export const jwtAuthFixtures = {
-  users: userFixtures,
-  tokens: tokenFixtures,
-};
-
-/**
- * Authentication test fixtures for OAuth strategy testing.
- */
-export const oauthAuthFixtures = {
-  users: userFixtures,
-  oauthProfiles: oauthFixtures,
-};
-
-/**
- * Authorization test fixtures for role-based access control testing.
- */
-export const authorizationFixtures = {
-  users: userFixtures,
-  roles: roleFixtures,
-};
-
-/**
- * Journey-specific test fixtures for cross-journey authentication testing.
- */
-export const journeyAuthFixtures = {
+export const JourneyFixtures = {
   health: {
-    users: userFixtures,
-    roles: roleFixtures,
+    users: UserFixtures.healthJourneyUsers,
+    roles: RoleFixtures.healthJourneyRoles,
+    permissions: RoleFixtures.healthJourneyPermissions,
   },
   care: {
-    users: userFixtures,
-    roles: roleFixtures,
+    users: UserFixtures.careJourneyUsers,
+    roles: RoleFixtures.careJourneyRoles,
+    permissions: RoleFixtures.careJourneyPermissions,
   },
   plan: {
-    users: userFixtures,
-    roles: roleFixtures,
+    users: UserFixtures.planJourneyUsers,
+    roles: RoleFixtures.planJourneyRoles,
+    permissions: RoleFixtures.planJourneyPermissions,
   },
 };
 
-// Type exports for improved developer experience
-
 /**
- * All available authentication test fixtures.
+ * Authentication scenario fixtures for common testing patterns
  */
-export type AuthFixtures = {
-  users: typeof userFixtures;
-  roles: typeof roleFixtures;
-  credentials: typeof credentialFixtures;
-  tokens: typeof tokenFixtures;
-  oauthProfiles: typeof oauthFixtures;
-  localAuth: typeof localAuthFixtures;
-  jwtAuth: typeof jwtAuthFixtures;
-  oauthAuth: typeof oauthAuthFixtures;
-  authorization: typeof authorizationFixtures;
-  journeyAuth: typeof journeyAuthFixtures;
+export const AuthScenarios = {
+  validAuthentication: {
+    user: UserFixtures.regularUser,
+    credentials: CredentialFixtures.validCredentials,
+    token: TokenFixtures.validAccessToken,
+  },
+  adminAuthentication: {
+    user: UserFixtures.adminUser,
+    credentials: CredentialFixtures.adminCredentials,
+    token: TokenFixtures.adminAccessToken,
+  },
+  expiredAuthentication: {
+    user: UserFixtures.regularUser,
+    credentials: CredentialFixtures.validCredentials,
+    token: TokenFixtures.expiredAccessToken,
+  },
+  invalidAuthentication: {
+    credentials: CredentialFixtures.invalidCredentials,
+  },
+  oauthAuthentication: {
+    googleProfile: OAuthFixtures.googleProfile,
+    facebookProfile: OAuthFixtures.facebookProfile,
+    appleProfile: OAuthFixtures.appleProfile,
+  },
 };
 
 /**
- * Complete set of all authentication test fixtures.
+ * Helper function to create custom test users with specific roles and permissions
+ * @param roles Array of roles to assign to the user
+ * @param permissions Array of additional permissions to assign to the user
+ * @returns A test user object with the specified roles and permissions
  */
-export const allFixtures: AuthFixtures = {
-  users: userFixtures,
-  roles: roleFixtures,
-  credentials: credentialFixtures,
-  tokens: tokenFixtures,
-  oauthProfiles: oauthFixtures,
-  localAuth: localAuthFixtures,
-  jwtAuth: jwtAuthFixtures,
-  oauthAuth: oauthAuthFixtures,
-  authorization: authorizationFixtures,
-  journeyAuth: journeyAuthFixtures,
-};
+export function createTestUser(roles: string[] = [], permissions: string[] = []) {
+  return {
+    ...UserFixtures.baseUserTemplate,
+    roles,
+    permissions,
+  };
+}
 
-export default allFixtures;
+/**
+ * Helper function to create custom test tokens with specific claims and expiration
+ * @param payload Custom JWT payload to include in the token
+ * @param expiresIn Token expiration time in seconds (default: 3600)
+ * @returns A test token with the specified payload and expiration
+ */
+export function createTestToken(payload: Record<string, any> = {}, expiresIn: number = 3600) {
+  return TokenFixtures.generateToken(payload, expiresIn);
+}

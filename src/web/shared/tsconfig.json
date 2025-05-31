@@ -19,14 +19,10 @@
     "baseUrl": ".",
     "paths": {
       "@/*": ["*"],
-      "@austa/interfaces": ["../interfaces"],
       "@austa/interfaces/*": ["../interfaces/*"],
-      "@design-system/primitives": ["../primitives"],
+      "@austa/design-system/*": ["../design-system/*"],
       "@design-system/primitives/*": ["../primitives/*"],
-      "@austa/journey-context": ["../journey-context"],
-      "@austa/journey-context/*": ["../journey-context/*"],
-      "@austa/design-system": ["../design-system"],
-      "@austa/design-system/*": ["../design-system/*"]
+      "@austa/journey-context/*": ["../journey-context/*"]
     },
     "composite": true,
     "declarationMap": true,
@@ -43,7 +39,7 @@
   "references": [
     { "path": "../interfaces" },
     { "path": "../primitives" },
-    { "path": "../journey-context" },
-    { "path": "../design-system" }
+    { "path": "../design-system" },
+    { "path": "../journey-context" }
   ]
 }

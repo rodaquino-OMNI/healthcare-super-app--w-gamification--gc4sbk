@@ -1,16 +1,13 @@
 /**
  * Color tokens for the AUSTA SuperApp design system.
+ * This file defines the color palette used throughout the application to ensure
+ * visual consistency and support journey-based theming.
  * 
- * This file defines the complete color palette used throughout the application to ensure
- * visual consistency and support journey-based theming. The color system is organized into:
- * 
+ * The color system is organized into:
  * - Brand colors: Core brand identity colors
  * - Journeys: Colors specific to each user journey (Health, Care, Plan)
  * - Semantic: Colors that convey meaning (success, error, etc.)
  * - Neutral: Grayscale colors for text, backgrounds, and UI elements
- * 
- * Each color includes opacity variations (10%, 20%, 50%, etc.) and contrast ratio
- * calculations to ensure accessibility compliance.
  * 
  * @example Usage with styled-components
  * ```tsx
@@ -20,13 +17,11 @@
  * const HealthButton = styled.button`
  *   background-color: ${colors.journeys.health.primary};
  *   color: ${colors.neutral.white};
- *   
  *   &:hover {
  *     background-color: ${colors.journeys.health.primary_dark};
  *   }
- *   
  *   &:disabled {
- *     background-color: ${colors.journeys.health.primary_alpha.a50};
+ *     background-color: ${colors.journeys.health.primary_20};
  *   }
  * `;
  * ```
@@ -37,148 +32,210 @@
  * import { StyleSheet } from 'react-native';
  * 
  * const styles = StyleSheet.create({
- *   careButton: {
- *     backgroundColor: colors.journeys.care.primary,
- *     color: colors.neutral.white,
+ *   careContainer: {
+ *     backgroundColor: colors.journeys.care.background,
+ *     borderColor: colors.journeys.care.primary,
  *   },
- *   disabledButton: {
- *     backgroundColor: colors.journeys.care.primary_alpha.a50,
+ *   errorText: {
+ *     color: colors.semantic.error,
  *   }
  * });
  * ```
  */
 
-import { ColorToken, JourneyColorToken, SemanticColorToken, NeutralColorToken } from '@austa/interfaces/themes/tokens.types';
-
 /**
- * Calculates the relative luminance of a color for accessibility calculations
- * Based on WCAG 2.1 specifications
- * 
- * @param hexColor - Hex color code (e.g., '#FFFFFF')
- * @returns Relative luminance value between 0 and 1
+ * Interface for color token with opacity variations
+ * This interface is compatible with @austa/interfaces color token definitions
  */
-export function calculateLuminance(hexColor: string): number {
-  // Remove # if present
-  const hex = hexColor.startsWith('#') ? hexColor.slice(1) : hexColor;
-  
-  // Convert hex to RGB
-  const r = parseInt(hex.substring(0, 2), 16) / 255;
-  const g = parseInt(hex.substring(2, 4), 16) / 255;
-  const b = parseInt(hex.substring(4, 6), 16) / 255;
-  
-  // Calculate RGB values
-  const R = r <= 0.03928 ? r / 12.92 : Math.pow((r + 0.055) / 1.055, 2.4);
-  const G = g <= 0.03928 ? g / 12.92 : Math.pow((g + 0.055) / 1.055, 2.4);
-  const B = b <= 0.03928 ? b / 12.92 : Math.pow((b + 0.055) / 1.055, 2.4);
-  
-  // Calculate luminance
-  return 0.2126 * R + 0.7152 * G + 0.0722 * B;
+export interface ColorToken {
+  /** Base color value */
+  readonly value: string;
+  /** Color with 10% opacity */
+  readonly _10: string;
+  /** Color with 20% opacity */
+  readonly _20: string;
+  /** Color with 30% opacity */
+  readonly _30: string;
+  /** Color with 50% opacity */
+  readonly _50: string;
+  /** Color with 70% opacity */
+  readonly _70: string;
+  /** Color with 90% opacity */
+  readonly _90: string;
+  /** Darker shade of the color (for hover states) */
+  readonly _dark: string;
+  /** Lighter shade of the color (for active states) */
+  readonly _light: string;
+  /** Contrast text color that meets WCAG AA standards on this background */
+  readonly _contrast: string;
 }
 
 /**
- * Calculates the contrast ratio between two colors
- * Based on WCAG 2.1 specifications
- * 
- * @param color1 - First hex color code
- * @param color2 - Second hex color code
- * @returns Contrast ratio between 1:1 and 21:1
+ * Interface for journey color palette
  */
-export function calculateContrastRatio(color1: string, color2: string): number {
-  const luminance1 = calculateLuminance(color1);
-  const luminance2 = calculateLuminance(color2);
-  
-  const lighter = Math.max(luminance1, luminance2);
-  const darker = Math.min(luminance1, luminance2);
-  
-  return (lighter + 0.05) / (darker + 0.05);
+export interface JourneyColorPalette {
+  /** Main journey color */
+  readonly primary: string;
+  /** Primary color with opacity variations and contrast */
+  readonly primary_token: ColorToken;
+  /** Secondary journey color for buttons, accents */
+  readonly secondary: string;
+  /** Secondary color with opacity variations and contrast */
+  readonly secondary_token: ColorToken;
+  /** Strong accent color for highlights, important elements */
+  readonly accent: string;
+  /** Accent color with opacity variations and contrast */
+  readonly accent_token: ColorToken;
+  /** Light background color for journey screens */
+  readonly background: string;
+  /** Background color with opacity variations and contrast */
+  readonly background_token: ColorToken;
+  /** Text color to use on journey backgrounds */
+  readonly text: string;
+  /** Text color with opacity variations and contrast */
+  readonly text_token: ColorToken;
+  /** Color with 10% opacity - shorthand for primary_token._10 */
+  readonly primary_10: string;
+  /** Color with 20% opacity - shorthand for primary_token._20 */
+  readonly primary_20: string;
+  /** Color with 30% opacity - shorthand for primary_token._30 */
+  readonly primary_30: string;
+  /** Color with 50% opacity - shorthand for primary_token._50 */
+  readonly primary_50: string;
+  /** Color with 70% opacity - shorthand for primary_token._70 */
+  readonly primary_70: string;
+  /** Color with 90% opacity - shorthand for primary_token._90 */
+  readonly primary_90: string;
+  /** Darker shade of primary color - shorthand for primary_token._dark */
+  readonly primary_dark: string;
+  /** Lighter shade of primary color - shorthand for primary_token._light */
+  readonly primary_light: string;
 }
 
 /**
- * Checks if a color combination meets WCAG accessibility standards
- * 
- * @param foreground - Foreground color (text)
- * @param background - Background color
- * @param level - WCAG level ('AA' or 'AAA')
- * @param isLargeText - Whether the text is large (>=18pt or >=14pt bold)
- * @returns Whether the combination passes the specified accessibility level
+ * Interface for semantic color palette
  */
-export function meetsAccessibilityStandards(
-  foreground: string,
-  background: string,
-  level: 'AA' | 'AAA' = 'AA',
-  isLargeText: boolean = false
-): boolean {
-  const ratio = calculateContrastRatio(foreground, background);
-  
-  if (level === 'AA') {
-    return isLargeText ? ratio >= 3 : ratio >= 4.5;
-  } else {
-    return isLargeText ? ratio >= 4.5 : ratio >= 7;
-  }
+export interface SemanticColorPalette {
+  /** Success color for positive actions, confirmations, completed states */
+  readonly success: string;
+  /** Success color with opacity variations and contrast */
+  readonly success_token: ColorToken;
+  /** Warning color for alerts, warnings, actions requiring attention */
+  readonly warning: string;
+  /** Warning color with opacity variations and contrast */
+  readonly warning_token: ColorToken;
+  /** Error color for errors, destructive actions, critical alerts */
+  readonly error: string;
+  /** Error color with opacity variations and contrast */
+  readonly error_token: ColorToken;
+  /** Info color for informational messages, help text */
+  readonly info: string;
+  /** Info color with opacity variations and contrast */
+  readonly info_token: ColorToken;
 }
 
 /**
- * Creates color variations with different opacity levels
- * 
- * @param hexColor - Base hex color
- * @returns Object with alpha variations
+ * Helper function to create a color token with opacity variations
+ * @param hexColor - The base color in hex format (e.g., '#FF0000')
+ * @returns A ColorToken object with opacity variations and contrast color
  */
-function createAlphaVariations(hexColor: string): Record<string, string> {
-  // Remove # if present
-  const hex = hexColor.startsWith('#') ? hexColor.slice(1) : hexColor;
+const createColorToken = (hexColor: string): ColorToken => {
+  // Convert hex to RGB for opacity calculations
+  const r = parseInt(hexColor.slice(1, 3), 16);
+  const g = parseInt(hexColor.slice(3, 5), 16);
+  const b = parseInt(hexColor.slice(5, 7), 16);
   
-  // Convert hex to RGB
-  const r = parseInt(hex.substring(0, 2), 16);
-  const g = parseInt(hex.substring(2, 4), 16);
-  const b = parseInt(hex.substring(4, 6), 16);
+  // Calculate relative luminance for contrast ratio
+  // Using the formula from WCAG 2.0
+  const luminance = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
+  
+  // Determine contrast color based on luminance
+  // If luminance > 0.5, use black text, otherwise use white text
+  const contrastColor = luminance > 0.5 ? '#000000' : '#FFFFFF';
+  
+  // Calculate darker and lighter shades
+  const darken = (hex: string): string => {
+    const factor = 0.2; // 20% darker
+    const num = parseInt(hex.slice(1), 16);
+    const amt = Math.round(factor * 255);
+    const R = Math.max(0, (num >> 16) - amt);
+    const G = Math.max(0, (num >> 8 & 0x00FF) - amt);
+    const B = Math.max(0, (num & 0x0000FF) - amt);
+    return `#${(1 << 24 | R << 16 | G << 8 | B).toString(16).slice(1)}`;
+  };
+  
+  const lighten = (hex: string): string => {
+    const factor = 0.2; // 20% lighter
+    const num = parseInt(hex.slice(1), 16);
+    const amt = Math.round(factor * 255);
+    const R = Math.min(255, (num >> 16) + amt);
+    const G = Math.min(255, (num >> 8 & 0x00FF) + amt);
+    const B = Math.min(255, (num & 0x0000FF) + amt);
+    return `#${(1 << 24 | R << 16 | G << 8 | B).toString(16).slice(1)}`;
+  };
   
   return {
-    a10: `rgba(${r}, ${g}, ${b}, 0.1)`,
-    a20: `rgba(${r}, ${g}, ${b}, 0.2)`,
-    a30: `rgba(${r}, ${g}, ${b}, 0.3)`,
-    a40: `rgba(${r}, ${g}, ${b}, 0.4)`,
-    a50: `rgba(${r}, ${g}, ${b}, 0.5)`,
-    a60: `rgba(${r}, ${g}, ${b}, 0.6)`,
-    a70: `rgba(${r}, ${g}, ${b}, 0.7)`,
-    a80: `rgba(${r}, ${g}, ${b}, 0.8)`,
-    a90: `rgba(${r}, ${g}, ${b}, 0.9)`,
+    value: hexColor,
+    _10: `rgba(${r}, ${g}, ${b}, 0.1)`,
+    _20: `rgba(${r}, ${g}, ${b}, 0.2)`,
+    _30: `rgba(${r}, ${g}, ${b}, 0.3)`,
+    _50: `rgba(${r}, ${g}, ${b}, 0.5)`,
+    _70: `rgba(${r}, ${g}, ${b}, 0.7)`,
+    _90: `rgba(${r}, ${g}, ${b}, 0.9)`,
+    _dark: darken(hexColor),
+    _light: lighten(hexColor),
+    _contrast: contrastColor
   };
-}
+};
 
 /**
- * Creates lighter and darker variations of a color
- * 
- * @param hexColor - Base hex color
- * @returns Object with light and dark variations
+ * Helper function to create a journey color palette with all variations
  */
-function createColorVariations(hexColor: string): { light: string; dark: string } {
-  // Remove # if present
-  const hex = hexColor.startsWith('#') ? hexColor.slice(1) : hexColor;
-  
-  // Convert hex to RGB
-  const r = parseInt(hex.substring(0, 2), 16);
-  const g = parseInt(hex.substring(2, 4), 16);
-  const b = parseInt(hex.substring(4, 6), 16);
-  
-  // Create lighter variation (15% lighter)
-  const lighterR = Math.min(255, Math.round(r * 1.15));
-  const lighterG = Math.min(255, Math.round(g * 1.15));
-  const lighterB = Math.min(255, Math.round(b * 1.15));
-  
-  // Create darker variation (15% darker)
-  const darkerR = Math.round(r * 0.85);
-  const darkerG = Math.round(g * 0.85);
-  const darkerB = Math.round(b * 0.85);
-  
-  // Convert back to hex
-  const lighterHex = `#${lighterR.toString(16).padStart(2, '0')}${lighterG.toString(16).padStart(2, '0')}${lighterB.toString(16).padStart(2, '0')}`;
-  const darkerHex = `#${darkerR.toString(16).padStart(2, '0')}${darkerG.toString(16).padStart(2, '0')}${darkerB.toString(16).padStart(2, '0')}`;
+const createJourneyPalette = (primary: string, secondary: string, accent: string, background: string, text: string): JourneyColorPalette => {
+  const primaryToken = createColorToken(primary);
+  const secondaryToken = createColorToken(secondary);
+  const accentToken = createColorToken(accent);
+  const backgroundToken = createColorToken(background);
+  const textToken = createColorToken(text);
   
   return {
-    light: lighterHex,
-    dark: darkerHex,
+    primary,
+    primary_token: primaryToken,
+    secondary,
+    secondary_token: secondaryToken,
+    accent,
+    accent_token: accentToken,
+    background,
+    background_token: backgroundToken,
+    text,
+    text_token: textToken,
+    // Shorthand properties for common use cases
+    primary_10: primaryToken._10,
+    primary_20: primaryToken._20,
+    primary_30: primaryToken._30,
+    primary_50: primaryToken._50,
+    primary_70: primaryToken._70,
+    primary_90: primaryToken._90,
+    primary_dark: primaryToken._dark,
+    primary_light: primaryToken._light
   };
-}
+};
+
+/**
+ * Helper function to create a semantic color palette with all variations
+ */
+const createSemanticPalette = (success: string, warning: string, error: string, info: string): SemanticColorPalette => {
+  return {
+    success,
+    success_token: createColorToken(success),
+    warning,
+    warning_token: createColorToken(warning),
+    error,
+    error_token: createColorToken(error),
+    info,
+    info_token: createColorToken(info)
+  };
+};
 
 /**
  * Complete color palette for the AUSTA SuperApp
@@ -189,20 +246,12 @@ export const colors = {
    */
   brand: {
     primary: '#0066CC',    // Primary brand color
-    primary_light: '#0077EF', // Lighter variation of primary
-    primary_dark: '#0055AD',  // Darker variation of primary
-    primary_alpha: createAlphaVariations('#0066CC'),
-    
+    primary_token: createColorToken('#0066CC'),
     secondary: '#00A3E0',  // Secondary brand color
-    secondary_light: '#00BCFF', // Lighter variation of secondary
-    secondary_dark: '#008BBE',  // Darker variation of secondary
-    secondary_alpha: createAlphaVariations('#00A3E0'),
-    
+    secondary_token: createColorToken('#00A3E0'),
     tertiary: '#6D2077',   // Tertiary brand color for accents
-    tertiary_light: '#7D258A', // Lighter variation of tertiary
-    tertiary_dark: '#5D1B65',  // Darker variation of tertiary
-    tertiary_alpha: createAlphaVariations('#6D2077'),
-  } as ColorToken,
+    tertiary_token: createColorToken('#6D2077'),
+  },
 
   /**
    * Journey-specific color palettes.
@@ -212,213 +261,118 @@ export const colors = {
    * - My Plan (Meu Plano & Benefícios): Blue palette
    */
   journeys: {
-    health: {
-      primary: '#0ACF83',    // Main health journey color (Green)
-      primary_light: '#0CE89A', // Lighter variation
-      primary_dark: '#09B06F',  // Darker variation
-      primary_alpha: createAlphaVariations('#0ACF83'),
-      
-      secondary: '#05A66A',  // Secondary health color for buttons, accents
-      secondary_light: '#06C07A', // Lighter variation
-      secondary_dark: '#048D5A',  // Darker variation
-      secondary_alpha: createAlphaVariations('#05A66A'),
-      
-      accent: '#00875A',     // Strong accent color for highlights, important elements
-      accent_light: '#009C68', // Lighter variation
-      accent_dark: '#00724C',  // Darker variation
-      accent_alpha: createAlphaVariations('#00875A'),
-      
-      background: '#F0FFF4', // Light background color for health journey screens
-      background_light: '#FFFFFF', // Lighter variation
-      background_dark: '#E1F0E5',  // Darker variation
-      background_alpha: createAlphaVariations('#F0FFF4'),
-      
-      text: '#1A1A1A',       // Text color to use on health journey backgrounds
-      text_light: '#333333', // Lighter variation
-      text_dark: '#000000',  // Darker variation
-      text_alpha: createAlphaVariations('#1A1A1A'),
-    } as JourneyColorToken,
-    
-    care: {
-      primary: '#FF8C42',    // Main care journey color (Orange)
-      primary_light: '#FFA05C', // Lighter variation
-      primary_dark: '#E57C39',  // Darker variation
-      primary_alpha: createAlphaVariations('#FF8C42'),
-      
-      secondary: '#F17C3A',  // Secondary care color for buttons, accents
-      secondary_light: '#FF8F43', // Lighter variation
-      secondary_dark: '#D06A31',  // Darker variation
-      secondary_alpha: createAlphaVariations('#F17C3A'),
-      
-      accent: '#E55A00',     // Strong accent color for highlights, important elements
-      accent_light: '#FF6700', // Lighter variation
-      accent_dark: '#C24D00',  // Darker variation
-      accent_alpha: createAlphaVariations('#E55A00'),
-      
-      background: '#FFF8F0', // Light background color for care journey screens
-      background_light: '#FFFFFF', // Lighter variation
-      background_dark: '#F0E9E1',  // Darker variation
-      background_alpha: createAlphaVariations('#FFF8F0'),
-      
-      text: '#1A1A1A',       // Text color to use on care journey backgrounds
-      text_light: '#333333', // Lighter variation
-      text_dark: '#000000',  // Darker variation
-      text_alpha: createAlphaVariations('#1A1A1A'),
-    } as JourneyColorToken,
-    
-    plan: {
-      primary: '#3A86FF',    // Main plan journey color (Blue)
-      primary_light: '#5C9CFF', // Lighter variation
-      primary_dark: '#3172D9',  // Darker variation
-      primary_alpha: createAlphaVariations('#3A86FF'),
-      
-      secondary: '#2D6FD9',  // Secondary plan color for buttons, accents
-      secondary_light: '#3480F7', // Lighter variation
-      secondary_dark: '#265EB8',  // Darker variation
-      secondary_alpha: createAlphaVariations('#2D6FD9'),
-      
-      accent: '#0057E7',     // Strong accent color for highlights, important elements
-      accent_light: '#0064FF', // Lighter variation
-      accent_dark: '#004AC5',  // Darker variation
-      accent_alpha: createAlphaVariations('#0057E7'),
-      
-      background: '#F0F8FF', // Light background color for plan journey screens
-      background_light: '#FFFFFF', // Lighter variation
-      background_dark: '#E1E9F0',  // Darker variation
-      background_alpha: createAlphaVariations('#F0F8FF'),
-      
-      text: '#1A1A1A',       // Text color to use on plan journey backgrounds
-      text_light: '#333333', // Lighter variation
-      text_dark: '#000000',  // Darker variation
-      text_alpha: createAlphaVariations('#1A1A1A'),
-    } as JourneyColorToken,
+    health: createJourneyPalette(
+      '#0ACF83',    // Main health journey color (Green)
+      '#05A66A',    // Secondary health color for buttons, accents
+      '#00875A',    // Strong accent color for highlights, important elements
+      '#F0FFF4',    // Light background color for health journey screens
+      '#1A1A1A'     // Text color to use on health journey backgrounds
+    ),
+    care: createJourneyPalette(
+      '#FF8C42',    // Main care journey color (Orange)
+      '#F17C3A',    // Secondary care color for buttons, accents
+      '#E55A00',    // Strong accent color for highlights, important elements
+      '#FFF8F0',    // Light background color for care journey screens
+      '#1A1A1A'     // Text color to use on care journey backgrounds
+    ),
+    plan: createJourneyPalette(
+      '#3A86FF',    // Main plan journey color (Blue)
+      '#2D6FD9',    // Secondary plan color for buttons, accents
+      '#0057E7',    // Strong accent color for highlights, important elements
+      '#F0F8FF',    // Light background color for plan journey screens
+      '#1A1A1A'     // Text color to use on plan journey backgrounds
+    ),
   },
 
   /**
    * Semantic colors that convey specific meanings
    */
-  semantic: {
-    success: '#00C853', // Positive actions, confirmations, completed states
-    success_light: '#00E561', // Lighter variation
-    success_dark: '#00AA46',  // Darker variation
-    success_alpha: createAlphaVariations('#00C853'),
-    
-    warning: '#FFD600', // Alerts, warnings, actions requiring attention
-    warning_light: '#FFF000', // Lighter variation
-    warning_dark: '#D9B600',  // Darker variation
-    warning_alpha: createAlphaVariations('#FFD600'),
-    
-    error: '#FF3B30',   // Errors, destructive actions, critical alerts
-    error_light: '#FF5449', // Lighter variation
-    error_dark: '#D93228',  // Darker variation
-    error_alpha: createAlphaVariations('#FF3B30'),
-    
-    info: '#0066CC',    // Informational messages, help text
-    info_light: '#0077EF', // Lighter variation
-    info_dark: '#0055AD',  // Darker variation
-    info_alpha: createAlphaVariations('#0066CC'),
-  } as SemanticColorToken,
+  semantic: createSemanticPalette(
+    '#00C853',  // Success: Positive actions, confirmations, completed states
+    '#FFD600',  // Warning: Alerts, warnings, actions requiring attention
+    '#FF3B30',  // Error: Errors, destructive actions, critical alerts
+    '#0066CC'   // Info: Informational messages, help text
+  ),
 
   /**
    * Neutral colors for text, backgrounds, borders, and other UI elements
    */
   neutral: {
     white: '#FFFFFF',   // Pure white for backgrounds, cards
-    white_alpha: createAlphaVariations('#FFFFFF'),
-    
+    white_token: createColorToken('#FFFFFF'),
     gray100: '#F5F5F5', // Very light gray for subtle backgrounds, hover states
-    gray100_alpha: createAlphaVariations('#F5F5F5'),
-    
+    gray100_token: createColorToken('#F5F5F5'),
     gray200: '#EEEEEE', // Light gray for dividers, disabled buttons
-    gray200_alpha: createAlphaVariations('#EEEEEE'),
-    
+    gray200_token: createColorToken('#EEEEEE'),
     gray300: '#E0E0E0', // Light gray for borders, dividers
-    gray300_alpha: createAlphaVariations('#E0E0E0'),
-    
+    gray300_token: createColorToken('#E0E0E0'),
     gray400: '#BDBDBD', // Medium gray for disabled text, icons
-    gray400_alpha: createAlphaVariations('#BDBDBD'),
-    
+    gray400_token: createColorToken('#BDBDBD'),
     gray500: '#9E9E9E', // Medium gray for placeholder text
-    gray500_alpha: createAlphaVariations('#9E9E9E'),
-    
+    gray500_token: createColorToken('#9E9E9E'),
     gray600: '#757575', // Medium-dark gray for secondary text
-    gray600_alpha: createAlphaVariations('#757575'),
-    
+    gray600_token: createColorToken('#757575'),
     gray700: '#616161', // Dark gray for body text
-    gray700_alpha: createAlphaVariations('#616161'),
-    
+    gray700_token: createColorToken('#616161'),
     gray800: '#424242', // Very dark gray for headings
-    gray800_alpha: createAlphaVariations('#424242'),
-    
+    gray800_token: createColorToken('#424242'),
     gray900: '#212121', // Nearly black for primary text
-    gray900_alpha: createAlphaVariations('#212121'),
-    
+    gray900_token: createColorToken('#212121'),
     black: '#000000',   // Pure black for high contrast elements
-    black_alpha: createAlphaVariations('#000000'),
-  } as NeutralColorToken,
+    black_token: createColorToken('#000000'),
+  },
   
   /**
    * Semantic color mappings to journey-specific contexts
-   * These provide consistent semantic meaning across journeys while using journey-specific colors
+   * These mappings help maintain consistent meaning across different journeys
    */
   contextual: {
     health: {
-      primary: '#0ACF83',    // Maps to health.primary
-      secondary: '#05A66A',  // Maps to health.secondary
-      success: '#00C853',    // Maps to semantic.success
-      warning: '#FFD600',    // Maps to semantic.warning
-      error: '#FF3B30',      // Maps to semantic.error
-      info: '#0066CC',       // Maps to semantic.info
-      background: '#F0FFF4',  // Maps to health.background
-      text: '#1A1A1A',        // Maps to health.text
-      border: '#E0E0E0',      // Maps to neutral.gray300
-      disabled: '#BDBDBD',    // Maps to neutral.gray400
+      success: '#00C853',  // Success in health context (completed goal)
+      warning: '#FFD600',  // Warning in health context (approaching limit)
+      error: '#FF3B30',    // Error in health context (missed target)
+      info: '#0ACF83',     // Info in health context (uses journey primary)
     },
     care: {
-      primary: '#FF8C42',    // Maps to care.primary
-      secondary: '#F17C3A',  // Maps to care.secondary
-      success: '#00C853',    // Maps to semantic.success
-      warning: '#FFD600',    // Maps to semantic.warning
-      error: '#FF3B30',      // Maps to semantic.error
-      info: '#0066CC',       // Maps to semantic.info
-      background: '#FFF8F0',  // Maps to care.background
-      text: '#1A1A1A',        // Maps to care.text
-      border: '#E0E0E0',      // Maps to neutral.gray300
-      disabled: '#BDBDBD',    // Maps to neutral.gray400
+      success: '#00C853',  // Success in care context (confirmed appointment)
+      warning: '#FFD600',  // Warning in care context (upcoming deadline)
+      error: '#FF3B30',    // Error in care context (missed medication)
+      info: '#FF8C42',     // Info in care context (uses journey primary)
     },
     plan: {
-      primary: '#3A86FF',    // Maps to plan.primary
-      secondary: '#2D6FD9',  // Maps to plan.secondary
-      success: '#00C853',    // Maps to semantic.success
-      warning: '#FFD600',    // Maps to semantic.warning
-      error: '#FF3B30',      // Maps to semantic.error
-      info: '#0066CC',       // Maps to semantic.info
-      background: '#F0F8FF',  // Maps to plan.background
-      text: '#1A1A1A',        // Maps to plan.text
-      border: '#E0E0E0',      // Maps to neutral.gray300
-      disabled: '#BDBDBD',    // Maps to neutral.gray400
-    },
+      success: '#00C853',  // Success in plan context (approved claim)
+      warning: '#FFD600',  // Warning in plan context (pending review)
+      error: '#FF3B30',    // Error in plan context (rejected claim)
+      info: '#3A86FF',     // Info in plan context (uses journey primary)
+    }
   },
+  
+  /**
+   * Accessibility helpers for ensuring proper contrast ratios
+   * These functions can be used to get the appropriate contrast color for any background
+   */
+  accessibility: {
+    /**
+     * Returns the appropriate text color (black or white) for the given background color
+     * to ensure WCAG AA compliance (4.5:1 contrast ratio for normal text)
+     * @param backgroundColor - The background color in hex format
+     * @returns The appropriate text color (#000000 or #FFFFFF)
+     */
+    getContrastText: (backgroundColor: string): string => {
+      const token = createColorToken(backgroundColor);
+      return token._contrast;
+    },
+    
+    /**
+     * Returns the appropriate text color for the given journey and element
+     * @param journey - The journey context ('health', 'care', or 'plan')
+     * @param element - The element type ('primary', 'secondary', 'accent', 'background')
+     * @returns The appropriate text color for WCAG AA compliance
+     */
+    getJourneyContrastText: (journey: 'health' | 'care' | 'plan', element: 'primary' | 'secondary' | 'accent' | 'background'): string => {
+      const journeyColors = colors.journeys[journey];
+      const backgroundColor = journeyColors[element];
+      return createColorToken(backgroundColor)._contrast;
+    }
+  }
 };
-
-/**
- * Accessibility helper to check if text on a background meets WCAG standards
- * 
- * @example
- * ```tsx
- * import { isAccessible } from '@design-system/primitives';
- * 
- * // Check if black text on white background meets AA standards
- * const passes = isAccessible(colors.neutral.black, colors.neutral.white);
- * ```
- */
-export function isAccessible(
-  textColor: string,
-  backgroundColor: string,
-  options?: { level?: 'AA' | 'AAA'; isLargeText?: boolean }
-): boolean {
-  const { level = 'AA', isLargeText = false } = options || {};
-  return meetsAccessibilityStandards(textColor, backgroundColor, level, isLargeText);
-}
-
-export default colors;

@@ -1,60 +1,55 @@
 /**
- * Health Journey Interfaces Barrel File
+ * Health Journey Interfaces for the AUSTA SuperApp
  * 
- * This file serves as the central export point for all Health journey interfaces,
- * types, and validation schemas in the AUSTA SuperApp. It provides a unified entry
- * point for importing health-related TypeScript types throughout the application.
+ * This barrel file re-exports all Health journey interfaces and schemas from the AUSTA SuperApp.
+ * It provides a unified entry point for importing health-related TypeScript types and validation
+ * schemas throughout the application.
  * 
- * This barrel file maintains backward compatibility with existing code while
- * implementing the new modular folder structure, allowing for more maintainable
- * and organized code.
- *
  * @package @austa/interfaces
  */
 
-// Re-export everything from the types module
+// Re-export all types from the types module
 export {
   HealthMetricType,
   isHealthMetricType,
+  HEALTH_METRIC_UNITS,
+  HEALTH_METRIC_NORMAL_RANGES,
   HealthMetricTypeValue,
-  HEALTH_METRIC_DISPLAY_NAMES,
-  HEALTH_METRIC_UNITS
 } from './types';
 
-// Re-export everything from the metric module
+// Re-export all metric-related types and schemas
 export {
   HealthMetric,
   healthMetricSchema,
   CreateHealthMetricInput,
-  createHealthMetricSchema
+  createHealthMetricSchema,
+  UpdateHealthMetricInput,
+  updateHealthMetricSchema,
+  HealthMetricQuery,
+  healthMetricQuerySchema,
 } from './metric';
 
-// Re-export everything from the event module
+// Re-export all medical event types and schemas
 export {
-  MedicalEventType,
   MedicalEvent,
   medicalEventSchema,
-  ValidatedMedicalEvent
+  MedicalEventValidationResult,
 } from './event';
 
-// Re-export everything from the goal module
+// Re-export all health goal types and schemas
 export {
   HealthGoalType,
   HealthGoalStatus,
   HealthGoal,
   healthGoalSchema,
-  CreateHealthGoalInput,
-  createHealthGoalSchema,
-  UpdateHealthGoalInput,
-  updateHealthGoalSchema,
-  HealthGoalAchievement
+  ValidatedHealthGoal,
 } from './goal';
 
-// Re-export everything from the device module
+// Re-export all device connection types and schemas
 export {
   DeviceType,
   ConnectionState,
   DeviceConnection,
   deviceConnectionSchema,
-  ValidatedDeviceConnection
+  ValidatedDeviceConnection,
 } from './device';

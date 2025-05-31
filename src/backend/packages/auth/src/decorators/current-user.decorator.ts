@@ -1,6 +1,5 @@
-import { createParamDecorator, ExecutionContext } from '@nestjs/common';
-import { User } from '@austa/interfaces/auth';
-import { AppException, ErrorType } from '@austa/errors';
+import { createParamDecorator, ExecutionContext, InternalServerErrorException } from '@nestjs/common';
+import { IUser } from '@austa/interfaces/auth';
 
 /**
  * Custom decorator to extract the current authenticated user from the request object.
@@ -13,7 +12,7 @@ import { AppException, ErrorType } from '@austa/errors';
  * // Get the entire user object
  * @Get('profile')
  * @UseGuards(JwtAuthGuard)
- * getProfile(@CurrentUser() user: User) {
+ * getProfile(@CurrentUser() user: IUser) {
  *   return user;
  * }
  *
@@ -26,96 +25,59 @@ import { AppException, ErrorType } from '@austa/errors';
  * }
  * 
  * @example
- * // Get a nested property from the user object
- * @Get('user-name')
+ * // Journey-specific usage - Health Journey
+ * @Get('health/metrics')
  * @UseGuards(JwtAuthGuard)
- * getUserName(@CurrentUser('profile.firstName') firstName: string) {
- *   return { firstName };
+ * getHealthMetrics(@CurrentUser() user: IUser) {
+ *   return this.healthService.getMetricsForUser(user.id);
  * }
  * 
  * @example
- * // Health Journey: Get user's health profile
- * @Get('health/profile')
+ * // Journey-specific usage - Care Journey
+ * @Post('care/appointments')
  * @UseGuards(JwtAuthGuard)
- * getHealthProfile(@CurrentUser('healthProfile') healthProfile: HealthProfile) {
- *   return healthProfile;
+ * bookAppointment(
+ *   @Body() appointmentData: CreateAppointmentDto,
+ *   @CurrentUser() user: IUser
+ * ) {
+ *   return this.careService.bookAppointment(appointmentData, user);
  * }
  * 
  * @example
- * // Care Journey: Get user's care preferences
- * @Get('care/preferences')
+ * // Journey-specific usage - Plan Journey
+ * @Get('plan/benefits')
  * @UseGuards(JwtAuthGuard)
- * getCarePreferences(@CurrentUser('carePreferences') preferences: CarePreferences) {
- *   return preferences;
- * }
- * 
- * @example
- * // Plan Journey: Get user's insurance plan
- * @Get('plan/details')
- * @UseGuards(JwtAuthGuard)
- * getPlanDetails(@CurrentUser('insurancePlan') plan: InsurancePlan) {
- *   return plan;
+ * getPlanBenefits(@CurrentUser('planId') planId: string) {
+ *   return this.planService.getBenefitsForPlan(planId);
  * }
  */
-export const CurrentUser = createParamDecorator(
+export const CurrentUser = createParamDecorator<string | undefined, ExecutionContext, IUser | any>(
   (data: string | undefined, ctx: ExecutionContext) => {
-    const request = ctx.switchToHttp().getRequest();
-    const user: User = request.user;
-    
-    // Throw an AppException if no user is found in the request
-    if (!user) {
-      throw new AppException(
-        ErrorType.VALIDATION,
-        'User not found in request. Ensure JwtAuthGuard is applied to this route.',
-        'AUTH_001'
+    try {
+      const request = ctx.switchToHttp().getRequest();
+      const user = request.user;
+      
+      // Verify user exists in the request
+      if (!user) {
+        throw new InternalServerErrorException(
+          'User object not found in request. Ensure JwtAuthGuard or equivalent authentication guard is applied.'
+        );
+      }
+      
+      // If data is provided, return the specified property
+      // Otherwise return the entire user object
+      return data ? user?.[data] : user;
+    } catch (error) {
+      // Re-throw NestJS exceptions as-is
+      if (error.name && error.name.includes('Exception')) {
+        throw error;
+      }
+      
+      // Wrap other errors in InternalServerErrorException
+      throw new InternalServerErrorException(
+        `Failed to extract user data: ${error.message}`,
+        { cause: error }
       );
     }
-    
-    // If data is provided, return the specified property
-    if (data) {
-      // Handle nested properties with dot notation (e.g., 'profile.firstName')
-      if (data.includes('.')) {
-        const parts = data.split('.');
-        let value = user;
-        
-        for (const part of parts) {
-          if (value === undefined || value === null) {
-            throw new AppException(
-              ErrorType.VALIDATION,
-              `Property not found in user object: ${data}`,
-              'AUTH_002'
-            );
-          }
-          value = value[part];
-        }
-        
-        if (value === undefined) {
-          throw new AppException(
-            ErrorType.VALIDATION,
-            `Property not found in user object: ${data}`,
-            'AUTH_002'
-          );
-        }
-        
-        return value;
-      } else {
-        // Handle direct properties
-        const value = user[data];
-        
-        // Throw an AppException if the requested property doesn't exist
-        if (value === undefined) {
-          throw new AppException(
-            ErrorType.VALIDATION,
-            `Property not found in user object: ${data}`,
-            'AUTH_002'
-          );
-        }
-        
-        return value;
-      }
-    }
-    
-    // Otherwise return the entire user object
-    return user;
   },
 );

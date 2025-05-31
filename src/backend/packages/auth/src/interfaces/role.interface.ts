@@ -1,40 +1,56 @@
 /**
- * @file role.interface.ts
- * @description Defines interfaces for authorization including roles, permissions, and user-role assignments.
- * These interfaces support role-based and permission-based authorization across all journeys.
+ * Role and permission interfaces for authorization across the AUSTA SuperApp.
+ * These interfaces support role-based and permission-based authorization
+ * for all journeys (Health, Care, Plan) and cross-journey functionality.
  */
 
 /**
- * Enum representing the different journey types in the AUSTA SuperApp.
- * Used for journey-specific role typing and authorization.
+ * Enum representing the different journey types in the application.
+ * Used for journey-specific role assignments and permissions.
  */
 export enum JourneyType {
-  HEALTH = 'health',     // Minha Saúde (My Health) journey
-  CARE = 'care',         // Cuidar-me Agora (Care Now) journey
-  PLAN = 'plan',         // Meu Plano & Benefícios (My Plan & Benefits) journey
-  GLOBAL = 'global'      // Global access across all journeys
+  HEALTH = 'health',
+  CARE = 'care',
+  PLAN = 'plan',
+  GLOBAL = 'global' // For roles that apply across all journeys
 }
 
 /**
  * Interface representing a permission entity.
- * Permissions define specific actions that can be performed within the system.
+ * Permissions define specific actions that can be performed within the application.
  */
 export interface IPermission {
   /**
-   * Unique identifier for the permission
+   * Unique identifier for the permission.
    */
   id: number;
 
   /**
-   * Name of the permission in the format journey:resource:action
-   * Examples: health:metrics:read, care:appointment:create, plan:claim:submit
+   * Name of the permission, typically in the format 'resource:action'.
+   * Examples: 'health:read', 'care:write', 'plan:delete'.
    */
   name: string;
 
   /**
-   * Human-readable description of what the permission allows
+   * Description of what the permission allows.
    */
   description: string;
+
+  /**
+   * The journey this permission is associated with.
+   * Can be HEALTH, CARE, PLAN, or GLOBAL for cross-journey permissions.
+   */
+  journeyType: JourneyType;
+
+  /**
+   * Creation timestamp.
+   */
+  createdAt?: Date;
+
+  /**
+   * Last update timestamp.
+   */
+  updatedAt?: Date;
 }
 
 /**
@@ -43,131 +59,99 @@ export interface IPermission {
  */
 export interface IRole {
   /**
-   * Unique identifier for the role
+   * Unique identifier for the role.
    */
   id: number;
 
   /**
-   * Unique name of the role (e.g., 'User', 'Caregiver', 'Provider', 'Administrator')
+   * Name of the role.
+   * Examples: 'Admin', 'HealthUser', 'CareProvider', 'PlanManager'.
    */
   name: string;
 
   /**
-   * Description of the role and its purpose
+   * Description of the role and its responsibilities.
    */
-  description: string;
+  description?: string;
 
   /**
-   * The journey this role is associated with (health, care, plan, or global)
-   * If null or undefined, the role is considered global (applies to all journeys)
+   * The journey this role is associated with.
+   * Can be HEALTH, CARE, PLAN, or GLOBAL for cross-journey roles.
    */
-  journey?: JourneyType | null;
+  journeyType: JourneyType;
 
   /**
-   * Indicates if this is a default role assigned to new users
-   */
-  isDefault?: boolean;
-
-  /**
-   * Permissions assigned to this role
+   * List of permissions associated with this role.
    */
   permissions?: IPermission[];
 
   /**
-   * Timestamp of when the role was created
+   * Creation timestamp.
    */
   createdAt?: Date;
 
   /**
-   * Timestamp of when the role was last updated
+   * Last update timestamp.
    */
   updatedAt?: Date;
 }
 
 /**
  * Interface representing a user-role assignment.
- * Maps users to roles with optional journey-specific context.
+ * This associates a user with a specific role in the system.
  */
 export interface IUserRole {
   /**
-   * Unique identifier for the user-role assignment
+   * Unique identifier for the user-role assignment.
    */
   id: number;
 
   /**
-   * ID of the user
+   * ID of the user.
    */
-  userId: string | number;
+  userId: number;
 
   /**
-   * ID of the role
+   * ID of the role.
    */
   roleId: number;
 
   /**
-   * The specific journey context for this role assignment
-   * If null or undefined, the role applies to all journeys or follows the role's journey setting
+   * The journey this user-role assignment is associated with.
    */
-  journeyContext?: JourneyType | null;
+  journeyType: JourneyType;
 
   /**
-   * Timestamp of when the user-role assignment was created
+   * Creation timestamp.
    */
   createdAt?: Date;
 
   /**
-   * Timestamp of when the user-role assignment was last updated
+   * Last update timestamp.
    */
   updatedAt?: Date;
 }
 
 /**
- * Type for permission checks that can be used in authorization guards and decorators.
- * Allows for checking permissions across different journeys.
+ * Type for health journey specific roles.
+ * These roles are only applicable within the Health journey.
  */
-export type PermissionCheck = {
-  /**
-   * The permission name to check
-   */
-  permission: string;
-
-  /**
-   * The journey context for the permission check
-   * If not provided, the check applies to the current journey context
-   */
-  journeyContext?: JourneyType;
-};
+export type HealthRole = IRole & { journeyType: JourneyType.HEALTH };
 
 /**
- * Interface for role-based authorization checks.
- * Can be used to verify if a user has specific roles or permissions.
+ * Type for care journey specific roles.
+ * These roles are only applicable within the Care journey.
  */
-export interface IRoleAuthorization {
-  /**
-   * Checks if the user has the specified role
-   * @param roleId The ID of the role to check
-   * @param journeyContext Optional journey context for the check
-   */
-  hasRole(roleId: number, journeyContext?: JourneyType): boolean;
+export type CareRole = IRole & { journeyType: JourneyType.CARE };
 
-  /**
-   * Checks if the user has the specified permission
-   * @param permissionName The name of the permission to check
-   * @param journeyContext Optional journey context for the check
-   */
-  hasPermission(permissionName: string, journeyContext?: JourneyType): boolean;
+/**
+ * Type for plan journey specific roles.
+ * These roles are only applicable within the Plan journey.
+ */
+export type PlanRole = IRole & { journeyType: JourneyType.PLAN };
 
-  /**
-   * Checks if the user has any of the specified roles
-   * @param roleIds Array of role IDs to check
-   * @param journeyContext Optional journey context for the check
-   */
-  hasAnyRole(roleIds: number[], journeyContext?: JourneyType): boolean;
-
-  /**
-   * Checks if the user has all of the specified permissions
-   * @param permissionNames Array of permission names to check
-   * @param journeyContext Optional journey context for the check
-   */
-  hasAllPermissions(permissionNames: string[], journeyContext?: JourneyType): boolean;
-}
+/**
+ * Type for global roles that apply across all journeys.
+ * These roles provide permissions that span multiple journeys.
+ */
+export type GlobalRole = IRole & { journeyType: JourneyType.GLOBAL };

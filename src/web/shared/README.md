@@ -8,13 +8,13 @@ The `src/web/shared` directory is a central repository for code, constants, util
 
 The shared code works in conjunction with the following packages in the monorepo:
 
-- **@austa/interfaces**: Contains all shared TypeScript definitions and type contracts previously located in the local `types` directory. All type imports should now reference this package.
+- **@austa/interfaces**: Contains all shared TypeScript definitions previously located in the local `types` directory. All type imports should now reference this package.
 
 - **@design-system/primitives**: Provides design tokens and primitive UI components that form the foundation of the design system.
 
-- **@austa/design-system**: The main UI component library that exports all components, themes, and utilities for application consumption.
+- **@austa/design-system**: Exports all UI components, themes, and utilities for application consumption.
 
-- **@austa/journey-context**: Provides context providers and hooks for journey-specific state management across components.
+- **@austa/journey-context**: Provides context providers and hooks for journey-specific state management.
 
 ## Directory Structure
 
@@ -77,18 +77,49 @@ The monorepo is configured with the following path aliases to simplify imports:
 - `@design-system/primitives/*`: Points to the primitives package
 - `@austa/journey-context/*`: Points to the journey context package
 
-Always use these path aliases instead of relative imports to ensure consistency across the codebase.
+### GraphQL Operations
 
-### Working with Types
-
-All shared TypeScript interfaces and types have been moved from the local `types` directory to the `@austa/interfaces` package. When working with shared code, import types from this package instead of the local directory:
+GraphQL operations are organized by type (queries, mutations, fragments) and by journey:
 
 ```typescript
-// CORRECT: Import from @austa/interfaces
+// Import GraphQL operations
+import { GET_HEALTH_METRICS } from '@app/shared/graphql/queries/health';
+import { UPDATE_USER_PROFILE } from '@app/shared/graphql/mutations/profile';
+import { HEALTH_METRIC_FIELDS } from '@app/shared/graphql/fragments/health';
+```
+
+## Best Practices
+
+### Type Safety
+
+Always use types from `@austa/interfaces` to ensure type safety and consistency across the application:
+
+```typescript
 import { HealthMetric } from '@austa/interfaces/health';
 
-// INCORRECT: Do not import from local types directory
-// import { HealthMetric } from 'src/web/shared/types';
+const formatMetric = (metric: HealthMetric): string => {
+  // Implementation
+};
+```
+
+### Utility Functions
+
+Keep utility functions focused on a single responsibility and ensure they are properly typed:
+
+```typescript
+import { formatDate } from '@app/shared/utils/date';
+import { formatCurrency } from '@app/shared/utils/currency';
+import { validateEmail } from '@app/shared/utils/validation';
+```
+
+### Constants
+
+Use constants for values that are shared across the application:
+
+```typescript
+import { JOURNEYS, ROUTES } from '@app/shared/constants';
+
+const healthRoute = ROUTES[JOURNEYS.HEALTH].HOME;
 ```
 
 ## Benefits
@@ -97,24 +128,10 @@ The `src/web/shared` directory provides several benefits:
 
 - **Code Reuse**: Reduces code duplication by sharing common code between the web and mobile frontends.
 
-- **Consistency**: Ensures a consistent user experience across platforms by using the same utilities, constants, and configurations.
+- **Consistency**: Ensures a consistent user experience across platforms by using the same constants, utilities, and API interactions.
 
 - **Maintainability**: Simplifies maintenance by centralizing code in a single location.
 
 - **Testability**: Improves testability by providing a clear separation of concerns.
 
-- **Type Safety**: Leverages the `@austa/interfaces` package to ensure type consistency across the application.
-
-## Best Practices
-
-1. **Keep Shared Code Platform-Agnostic**: Ensure that code in the shared directory works on both web and mobile platforms.
-
-2. **Use Type Definitions from @austa/interfaces**: Always import types from the `@austa/interfaces` package instead of defining them locally.
-
-3. **Follow Path Alias Conventions**: Use the established path aliases for imports to maintain consistency.
-
-4. **Maintain Clear Module Boundaries**: Export only what is necessary from each module to avoid circular dependencies.
-
-5. **Document Public APIs**: Add JSDoc comments to exported functions and constants to improve developer experience.
-
-6. **Write Platform-Specific Code Carefully**: If platform-specific code is necessary, use conditional exports or platform detection utilities.
+- **Integration**: Works seamlessly with the new package structure to provide a comprehensive development experience.

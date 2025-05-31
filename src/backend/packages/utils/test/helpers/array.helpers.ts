@@ -1,880 +1,1056 @@
 /**
- * Test helper functions for array utilities.
- * Provides mock data generators, comparison utilities, and specialized helpers
+ * Test helpers for array utilities
+ * 
+ * This module provides helper functions for testing array manipulation utilities,
+ * including generators for test arrays, comparison utilities, and specialized helpers
  * for testing array transformations, grouping, filtering, and chunking operations.
  */
 
-// ===== MOCK DATA GENERATORS =====
+import { randomUtils } from './common.helpers';
 
 /**
- * Generates an array of numbers with the specified size.
- * 
- * @param size - The size of the array to generate
- * @param start - The starting value (default: 1)
- * @param step - The increment between values (default: 1)
- * @returns An array of sequential numbers
+ * Configuration options for generating test arrays
  */
-export const generateNumberArray = (size: number, start = 1, step = 1): number[] => {
-  return Array.from({ length: size }, (_, i) => start + i * step);
+export interface ArrayGeneratorOptions {
+  /** Minimum length of the array */
+  minLength?: number;
+  /** Maximum length of the array */
+  maxLength?: number;
+  /** Include null values in the array */
+  includeNulls?: boolean;
+  /** Include undefined values in the array */
+  includeUndefined?: boolean;
+  /** Maximum depth for nested arrays */
+  maxDepth?: number;
+  /** Type of array to generate */
+  arrayType?: 'primitive' | 'object' | 'mixed' | 'nested';
+  /** Custom value generator function */
+  valueGenerator?: (index: number) => any;
+}
+
+/**
+ * Default options for generating test arrays
+ */
+const DEFAULT_GENERATOR_OPTIONS: ArrayGeneratorOptions = {
+  minLength: 5,
+  maxLength: 10,
+  includeNulls: false,
+  includeUndefined: false,
+  maxDepth: 2,
+  arrayType: 'primitive',
 };
 
 /**
- * Generates an array of strings with the specified size.
+ * Generates a test array with configurable properties
  * 
- * @param size - The size of the array to generate
- * @param prefix - Prefix for each string (default: 'item')
- * @returns An array of strings
+ * @param options Configuration options for the generated array
+ * @param currentDepth Current depth in the recursion (used internally)
+ * @returns A test array with the specified properties
  */
-export const generateStringArray = (size: number, prefix = 'item'): string[] => {
-  return Array.from({ length: size }, (_, i) => `${prefix}_${i + 1}`);
-};
-
-/**
- * Generates an array of objects with the specified size and properties.
- * 
- * @param size - The size of the array to generate
- * @param keyPrefix - Prefix for the key property (default: 'key')
- * @param valuePrefix - Prefix for the value property (default: 'value')
- * @param includeProps - Additional properties to include in each object
- * @returns An array of objects with id, key, value, and optional additional properties
- */
-export const generateObjectArray = <T extends Record<string, any> = Record<string, any>>(
-  size: number,
-  keyPrefix = 'key',
-  valuePrefix = 'value',
-  includeProps?: (index: number) => Partial<T>
-): Array<{ id: number; key: string; value: string } & Partial<T>> => {
-  return Array.from({ length: size }, (_, i) => ({
-    id: i + 1,
-    key: `${keyPrefix}_${i + 1}`,
-    value: `${valuePrefix}_${i + 1}`,
-    ...(includeProps ? includeProps(i) : {})
-  }));
-};
-
-/**
- * Generates a nested array structure with configurable depth and branching.
- * 
- * @param depth - Maximum depth of nesting
- * @param branchingFactor - Number of sub-arrays at each level
- * @param leafValueFn - Function to generate leaf values
- * @returns A nested array structure
- */
-export const generateNestedArray = (
-  depth: number,
-  branchingFactor = 2,
-  leafValueFn: (path: number[]) => any = (path) => path.join('.')
-): any[] => {
-  const generateLevel = (currentDepth: number, path: number[] = []): any[] => {
-    if (currentDepth >= depth) {
-      return Array.from({ length: branchingFactor }, (_, i) => {
-        const currentPath = [...path, i];
-        return leafValueFn(currentPath);
-      });
-    }
-
-    return Array.from({ length: branchingFactor }, (_, i) => {
-      const currentPath = [...path, i];
-      return generateLevel(currentDepth + 1, currentPath);
-    });
-  };
-
-  return generateLevel(0);
-};
-
-/**
- * Generates an array of objects suitable for testing journey-specific entities.
- * 
- * @param size - The size of the array to generate
- * @param journeyType - The journey type ('health', 'care', 'plan', or 'gamification')
- * @returns An array of journey-specific objects
- */
-export const generateJourneyEntities = (
-  size: number,
-  journeyType: 'health' | 'care' | 'plan' | 'gamification'
-): any[] => {
-  const baseProps = {
-    id: 0,
-    createdAt: new Date(),
-    updatedAt: new Date(),
-    userId: '',
-  };
-
-  const journeyProps: Record<string, (i: number) => any> = {
-    health: (i) => ({
-      ...baseProps,
-      id: i + 1,
-      userId: `user_${Math.floor(i / 3) + 1}`,
-      type: ['heart_rate', 'steps', 'weight', 'sleep'][i % 4],
-      value: 50 + i * 2,
-      unit: ['bpm', 'count', 'kg', 'hours'][i % 4],
-      date: new Date(Date.now() - i * 86400000),
-      source: ['manual', 'device', 'integration'][i % 3],
-    }),
-    care: (i) => ({
-      ...baseProps,
-      id: i + 1,
-      userId: `user_${Math.floor(i / 2) + 1}`,
-      providerId: `provider_${(i % 5) + 1}`,
-      status: ['scheduled', 'completed', 'cancelled', 'pending'][i % 4],
-      type: ['consultation', 'checkup', 'treatment', 'followup'][i % 4],
-      date: new Date(Date.now() + (i % 2 === 0 ? -1 : 1) * i * 86400000),
-      notes: i % 3 === 0 ? `Notes for appointment ${i + 1}` : undefined,
-    }),
-    plan: (i) => ({
-      ...baseProps,
-      id: i + 1,
-      userId: `user_${Math.floor(i / 4) + 1}`,
-      planId: `plan_${(i % 3) + 1}`,
-      type: ['claim', 'benefit', 'coverage', 'document'][i % 4],
-      status: ['active', 'pending', 'rejected', 'approved'][i % 4],
-      amount: i % 2 === 0 ? i * 100 + 50 : undefined,
-      submittedAt: i % 3 === 0 ? new Date(Date.now() - i * 43200000) : undefined,
-    }),
-    gamification: (i) => ({
-      ...baseProps,
-      id: i + 1,
-      userId: `user_${Math.floor(i / 3) + 1}`,
-      type: ['achievement', 'quest', 'reward', 'level'][i % 4],
-      points: 10 * (i + 1),
-      completedAt: i % 2 === 0 ? new Date(Date.now() - i * 3600000) : null,
-      progress: i % 2 === 0 ? 100 : Math.min(100, i * 10),
-      journeySource: ['health', 'care', 'plan'][i % 3],
-    }),
-  };
-
-  return Array.from({ length: size }, (_, i) => journeyProps[journeyType](i));
-};
-
-// ===== ASSERTION UTILITIES =====
-
-/**
- * Compares two arrays for deep equality, ignoring order.
- * 
- * @param actual - The actual array from the test
- * @param expected - The expected array
- * @param sortBy - Optional key or function to sort arrays before comparison
- * @returns Boolean indicating if arrays are equal
- */
-export const areArraysEqualIgnoringOrder = <T>(
-  actual: T[],
-  expected: T[],
-  sortBy?: keyof T | ((item: T) => any)
-): boolean => {
-  if (actual.length !== expected.length) {
-    return false;
-  }
-
-  const sortFn = (a: T, b: T): number => {
-    if (!sortBy) {
-      const aStr = JSON.stringify(a);
-      const bStr = JSON.stringify(b);
-      return aStr.localeCompare(bStr);
-    }
-
-    const aVal = typeof sortBy === 'function' ? sortBy(a) : a[sortBy];
-    const bVal = typeof sortBy === 'function' ? sortBy(b) : b[sortBy];
-
-    if (typeof aVal === 'string' && typeof bVal === 'string') {
-      return aVal.localeCompare(bVal);
-    }
-
-    return (aVal as any) - (bVal as any);
-  };
-
-  const sortedActual = [...actual].sort(sortFn);
-  const sortedExpected = [...expected].sort(sortFn);
-
-  return JSON.stringify(sortedActual) === JSON.stringify(sortedExpected);
-};
-
-/**
- * Compares the structure of two arrays or objects for equality.
- * Only checks the shape and types, not the actual values.
- * 
- * @param actual - The actual value from the test
- * @param expected - The expected value
- * @returns Boolean indicating if structures are equal
- */
-export const hasMatchingStructure = (actual: any, expected: any): boolean => {
-  // Different types
-  if (typeof actual !== typeof expected) {
-    return false;
-  }
-
-  // Handle null
-  if (actual === null && expected === null) {
-    return true;
-  }
-
-  if (actual === null || expected === null) {
-    return false;
-  }
-
-  // Handle arrays
-  if (Array.isArray(actual) && Array.isArray(expected)) {
-    if (actual.length === 0 && expected.length === 0) {
-      return true;
-    }
-
-    if (actual.length === 0 || expected.length === 0) {
-      return false;
-    }
-
-    // Check first item structure as sample
-    return hasMatchingStructure(actual[0], expected[0]);
-  }
-
-  // Handle objects
-  if (typeof actual === 'object' && typeof expected === 'object') {
-    const actualKeys = Object.keys(actual).sort();
-    const expectedKeys = Object.keys(expected).sort();
-
-    if (actualKeys.length !== expectedKeys.length) {
-      return false;
-    }
-
-    if (!actualKeys.every((key, i) => key === expectedKeys[i])) {
-      return false;
-    }
-
-    // Check each property type
-    return actualKeys.every(key => {
-      const actualType = typeof actual[key];
-      const expectedType = typeof expected[key];
-
-      if (actualType !== expectedType) {
-        return false;
-      }
-
-      if (actualType === 'object' && actual[key] !== null && expected[key] !== null) {
-        return hasMatchingStructure(actual[key], expected[key]);
-      }
-
-      return true;
-    });
-  }
-
-  // Primitive types
-  return typeof actual === typeof expected;
-};
-
-/**
- * Verifies that an array contains elements matching the specified criteria.
- * 
- * @param array - The array to check
- * @param criteria - Object with property matchers
- * @returns Boolean indicating if the array contains matching elements
- */
-export const arrayContainsMatching = <T extends Record<string, any>>(
-  array: T[],
-  criteria: Partial<T>
-): boolean => {
-  const criteriaEntries = Object.entries(criteria);
+export function generateTestArray(
+  options: ArrayGeneratorOptions = {},
+  currentDepth = 0
+): any[] {
+  const config = { ...DEFAULT_GENERATOR_OPTIONS, ...options };
   
-  return array.some(item => {
-    return criteriaEntries.every(([key, value]) => {
-      return item[key] === value;
-    });
+  // Determine array length
+  const length = randomUtils.integer(
+    config.minLength || 5,
+    config.maxLength || 10
+  );
+  
+  // Create array with specified length
+  return Array.from({ length }, (_, index) => {
+    // Use custom value generator if provided
+    if (config.valueGenerator) {
+      return config.valueGenerator(index);
+    }
+    
+    // Determine value type based on array type and options
+    const valueType = getRandomValueType(config);
+    
+    switch (valueType) {
+      case 'null':
+        return null;
+      case 'undefined':
+        return undefined;
+      case 'nested':
+        // Only create nested arrays if not at max depth
+        if (currentDepth < (config.maxDepth || 2)) {
+          return generateTestArray(
+            { ...config, maxLength: 3 }, // Smaller length for nested arrays
+            currentDepth + 1
+          );
+        }
+        // Fall through to primitive if at max depth
+      case 'object':
+        return generateTestObject(index);
+      case 'primitive':
+      default:
+        return generatePrimitiveValue(index);
+    }
   });
-};
-
-// ===== TRANSFORM HELPERS =====
+}
 
 /**
- * Creates a test case for the flattenDeep function.
- * 
- * @param depth - Depth of nesting for the test array
- * @param branchingFactor - Number of elements at each level
- * @returns Object with input and expected output for testing flattenDeep
+ * Determines a random value type based on configuration options
  */
-export const createFlattenDeepTestCase = (depth: number, branchingFactor = 2): {
-  input: any[];
-  expected: any[];
-} => {
-  const input = generateNestedArray(depth, branchingFactor, path => path.join('.'));
+function getRandomValueType(config: ArrayGeneratorOptions): string {
+  const types: string[] = ['primitive'];
   
-  // Generate the expected flattened array
-  const expected: string[] = [];
-  const collectLeaves = (arr: any[], currentPath: number[] = []) => {
-    arr.forEach((item, i) => {
-      const path = [...currentPath, i];
-      if (Array.isArray(item)) {
-        collectLeaves(item, path);
-      } else {
-        expected.push(item);
+  if (config.arrayType === 'object' || config.arrayType === 'mixed') {
+    types.push('object');
+  }
+  
+  if (config.arrayType === 'nested' || config.arrayType === 'mixed') {
+    types.push('nested');
+  }
+  
+  if (config.includeNulls) {
+    types.push('null');
+  }
+  
+  if (config.includeUndefined) {
+    types.push('undefined');
+  }
+  
+  return randomUtils.element(types);
+}
+
+/**
+ * Generates a primitive value (string, number, boolean) for test arrays
+ */
+function generatePrimitiveValue(index: number): string | number | boolean {
+  const type = randomUtils.integer(0, 2);
+  
+  switch (type) {
+    case 0: // String
+      return `value-${index}-${randomUtils.string(5)}`;
+    case 1: // Number
+      return randomUtils.integer(1, 1000);
+    case 2: // Boolean
+      return randomUtils.boolean();
+    default:
+      return `value-${index}`;
+  }
+}
+
+/**
+ * Generates a test object for object arrays
+ */
+function generateTestObject(index: number): Record<string, any> {
+  return {
+    id: index,
+    name: `Item ${index}`,
+    value: randomUtils.integer(1, 1000),
+    isActive: randomUtils.boolean(),
+    tags: Array.from(
+      { length: randomUtils.integer(1, 3) },
+      (_, i) => `tag-${i}-${randomUtils.string(3)}`
+    ),
+    createdAt: new Date(Date.now() - randomUtils.integer(0, 10000000)),
+  };
+}
+
+/**
+ * Generates a deeply nested array for testing flattening operations
+ * 
+ * @param depth Maximum depth of nesting
+ * @param breadth Maximum number of elements at each level
+ * @returns A deeply nested array
+ */
+export function generateNestedArray(depth = 3, breadth = 3): any[] {
+  if (depth <= 0) {
+    return Array.from(
+      { length: randomUtils.integer(1, breadth) },
+      (_, i) => `value-${i}-${randomUtils.string(3)}`
+    );
+  }
+  
+  return Array.from({ length: randomUtils.integer(1, breadth) }, (_, i) => {
+    // Randomly decide whether to nest or use a value
+    if (randomUtils.boolean() && depth > 1) {
+      return generateNestedArray(depth - 1, breadth);
+    } else {
+      return `value-${i}-${randomUtils.string(3)}`;
+    }
+  });
+}
+
+/**
+ * Generates an array of objects with specified properties for testing
+ * 
+ * @param length Length of the array to generate
+ * @param properties Properties to include in each object
+ * @returns An array of objects with the specified properties
+ */
+export function generateObjectArray(
+  length = 10,
+  properties: string[] = ['id', 'name', 'value', 'isActive']
+): Record<string, any>[] {
+  return Array.from({ length }, (_, index) => {
+    const obj: Record<string, any> = {};
+    
+    properties.forEach(prop => {
+      switch (prop) {
+        case 'id':
+          obj.id = index;
+          break;
+        case 'name':
+          obj.name = `Item ${index}`;
+          break;
+        case 'value':
+          obj.value = randomUtils.integer(1, 1000);
+          break;
+        case 'isActive':
+          obj.isActive = randomUtils.boolean();
+          break;
+        case 'tags':
+          obj.tags = Array.from(
+            { length: randomUtils.integer(1, 3) },
+            (_, i) => `tag-${i}-${randomUtils.string(3)}`
+          );
+          break;
+        case 'createdAt':
+          obj.createdAt = new Date(Date.now() - randomUtils.integer(0, 10000000));
+          break;
+        case 'category':
+          obj.category = randomUtils.element(['A', 'B', 'C', 'D']);
+          break;
+        case 'score':
+          obj.score = randomUtils.integer(0, 100);
+          break;
+        default:
+          obj[prop] = `${prop}-${index}-${randomUtils.string(3)}`;
       }
     });
-  };
-  
-  collectLeaves(input);
-  
-  return { input, expected };
-};
+    
+    return obj;
+  });
+}
 
 /**
- * Creates a test case for the mapByKey function.
+ * Generates an array of objects with controlled duplicates for testing uniqueness functions
  * 
- * @param size - Size of the test array
- * @param keyFn - Function to extract keys
- * @param valueFn - Optional function to transform values
- * @returns Object with input and expected output for testing mapByKey
+ * @param baseLength Base length of the array before adding duplicates
+ * @param duplicateCount Number of duplicates to add
+ * @param duplicateKey Key to use for creating duplicates
+ * @returns An array with controlled duplicates
  */
-export const createMapByKeyTestCase = <T extends Record<string, any>, K extends string | number | symbol, V = T>(
-  size: number,
-  keyFn: (item: T) => K,
-  valueFn?: (item: T) => V
-): {
-  input: T[];
-  keyFn: (item: T) => K;
-  valueFn?: (item: T) => V;
-  expected: Record<string, any>;
-} => {
-  const input = generateObjectArray(size) as unknown as T[];
-  
-  const expected = input.reduce<Record<string, any>>((result, item) => {
-    const key = keyFn(item);
-    const value = valueFn ? valueFn(item) : item;
-    result[key as string] = value;
-    return result;
-  }, {});
-  
-  return { input, keyFn, valueFn, expected };
-};
-
-/**
- * Creates a test case for the pluck function.
- * 
- * @param size - Size of the test array
- * @param property - Property to pluck
- * @returns Object with input and expected output for testing pluck
- */
-export const createPluckTestCase = <T extends Record<string, any>, K extends keyof T>(
-  size: number,
-  property: K
-): {
-  input: T[];
-  property: K;
-  expected: Array<T[K]>;
-} => {
-  const input = generateObjectArray(size) as unknown as T[];
-  const expected = input.map(item => item[property]);
-  
-  return { input, property, expected };
-};
-
-// ===== FILTER HELPERS =====
-
-/**
- * Creates a test case for the uniqueBy function.
- * 
- * @param size - Base size of the test array
- * @param duplicateCount - Number of duplicate items to add
- * @param keyOrSelector - Key or function to determine uniqueness
- * @returns Object with input and expected output for testing uniqueBy
- */
-export const createUniqueByTestCase = <T extends Record<string, any>, K = T>(
-  size: number,
-  duplicateCount: number,
-  keyOrSelector?: keyof T | ((item: T) => K)
-): {
-  input: T[];
-  keyOrSelector?: keyof T | ((item: T) => K);
-  expected: T[];
-} => {
+export function generateArrayWithDuplicates(
+  baseLength = 8,
+  duplicateCount = 3,
+  duplicateKey = 'id'
+): Record<string, any>[] {
   // Generate base array
-  const baseArray = generateObjectArray(size) as unknown as T[];
+  const baseArray = generateObjectArray(baseLength);
   
-  // Add duplicates
-  const duplicates = baseArray
-    .slice(0, Math.min(duplicateCount, size))
-    .map(item => ({ ...item }));
+  // Create duplicates by copying and modifying existing items
+  const duplicates = Array.from({ length: duplicateCount }, (_, i) => {
+    const sourceIndex = randomUtils.integer(0, baseLength - 1);
+    const source = baseArray[sourceIndex];
+    
+    // Create a copy with the same key value but different in other properties
+    const duplicate = { ...source };
+    duplicate.name = `Duplicate ${i} of ${source.name}`;
+    duplicate.value = source.value + 1000;
+    
+    return duplicate;
+  });
   
-  const input = [...baseArray, ...duplicates];
+  // Combine and shuffle
+  return shuffleArray([...baseArray, ...duplicates]);
+}
+
+/**
+ * Shuffles an array using Fisher-Yates algorithm
+ * 
+ * @param array The array to shuffle
+ * @returns A shuffled copy of the array
+ */
+export function shuffleArray<T>(array: T[]): T[] {
+  const result = [...array];
   
-  // Generate expected result based on keyOrSelector
-  let expected: T[];
-  
-  if (!keyOrSelector) {
-    // When using direct comparison, all duplicated objects are considered unique
-    // because they're different object references
-    expected = input;
-  } else if (typeof keyOrSelector === 'function') {
-    // Use a Set to track seen keys
-    const seen = new Set<string>();
-    expected = input.filter(item => {
-      const key = keyOrSelector(item);
-      const keyString = typeof key === 'object' ? JSON.stringify(key) : String(key);
-      if (seen.has(keyString)) {
-        return false;
-      }
-      seen.add(keyString);
-      return true;
-    });
-  } else {
-    // Use a Set to track seen property values
-    const seen = new Set<string>();
-    expected = input.filter(item => {
-      const value = item[keyOrSelector];
-      const valueString = typeof value === 'object' ? JSON.stringify(value) : String(value);
-      if (seen.has(valueString)) {
-        return false;
-      }
-      seen.add(valueString);
-      return true;
-    });
+  for (let i = result.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [result[i], result[j]] = [result[j], result[i]];
   }
   
-  return { input, keyOrSelector, expected };
+  return result;
+}
+
+/**
+ * Creates a test array with specific properties for testing transform operations
+ * 
+ * @returns An array suitable for testing transform utilities
+ */
+export function createTransformTestArray(): any[] {
+  return [
+    { id: 1, name: 'Item 1', category: 'A', value: 100, tags: ['tag1', 'tag2'] },
+    { id: 2, name: 'Item 2', category: 'B', value: 200, tags: ['tag2', 'tag3'] },
+    { id: 3, name: 'Item 3', category: 'A', value: 300, tags: ['tag1', 'tag3'] },
+    { id: 4, name: 'Item 4', category: 'C', value: 400, tags: ['tag4'] },
+    { id: 5, name: 'Item 5', category: 'B', value: 500, tags: ['tag2', 'tag5'] },
+  ];
+}
+
+/**
+ * Expected results for transform operations on the test array
+ */
+export const transformExpectedResults = {
+  flattenDeep: {
+    input: [1, [2, [3, 4], 5]],
+    output: [1, 2, 3, 4, 5],
+  },
+  mapByKey: {
+    input: createTransformTestArray(),
+    output: {
+      '1': { id: 1, name: 'Item 1', category: 'A', value: 100, tags: ['tag1', 'tag2'] },
+      '2': { id: 2, name: 'Item 2', category: 'B', value: 200, tags: ['tag2', 'tag3'] },
+      '3': { id: 3, name: 'Item 3', category: 'A', value: 300, tags: ['tag1', 'tag3'] },
+      '4': { id: 4, name: 'Item 4', category: 'C', value: 400, tags: ['tag4'] },
+      '5': { id: 5, name: 'Item 5', category: 'B', value: 500, tags: ['tag2', 'tag5'] },
+    },
+    outputWithMapper: {
+      '1': 'Item 1',
+      '2': 'Item 2',
+      '3': 'Item 3',
+      '4': 'Item 4',
+      '5': 'Item 5',
+    },
+  },
+  indexBy: {
+    input: createTransformTestArray(),
+    output: {
+      '1': { id: 1, name: 'Item 1', category: 'A', value: 100, tags: ['tag1', 'tag2'] },
+      '2': { id: 2, name: 'Item 2', category: 'B', value: 200, tags: ['tag2', 'tag3'] },
+      '3': { id: 3, name: 'Item 3', category: 'A', value: 300, tags: ['tag1', 'tag3'] },
+      '4': { id: 4, name: 'Item 4', category: 'C', value: 400, tags: ['tag4'] },
+      '5': { id: 5, name: 'Item 5', category: 'B', value: 500, tags: ['tag2', 'tag5'] },
+    },
+  },
+  pluck: {
+    input: createTransformTestArray(),
+    output: ['Item 1', 'Item 2', 'Item 3', 'Item 4', 'Item 5'],
+  },
+  unique: {
+    input: [1, 2, 2, 3, 1, 4, 5, 4],
+    output: [1, 2, 3, 4, 5],
+  },
 };
 
 /**
- * Creates a test case for the filterByProperties function.
+ * Creates a test array with specific properties for testing filter operations
  * 
- * @param size - Size of the test array
- * @param properties - Properties to filter by
- * @param matchAll - Whether all properties must match
- * @returns Object with input and expected output for testing filterByProperties
+ * @returns An array suitable for testing filter utilities
  */
-export const createFilterByPropertiesTestCase = <T extends Record<string, any>>(
-  size: number,
-  properties: Record<string, any>,
-  matchAll = true
-): {
-  input: T[];
-  properties: Record<string, any>;
-  matchAll: boolean;
-  expected: T[];
-} => {
-  // Generate test array with varied properties
-  const input = generateObjectArray(size, 'key', 'value', (i) => {
-    const result: Record<string, any> = {
-      type: ['type_A', 'type_B', 'type_C', 'type_D'][i % 4],
-      status: ['active', 'inactive', 'pending', 'completed'][i % 4],
-      priority: (i % 5) + 1,
-      tags: [`tag_${i % 3}`, `tag_${(i + 1) % 3}`],
-    };
-    return result as any;
-  }) as unknown as T[];
-  
-  // Filter manually to create expected result
-  const expected = input.filter(item => {
-    const propertyResults = Object.entries(properties).map(([key, matcher]) => {
-      const value = item[key];
+export function createFilterTestArray(): any[] {
+  return [
+    { id: 1, name: 'Item 1', category: 'A', value: 100, isActive: true, tags: ['tag1', 'tag2'] },
+    { id: 2, name: 'Item 2', category: 'B', value: 200, isActive: false, tags: ['tag2', 'tag3'] },
+    { id: 3, name: 'Item 3', category: 'A', value: 300, isActive: true, tags: ['tag1', 'tag3'] },
+    { id: 4, name: 'Item 4', category: 'C', value: 400, isActive: true, tags: ['tag4'] },
+    { id: 5, name: 'Item 5', category: 'B', value: 500, isActive: false, tags: ['tag2', 'tag5'] },
+    { id: 6, name: 'Item 1', category: 'D', value: 600, isActive: true, tags: ['tag6'] }, // Duplicate name
+  ];
+}
+
+/**
+ * Expected results for filter operations on the test array
+ */
+export const filterExpectedResults = {
+  uniqueBy: {
+    byId: [
+      { id: 1, name: 'Item 1', category: 'A', value: 100, isActive: true, tags: ['tag1', 'tag2'] },
+      { id: 2, name: 'Item 2', category: 'B', value: 200, isActive: false, tags: ['tag2', 'tag3'] },
+      { id: 3, name: 'Item 3', category: 'A', value: 300, isActive: true, tags: ['tag1', 'tag3'] },
+      { id: 4, name: 'Item 4', category: 'C', value: 400, isActive: true, tags: ['tag4'] },
+      { id: 5, name: 'Item 5', category: 'B', value: 500, isActive: false, tags: ['tag2', 'tag5'] },
+      { id: 6, name: 'Item 1', category: 'D', value: 600, isActive: true, tags: ['tag6'] },
+    ],
+    byName: [
+      { id: 1, name: 'Item 1', category: 'A', value: 100, isActive: true, tags: ['tag1', 'tag2'] },
+      { id: 2, name: 'Item 2', category: 'B', value: 200, isActive: false, tags: ['tag2', 'tag3'] },
+      { id: 3, name: 'Item 3', category: 'A', value: 300, isActive: true, tags: ['tag1', 'tag3'] },
+      { id: 4, name: 'Item 4', category: 'C', value: 400, isActive: true, tags: ['tag4'] },
+      { id: 5, name: 'Item 5', category: 'B', value: 500, isActive: false, tags: ['tag2', 'tag5'] },
+    ],
+    byCategory: [
+      { id: 1, name: 'Item 1', category: 'A', value: 100, isActive: true, tags: ['tag1', 'tag2'] },
+      { id: 2, name: 'Item 2', category: 'B', value: 200, isActive: false, tags: ['tag2', 'tag3'] },
+      { id: 4, name: 'Item 4', category: 'C', value: 400, isActive: true, tags: ['tag4'] },
+      { id: 6, name: 'Item 1', category: 'D', value: 600, isActive: true, tags: ['tag6'] },
+    ],
+  },
+  filterByProperties: {
+    category: [
+      { id: 1, name: 'Item 1', category: 'A', value: 100, isActive: true, tags: ['tag1', 'tag2'] },
+      { id: 3, name: 'Item 3', category: 'A', value: 300, isActive: true, tags: ['tag1', 'tag3'] },
+    ],
+    isActive: [
+      { id: 1, name: 'Item 1', category: 'A', value: 100, isActive: true, tags: ['tag1', 'tag2'] },
+      { id: 3, name: 'Item 3', category: 'A', value: 300, isActive: true, tags: ['tag1', 'tag3'] },
+      { id: 4, name: 'Item 4', category: 'C', value: 400, isActive: true, tags: ['tag4'] },
+      { id: 6, name: 'Item 1', category: 'D', value: 600, isActive: true, tags: ['tag6'] },
+    ],
+    multiple: [
+      { id: 1, name: 'Item 1', category: 'A', value: 100, isActive: true, tags: ['tag1', 'tag2'] },
+    ],
+    partialMatch: [
+      { id: 1, name: 'Item 1', category: 'A', value: 100, isActive: true, tags: ['tag1', 'tag2'] },
+      { id: 6, name: 'Item 1', category: 'D', value: 600, isActive: true, tags: ['tag6'] },
+    ],
+  },
+  rejectByProperties: {
+    category: [
+      { id: 2, name: 'Item 2', category: 'B', value: 200, isActive: false, tags: ['tag2', 'tag3'] },
+      { id: 4, name: 'Item 4', category: 'C', value: 400, isActive: true, tags: ['tag4'] },
+      { id: 5, name: 'Item 5', category: 'B', value: 500, isActive: false, tags: ['tag2', 'tag5'] },
+      { id: 6, name: 'Item 1', category: 'D', value: 600, isActive: true, tags: ['tag6'] },
+    ],
+    isActive: [
+      { id: 2, name: 'Item 2', category: 'B', value: 200, isActive: false, tags: ['tag2', 'tag3'] },
+      { id: 5, name: 'Item 5', category: 'B', value: 500, isActive: false, tags: ['tag2', 'tag5'] },
+    ],
+  },
+  differenceBy: {
+    input: [
+      { id: 1, name: 'Item 1' },
+      { id: 2, name: 'Item 2' },
+      { id: 3, name: 'Item 3' },
+      { id: 4, name: 'Item 4' },
+      { id: 5, name: 'Item 5' },
+    ],
+    exclude: [
+      { id: 2, name: 'Different Name' },
+      { id: 4, name: 'Also Different' },
+    ],
+    output: [
+      { id: 1, name: 'Item 1' },
+      { id: 3, name: 'Item 3' },
+      { id: 5, name: 'Item 5' },
+    ],
+  },
+};
+
+/**
+ * Creates a test array with specific properties for testing group operations
+ * 
+ * @returns An array suitable for testing group utilities
+ */
+export function createGroupTestArray(): any[] {
+  return [
+    { id: 1, name: 'Item 1', category: 'A', value: 100, date: '2023-01-01' },
+    { id: 2, name: 'Item 2', category: 'B', value: 200, date: '2023-01-15' },
+    { id: 3, name: 'Item 3', category: 'A', value: 300, date: '2023-01-20' },
+    { id: 4, name: 'Item 4', category: 'C', value: 400, date: '2023-02-01' },
+    { id: 5, name: 'Item 5', category: 'B', value: 500, date: '2023-02-15' },
+    { id: 6, name: 'Item 6', category: 'A', value: 600, date: '2023-03-01' },
+  ];
+}
+
+/**
+ * Expected results for group operations on the test array
+ */
+export const groupExpectedResults = {
+  groupBy: {
+    byCategory: {
+      'A': [
+        { id: 1, name: 'Item 1', category: 'A', value: 100, date: '2023-01-01' },
+        { id: 3, name: 'Item 3', category: 'A', value: 300, date: '2023-01-20' },
+        { id: 6, name: 'Item 6', category: 'A', value: 600, date: '2023-03-01' },
+      ],
+      'B': [
+        { id: 2, name: 'Item 2', category: 'B', value: 200, date: '2023-01-15' },
+        { id: 5, name: 'Item 5', category: 'B', value: 500, date: '2023-02-15' },
+      ],
+      'C': [
+        { id: 4, name: 'Item 4', category: 'C', value: 400, date: '2023-02-01' },
+      ],
+    },
+    byMonth: {
+      '2023-01': [
+        { id: 1, name: 'Item 1', category: 'A', value: 100, date: '2023-01-01' },
+        { id: 2, name: 'Item 2', category: 'B', value: 200, date: '2023-01-15' },
+        { id: 3, name: 'Item 3', category: 'A', value: 300, date: '2023-01-20' },
+      ],
+      '2023-02': [
+        { id: 4, name: 'Item 4', category: 'C', value: 400, date: '2023-02-01' },
+        { id: 5, name: 'Item 5', category: 'B', value: 500, date: '2023-02-15' },
+      ],
+      '2023-03': [
+        { id: 6, name: 'Item 6', category: 'A', value: 600, date: '2023-03-01' },
+      ],
+    },
+  },
+  partitionBy: {
+    byValue: [
+      [ // Items with value > 300
+        { id: 4, name: 'Item 4', category: 'C', value: 400, date: '2023-02-01' },
+        { id: 5, name: 'Item 5', category: 'B', value: 500, date: '2023-02-15' },
+        { id: 6, name: 'Item 6', category: 'A', value: 600, date: '2023-03-01' },
+      ],
+      [ // Items with value <= 300
+        { id: 1, name: 'Item 1', category: 'A', value: 100, date: '2023-01-01' },
+        { id: 2, name: 'Item 2', category: 'B', value: 200, date: '2023-01-15' },
+        { id: 3, name: 'Item 3', category: 'A', value: 300, date: '2023-01-20' },
+      ],
+    ],
+    byCategory: [
+      [ // Items with category 'A'
+        { id: 1, name: 'Item 1', category: 'A', value: 100, date: '2023-01-01' },
+        { id: 3, name: 'Item 3', category: 'A', value: 300, date: '2023-01-20' },
+        { id: 6, name: 'Item 6', category: 'A', value: 600, date: '2023-03-01' },
+      ],
+      [ // Items with category not 'A'
+        { id: 2, name: 'Item 2', category: 'B', value: 200, date: '2023-01-15' },
+        { id: 4, name: 'Item 4', category: 'C', value: 400, date: '2023-02-01' },
+        { id: 5, name: 'Item 5', category: 'B', value: 500, date: '2023-02-15' },
+      ],
+    ],
+  },
+  keyBy: {
+    byId: {
+      '1': { id: 1, name: 'Item 1', category: 'A', value: 100, date: '2023-01-01' },
+      '2': { id: 2, name: 'Item 2', category: 'B', value: 200, date: '2023-01-15' },
+      '3': { id: 3, name: 'Item 3', category: 'A', value: 300, date: '2023-01-20' },
+      '4': { id: 4, name: 'Item 4', category: 'C', value: 400, date: '2023-02-01' },
+      '5': { id: 5, name: 'Item 5', category: 'B', value: 500, date: '2023-02-15' },
+      '6': { id: 6, name: 'Item 6', category: 'A', value: 600, date: '2023-03-01' },
+    },
+    byName: {
+      'Item 1': { id: 1, name: 'Item 1', category: 'A', value: 100, date: '2023-01-01' },
+      'Item 2': { id: 2, name: 'Item 2', category: 'B', value: 200, date: '2023-01-15' },
+      'Item 3': { id: 3, name: 'Item 3', category: 'A', value: 300, date: '2023-01-20' },
+      'Item 4': { id: 4, name: 'Item 4', category: 'C', value: 400, date: '2023-02-01' },
+      'Item 5': { id: 5, name: 'Item 5', category: 'B', value: 500, date: '2023-02-15' },
+      'Item 6': { id: 6, name: 'Item 6', category: 'A', value: 600, date: '2023-03-01' },
+    },
+  },
+  groupByMultiple: {
+    byCategoryAndMonth: {
+      'A': {
+        '2023-01': [
+          { id: 1, name: 'Item 1', category: 'A', value: 100, date: '2023-01-01' },
+          { id: 3, name: 'Item 3', category: 'A', value: 300, date: '2023-01-20' },
+        ],
+        '2023-03': [
+          { id: 6, name: 'Item 6', category: 'A', value: 600, date: '2023-03-01' },
+        ],
+      },
+      'B': {
+        '2023-01': [
+          { id: 2, name: 'Item 2', category: 'B', value: 200, date: '2023-01-15' },
+        ],
+        '2023-02': [
+          { id: 5, name: 'Item 5', category: 'B', value: 500, date: '2023-02-15' },
+        ],
+      },
+      'C': {
+        '2023-02': [
+          { id: 4, name: 'Item 4', category: 'C', value: 400, date: '2023-02-01' },
+        ],
+      },
+    },
+  },
+  countBy: {
+    byCategory: {
+      'A': 3,
+      'B': 2,
+      'C': 1,
+    },
+    byMonth: {
+      '2023-01': 3,
+      '2023-02': 2,
+      '2023-03': 1,
+    },
+  },
+};
+
+/**
+ * Creates a test array with specific properties for testing chunk operations
+ * 
+ * @returns An array suitable for testing chunk utilities
+ */
+export function createChunkTestArray(): number[] {
+  return [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+}
+
+/**
+ * Expected results for chunk operations on the test array
+ */
+export const chunkExpectedResults = {
+  chunk: {
+    size2: [[1, 2], [3, 4], [5, 6], [7, 8], [9, 10]],
+    size3: [[1, 2, 3], [4, 5, 6], [7, 8, 9], [10]],
+    size5: [[1, 2, 3, 4, 5], [6, 7, 8, 9, 10]],
+  },
+  chunkBySize: {
+    chunks2: [[1, 2, 3, 4, 5], [6, 7, 8, 9, 10]],
+    chunks3: [[1, 2, 3, 4], [5, 6, 7], [8, 9, 10]],
+    chunks5: [[1, 2], [3, 4], [5, 6], [7, 8], [9, 10]],
+  },
+  chunkByPredicate: {
+    byEvenOdd: [[2, 4, 6, 8, 10], [1, 3, 5, 7, 9]],
+    byLessThan5: [[1, 2, 3, 4], [5, 6, 7, 8, 9, 10]],
+  },
+  chunkByMaxSize: {
+    input: [
+      { id: 1, size: 300 },
+      { id: 2, size: 200 },
+      { id: 3, size: 400 },
+      { id: 4, size: 100 },
+      { id: 5, size: 500 },
+      { id: 6, size: 250 },
+    ],
+    maxSize500: [
+      [{ id: 1, size: 300 }, { id: 2, size: 200 }],
+      [{ id: 3, size: 400 }],
+      [{ id: 4, size: 100 }, { id: 6, size: 250 }],
+      [{ id: 5, size: 500 }],
+    ],
+  },
+  chunkByBoundary: {
+    input: [1, 2, 5, 6, 7, 10, 11, 15],
+    byGap: [[1, 2], [5, 6, 7], [10, 11], [15]],
+  },
+};
+
+/**
+ * Verifies that an array utility function correctly handles edge cases
+ * 
+ * @param utilityFn The array utility function to test
+ * @param edgeCases Array of edge cases to test
+ * @returns A result object with success flag and details
+ */
+export function verifyEdgeCaseHandling(
+  utilityFn: (...args: any[]) => any,
+  edgeCases: Array<{ args: any[], shouldThrow: boolean, expectedResult?: any }>
+): Array<{ success: boolean, args: any[], error?: Error, result?: any }> {
+  return edgeCases.map(({ args, shouldThrow, expectedResult }) => {
+    try {
+      const result = utilityFn(...args);
       
-      // Handle property matcher objects
-      if (matcher !== null && typeof matcher === 'object' && !Array.isArray(matcher)) {
-        if (matcher.exact !== undefined) return value === matcher.exact;
-        if (matcher.contains !== undefined && typeof value === 'string') return value.includes(matcher.contains);
-        if (matcher.startsWith !== undefined && typeof value === 'string') return value.startsWith(matcher.startsWith);
-        if (matcher.endsWith !== undefined && typeof value === 'string') return value.endsWith(matcher.endsWith);
-        if (matcher.in !== undefined) return matcher.in.includes(value);
-        if (matcher.notIn !== undefined) return !matcher.notIn.includes(value);
-        if (matcher.gt !== undefined && typeof value === 'number') return value > matcher.gt;
-        if (matcher.gte !== undefined && typeof value === 'number') return value >= matcher.gte;
-        if (matcher.lt !== undefined && typeof value === 'number') return value < matcher.lt;
-        if (matcher.lte !== undefined && typeof value === 'number') return value <= matcher.lte;
-        if (matcher.between !== undefined && typeof value === 'number') {
-          const [min, max] = matcher.between;
-          return value >= min && value <= max;
-        }
-        if (matcher.exists !== undefined) {
-          return matcher.exists ? value !== undefined && value !== null : value === undefined || value === null;
-        }
-        if (matcher.regex !== undefined && typeof value === 'string') {
-          return matcher.regex.test(value);
-        }
-        return false;
+      if (shouldThrow) {
+        return {
+          success: false,
+          args,
+          result,
+          error: new Error('Expected function to throw but it did not'),
+        };
       }
       
-      // Simple equality check
-      return value === matcher;
-    });
-    
-    return matchAll 
-      ? propertyResults.every(result => result) // AND logic
-      : propertyResults.some(result => result); // OR logic
-  });
-  
-  return { input, properties, matchAll, expected };
-};
-
-/**
- * Creates a test case for the differenceBy function.
- * 
- * @param firstSize - Size of the first array
- * @param secondSize - Size of the second array
- * @param overlapCount - Number of overlapping elements
- * @param keyOrSelector - Key or function for comparison
- * @returns Object with inputs and expected output for testing differenceBy
- */
-export const createDifferenceByTestCase = <T extends Record<string, any>, K = T>(
-  firstSize: number,
-  secondSize: number,
-  overlapCount: number,
-  keyOrSelector?: keyof T | ((item: T) => K)
-): {
-  firstArray: T[];
-  secondArray: T[];
-  keyOrSelector?: keyof T | ((item: T) => K);
-  expected: T[];
-} => {
-  // Generate first array
-  const firstArray = generateObjectArray(firstSize) as unknown as T[];
-  
-  // Create second array with some overlap
-  const overlapItems = firstArray.slice(0, Math.min(overlapCount, firstSize));
-  const uniqueItems = generateObjectArray(
-    Math.max(0, secondSize - overlapCount),
-    'second_key',
-    'second_value'
-  ) as unknown as T[];
-  
-  const secondArray = [...overlapItems, ...uniqueItems];
-  
-  // Calculate expected difference
-  let expected: T[];
-  
-  if (!keyOrSelector) {
-    // Direct comparison
-    expected = firstArray.filter(item => !secondArray.includes(item));
-  } else if (typeof keyOrSelector === 'function') {
-    // Function selector
-    const secondKeys = new Set(
-      secondArray.map(item => {
-        const key = keyOrSelector(item);
-        return typeof key === 'object' ? JSON.stringify(key) : String(key);
-      })
-    );
-    
-    expected = firstArray.filter(item => {
-      const key = keyOrSelector(item);
-      const keyString = typeof key === 'object' ? JSON.stringify(key) : String(key);
-      return !secondKeys.has(keyString);
-    });
-  } else {
-    // Property key
-    const secondValues = new Set(
-      secondArray.map(item => {
-        const value = item[keyOrSelector];
-        return typeof value === 'object' ? JSON.stringify(value) : String(value);
-      })
-    );
-    
-    expected = firstArray.filter(item => {
-      const value = item[keyOrSelector];
-      const valueString = typeof value === 'object' ? JSON.stringify(value) : String(value);
-      return !secondValues.has(valueString);
-    });
-  }
-  
-  return { firstArray, secondArray, keyOrSelector, expected };
-};
-
-// ===== GROUP HELPERS =====
-
-/**
- * Creates a test case for the groupBy function.
- * 
- * @param size - Size of the test array
- * @param keyOrSelector - Key or function to group by
- * @returns Object with input and expected output for testing groupBy
- */
-export const createGroupByTestCase = <T extends Record<string, any>, K extends PropertyKey>(
-  size: number,
-  keyOrSelector: keyof T | ((item: T) => K)
-): {
-  input: T[];
-  keyOrSelector: keyof T | ((item: T) => K);
-  expected: Record<string, T[]>;
-} => {
-  // Generate test array
-  const input = generateObjectArray(size, 'key', 'value', (i) => {
-    return {
-      category: ['A', 'B', 'C'][i % 3],
-      status: ['active', 'inactive'][i % 2],
-      priority: (i % 3) + 1
-    } as any;
-  }) as unknown as T[];
-  
-  // Group manually to create expected result
-  const expected: Record<string, T[]> = {};
-  
-  input.forEach(item => {
-    const key = typeof keyOrSelector === 'function'
-      ? keyOrSelector(item)
-      : item[keyOrSelector];
-    
-    const keyString = String(key);
-    
-    if (!expected[keyString]) {
-      expected[keyString] = [];
-    }
-    
-    expected[keyString].push(item);
-  });
-  
-  return { input, keyOrSelector, expected };
-};
-
-/**
- * Creates a test case for the partitionBy function.
- * 
- * @param size - Size of the test array
- * @param predicate - Function to test each element
- * @returns Object with input and expected output for testing partitionBy
- */
-export const createPartitionByTestCase = <T extends Record<string, any>>(
-  size: number,
-  predicate: (item: T) => boolean
-): {
-  input: T[];
-  predicate: (item: T) => boolean;
-  expected: [T[], T[]];
-} => {
-  // Generate test array
-  const input = generateObjectArray(size) as unknown as T[];
-  
-  // Partition manually
-  const passing: T[] = [];
-  const failing: T[] = [];
-  
-  input.forEach(item => {
-    if (predicate(item)) {
-      passing.push(item);
-    } else {
-      failing.push(item);
+      if (expectedResult !== undefined) {
+        const isEqual = JSON.stringify(result) === JSON.stringify(expectedResult);
+        return {
+          success: isEqual,
+          args,
+          result,
+          error: isEqual ? undefined : new Error('Result does not match expected result'),
+        };
+      }
+      
+      return { success: true, args, result };
+    } catch (error) {
+      if (shouldThrow) {
+        return { success: true, args, error: error as Error };
+      }
+      
+      return {
+        success: false,
+        args,
+        error: error as Error,
+      };
     }
   });
-  
-  return { input, predicate, expected: [passing, failing] };
+}
+
+/**
+ * Common edge cases for array utility functions
+ */
+export const commonEdgeCases = {
+  emptyArray: { args: [[]], shouldThrow: false },
+  nullInput: { args: [null], shouldThrow: true },
+  undefinedInput: { args: [undefined], shouldThrow: true },
+  nonArrayInput: { args: [{}], shouldThrow: true },
+  arrayWithNulls: { args: [[1, null, 3]], shouldThrow: false },
+  arrayWithUndefined: { args: [[1, undefined, 3]], shouldThrow: false },
 };
 
 /**
- * Creates a test case for the countBy function.
+ * Creates a performance test for an array utility function
  * 
- * @param size - Size of the test array
- * @param keyOrSelector - Key or function to count by
- * @returns Object with input and expected output for testing countBy
+ * @param utilityFn The array utility function to test
+ * @param generateArgs Function to generate arguments for the utility function
+ * @param iterations Number of iterations to run
+ * @returns Performance metrics for the function
  */
-export const createCountByTestCase = <T extends Record<string, any>, K extends PropertyKey>(
-  size: number,
-  keyOrSelector: keyof T | ((item: T) => K)
-): {
-  input: T[];
-  keyOrSelector: keyof T | ((item: T) => K);
-  expected: Record<string, number>;
-} => {
-  // Generate test array with repeated values
-  const input = generateObjectArray(size, 'key', 'value', (i) => {
-    return {
-      category: ['A', 'B', 'C'][i % 3],
-      status: ['active', 'inactive'][i % 2],
-      priority: (i % 3) + 1
-    } as any;
-  }) as unknown as T[];
+export function measurePerformance(
+  utilityFn: (...args: any[]) => any,
+  generateArgs: () => any[],
+  iterations = 100
+): { avgTime: number, minTime: number, maxTime: number } {
+  const times: number[] = [];
   
-  // Count manually
-  const expected: Record<string, number> = {};
-  
-  input.forEach(item => {
-    const key = typeof keyOrSelector === 'function'
-      ? keyOrSelector(item)
-      : item[keyOrSelector];
+  for (let i = 0; i < iterations; i++) {
+    const args = generateArgs();
     
-    const keyString = String(key);
-    expected[keyString] = (expected[keyString] || 0) + 1;
-  });
-  
-  return { input, keyOrSelector, expected };
-};
-
-// ===== CHUNK HELPERS =====
-
-/**
- * Creates a test case for the chunk function.
- * 
- * @param size - Size of the test array
- * @param chunkSize - Size of each chunk
- * @returns Object with input and expected output for testing chunk
- */
-export const createChunkTestCase = <T>(
-  size: number,
-  chunkSize: number
-): {
-  input: T[];
-  size: number;
-  expected: T[][];
-} => {
-  // Generate test array
-  const input = generateNumberArray(size) as unknown as T[];
-  
-  // Create chunks manually
-  const expected: T[][] = [];
-  
-  for (let i = 0; i < input.length; i += chunkSize) {
-    expected.push(input.slice(i, i + chunkSize));
+    const start = performance.now();
+    utilityFn(...args);
+    const end = performance.now();
+    
+    times.push(end - start);
   }
   
-  return { input, size: chunkSize, expected };
+  return {
+    avgTime: times.reduce((sum, time) => sum + time, 0) / times.length,
+    minTime: Math.min(...times),
+    maxTime: Math.max(...times),
+  };
+}
+
+/**
+ * Creates a test for comparing the performance of two implementations
+ * 
+ * @param name Name of the test
+ * @param impl1 First implementation to test
+ * @param impl2 Second implementation to test
+ * @param generateArgs Function to generate arguments for both implementations
+ * @param iterations Number of iterations to run
+ * @returns Comparison of performance metrics
+ */
+export function compareImplementations(
+  name: string,
+  impl1: (...args: any[]) => any,
+  impl2: (...args: any[]) => any,
+  generateArgs: () => any[],
+  iterations = 100
+): { name: string, impl1Metrics: ReturnType<typeof measurePerformance>, impl2Metrics: ReturnType<typeof measurePerformance>, diff: number } {
+  const impl1Metrics = measurePerformance(impl1, generateArgs, iterations);
+  const impl2Metrics = measurePerformance(impl2, generateArgs, iterations);
+  
+  return {
+    name,
+    impl1Metrics,
+    impl2Metrics,
+    diff: impl1Metrics.avgTime - impl2Metrics.avgTime,
+  };
+}
+
+/**
+ * Journey-specific array test utilities
+ */
+export const journeyArrayUtils = {
+  /**
+   * Health journey test utilities
+   */
+  health: {
+    /**
+     * Creates test health metrics array
+     * 
+     * @param count Number of metrics to generate
+     * @returns Array of test health metrics
+     */
+    createHealthMetricsArray(count = 10): Record<string, any>[] {
+      const metricTypes = ['HEART_RATE', 'STEPS', 'WEIGHT', 'BLOOD_PRESSURE', 'SLEEP'];
+      const sources = ['MANUAL', 'DEVICE', 'INTEGRATION'];
+      
+      return Array.from({ length: count }, (_, index) => ({
+        id: `metric-${index}`,
+        userId: 'test-user-id',
+        type: randomUtils.element(metricTypes),
+        value: randomUtils.integer(50, 200),
+        unit: getUnitForMetricType(randomUtils.element(metricTypes)),
+        timestamp: new Date(Date.now() - randomUtils.integer(0, 30 * 24 * 60 * 60 * 1000)),
+        source: randomUtils.element(sources),
+        notes: randomUtils.boolean() ? `Test note ${index}` : undefined,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      }));
+    },
+    
+    /**
+     * Creates test health goals array
+     * 
+     * @param count Number of goals to generate
+     * @returns Array of test health goals
+     */
+    createHealthGoalsArray(count = 5): Record<string, any>[] {
+      const goalTypes = ['STEPS', 'WEIGHT', 'SLEEP', 'WATER', 'EXERCISE'];
+      const frequencies = ['DAILY', 'WEEKLY', 'MONTHLY'];
+      const statuses = ['ACTIVE', 'COMPLETED', 'ABANDONED'];
+      
+      return Array.from({ length: count }, (_, index) => {
+        const type = randomUtils.element(goalTypes);
+        return {
+          id: `goal-${index}`,
+          userId: 'test-user-id',
+          type,
+          target: getTargetForGoalType(type),
+          unit: getUnitForGoalType(type),
+          frequency: randomUtils.element(frequencies),
+          startDate: new Date(Date.now() - randomUtils.integer(0, 30 * 24 * 60 * 60 * 1000)),
+          endDate: new Date(Date.now() + randomUtils.integer(0, 60 * 24 * 60 * 60 * 1000)),
+          progress: randomUtils.integer(0, 100),
+          status: randomUtils.element(statuses),
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        };
+      });
+    },
+  },
+  
+  /**
+   * Care journey test utilities
+   */
+  care: {
+    /**
+     * Creates test appointments array
+     * 
+     * @param count Number of appointments to generate
+     * @returns Array of test appointments
+     */
+    createAppointmentsArray(count = 8): Record<string, any>[] {
+      const appointmentTypes = ['CONSULTATION', 'FOLLOW_UP', 'EXAMINATION', 'PROCEDURE'];
+      const statuses = ['SCHEDULED', 'COMPLETED', 'CANCELLED', 'RESCHEDULED'];
+      const locations = ['VIRTUAL', 'CLINIC', 'HOSPITAL', 'HOME'];
+      
+      return Array.from({ length: count }, (_, index) => {
+        const startTime = new Date(Date.now() + randomUtils.integer(-30, 30) * 24 * 60 * 60 * 1000);
+        const endTime = new Date(startTime.getTime() + 30 * 60 * 1000); // 30 minutes later
+        
+        return {
+          id: `appointment-${index}`,
+          userId: 'test-user-id',
+          providerId: `provider-${randomUtils.integer(1, 5)}`,
+          type: randomUtils.element(appointmentTypes),
+          status: randomUtils.element(statuses),
+          startTime,
+          endTime,
+          notes: randomUtils.boolean() ? `Appointment notes ${index}` : undefined,
+          location: randomUtils.element(locations),
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        };
+      });
+    },
+    
+    /**
+     * Creates test providers array
+     * 
+     * @param count Number of providers to generate
+     * @returns Array of test providers
+     */
+    createProvidersArray(count = 5): Record<string, any>[] {
+      const specialties = ['GENERAL', 'CARDIOLOGY', 'DERMATOLOGY', 'ORTHOPEDICS', 'PEDIATRICS'];
+      
+      return Array.from({ length: count }, (_, index) => ({
+        id: `provider-${index + 1}`,
+        name: `Dr. ${randomUtils.string(8)}`,
+        specialty: randomUtils.element(specialties),
+        rating: randomUtils.integer(1, 5),
+        available: randomUtils.boolean(),
+        location: `Location ${index + 1}`,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      }));
+    },
+  },
+  
+  /**
+   * Plan journey test utilities
+   */
+  plan: {
+    /**
+     * Creates test insurance claims array
+     * 
+     * @param count Number of claims to generate
+     * @returns Array of test insurance claims
+     */
+    createInsuranceClaimsArray(count = 7): Record<string, any>[] {
+      const claimTypes = ['MEDICAL', 'DENTAL', 'VISION', 'PHARMACY', 'EMERGENCY'];
+      const statuses = ['SUBMITTED', 'PROCESSING', 'APPROVED', 'REJECTED', 'PENDING_INFO'];
+      
+      return Array.from({ length: count }, (_, index) => ({
+        id: `claim-${index}`,
+        userId: 'test-user-id',
+        planId: `plan-${randomUtils.integer(1, 3)}`,
+        type: randomUtils.element(claimTypes),
+        status: randomUtils.element(statuses),
+        amount: randomUtils.integer(100, 5000),
+        serviceDate: new Date(Date.now() - randomUtils.integer(0, 90) * 24 * 60 * 60 * 1000),
+        submissionDate: new Date(Date.now() - randomUtils.integer(0, 30) * 24 * 60 * 60 * 1000),
+        description: `Claim description ${index}`,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      }));
+    },
+    
+    /**
+     * Creates test benefits array
+     * 
+     * @param count Number of benefits to generate
+     * @returns Array of test benefits
+     */
+    createBenefitsArray(count = 6): Record<string, any>[] {
+      const benefitTypes = ['MEDICAL', 'DENTAL', 'VISION', 'WELLNESS', 'PHARMACY'];
+      
+      return Array.from({ length: count }, (_, index) => ({
+        id: `benefit-${index}`,
+        planId: `plan-${randomUtils.integer(1, 3)}`,
+        name: `Benefit ${index}`,
+        type: randomUtils.element(benefitTypes),
+        description: `Description for benefit ${index}`,
+        coverage: randomUtils.integer(50, 100),
+        limit: randomUtils.integer(1000, 10000),
+        used: randomUtils.integer(0, 1000),
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      }));
+    },
+  },
+  
+  /**
+   * Gamification journey test utilities
+   */
+  gamification: {
+    /**
+     * Creates test achievements array
+     * 
+     * @param count Number of achievements to generate
+     * @returns Array of test achievements
+     */
+    createAchievementsArray(count = 10): Record<string, any>[] {
+      const categories = ['HEALTH', 'CARE', 'PLAN', 'ENGAGEMENT'];
+      const difficulties = ['EASY', 'MEDIUM', 'HARD', 'EXPERT'];
+      
+      return Array.from({ length: count }, (_, index) => ({
+        id: `achievement-${index}`,
+        name: `Achievement ${index}`,
+        description: `Description for achievement ${index}`,
+        category: randomUtils.element(categories),
+        difficulty: randomUtils.element(difficulties),
+        points: randomUtils.integer(10, 100),
+        icon: `icon-${index}`,
+        unlockedAt: randomUtils.boolean() ? new Date(Date.now() - randomUtils.integer(0, 60) * 24 * 60 * 60 * 1000) : null,
+        progress: randomUtils.integer(0, 100),
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      }));
+    },
+    
+    /**
+     * Creates test events array for gamification
+     * 
+     * @param count Number of events to generate
+     * @returns Array of test events
+     */
+    createEventsArray(count = 15): Record<string, any>[] {
+      const eventTypes = [
+        'HEALTH_METRIC_RECORDED',
+        'HEALTH_GOAL_COMPLETED',
+        'APPOINTMENT_SCHEDULED',
+        'APPOINTMENT_COMPLETED',
+        'CLAIM_SUBMITTED',
+        'BENEFIT_USED',
+        'PROFILE_UPDATED',
+        'APP_OPENED',
+      ];
+      
+      return Array.from({ length: count }, (_, index) => ({
+        id: `event-${index}`,
+        userId: 'test-user-id',
+        type: randomUtils.element(eventTypes),
+        timestamp: new Date(Date.now() - randomUtils.integer(0, 30) * 24 * 60 * 60 * 1000),
+        payload: {
+          data: `Event data ${index}`,
+          value: randomUtils.integer(1, 100),
+        },
+        processed: randomUtils.boolean(),
+        createdAt: new Date(),
+      }));
+    },
+  },
 };
 
 /**
- * Creates a test case for the chunkBySize function.
- * 
- * @param size - Size of the test array
- * @param numChunks - Number of chunks to create
- * @returns Object with input and expected output for testing chunkBySize
+ * Helper function to get unit for a metric type
  */
-export const createChunkBySizeTestCase = <T>(
-  size: number,
-  numChunks: number
-): {
-  input: T[];
-  numChunks: number;
-  expected: T[][];
-} => {
-  // Generate test array
-  const input = generateNumberArray(size) as unknown as T[];
-  
-  // Calculate effective number of chunks
-  const effectiveNumChunks = Math.min(numChunks, size);
-  
-  // Calculate chunk size
-  const chunkSize = Math.ceil(size / effectiveNumChunks);
-  
-  // Create chunks manually
-  const expected: T[][] = [];
-  
-  for (let i = 0; i < effectiveNumChunks; i++) {
-    const start = i * chunkSize;
-    const end = Math.min(start + chunkSize, size);
-    expected.push(input.slice(start, end));
+function getUnitForMetricType(type: string): string {
+  switch (type) {
+    case 'HEART_RATE':
+      return 'bpm';
+    case 'STEPS':
+      return 'steps';
+    case 'WEIGHT':
+      return 'kg';
+    case 'BLOOD_PRESSURE':
+      return 'mmHg';
+    case 'SLEEP':
+      return 'hours';
+    default:
+      return 'units';
   }
-  
-  return { input, numChunks, expected };
-};
+}
 
 /**
- * Creates a test case for the chunkByPredicate function.
- * 
- * @param size - Size of the test array
- * @param predicate - Function to determine grouping
- * @returns Object with input and expected output for testing chunkByPredicate
+ * Helper function to get unit for a goal type
  */
-export const createChunkByPredicateTestCase = <T>(
-  size: number,
-  predicate: (item: T) => boolean
-): {
-  input: T[];
-  predicate: (item: T) => boolean;
-  expected: T[][];
-} => {
-  // Generate test array
-  const input = generateNumberArray(size) as unknown as T[];
-  
-  // Split into chunks based on predicate
-  const trueChunk: T[] = [];
-  const falseChunk: T[] = [];
-  
-  input.forEach(item => {
-    if (predicate(item)) {
-      trueChunk.push(item);
-    } else {
-      falseChunk.push(item);
-    }
-  });
-  
-  // Only include non-empty chunks in the expected result
-  const expected: T[][] = [];
-  if (falseChunk.length > 0) expected.push(falseChunk);
-  if (trueChunk.length > 0) expected.push(trueChunk);
-  
-  return { input, predicate, expected };
-};
-
-/**
- * Creates a test case for the chunkByKey function.
- * 
- * @param size - Size of the test array
- * @param keySelector - Function to determine the grouping key
- * @returns Object with input and expected output for testing chunkByKey
- */
-export const createChunkByKeyTestCase = <T extends Record<string, any>, K extends string | number | symbol>(
-  size: number,
-  keySelector: (item: T) => K
-): {
-  input: T[];
-  keySelector: (item: T) => K;
-  expected: T[][];
-} => {
-  // Generate test array
-  const input = generateObjectArray(size, 'key', 'value', (i) => {
-    return {
-      category: ['A', 'B', 'C'][i % 3],
-      status: ['active', 'inactive'][i % 2],
-    } as any;
-  }) as unknown as T[];
-  
-  // Group by key
-  const groups = new Map<K, T[]>();
-  
-  input.forEach(item => {
-    const key = keySelector(item);
-    if (!groups.has(key)) {
-      groups.set(key, []);
-    }
-    groups.get(key)!.push(item);
-  });
-  
-  const expected = Array.from(groups.values());
-  
-  return { input, keySelector, expected };
-};
-
-/**
- * Creates a test case for the chunkForParallel function.
- * 
- * @param size - Size of the test array
- * @param numChunks - Number of chunks to create
- * @param weightSelector - Function to determine item weight
- * @returns Object with input and expected output for testing chunkForParallel
- */
-export const createChunkForParallelTestCase = <T extends Record<string, any>>(
-  size: number,
-  numChunks: number,
-  weightSelector: (item: T) => number
-): {
-  input: T[];
-  numChunks: number;
-  weightSelector: (item: T) => number;
-  expected: T[][];
-} => {
-  // Generate test array with weights
-  const input = generateObjectArray(size, 'key', 'value', (i) => {
-    return {
-      weight: (i % 5) + 1, // Weights from 1 to 5
-    } as any;
-  }) as unknown as T[];
-  
-  // Calculate effective number of chunks
-  const effectiveNumChunks = Math.min(numChunks, size);
-  
-  // Sort items by weight in descending order
-  const weightedItems = [...input]
-    .map((item, index) => ({ item, weight: weightSelector(item), index }))
-    .sort((a, b) => b.weight - a.weight || a.index - b.index);
-  
-  // Initialize chunks
-  const expected: T[][] = Array.from({ length: effectiveNumChunks }, () => []);
-  const chunkWeights = Array(effectiveNumChunks).fill(0);
-  
-  // Distribute items using greedy approach
-  for (const { item, weight } of weightedItems) {
-    const minWeightIndex = chunkWeights.indexOf(Math.min(...chunkWeights));
-    expected[minWeightIndex].push(item);
-    chunkWeights[minWeightIndex] += weight;
+function getUnitForGoalType(type: string): string {
+  switch (type) {
+    case 'STEPS':
+      return 'steps';
+    case 'WEIGHT':
+      return 'kg';
+    case 'SLEEP':
+      return 'hours';
+    case 'WATER':
+      return 'ml';
+    case 'EXERCISE':
+      return 'minutes';
+    default:
+      return 'units';
   }
-  
-  return { input, numChunks, weightSelector, expected };
+}
+
+/**
+ * Helper function to get target for a goal type
+ */
+function getTargetForGoalType(type: string): number {
+  switch (type) {
+    case 'STEPS':
+      return 10000;
+    case 'WEIGHT':
+      return 70;
+    case 'SLEEP':
+      return 8;
+    case 'WATER':
+      return 2000;
+    case 'EXERCISE':
+      return 30;
+    default:
+      return 100;
+  }
+}
+
+// Export all utilities
+export default {
+  generateTestArray,
+  generateNestedArray,
+  generateObjectArray,
+  generateArrayWithDuplicates,
+  shuffleArray,
+  createTransformTestArray,
+  transformExpectedResults,
+  createFilterTestArray,
+  filterExpectedResults,
+  createGroupTestArray,
+  groupExpectedResults,
+  createChunkTestArray,
+  chunkExpectedResults,
+  verifyEdgeCaseHandling,
+  commonEdgeCases,
+  measurePerformance,
+  compareImplementations,
+  journeyArrayUtils,
 };

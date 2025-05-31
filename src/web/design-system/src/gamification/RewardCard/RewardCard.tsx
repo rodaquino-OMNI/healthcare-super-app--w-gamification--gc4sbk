@@ -1,11 +1,7 @@
 import React from 'react';
+import { Box, Text, Icon, Touchable } from '@design-system/primitives';
 import { Reward } from '@austa/interfaces/gamification/rewards';
-import { Box } from '@design-system/primitives/components/Box';
-import { Text } from '@design-system/primitives/components/Text';
-import { Stack } from '@design-system/primitives/components/Stack';
-import { Icon } from '@design-system/primitives/components/Icon';
-import { Touchable } from '@design-system/primitives/components/Touchable';
-import { useJourneyContext } from '@austa/journey-context/hooks';
+import { useJourney } from '@austa/journey-context/src/hooks/useJourney';
 
 /**
  * Props for the RewardCard component
@@ -35,7 +31,12 @@ interface RewardCardProps {
  *     description: 'You completed your weekly step goal!',
  *     icon: 'trophy',
  *     xp: 100,
- *     journey: 'health'
+ *     journey: 'health',
+ *     category: RewardCategory.VIRTUAL,
+ *     status: RewardStatus.AVAILABLE,
+ *     availableFrom: new Date(),
+ *     availableUntil: null,
+ *     redemptionLimit: null
  *   }}
  *   onPress={() => console.log('Reward card pressed')}
  * />
@@ -48,8 +49,8 @@ export const RewardCard: React.FC<RewardCardProps> = ({
   accessibilityLabel,
 }) => {
   const { title, description, icon, xp, journey } = reward;
-  const { theme } = useJourneyContext();
-  const journeyColor = theme.colors[journey];
+  const { getJourneyTheme } = useJourney();
+  const journeyTheme = getJourneyTheme();
 
   // Create a descriptive accessibility label if none provided
   const defaultAccessibilityLabel = `${title} reward. ${description}. Worth ${xp} XP.`;
@@ -61,42 +62,61 @@ export const RewardCard: React.FC<RewardCardProps> = ({
       accessibilityLabel={accessibilityLabel || defaultAccessibilityLabel}
       accessibilityRole="button"
       accessibilityState={{ disabled: !onPress }}
+      disabled={!onPress}
     >
       <Box
         display="flex"
         flexDirection="row"
-        padding="medium"
+        alignItems="center"
+        padding="md"
+        marginBottom="md"
         backgroundColor="white"
-        borderRadius="medium"
+        borderRadius="md"
         boxShadow="sm"
-        borderLeft={`4px solid ${journeyColor.primary}`}
+        transition="transform 0.2s ease-out"
+        _hover={{
+          transform: 'translateY(-2px)',
+          boxShadow: 'md'
+        }}
       >
         <Icon 
           name={icon} 
-          color={journeyColor.primary} 
-          size="large"
+          color={journeyTheme.primary} 
+          size={48}
+          marginRight="md"
           aria-hidden="true" 
         />
-        <Stack direction="vertical" spacing="small" flex={1} marginLeft="medium">
-          <Text variant="subtitle" color="text.primary">
+        <Box flex={1} display="flex" flexDirection="column">
+          <Text 
+            fontWeight="medium" 
+            marginBottom="xs"
+          >
             {title}
           </Text>
-          <Text variant="body" color="text.secondary">
+          <Text 
+            fontSize="sm" 
+            color="gray.700" 
+            marginBottom="xs"
+          >
             {description}
           </Text>
-          <Box 
-            alignSelf="flex-start" 
-            backgroundColor={journeyColor.primary}
-            borderRadius="small"
-            paddingX="small"
-            paddingY="xsmall"
-            marginTop="xsmall"
+          <Box
+            display="inline-flex"
+            alignItems="center"
+            justifyContent="center"
+            backgroundColor={journeyTheme.primary}
+            color="white"
+            padding="xs"
+            paddingLeft="sm"
+            paddingRight="sm"
+            borderRadius="sm"
+            fontSize="sm"
+            fontWeight="medium"
+            alignSelf="flex-start"
           >
-            <Text color="white" variant="caption" fontWeight="bold">
-              +{xp} XP
-            </Text>
+            +{xp} XP
           </Box>
-        </Stack>
+        </Box>
       </Box>
     </Touchable>
   );

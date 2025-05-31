@@ -1,10 +1,9 @@
 import styled from 'styled-components';
 import { colors, typography, spacing, shadows, breakpoints } from '@design-system/primitives/src/tokens';
-import { ButtonProps } from '@austa/interfaces/components/core.types';
+import { ButtonProps } from '@austa/interfaces/components';
 
 /**
  * Helper function to get journey-specific color
- * Uses standardized token usage from the design system architecture
  */
 const getJourneyColor = (journey: 'health' | 'care' | 'plan' | undefined, colorType: 'primary' | 'secondary' | 'accent' | 'background') => {
   if (journey && colors.journeys[journey]) {
@@ -46,27 +45,26 @@ export const PrimaryButton = styled.button<ButtonProps>`
   `}
 
   /* Primary button specific */
-  background-color: ${props => getJourneyColor(props.journey, 'primary')};
+  background-color: ${props => getJourneyColor(props.journeyTheme, 'primary')};
   color: ${colors.neutral.white};
   border: none;
 
   /* State styles */
   &:hover:not(:disabled) {
-    background-color: ${props => getJourneyColor(props.journey, 'secondary')};
+    background-color: ${props => getJourneyColor(props.journeyTheme, 'secondary')};
     transform: translateY(-1px);
-    box-shadow: ${shadows.md};
   }
 
   &:active:not(:disabled) {
-    background-color: ${props => getJourneyColor(props.journey, 'accent')};
+    background-color: ${props => getJourneyColor(props.journeyTheme, 'accent')};
     transform: translateY(0);
-    box-shadow: ${shadows.sm};
   }
 
-  /* Improved accessibility with consistent focus states */
   &:focus-visible {
     outline: none;
-    box-shadow: 0 0 0 3px ${colors.neutral.white}, 0 0 0 5px ${props => getJourneyColor(props.journey, 'primary')};
+    box-shadow: 0 0 0 3px ${props => getJourneyColor(props.journeyTheme, 'primary')}40;
+    position: relative;
+    z-index: 1;
   }
 
   /* Disabled state */
@@ -75,31 +73,6 @@ export const PrimaryButton = styled.button<ButtonProps>`
     cursor: not-allowed;
     pointer-events: none;
   }
-
-  /* Loading state */
-  ${props => props.loading && `
-    position: relative;
-    color: transparent;
-    pointer-events: none;
-    
-    &::after {
-      content: '';
-      position: absolute;
-      top: 50%;
-      left: 50%;
-      width: 1em;
-      height: 1em;
-      margin: -0.5em 0 0 -0.5em;
-      border: 2px solid ${colors.neutral.white};
-      border-top-color: transparent;
-      border-radius: 50%;
-      animation: buttonLoader 0.8s linear infinite;
-    }
-    
-    @keyframes buttonLoader {
-      to { transform: rotate(360deg); }
-    }
-  `}
 
   /* Responsive adjustments */
   @media (min-width: ${breakpoints.md}) {
@@ -143,24 +116,25 @@ export const SecondaryButton = styled.button<ButtonProps>`
 
   /* Secondary button specific */
   background-color: transparent;
-  color: ${props => getJourneyColor(props.journey, 'primary')};
-  border: 1px solid ${props => getJourneyColor(props.journey, 'primary')};
+  color: ${props => getJourneyColor(props.journeyTheme, 'primary')};
+  border: 1px solid ${props => getJourneyColor(props.journeyTheme, 'primary')};
 
   /* State styles */
   &:hover:not(:disabled) {
-    background-color: ${props => getJourneyColor(props.journey, 'background')};
+    background-color: ${props => getJourneyColor(props.journeyTheme, 'background')};
     transform: translateY(-1px);
   }
 
   &:active:not(:disabled) {
-    background-color: ${props => `${getJourneyColor(props.journey, 'background')}CC`};
+    background-color: ${props => `${getJourneyColor(props.journeyTheme, 'background')}CC`};
     transform: translateY(0);
   }
 
-  /* Improved accessibility with consistent focus states */
   &:focus-visible {
     outline: none;
-    box-shadow: 0 0 0 3px ${colors.neutral.white}, 0 0 0 5px ${props => getJourneyColor(props.journey, 'primary')};
+    box-shadow: 0 0 0 3px ${props => getJourneyColor(props.journeyTheme, 'primary')}40;
+    position: relative;
+    z-index: 1;
   }
 
   /* Disabled state */
@@ -169,31 +143,6 @@ export const SecondaryButton = styled.button<ButtonProps>`
     cursor: not-allowed;
     pointer-events: none;
   }
-
-  /* Loading state */
-  ${props => props.loading && `
-    position: relative;
-    color: transparent;
-    pointer-events: none;
-    
-    &::after {
-      content: '';
-      position: absolute;
-      top: 50%;
-      left: 50%;
-      width: 1em;
-      height: 1em;
-      margin: -0.5em 0 0 -0.5em;
-      border: 2px solid ${props => getJourneyColor(props.journey, 'primary')};
-      border-top-color: transparent;
-      border-radius: 50%;
-      animation: buttonLoader 0.8s linear infinite;
-    }
-    
-    @keyframes buttonLoader {
-      to { transform: rotate(360deg); }
-    }
-  `}
 
   /* Responsive adjustments */
   @media (min-width: ${breakpoints.md}) {
@@ -237,22 +186,25 @@ export const TertiaryButton = styled.button<ButtonProps>`
 
   /* Tertiary button specific */
   background-color: transparent;
-  color: ${props => getJourneyColor(props.journey, 'primary')};
+  color: ${props => getJourneyColor(props.journeyTheme, 'primary')};
   border: none;
 
   /* State styles */
   &:hover:not(:disabled) {
-    background-color: ${props => `${getJourneyColor(props.journey, 'primary')}10`};
+    background-color: ${props => `${getJourneyColor(props.journeyTheme, 'primary')}10`};
+    transform: translateY(-1px);
   }
 
   &:active:not(:disabled) {
-    background-color: ${props => `${getJourneyColor(props.journey, 'primary')}20`};
+    background-color: ${props => `${getJourneyColor(props.journeyTheme, 'primary')}20`};
+    transform: translateY(0);
   }
 
-  /* Improved accessibility with consistent focus states */
   &:focus-visible {
     outline: none;
-    box-shadow: 0 0 0 3px ${colors.neutral.white}, 0 0 0 5px ${props => getJourneyColor(props.journey, 'primary')};
+    box-shadow: 0 0 0 3px ${props => getJourneyColor(props.journeyTheme, 'primary')}40;
+    position: relative;
+    z-index: 1;
   }
 
   /* Disabled state */
@@ -261,31 +213,6 @@ export const TertiaryButton = styled.button<ButtonProps>`
     cursor: not-allowed;
     pointer-events: none;
   }
-
-  /* Loading state */
-  ${props => props.loading && `
-    position: relative;
-    color: transparent;
-    pointer-events: none;
-    
-    &::after {
-      content: '';
-      position: absolute;
-      top: 50%;
-      left: 50%;
-      width: 1em;
-      height: 1em;
-      margin: -0.5em 0 0 -0.5em;
-      border: 2px solid ${props => getJourneyColor(props.journey, 'primary')};
-      border-top-color: transparent;
-      border-radius: 50%;
-      animation: buttonLoader 0.8s linear infinite;
-    }
-    
-    @keyframes buttonLoader {
-      to { transform: rotate(360deg); }
-    }
-  `}
 
   /* Responsive adjustments */
   @media (min-width: ${breakpoints.md}) {

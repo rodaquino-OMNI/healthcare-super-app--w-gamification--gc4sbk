@@ -1,17 +1,11 @@
 import { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
-import { detectPlatform } from '../utils/platform';
-import useAuth from '../hooks/useAuth';
-import { webNotificationAdapter, NotificationAdapter as WebNotificationAdapter } from '../adapters/web/NotificationAdapter';
-import { mobileNotificationAdapter, NotificationAdapter as MobileNotificationAdapter } from '../adapters/mobile/NotificationAdapter';
-import {
-  Notification,
-  NotificationStatus,
-  NotificationFilter,
-  NotificationCount
-} from '@austa/interfaces/notification/types';
+import { Notification, NotificationStatus } from '@austa/interfaces/notification/types';
+import { NotificationAdapter } from '../adapters';
+import { useAuth } from './AuthProvider';
 
 /**
- * Interface for the notification context value provided to consumers
+ * Interface defining the notification context value
+ * Provides access to notifications data and related functionality
  */
 interface NotificationContextType {
   /** List of user notifications */
@@ -20,10 +14,13 @@ interface NotificationContextType {
   /** Loading state for notification data */
   isLoading: boolean;
   
+  /** Error state for notification operations */
+  error: Error | null;
+  
   /** Count of unread notifications */
   unreadCount: number;
   
-  /** Function to fetch notifications */
+  /** Function to fetch notifications for the current user */
   fetchNotifications: () => Promise<void>;
   
   /** Function to mark a notification as read */
@@ -31,15 +28,9 @@ interface NotificationContextType {
   
   /** Function to delete a notification */
   deleteNotification: (notificationId: string) => Promise<void>;
-  
-  /** Function to get notification counts by status */
-  getNotificationCounts: () => Promise<NotificationCount>;
-  
-  /** Function to filter notifications */
-  filterNotifications: (filter: NotificationFilter) => Promise<Notification[]>;
 }
 
-// Create the context with a default undefined value
+// Create the context with a default value of undefined
 const NotificationContext = createContext<NotificationContextType | undefined>(undefined);
 
 /**
@@ -62,200 +53,134 @@ export const NotificationProvider = ({ children }: NotificationProviderProps) =>
   // State for storing notifications
   const [notifications, setNotifications] = useState<Notification[]>([]);
   
-  // Loading state for notification operations
+  // Loading state for async operations
   const [isLoading, setIsLoading] = useState<boolean>(false);
   
-  // Count of unread notifications
-  const [unreadCount, setUnreadCount] = useState<number>(0);
+  // Error state for notification operations
+  const [error, setError] = useState<Error | null>(null);
   
   // Get authentication context for user info
   const auth = useAuth();
   
-  // Determine which platform-specific adapter to use
-  const platform = detectPlatform();
-  const notificationAdapter: WebNotificationAdapter | MobileNotificationAdapter = 
-    platform === 'web' ? webNotificationAdapter : mobileNotificationAdapter;
-  
   /**
    * Calculate the number of unread notifications
    */
-  const calculateUnreadCount = useCallback((notificationList: Notification[]) => {
-    return notificationList.filter(notification => 
-      notification.status === NotificationStatus.SENT || 
-      notification.status === NotificationStatus.DELIVERED
-    ).length;
-  }, []);
+  const unreadCount = notifications.filter(
+    (notification) => notification.status !== NotificationStatus.READ
+  ).length;
   
   /**
    * Fetch notifications for the current user
+   * Uses the platform-specific adapter to retrieve notifications
    */
   const fetchNotifications = useCallback(async () => {
-    if (!auth.isAuthenticated) {
-      console.warn('Cannot fetch notifications: User is not authenticated');
+    // Skip if user is not authenticated
+    if (!auth.isAuthenticated || !auth.user?.id) {
       return;
     }
     
+    setIsLoading(true);
+    setError(null);
+    
     try {
-      setIsLoading(true);
-      const userId = auth.user?.id;
-      
-      if (!userId) {
-        console.warn('Cannot fetch notifications: User ID not found');
-        setIsLoading(false);
-        return;
-      }
-      
-      const notificationData = await notificationAdapter.getNotifications(userId);
+      const userId = auth.user.id;
+      const notificationData = await NotificationAdapter.getNotifications(userId);
       setNotifications(notificationData);
-      setUnreadCount(calculateUnreadCount(notificationData));
-    } catch (error) {
-      console.error('Failed to fetch notifications:', error);
+    } catch (err) {
+      setError(err instanceof Error ? err : new Error('Failed to fetch notifications'));
+      console.error('Failed to fetch notifications:', err);
     } finally {
       setIsLoading(false);
     }
-  }, [auth.isAuthenticated, auth.user, notificationAdapter, calculateUnreadCount]);
+  }, [auth.isAuthenticated, auth.user]);
   
   /**
    * Mark a notification as read
+   * Uses the platform-specific adapter to update notification status
+   * 
    * @param notificationId - The ID of the notification to mark as read
    */
   const markAsRead = useCallback(async (notificationId: string) => {
+    // Skip if user is not authenticated
     if (!auth.isAuthenticated) {
-      console.warn('Cannot mark notification as read: User is not authenticated');
       return;
     }
     
+    setIsLoading(true);
+    setError(null);
+    
     try {
-      setIsLoading(true);
-      await notificationAdapter.markNotificationAsRead(notificationId);
+      await NotificationAdapter.markNotificationAsRead(notificationId);
       
       // Update local state
-      setNotifications(prevNotifications => {
-        const updatedNotifications = prevNotifications.map(notification => 
+      setNotifications(prevNotifications => 
+        prevNotifications.map(notification => 
           notification.id === notificationId 
             ? { 
                 ...notification, 
                 status: NotificationStatus.READ, 
-                readAt: new Date().toISOString(),
-                updatedAt: new Date().toISOString()
+                updatedAt: new Date() 
               } 
             : notification
-        );
-        
-        // Update unread count
-        setUnreadCount(calculateUnreadCount(updatedNotifications));
-        
-        return updatedNotifications;
-      });
-    } catch (error) {
-      console.error('Failed to mark notification as read:', error);
+        )
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err : new Error('Failed to mark notification as read'));
+      console.error('Failed to mark notification as read:', err);
     } finally {
       setIsLoading(false);
     }
-  }, [auth.isAuthenticated, notificationAdapter, calculateUnreadCount]);
+  }, [auth.isAuthenticated]);
   
   /**
    * Delete a notification
+   * Uses the platform-specific adapter to remove a notification
+   * 
    * @param notificationId - The ID of the notification to delete
    */
   const deleteNotification = useCallback(async (notificationId: string) => {
+    // Skip if user is not authenticated
     if (!auth.isAuthenticated) {
-      console.warn('Cannot delete notification: User is not authenticated');
       return;
     }
     
+    setIsLoading(true);
+    setError(null);
+    
     try {
-      setIsLoading(true);
-      await notificationAdapter.deleteNotification(notificationId);
+      await NotificationAdapter.deleteNotification(notificationId);
       
-      // Update local state
-      setNotifications(prevNotifications => {
-        const updatedNotifications = prevNotifications.filter(
-          notification => notification.id !== notificationId
-        );
-        
-        // Update unread count
-        setUnreadCount(calculateUnreadCount(updatedNotifications));
-        
-        return updatedNotifications;
-      });
-    } catch (error) {
-      console.error('Failed to delete notification:', error);
+      // Update local state by removing the notification
+      setNotifications(prevNotifications => 
+        prevNotifications.filter(notification => notification.id !== notificationId)
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err : new Error('Failed to delete notification'));
+      console.error('Failed to delete notification:', err);
     } finally {
       setIsLoading(false);
     }
-  }, [auth.isAuthenticated, notificationAdapter, calculateUnreadCount]);
-  
-  /**
-   * Get notification counts by status
-   */
-  const getNotificationCounts = useCallback(async (): Promise<NotificationCount> => {
-    if (!auth.isAuthenticated) {
-      console.warn('Cannot get notification counts: User is not authenticated');
-      return { total: 0, unread: 0, byType: {} };
-    }
-    
-    try {
-      const userId = auth.user?.id;
-      
-      if (!userId) {
-        console.warn('Cannot get notification counts: User ID not found');
-        return { total: 0, unread: 0, byType: {} };
-      }
-      
-      return await notificationAdapter.getNotificationCounts(userId);
-    } catch (error) {
-      console.error('Failed to get notification counts:', error);
-      return { total: 0, unread: 0, byType: {} };
-    }
-  }, [auth.isAuthenticated, auth.user, notificationAdapter]);
-  
-  /**
-   * Filter notifications based on criteria
-   * @param filter - The filter criteria
-   */
-  const filterNotifications = useCallback(async (filter: NotificationFilter): Promise<Notification[]> => {
-    if (!auth.isAuthenticated) {
-      console.warn('Cannot filter notifications: User is not authenticated');
-      return [];
-    }
-    
-    try {
-      const userId = auth.user?.id;
-      
-      if (!userId) {
-        console.warn('Cannot filter notifications: User ID not found');
-        return [];
-      }
-      
-      return await notificationAdapter.filterNotifications(userId, filter);
-    } catch (error) {
-      console.error('Failed to filter notifications:', error);
-      return [];
-    }
-  }, [auth.isAuthenticated, auth.user, notificationAdapter]);
+  }, [auth.isAuthenticated]);
   
   // Fetch notifications when authentication state changes
   useEffect(() => {
-    if (auth.isAuthenticated) {
+    if (auth.isAuthenticated && auth.user?.id) {
       fetchNotifications();
     } else {
       // Clear notifications when user logs out
       setNotifications([]);
-      setUnreadCount(0);
     }
-  }, [auth.isAuthenticated, fetchNotifications]);
+  }, [auth.isAuthenticated, auth.user, fetchNotifications]);
   
   // The value provided to consuming components
   const contextValue: NotificationContextType = {
     notifications,
     isLoading,
+    error,
     unreadCount,
     fetchNotifications,
     markAsRead,
     deleteNotification,
-    getNotificationCounts,
-    filterNotifications,
   };
   
   return (
@@ -273,16 +198,16 @@ export const NotificationProvider = ({ children }: NotificationProviderProps) =>
  * @throws Error if used outside of NotificationProvider
  * 
  * @example
- * const { notifications, markAsRead, unreadCount } = useNotificationContext();
+ * const { notifications, markAsRead, unreadCount } = useNotifications();
  * 
  * // Display unread count
  * return <Badge count={unreadCount} />;
  */
-export const useNotificationContext = (): NotificationContextType => {
+export const useNotifications = (): NotificationContextType => {
   const context = useContext(NotificationContext);
   
   if (context === undefined) {
-    throw new Error('useNotificationContext must be used within a NotificationProvider');
+    throw new Error('useNotifications must be used within a NotificationProvider');
   }
   
   return context;

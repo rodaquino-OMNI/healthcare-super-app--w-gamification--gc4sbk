@@ -1,498 +1,405 @@
-/**
- * @file providers.module.spec.ts
- * @description Tests for the AuthProvidersModule to verify proper registration and configuration
- * of all authentication providers. Validates that the module correctly sets up factory providers,
- * handles configuration injection, and exports the providers for use by consuming applications.
- */
-
-import { Test } from '@nestjs/testing';
+import { Test, TestingModule } from '@nestjs/testing';
 import { ConfigModule, ConfigService } from '@nestjs/config';
-import { JwtModule, JwtService } from '@nestjs/jwt';
-import { ModuleRef } from '@nestjs/core';
+import { DynamicModule, Provider } from '@nestjs/common';
 
-import { AuthProvidersModule } from '../../../src/providers/providers.module';
-import { DatabaseAuthProvider } from '../../../src/providers/database/database-auth-provider';
+// Import the module and interfaces to test
+import { ProvidersModule, ProvidersModuleOptions } from '../../../src/providers/providers.module';
+import { IJwtProvider } from '../../../src/providers/jwt/jwt.interface';
+import { IDatabaseAuthProvider } from '../../../src/providers/database/database-auth-provider.interface';
 import { JwtProvider } from '../../../src/providers/jwt/jwt.provider';
 import { JwtRedisProvider } from '../../../src/providers/jwt/jwt-redis.provider';
-import { GoogleOAuthProvider } from '../../../src/providers/oauth/google.provider';
-import { FacebookOAuthProvider } from '../../../src/providers/oauth/facebook.provider';
-import { AppleOAuthProvider } from '../../../src/providers/oauth/apple.provider';
+import { DatabaseAuthProvider } from '../../../src/providers/database/database-auth-provider';
+import { GoogleProvider } from '../../../src/providers/oauth/google.provider';
+import { FacebookProvider } from '../../../src/providers/oauth/facebook.provider';
+import { AppleProvider } from '../../../src/providers/oauth/apple.provider';
 
+// Import mocks for dependencies
 import { LoggerService } from '@austa/logging';
 import { PrismaService } from '@austa/database';
-import { RedisService } from '@austa/database/redis';
 
-import { ConfigServiceMock, LoggerMock, prismaMock } from '../../mocks';
+// Mock dependencies
+jest.mock('@austa/logging');
+jest.mock('@austa/database');
+jest.mock('../../../src/providers/jwt/jwt.provider');
+jest.mock('../../../src/providers/jwt/jwt-redis.provider');
+jest.mock('../../../src/providers/database/database-auth-provider');
+jest.mock('../../../src/providers/oauth/google.provider');
+jest.mock('../../../src/providers/oauth/facebook.provider');
+jest.mock('../../../src/providers/oauth/apple.provider');
 
-// Mock Redis service
-class RedisServiceMock {
-  get = jest.fn().mockResolvedValue(null);
-  set = jest.fn().mockResolvedValue('OK');
-  del = jest.fn().mockResolvedValue(1);
-  exists = jest.fn().mockResolvedValue(0);
-  expire = jest.fn().mockResolvedValue(1);
-}
+describe('ProvidersModule', () => {
+  // Mock instances
+  let mockConfigService: Partial<ConfigService>;
+  let mockLoggerService: Partial<LoggerService>;
+  let mockPrismaService: Partial<PrismaService>;
 
-// Mock JWT service
-class JwtServiceMock {
-  sign = jest.fn().mockReturnValue('mock.jwt.token');
-  verify = jest.fn().mockReturnValue({ sub: '1', email: 'test@example.com' });
-  decode = jest.fn().mockReturnValue({ sub: '1', email: 'test@example.com' });
-}
+  // Setup before each test
+  beforeEach(() => {
+    // Reset all mocks
+    jest.clearAllMocks();
 
-describe('AuthProvidersModule', () => {
+    // Create mock instances
+    mockConfigService = {
+      get: jest.fn().mockImplementation((key: string) => {
+        if (key === 'auth.jwt.secret') return 'test-secret';
+        if (key === 'auth.jwt.expiresIn') return '1h';
+        return null;
+      }),
+    };
+
+    mockLoggerService = {
+      log: jest.fn(),
+      error: jest.fn(),
+      warn: jest.fn(),
+      debug: jest.fn(),
+    };
+
+    mockPrismaService = {
+      user: {
+        findUnique: jest.fn(),
+        findFirst: jest.fn(),
+        findMany: jest.fn(),
+      },
+    };
+  });
+
   describe('register', () => {
     it('should register the module with default options', async () => {
-      // Arrange
-      const moduleRef = await Test.createTestingModule({
-        imports: [
-          AuthProvidersModule.register(),
-          ConfigModule.forRoot({
-            isGlobal: true,
-          }),
-        ],
-        providers: [
-          { provide: ConfigService, useClass: ConfigServiceMock },
-          { provide: LoggerService, useClass: LoggerMock },
-          { provide: PrismaService, useValue: prismaMock },
-          { provide: 'JwtService', useClass: JwtServiceMock },
-        ],
-      }).compile();
+      // Spy on registerAsync method
+      const registerAsyncSpy = jest.spyOn(ProvidersModule, 'registerAsync');
 
-      // Act & Assert
-      // Verify that the module was created successfully
-      expect(moduleRef).toBeDefined();
+      // Call register method
+      const result = ProvidersModule.register();
 
-      // Verify that the JWT provider was registered with default options
-      const jwtProvider = moduleRef.get('JWT_PROVIDER');
-      expect(jwtProvider).toBeInstanceOf(JwtProvider);
+      // Verify registerAsync was called with default options factory
+      expect(registerAsyncSpy).toHaveBeenCalledWith({
+        useFactory: expect.any(Function),
+      });
 
-      // Verify that the database auth provider was registered with default options
-      const dbAuthProvider = moduleRef.get('DATABASE_AUTH_PROVIDER');
-      expect(dbAuthProvider).toBeInstanceOf(DatabaseAuthProvider);
+      // Verify the factory returns default options
+      const factory = registerAsyncSpy.mock.calls[0][0].useFactory;
+      const options = factory();
+      expect(options).toEqual({
+        useRedisForJwt: false,
+        oauthProviders: [],
+        useDatabaseAuth: true,
+      });
 
-      // Verify that no OAuth providers were registered by default
-      expect(() => moduleRef.get('GOOGLE_OAUTH_PROVIDER')).toThrow();
-      expect(() => moduleRef.get('FACEBOOK_OAUTH_PROVIDER')).toThrow();
-      expect(() => moduleRef.get('APPLE_OAUTH_PROVIDER')).toThrow();
+      // Verify the result is a DynamicModule
+      expect(result).toHaveProperty('module', ProvidersModule);
     });
+  });
 
+  describe('forRoot', () => {
     it('should register the module with custom options', async () => {
-      // Arrange
-      const moduleRef = await Test.createTestingModule({
-        imports: [
-          AuthProvidersModule.register({
-            useRedis: true,
-            oauthProviders: ['google', 'facebook'],
-            useDatabaseAuth: true,
-            useJwtAuth: true,
-          }),
-          ConfigModule.forRoot({
-            isGlobal: true,
-          }),
-        ],
-        providers: [
-          { provide: ConfigService, useClass: ConfigServiceMock },
-          { provide: LoggerService, useClass: LoggerMock },
-          { provide: PrismaService, useValue: prismaMock },
-          { provide: RedisService, useClass: RedisServiceMock },
-          { provide: 'JwtService', useClass: JwtServiceMock },
-        ],
-      }).compile();
+      // Spy on registerAsync method
+      const registerAsyncSpy = jest.spyOn(ProvidersModule, 'registerAsync');
 
-      // Act & Assert
-      // Verify that the module was created successfully
-      expect(moduleRef).toBeDefined();
+      // Custom options
+      const customOptions: ProvidersModuleOptions = {
+        useRedisForJwt: true,
+        oauthProviders: ['google', 'facebook'],
+        useDatabaseAuth: false,
+      };
 
-      // Verify that the JWT provider was registered with Redis
-      const jwtProvider = moduleRef.get('JWT_PROVIDER');
-      expect(jwtProvider).toBeInstanceOf(JwtRedisProvider);
+      // Call forRoot method with custom options
+      const result = ProvidersModule.forRoot(customOptions);
 
-      // Verify that the database auth provider was registered
-      const dbAuthProvider = moduleRef.get('DATABASE_AUTH_PROVIDER');
-      expect(dbAuthProvider).toBeInstanceOf(DatabaseAuthProvider);
+      // Verify registerAsync was called with custom options factory
+      expect(registerAsyncSpy).toHaveBeenCalledWith({
+        useFactory: expect.any(Function),
+      });
 
-      // Verify that the specified OAuth providers were registered
-      const googleProvider = moduleRef.get('GOOGLE_OAUTH_PROVIDER');
-      expect(googleProvider).toBeInstanceOf(GoogleOAuthProvider);
+      // Verify the factory returns custom options
+      const factory = registerAsyncSpy.mock.calls[0][0].useFactory;
+      const options = factory();
+      expect(options).toEqual(customOptions);
 
-      const facebookProvider = moduleRef.get('FACEBOOK_OAUTH_PROVIDER');
-      expect(facebookProvider).toBeInstanceOf(FacebookOAuthProvider);
-
-      // Verify that the Apple provider was not registered
-      expect(() => moduleRef.get('APPLE_OAUTH_PROVIDER')).toThrow();
+      // Verify the result is a DynamicModule
+      expect(result).toHaveProperty('module', ProvidersModule);
     });
 
-    it('should register the module without JWT auth when specified', async () => {
-      // Arrange
-      const moduleRef = await Test.createTestingModule({
-        imports: [
-          AuthProvidersModule.register({
-            useJwtAuth: false,
-            useDatabaseAuth: true,
-          }),
-          ConfigModule.forRoot({
-            isGlobal: true,
-          }),
-        ],
-        providers: [
-          { provide: ConfigService, useClass: ConfigServiceMock },
-          { provide: LoggerService, useClass: LoggerMock },
-          { provide: PrismaService, useValue: prismaMock },
-        ],
-      }).compile();
+    it('should use default options when none are provided', async () => {
+      // Spy on registerAsync method
+      const registerAsyncSpy = jest.spyOn(ProvidersModule, 'registerAsync');
 
-      // Act & Assert
-      // Verify that the module was created successfully
-      expect(moduleRef).toBeDefined();
+      // Call forRoot method without options
+      const result = ProvidersModule.forRoot();
 
-      // Verify that the JWT provider was not registered
-      expect(() => moduleRef.get('JWT_PROVIDER')).toThrow();
-
-      // Verify that the database auth provider was registered
-      const dbAuthProvider = moduleRef.get('DATABASE_AUTH_PROVIDER');
-      expect(dbAuthProvider).toBeInstanceOf(DatabaseAuthProvider);
-    });
-
-    it('should register the module without database auth when specified', async () => {
-      // Arrange
-      const moduleRef = await Test.createTestingModule({
-        imports: [
-          AuthProvidersModule.register({
-            useJwtAuth: true,
-            useDatabaseAuth: false,
-          }),
-          ConfigModule.forRoot({
-            isGlobal: true,
-          }),
-        ],
-        providers: [
-          { provide: ConfigService, useClass: ConfigServiceMock },
-          { provide: LoggerService, useClass: LoggerMock },
-          { provide: 'JwtService', useClass: JwtServiceMock },
-        ],
-      }).compile();
-
-      // Act & Assert
-      // Verify that the module was created successfully
-      expect(moduleRef).toBeDefined();
-
-      // Verify that the JWT provider was registered
-      const jwtProvider = moduleRef.get('JWT_PROVIDER');
-      expect(jwtProvider).toBeInstanceOf(JwtProvider);
-
-      // Verify that the database auth provider was not registered
-      expect(() => moduleRef.get('DATABASE_AUTH_PROVIDER')).toThrow();
-    });
-
-    it('should register all OAuth providers when specified', async () => {
-      // Arrange
-      const moduleRef = await Test.createTestingModule({
-        imports: [
-          AuthProvidersModule.register({
-            useJwtAuth: false,
-            useDatabaseAuth: false,
-            oauthProviders: ['google', 'facebook', 'apple'],
-          }),
-          ConfigModule.forRoot({
-            isGlobal: true,
-          }),
-        ],
-        providers: [
-          { provide: ConfigService, useClass: ConfigServiceMock },
-          { provide: LoggerService, useClass: LoggerMock },
-        ],
-      }).compile();
-
-      // Act & Assert
-      // Verify that the module was created successfully
-      expect(moduleRef).toBeDefined();
-
-      // Verify that all OAuth providers were registered
-      const googleProvider = moduleRef.get('GOOGLE_OAUTH_PROVIDER');
-      expect(googleProvider).toBeInstanceOf(GoogleOAuthProvider);
-
-      const facebookProvider = moduleRef.get('FACEBOOK_OAUTH_PROVIDER');
-      expect(facebookProvider).toBeInstanceOf(FacebookOAuthProvider);
-
-      const appleProvider = moduleRef.get('APPLE_OAUTH_PROVIDER');
-      expect(appleProvider).toBeInstanceOf(AppleOAuthProvider);
-
-      // Verify that JWT and database auth providers were not registered
-      expect(() => moduleRef.get('JWT_PROVIDER')).toThrow();
-      expect(() => moduleRef.get('DATABASE_AUTH_PROVIDER')).toThrow();
+      // Verify the factory returns default options
+      const factory = registerAsyncSpy.mock.calls[0][0].useFactory;
+      const options = factory();
+      expect(options).toEqual({
+        useRedisForJwt: false,
+        oauthProviders: [],
+        useDatabaseAuth: true,
+      });
     });
   });
 
-  describe('registerAll', () => {
-    it('should register all providers', async () => {
-      // Arrange
+  describe('registerAsync', () => {
+    it('should register the module with async options', async () => {
+      // Custom options
+      const customOptions: ProvidersModuleOptions = {
+        useRedisForJwt: true,
+        oauthProviders: ['google'],
+        useDatabaseAuth: true,
+      };
+
+      // Create a module with async options
       const moduleRef = await Test.createTestingModule({
         imports: [
-          AuthProvidersModule.registerAll(),
-          ConfigModule.forRoot({
-            isGlobal: true,
+          ProvidersModule.registerAsync({
+            imports: [ConfigModule],
+            useFactory: () => customOptions,
+            inject: [ConfigService],
           }),
         ],
         providers: [
-          { provide: ConfigService, useClass: ConfigServiceMock },
-          { provide: LoggerService, useClass: LoggerMock },
-          { provide: PrismaService, useValue: prismaMock },
-          { provide: RedisService, useClass: RedisServiceMock },
-          { provide: 'JwtService', useClass: JwtServiceMock },
+          { provide: ConfigService, useValue: mockConfigService },
+          { provide: LoggerService, useValue: mockLoggerService },
+          { provide: PrismaService, useValue: mockPrismaService },
         ],
       }).compile();
 
-      // Act & Assert
-      // Verify that the module was created successfully
-      expect(moduleRef).toBeDefined();
+      // Get the module
+      const module = moduleRef.get(ProvidersModule);
 
-      // Verify that the JWT provider was registered with Redis
-      const jwtProvider = moduleRef.get('JWT_PROVIDER');
-      expect(jwtProvider).toBeInstanceOf(JwtRedisProvider);
+      // Verify the module was created
+      expect(module).toBeDefined();
 
-      // Verify that the database auth provider was registered
-      const dbAuthProvider = moduleRef.get('DATABASE_AUTH_PROVIDER');
-      expect(dbAuthProvider).toBeInstanceOf(DatabaseAuthProvider);
+      // Verify the module options provider was registered
+      const optionsProvider = moduleRef.get('PROVIDERS_MODULE_OPTIONS');
+      expect(optionsProvider).toEqual(customOptions);
+    });
 
-      // Verify that all OAuth providers were registered
-      const googleProvider = moduleRef.get('GOOGLE_OAUTH_PROVIDER');
-      expect(googleProvider).toBeInstanceOf(GoogleOAuthProvider);
+    it('should include ConfigModule in imports', async () => {
+      // Get the dynamic module
+      const dynamicModule = ProvidersModule.registerAsync({
+        useFactory: () => ({}),
+      });
 
-      const facebookProvider = moduleRef.get('FACEBOOK_OAUTH_PROVIDER');
-      expect(facebookProvider).toBeInstanceOf(FacebookOAuthProvider);
+      // Verify ConfigModule is included in imports
+      expect(dynamicModule.imports).toContain(ConfigModule);
+    });
 
-      const appleProvider = moduleRef.get('APPLE_OAUTH_PROVIDER');
-      expect(appleProvider).toBeInstanceOf(AppleOAuthProvider);
+    it('should include additional imports if provided', async () => {
+      // Mock additional module
+      class TestModule {}
+
+      // Get the dynamic module with additional imports
+      const dynamicModule = ProvidersModule.registerAsync({
+        imports: [TestModule],
+        useFactory: () => ({}),
+      });
+
+      // Verify additional imports are included
+      expect(dynamicModule.imports).toContain(TestModule);
+      expect(dynamicModule.imports).toContain(ConfigModule);
     });
   });
 
-  describe('Provider Factory Functions', () => {
-    it('should create JWT provider with correct dependencies', async () => {
-      // Arrange
+  describe('Provider Creation', () => {
+    it('should create JwtProvider when useRedisForJwt is false', async () => {
+      // Create a module with useRedisForJwt: false
       const moduleRef = await Test.createTestingModule({
         imports: [
-          AuthProvidersModule.register(),
-          ConfigModule.forRoot({
-            isGlobal: true,
+          ProvidersModule.forRoot({
+            useRedisForJwt: false,
           }),
         ],
         providers: [
-          { provide: ConfigService, useClass: ConfigServiceMock },
-          { provide: LoggerService, useClass: LoggerMock },
-          { provide: 'JwtService', useClass: JwtServiceMock },
+          { provide: ConfigService, useValue: mockConfigService },
+          { provide: LoggerService, useValue: mockLoggerService },
+          { provide: PrismaService, useValue: mockPrismaService },
         ],
       }).compile();
 
-      // Act
-      const jwtProvider = moduleRef.get('JWT_PROVIDER');
+      // Get the JWT provider
+      const jwtProvider = moduleRef.get(IJwtProvider);
 
-      // Assert
-      expect(jwtProvider).toBeInstanceOf(JwtProvider);
-      
-      // Verify that the provider has the correct dependencies
-      // This is an indirect test since we can't easily inspect the constructor parameters
-      expect(jwtProvider.decodeToken).toBeDefined();
-      expect(jwtProvider.validateToken).toBeDefined();
-      expect(jwtProvider.generateToken).toBeDefined();
+      // Verify the provider is an instance of JwtProvider
+      expect(JwtProvider).toHaveBeenCalled();
+      expect(jwtProvider).toBeDefined();
     });
 
-    it('should create JWT Redis provider with correct dependencies', async () => {
-      // Arrange
+    it('should create JwtRedisProvider when useRedisForJwt is true', async () => {
+      // Create a module with useRedisForJwt: true
       const moduleRef = await Test.createTestingModule({
         imports: [
-          AuthProvidersModule.register({
-            useRedis: true,
-          }),
-          ConfigModule.forRoot({
-            isGlobal: true,
+          ProvidersModule.forRoot({
+            useRedisForJwt: true,
           }),
         ],
         providers: [
-          { provide: ConfigService, useClass: ConfigServiceMock },
-          { provide: LoggerService, useClass: LoggerMock },
-          { provide: RedisService, useClass: RedisServiceMock },
-          { provide: 'JwtService', useClass: JwtServiceMock },
+          { provide: ConfigService, useValue: mockConfigService },
+          { provide: LoggerService, useValue: mockLoggerService },
+          { provide: PrismaService, useValue: mockPrismaService },
         ],
       }).compile();
 
-      // Act
-      const jwtProvider = moduleRef.get('JWT_PROVIDER');
+      // Get the JWT provider
+      const jwtProvider = moduleRef.get(IJwtProvider);
 
-      // Assert
-      expect(jwtProvider).toBeInstanceOf(JwtRedisProvider);
-      
-      // Verify that the provider has the correct dependencies
-      expect(jwtProvider.decodeToken).toBeDefined();
-      expect(jwtProvider.validateToken).toBeDefined();
-      expect(jwtProvider.generateToken).toBeDefined();
-      expect(jwtProvider.revokeToken).toBeDefined();
+      // Verify the provider is an instance of JwtRedisProvider
+      expect(JwtRedisProvider).toHaveBeenCalled();
+      expect(jwtProvider).toBeDefined();
     });
 
-    it('should create database auth provider with correct dependencies', async () => {
-      // Arrange
+    it('should create DatabaseAuthProvider when useDatabaseAuth is true', async () => {
+      // Create a module with useDatabaseAuth: true
       const moduleRef = await Test.createTestingModule({
         imports: [
-          AuthProvidersModule.register(),
-          ConfigModule.forRoot({
-            isGlobal: true,
+          ProvidersModule.forRoot({
+            useDatabaseAuth: true,
           }),
         ],
         providers: [
-          { provide: ConfigService, useClass: ConfigServiceMock },
-          { provide: LoggerService, useClass: LoggerMock },
-          { provide: PrismaService, useValue: prismaMock },
+          { provide: ConfigService, useValue: mockConfigService },
+          { provide: LoggerService, useValue: mockLoggerService },
+          { provide: PrismaService, useValue: mockPrismaService },
         ],
       }).compile();
 
-      // Act
-      const dbAuthProvider = moduleRef.get('DATABASE_AUTH_PROVIDER');
+      // Get the database auth provider
+      const databaseAuthProvider = moduleRef.get(IDatabaseAuthProvider);
 
-      // Assert
-      expect(dbAuthProvider).toBeInstanceOf(DatabaseAuthProvider);
-      
-      // Verify that the provider has the correct dependencies
-      expect(dbAuthProvider.validateCredentials).toBeDefined();
-      expect(dbAuthProvider.getUserById).toBeDefined();
+      // Verify the provider is an instance of DatabaseAuthProvider
+      expect(DatabaseAuthProvider).toHaveBeenCalled();
+      expect(databaseAuthProvider).toBeDefined();
     });
 
-    it('should create OAuth providers with correct dependencies', async () => {
-      // Arrange
+    it('should not create DatabaseAuthProvider when useDatabaseAuth is false', async () => {
+      // Create a module with useDatabaseAuth: false
       const moduleRef = await Test.createTestingModule({
         imports: [
-          AuthProvidersModule.register({
+          ProvidersModule.forRoot({
+            useDatabaseAuth: false,
+          }),
+        ],
+        providers: [
+          { provide: ConfigService, useValue: mockConfigService },
+          { provide: LoggerService, useValue: mockLoggerService },
+          { provide: PrismaService, useValue: mockPrismaService },
+        ],
+      }).compile();
+
+      // Verify DatabaseAuthProvider was not called
+      expect(DatabaseAuthProvider).not.toHaveBeenCalled();
+
+      // Verify the provider is null
+      const databaseAuthProvider = moduleRef.get(IDatabaseAuthProvider);
+      expect(databaseAuthProvider).toBeNull();
+    });
+
+    it('should create OAuth providers based on oauthProviders option', async () => {
+      // Create a module with all OAuth providers
+      const moduleRef = await Test.createTestingModule({
+        imports: [
+          ProvidersModule.forRoot({
             oauthProviders: ['google', 'facebook', 'apple'],
           }),
-          ConfigModule.forRoot({
-            isGlobal: true,
-          }),
         ],
         providers: [
-          { provide: ConfigService, useClass: ConfigServiceMock },
-          { provide: LoggerService, useClass: LoggerMock },
+          { provide: ConfigService, useValue: mockConfigService },
+          { provide: LoggerService, useValue: mockLoggerService },
+          { provide: PrismaService, useValue: mockPrismaService },
         ],
       }).compile();
 
-      // Act & Assert
-      const googleProvider = moduleRef.get('GOOGLE_OAUTH_PROVIDER');
-      expect(googleProvider).toBeInstanceOf(GoogleOAuthProvider);
-      expect(googleProvider.validateToken).toBeDefined();
-      expect(googleProvider.getUserProfile).toBeDefined();
+      // Get the OAuth providers
+      const googleProvider = moduleRef.get(GoogleProvider);
+      const facebookProvider = moduleRef.get(FacebookProvider);
+      const appleProvider = moduleRef.get(AppleProvider);
 
-      const facebookProvider = moduleRef.get('FACEBOOK_OAUTH_PROVIDER');
-      expect(facebookProvider).toBeInstanceOf(FacebookOAuthProvider);
-      expect(facebookProvider.validateToken).toBeDefined();
-      expect(facebookProvider.getUserProfile).toBeDefined();
+      // Verify the providers were created
+      expect(GoogleProvider).toHaveBeenCalled();
+      expect(FacebookProvider).toHaveBeenCalled();
+      expect(AppleProvider).toHaveBeenCalled();
+      expect(googleProvider).toBeDefined();
+      expect(facebookProvider).toBeDefined();
+      expect(appleProvider).toBeDefined();
+    });
 
-      const appleProvider = moduleRef.get('APPLE_OAUTH_PROVIDER');
-      expect(appleProvider).toBeInstanceOf(AppleOAuthProvider);
-      expect(appleProvider.validateToken).toBeDefined();
-      expect(appleProvider.getUserProfile).toBeDefined();
+    it('should not create OAuth providers when not included in oauthProviders option', async () => {
+      // Create a module with only Google OAuth provider
+      const moduleRef = await Test.createTestingModule({
+        imports: [
+          ProvidersModule.forRoot({
+            oauthProviders: ['google'],
+          }),
+        ],
+        providers: [
+          { provide: ConfigService, useValue: mockConfigService },
+          { provide: LoggerService, useValue: mockLoggerService },
+          { provide: PrismaService, useValue: mockPrismaService },
+        ],
+      }).compile();
+
+      // Verify only GoogleProvider was called
+      expect(GoogleProvider).toHaveBeenCalled();
+      expect(FacebookProvider).not.toHaveBeenCalled();
+      expect(AppleProvider).not.toHaveBeenCalled();
+
+      // Verify only Google provider is defined
+      const googleProvider = moduleRef.get(GoogleProvider);
+      expect(googleProvider).toBeDefined();
+
+      // Verify other providers are null
+      const facebookProvider = moduleRef.get(FacebookProvider);
+      const appleProvider = moduleRef.get(AppleProvider);
+      expect(facebookProvider).toBeNull();
+      expect(appleProvider).toBeNull();
     });
   });
 
   describe('Module Exports', () => {
-    it('should export the JWT provider when enabled', async () => {
-      // Arrange
-      const moduleRef = await Test.createTestingModule({
-        imports: [
-          ConfigModule.forRoot({
-            isGlobal: true,
-          }),
-        ],
-        providers: [
-          { provide: ConfigService, useClass: ConfigServiceMock },
-          { provide: LoggerService, useClass: LoggerMock },
-          { provide: 'JwtService', useClass: JwtServiceMock },
-        ],
-      }).compile();
-
-      const dynamicModule = AuthProvidersModule.register({
-        useJwtAuth: true,
-        useDatabaseAuth: false,
+    it('should export all providers', async () => {
+      // Get the dynamic module
+      const dynamicModule = ProvidersModule.registerAsync({
+        useFactory: () => ({}),
       });
 
-      // Act & Assert
-      expect(dynamicModule.exports).toContain('JWT_PROVIDER');
-      expect(dynamicModule.exports).not.toContain('DATABASE_AUTH_PROVIDER');
+      // Verify exports include all providers
+      expect(dynamicModule.exports).toContain(IJwtProvider);
+      expect(dynamicModule.exports).toContain(IDatabaseAuthProvider);
+      expect(dynamicModule.exports).toContain(GoogleProvider);
+      expect(dynamicModule.exports).toContain(FacebookProvider);
+      expect(dynamicModule.exports).toContain(AppleProvider);
     });
 
-    it('should export the database auth provider when enabled', async () => {
-      // Arrange
+    it('should allow consumers to inject providers', async () => {
+      // Create a consumer module that injects providers
+      class ConsumerService {
+        constructor(
+          private readonly jwtProvider: IJwtProvider,
+          private readonly databaseAuthProvider: IDatabaseAuthProvider,
+          private readonly googleProvider: GoogleProvider,
+        ) {}
+      }
+
+      // Create a module with the consumer service
       const moduleRef = await Test.createTestingModule({
         imports: [
-          ConfigModule.forRoot({
-            isGlobal: true,
+          ProvidersModule.forRoot({
+            useRedisForJwt: false,
+            oauthProviders: ['google'],
+            useDatabaseAuth: true,
           }),
         ],
         providers: [
-          { provide: ConfigService, useClass: ConfigServiceMock },
-          { provide: LoggerService, useClass: LoggerMock },
-          { provide: PrismaService, useValue: prismaMock },
+          { provide: ConfigService, useValue: mockConfigService },
+          { provide: LoggerService, useValue: mockLoggerService },
+          { provide: PrismaService, useValue: mockPrismaService },
+          ConsumerService,
         ],
       }).compile();
 
-      const dynamicModule = AuthProvidersModule.register({
-        useJwtAuth: false,
-        useDatabaseAuth: true,
-      });
+      // Get the consumer service
+      const consumerService = moduleRef.get(ConsumerService);
 
-      // Act & Assert
-      expect(dynamicModule.exports).toContain('DATABASE_AUTH_PROVIDER');
-      expect(dynamicModule.exports).not.toContain('JWT_PROVIDER');
-    });
-
-    it('should export the OAuth providers when enabled', async () => {
-      // Arrange
-      const moduleRef = await Test.createTestingModule({
-        imports: [
-          ConfigModule.forRoot({
-            isGlobal: true,
-          }),
-        ],
-        providers: [
-          { provide: ConfigService, useClass: ConfigServiceMock },
-          { provide: LoggerService, useClass: LoggerMock },
-        ],
-      }).compile();
-
-      const dynamicModule = AuthProvidersModule.register({
-        useJwtAuth: false,
-        useDatabaseAuth: false,
-        oauthProviders: ['google', 'facebook'],
-      });
-
-      // Act & Assert
-      expect(dynamicModule.exports).toContain('GOOGLE_OAUTH_PROVIDER');
-      expect(dynamicModule.exports).toContain('FACEBOOK_OAUTH_PROVIDER');
-      expect(dynamicModule.exports).not.toContain('APPLE_OAUTH_PROVIDER');
-    });
-
-    it('should export all providers when using registerAll', async () => {
-      // Arrange
-      const moduleRef = await Test.createTestingModule({
-        imports: [
-          ConfigModule.forRoot({
-            isGlobal: true,
-          }),
-        ],
-        providers: [
-          { provide: ConfigService, useClass: ConfigServiceMock },
-          { provide: LoggerService, useClass: LoggerMock },
-          { provide: PrismaService, useValue: prismaMock },
-          { provide: RedisService, useClass: RedisServiceMock },
-          { provide: 'JwtService', useClass: JwtServiceMock },
-        ],
-      }).compile();
-
-      const dynamicModule = AuthProvidersModule.registerAll();
-
-      // Act & Assert
-      expect(dynamicModule.exports).toContain('JWT_PROVIDER');
-      expect(dynamicModule.exports).toContain('DATABASE_AUTH_PROVIDER');
-      expect(dynamicModule.exports).toContain('GOOGLE_OAUTH_PROVIDER');
-      expect(dynamicModule.exports).toContain('FACEBOOK_OAUTH_PROVIDER');
-      expect(dynamicModule.exports).toContain('APPLE_OAUTH_PROVIDER');
+      // Verify the service was created with injected providers
+      expect(consumerService).toBeDefined();
     });
   });
 });

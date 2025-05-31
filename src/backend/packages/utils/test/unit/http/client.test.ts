@@ -1,74 +1,19 @@
-/**
- * @file client.test.ts
- * @description Unit tests for the HTTP client utility module that provides the base HTTP client functionality.
- * These tests verify that the createHttpClient function creates a valid Axios instance with proper default
- * configuration, handles connection timeouts appropriately, implements proper error transformation, and
- * supports customizable request and response interception.
- */
-
 import axios, { AxiosError, AxiosInstance, AxiosRequestConfig, AxiosResponse } from 'axios';
-import { jest } from '@jest/globals';
-import { BaseError } from '@austa/errors/base';
-import { ErrorType } from '@austa/errors/types';
-import { LoggerService } from '@austa/logging';
-import { TracingService } from '@austa/tracing';
-
-// Import the module under test
-import {
-  createHttpClient,
-  createSimpleHttpClient,
-  HttpClientError,
-  HttpClientErrorType,
-  RetryConfig,
-  exponentialDelay,
-  linearDelay,
-  noDelay
-} from '../../../src/http/client';
-
-// Import test helpers and fixtures
-import {
-  createMockAxiosInstance,
-  createMockAxiosError,
-  mockAxiosInterceptors,
-  simulateFailedRequest,
-  simulateNetworkError,
-  simulateTimeoutError
-} from '../../helpers/http.helpers';
-import { allErrors } from '../../fixtures/http/errors';
+import MockAdapter from 'axios-mock-adapter';
+import { createHttpClient, HttpClientConfig, HttpClientError } from '../../../src/http/client';
 
 // Mock axios module
 jest.mock('axios', () => {
   return {
-    create: jest.fn(() => createMockAxiosInstance()),
-    isAxiosError: jest.fn((error) => error && error.isAxiosError === true)
+    create: jest.fn(() => ({
+      interceptors: {
+        request: { use: jest.fn() },
+        response: { use: jest.fn() },
+      },
+      defaults: {},
+    })),
   };
 });
-
-// Mock the logger service
-const mockLogger = {
-  debug: jest.fn(),
-  info: jest.fn(),
-  warn: jest.fn(),
-  error: jest.fn(),
-  fatal: jest.fn(),
-  setContext: jest.fn(),
-  getContext: jest.fn()
-} as jest.Mocked<LoggerService>;
-
-// Mock the tracing service
-const mockTracer = {
-  startSpan: jest.fn(() => ({
-    setAttributes: jest.fn(),
-    end: jest.fn(),
-    spanContext: jest.fn(() => ({
-      traceId: 'test-trace-id',
-      spanId: 'test-span-id'
-    }))
-  })),
-  currentSpan: jest.fn(),
-  injectTraceContext: jest.fn(),
-  extractTraceContext: jest.fn()
-} as unknown as jest.Mocked<TracingService>;
 
 describe('HTTP Client', () => {
   beforeEach(() => {
@@ -76,806 +21,381 @@ describe('HTTP Client', () => {
   });
 
   describe('createHttpClient', () => {
-    it('should create an Axios instance with default configuration', () => {
+    it('should create an axios instance with default configuration', () => {
       // Act
       const client = createHttpClient();
 
       // Assert
-      expect(axios.create).toHaveBeenCalledWith({});
+      expect(axios.create).toHaveBeenCalledWith({
+        timeout: 30000, // Default timeout
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
       expect(client).toBeDefined();
+      expect(client.interceptors.request.use).toHaveBeenCalled();
+      expect(client.interceptors.response.use).toHaveBeenCalled();
     });
 
-    it('should create an Axios instance with custom configuration', () => {
+    it('should create an axios instance with custom configuration', () => {
       // Arrange
-      const config: AxiosRequestConfig = {
+      const config: HttpClientConfig = {
         baseURL: 'https://api.example.com',
         timeout: 5000,
         headers: {
-          'Content-Type': 'application/json',
-          'X-Custom-Header': 'test'
-        }
+          'X-Custom-Header': 'custom-value',
+          'Content-Type': 'application/xml',
+        },
       };
 
       // Act
       const client = createHttpClient(config);
 
       // Assert
-      expect(axios.create).toHaveBeenCalledWith(config);
-      expect(client).toBeDefined();
+      expect(axios.create).toHaveBeenCalledWith({
+        baseURL: 'https://api.example.com',
+        timeout: 5000,
+        headers: {
+          'X-Custom-Header': 'custom-value',
+          'Content-Type': 'application/xml',
+        },
+      });
     });
 
-    it('should create an Axios instance with retry configuration', () => {
+    it('should merge default headers with custom headers', () => {
       // Arrange
-      const retryConfig: Partial<RetryConfig> = {
-        retries: 5,
-        retryDelay: jest.fn(),
-        httpMethodsToRetry: ['GET', 'POST'],
-        statusCodesToRetry: [[500, 599]],
-        timeout: 3000
+      const config: HttpClientConfig = {
+        headers: {
+          'X-Custom-Header': 'custom-value',
+        },
       };
 
       // Act
-      const client = createHttpClient({ retry: retryConfig });
-
-      // Assert
-      expect(axios.create).toHaveBeenCalled();
-      expect(client.interceptors.request.use).toHaveBeenCalled();
-      expect(client.interceptors.response.use).toHaveBeenCalled();
-    });
-
-    it('should create an Axios instance with logger configuration', () => {
-      // Act
-      const client = createHttpClient({ logger: mockLogger });
-
-      // Assert
-      expect(axios.create).toHaveBeenCalled();
-      expect(client.interceptors.request.use).toHaveBeenCalled();
-      expect(client.interceptors.response.use).toHaveBeenCalled();
-    });
-
-    it('should create an Axios instance with tracer configuration', () => {
-      // Act
-      const client = createHttpClient({ tracer: mockTracer });
-
-      // Assert
-      expect(axios.create).toHaveBeenCalled();
-      expect(client.interceptors.request.use).toHaveBeenCalled();
-      expect(client.interceptors.response.use).toHaveBeenCalled();
-    });
-  });
-
-  describe('createSimpleHttpClient', () => {
-    it('should create an Axios instance with default simple configuration', () => {
-      // Act
-      const client = createSimpleHttpClient();
+      const client = createHttpClient(config);
 
       // Assert
       expect(axios.create).toHaveBeenCalledWith({
         timeout: 30000,
         headers: {
-          'Content-Type': 'application/json'
-        }
-      });
-      expect(client).toBeDefined();
-    });
-  });
-
-  describe('HttpClientError', () => {
-    it('should create an HttpClientError with proper properties', () => {
-      // Arrange
-      const axiosError = createMockAxiosError({
-        status: 500,
-        statusText: 'Internal Server Error',
-        message: 'Request failed with status code 500',
-        config: { url: 'https://api.example.com/test', method: 'get' }
-      });
-
-      // Act
-      const error = new HttpClientError('Test error message', axiosError);
-
-      // Assert
-      expect(error).toBeInstanceOf(BaseError);
-      expect(error).toBeInstanceOf(HttpClientError);
-      expect(error.message).toBe('Test error message');
-      expect(error.originalError).toBe(axiosError);
-      expect(error.statusCode).toBe(500);
-      expect(error.httpErrorType).toBe(HttpClientErrorType.SERVER);
-      expect(error.url).toBe('https://api.example.com/test');
-      expect(error.method).toBe('GET');
-    });
-
-    it('should categorize network errors correctly', () => {
-      // Arrange
-      const networkError = createMockAxiosError({
-        code: 'ECONNREFUSED',
-        message: 'Connection refused',
-        config: { url: 'https://api.example.com/test', method: 'get' }
-      });
-
-      // Act
-      const error = new HttpClientError('Connection refused', networkError);
-
-      // Assert
-      expect(error.httpErrorType).toBe(HttpClientErrorType.NETWORK);
-    });
-
-    it('should categorize timeout errors correctly', () => {
-      // Arrange
-      const timeoutError = createMockAxiosError({
-        code: 'ECONNABORTED',
-        message: 'timeout of 30000ms exceeded',
-        config: { url: 'https://api.example.com/test', method: 'get', timeout: 30000 }
-      });
-
-      // Act
-      const error = new HttpClientError('Request timeout', timeoutError);
-
-      // Assert
-      expect(error.httpErrorType).toBe(HttpClientErrorType.NETWORK);
-    });
-
-    it('should categorize client errors correctly', () => {
-      // Arrange
-      const clientError = createMockAxiosError({
-        status: 400,
-        statusText: 'Bad Request',
-        message: 'Request failed with status code 400',
-        config: { url: 'https://api.example.com/test', method: 'get' }
-      });
-
-      // Act
-      const error = new HttpClientError('Bad request', clientError);
-
-      // Assert
-      expect(error.httpErrorType).toBe(HttpClientErrorType.CLIENT);
-    });
-
-    it('should categorize server errors correctly', () => {
-      // Arrange
-      const serverError = createMockAxiosError({
-        status: 500,
-        statusText: 'Internal Server Error',
-        message: 'Request failed with status code 500',
-        config: { url: 'https://api.example.com/test', method: 'get' }
-      });
-
-      // Act
-      const error = new HttpClientError('Server error', serverError);
-
-      // Assert
-      expect(error.httpErrorType).toBe(HttpClientErrorType.SERVER);
-    });
-
-    it('should categorize cancelled requests correctly', () => {
-      // Arrange
-      const cancelledError = createMockAxiosError({
-        code: 'ERR_CANCELED',
-        message: 'Request cancelled',
-        config: { url: 'https://api.example.com/test', method: 'get' }
-      });
-
-      // Act
-      const error = new HttpClientError('Request cancelled', cancelledError);
-
-      // Assert
-      expect(error.httpErrorType).toBe(HttpClientErrorType.CANCELLED);
-    });
-
-    it('should map HTTP error types to base error types correctly', () => {
-      // Test cases for each HTTP error type and its corresponding base error type
-      const testCases = [
-        { httpErrorType: HttpClientErrorType.CLIENT, expectedBaseType: ErrorType.VALIDATION },
-        { httpErrorType: HttpClientErrorType.SERVER, expectedBaseType: ErrorType.TECHNICAL },
-        { httpErrorType: HttpClientErrorType.NETWORK, expectedBaseType: ErrorType.EXTERNAL },
-        { httpErrorType: HttpClientErrorType.CANCELLED, expectedBaseType: ErrorType.EXTERNAL },
-        { httpErrorType: HttpClientErrorType.UNKNOWN, expectedBaseType: ErrorType.TECHNICAL }
-      ];
-
-      testCases.forEach(({ httpErrorType, expectedBaseType }) => {
-        // Arrange
-        const axiosError = createMockAxiosError({
-          status: httpErrorType === HttpClientErrorType.CLIENT ? 400 : 500,
-          message: `Error of type ${httpErrorType}`,
-          config: { url: 'https://api.example.com/test', method: 'get' }
-        });
-
-        // Act
-        const error = new HttpClientError(`Error of type ${httpErrorType}`, axiosError);
-
-        // Assert
-        expect(error.errorType).toBe(expectedBaseType);
-      });
-    });
-
-    it('should create user-friendly error messages', () => {
-      // Test cases for different error scenarios
-      const testCases = [
-        {
-          error: createMockAxiosError({
-            status: 404,
-            statusText: 'Not Found',
-            message: 'Request failed with status code 404',
-            config: { url: 'https://api.example.com/test', method: 'get' }
-          }),
-          expectedMessage: 'HTTP 404 error occurred while GET https://api.example.com/test: Request failed with status code 404'
+          'Content-Type': 'application/json',
+          'X-Custom-Header': 'custom-value',
         },
-        {
-          error: createMockAxiosError({
-            code: 'ECONNABORTED',
-            message: 'timeout of 30000ms exceeded',
-            config: { url: 'https://api.example.com/test', method: 'get', timeout: 30000 }
-          }),
-          expectedMessage: 'Request timeout: timeout of 30000ms exceeded'
-        },
-        {
-          error: createMockAxiosError({
-            code: 'ERR_CANCELED',
-            message: 'Request cancelled',
-            config: { url: 'https://api.example.com/test', method: 'get' }
-          }),
-          expectedMessage: 'Request cancelled: Request cancelled'
-        },
-        {
-          error: createMockAxiosError({
-            code: 'ECONNREFUSED',
-            message: 'Connection refused',
-            config: { url: 'https://api.example.com/test', method: 'get' }
-          }),
-          expectedMessage: 'Connection refused: Connection refused'
-        },
-        {
-          error: createMockAxiosError({
-            code: 'ENOTFOUND',
-            message: 'getaddrinfo ENOTFOUND api.example.com',
-            config: { url: 'https://api.example.com/test', method: 'get' }
-          }),
-          expectedMessage: 'Host not found: getaddrinfo ENOTFOUND api.example.com'
-        },
-        {
-          error: createMockAxiosError({
-            code: 'UNKNOWN',
-            message: 'Unknown error',
-            config: { url: 'https://api.example.com/test', method: 'get' }
-          }),
-          expectedMessage: 'HTTP request failed: Unknown error'
-        }
-      ];
-
-      testCases.forEach(({ error, expectedMessage }) => {
-        // Act
-        const message = HttpClientError.createErrorMessage(error);
-
-        // Assert
-        expect(message).toBe(expectedMessage);
       });
     });
   });
 
-  describe('Retry Mechanisms', () => {
-    it('should retry failed requests according to retry configuration', async () => {
-      // Arrange
-      const mockAxios = createMockAxiosInstance();
-      (axios.create as jest.Mock).mockReturnValue(mockAxios);
+  describe('Request Interceptors', () => {
+    let client: AxiosInstance;
+    let requestInterceptor: (config: AxiosRequestConfig) => AxiosRequestConfig;
 
-      const retryConfig: Partial<RetryConfig> = {
-        retries: 3,
-        retryDelay: jest.fn().mockReturnValue(0), // No delay for faster tests
-        httpMethodsToRetry: ['GET'],
-        statusCodesToRetry: [[500, 599]]
-      };
-
-      // Simulate a server error that should be retried
-      simulateFailedRequest(mockAxios, 'https://api.example.com/test', 'server', 500);
-
-      // Act
-      const client = createHttpClient({ retry: retryConfig });
-      
-      // Trigger the interceptor by making a request that will fail
-      try {
-        await client.get('https://api.example.com/test');
-        fail('Request should have failed');
-      } catch (error) {
-        // Assert
-        expect(retryConfig.retryDelay).toHaveBeenCalledTimes(3); // Should retry 3 times
-        expect(mockAxios.get).toHaveBeenCalledTimes(4); // Original + 3 retries
-      }
-    });
-
-    it('should not retry requests that are not configured for retry', async () => {
-      // Arrange
-      const mockAxios = createMockAxiosInstance();
-      (axios.create as jest.Mock).mockReturnValue(mockAxios);
-
-      const retryConfig: Partial<RetryConfig> = {
-        retries: 3,
-        retryDelay: jest.fn().mockReturnValue(0),
-        httpMethodsToRetry: ['GET'],
-        statusCodesToRetry: [[500, 599]]
-      };
-
-      // Simulate a client error that should not be retried
-      simulateFailedRequest(mockAxios, 'https://api.example.com/test', 'client', 400);
-
-      // Act
-      const client = createHttpClient({ retry: retryConfig });
-      
-      // Trigger the interceptor by making a request that will fail
-      try {
-        await client.get('https://api.example.com/test');
-        fail('Request should have failed');
-      } catch (error) {
-        // Assert
-        expect(retryConfig.retryDelay).not.toHaveBeenCalled(); // Should not retry
-        expect(mockAxios.get).toHaveBeenCalledTimes(1); // Only the original request
-      }
-    });
-
-    it('should respect the Retry-After header if present', async () => {
-      // Arrange
-      const mockAxios = createMockAxiosInstance();
-      (axios.create as jest.Mock).mockReturnValue(mockAxios);
-
-      // Create a server error with Retry-After header
-      const serverErrorWithRetryAfter = allErrors.server.serverWithRetryAfter.error as AxiosError;
-
-      // Mock the get method to return this specific error
-      mockAxios.get.mockRejectedValueOnce(serverErrorWithRetryAfter);
-
-      const retryConfig: Partial<RetryConfig> = {
-        retries: 1,
-        retryDelay: exponentialDelay, // Use the real exponential delay function
-        respectRetryAfter: true
-      };
-
-      // Act
-      const client = createHttpClient({ retry: retryConfig });
-      
-      // Trigger the interceptor by making a request that will fail
-      try {
-        await client.get('https://api.example.com/test');
-        fail('Request should have failed');
-      } catch (error) {
-        // The test passes if we reach here, as we're expecting the request to fail
-        // We can't easily test the exact delay timing in a unit test
-      }
-    });
-
-    it('should use custom retry condition if provided', async () => {
-      // Arrange
-      const mockAxios = createMockAxiosInstance();
-      (axios.create as jest.Mock).mockReturnValue(mockAxios);
-
-      const customRetryCondition = jest.fn((error: AxiosError) => {
-        // Only retry 429 Too Many Requests errors
-        return error.response?.status === 429;
-      });
-
-      const retryConfig: Partial<RetryConfig> = {
-        retries: 2,
-        retryDelay: jest.fn().mockReturnValue(0),
-        retryCondition: customRetryCondition
-      };
-
-      // Simulate a 429 error that should be retried
-      simulateFailedRequest(mockAxios, 'https://api.example.com/test', 'client', 429);
-
-      // Act
-      const client = createHttpClient({ retry: retryConfig });
-      
-      // Trigger the interceptor by making a request that will fail
-      try {
-        await client.get('https://api.example.com/test');
-        fail('Request should have failed');
-      } catch (error) {
-        // Assert
-        expect(customRetryCondition).toHaveBeenCalled();
-        expect(retryConfig.retryDelay).toHaveBeenCalledTimes(2); // Should retry 2 times
-        expect(mockAxios.get).toHaveBeenCalledTimes(3); // Original + 2 retries
-      }
-    });
-  });
-
-  describe('Delay Strategies', () => {
-    it('should implement exponential delay with jitter', () => {
-      // Act
-      const delay1 = exponentialDelay(1);
-      const delay2 = exponentialDelay(2);
-      const delay3 = exponentialDelay(3);
-
-      // Assert
-      // Base exponential delay formula: 2^retryCount * 100
-      expect(delay1).toBeGreaterThanOrEqual(200); // 2^1 * 100 = 200 (plus jitter)
-      expect(delay1).toBeLessThanOrEqual(240); // 200 + 20% max jitter
-
-      expect(delay2).toBeGreaterThanOrEqual(400); // 2^2 * 100 = 400 (plus jitter)
-      expect(delay2).toBeLessThanOrEqual(480); // 400 + 20% max jitter
-
-      expect(delay3).toBeGreaterThanOrEqual(800); // 2^3 * 100 = 800 (plus jitter)
-      expect(delay3).toBeLessThanOrEqual(960); // 800 + 20% max jitter
-    });
-
-    it('should implement linear delay', () => {
-      // Arrange
-      const linearDelayFn = linearDelay(100);
-
-      // Act
-      const delay1 = linearDelayFn(1);
-      const delay2 = linearDelayFn(2);
-      const delay3 = linearDelayFn(3);
-
-      // Assert
-      expect(delay1).toBe(100); // 1 * 100 = 100
-      expect(delay2).toBe(200); // 2 * 100 = 200
-      expect(delay3).toBe(300); // 3 * 100 = 300
-    });
-
-    it('should implement no delay', () => {
-      // Act
-      const delay = noDelay();
-
-      // Assert
-      expect(delay).toBe(0);
-    });
-  });
-
-  describe('Request/Response Interceptors', () => {
-    it('should add request interceptor for timeout when retry is configured', () => {
-      // Arrange
-      const mockAxios = createMockAxiosInstance();
-      (axios.create as jest.Mock).mockReturnValue(mockAxios);
-
-      const retryConfig: Partial<RetryConfig> = {
-        timeout: 5000
-      };
-
-      // Act
-      createHttpClient({ retry: retryConfig });
-
-      // Assert
-      expect(mockAxios.interceptors.request.use).toHaveBeenCalled();
-
-      // Simulate the interceptor being called
-      const requestInterceptor = mockAxios.interceptors.request.use.mock.calls[0][0];
-      const config: AxiosRequestConfig = {};
-      const result = requestInterceptor(config);
-
-      // Verify the timeout was set
-      expect(result.timeout).toBe(5000);
-    });
-
-    it('should add response interceptor for retries when retry is configured', () => {
-      // Arrange
-      const mockAxios = createMockAxiosInstance();
-      (axios.create as jest.Mock).mockReturnValue(mockAxios);
-
-      const retryConfig: Partial<RetryConfig> = {
-        retries: 3,
-        retryDelay: jest.fn().mockReturnValue(0)
-      };
-
-      // Act
-      createHttpClient({ retry: retryConfig });
-
-      // Assert
-      expect(mockAxios.interceptors.response.use).toHaveBeenCalled();
-    });
-
-    it('should add request interceptor for tracing when tracer is provided', () => {
-      // Arrange
-      const mockAxios = createMockAxiosInstance();
-      (axios.create as jest.Mock).mockReturnValue(mockAxios);
-
-      // Act
-      createHttpClient({ tracer: mockTracer });
-
-      // Assert
-      expect(mockAxios.interceptors.request.use).toHaveBeenCalled();
-
-      // Simulate the interceptor being called
-      const requestInterceptor = mockAxios.interceptors.request.use.mock.calls[0][0];
-      const config: AxiosRequestConfig = { method: 'get', url: 'https://api.example.com/test', headers: {} };
-      const result = requestInterceptor(config);
-
-      // Verify tracing headers were added
-      expect(mockTracer.startSpan).toHaveBeenCalledWith('HTTP Request');
-      expect(result.headers['x-trace-id']).toBe('test-trace-id');
-      expect(result.headers['x-span-id']).toBe('test-span-id');
-    });
-
-    it('should add response interceptor for tracing when tracer is provided', () => {
-      // Arrange
-      const mockAxios = createMockAxiosInstance();
-      (axios.create as jest.Mock).mockReturnValue(mockAxios);
-
-      // Act
-      createHttpClient({ tracer: mockTracer });
-
-      // Assert
-      expect(mockAxios.interceptors.response.use).toHaveBeenCalled();
-
-      // Get the success and error handlers
-      const successHandler = mockAxios.interceptors.response.use.mock.calls[0][0];
-      const errorHandler = mockAxios.interceptors.response.use.mock.calls[0][1];
-
-      // Create a mock span
-      const mockSpan = {
-        setAttributes: jest.fn(),
-        end: jest.fn()
-      };
-
-      // Simulate the success handler being called
-      const response: AxiosResponse = {
-        status: 200,
-        statusText: 'OK',
-        data: { success: true },
-        headers: {},
-        config: { method: 'get', url: 'https://api.example.com/test', __span: mockSpan } as any
-      };
-
-      successHandler(response);
-
-      // Verify span was updated and ended
-      expect(mockSpan.setAttributes).toHaveBeenCalled();
-      expect(mockSpan.end).toHaveBeenCalled();
-
-      // Simulate the error handler being called
-      const error = createMockAxiosError({
-        status: 500,
-        message: 'Server error',
-        config: { method: 'get', url: 'https://api.example.com/test', __span: mockSpan } as any
-      });
-
-      try {
-        errorHandler(error);
-      } catch (e) {
-        // Expected to throw
-      }
-
-      // Verify span was updated with error and ended
-      expect(mockSpan.setAttributes).toHaveBeenCalledWith(expect.objectContaining({
-        'error': true
+    beforeEach(() => {
+      // Reset mocks
+      (axios.create as jest.Mock).mockImplementation(() => ({
+        interceptors: {
+          request: { use: jest.fn((interceptor) => { requestInterceptor = interceptor; }) },
+          response: { use: jest.fn() },
+        },
+        defaults: {},
       }));
-      expect(mockSpan.end).toHaveBeenCalled();
+
+      // Create client to capture the interceptor
+      client = createHttpClient();
     });
 
-    it('should add request interceptor for logging when logger is provided', () => {
+    it('should add request logging', () => {
       // Arrange
-      const mockAxios = createMockAxiosInstance();
-      (axios.create as jest.Mock).mockReturnValue(mockAxios);
+      const mockConfig: AxiosRequestConfig = {
+        method: 'GET',
+        url: '/test',
+        headers: { 'Content-Type': 'application/json' },
+      };
+      const consoleSpy = jest.spyOn(console, 'debug').mockImplementation();
 
       // Act
-      createHttpClient({ logger: mockLogger });
+      const result = requestInterceptor(mockConfig);
 
       // Assert
-      expect(mockAxios.interceptors.request.use).toHaveBeenCalled();
-
-      // Simulate the interceptor being called
-      const requestInterceptor = mockAxios.interceptors.request.use.mock.calls[0][0];
-      const config: AxiosRequestConfig = { method: 'get', url: 'https://api.example.com/test', headers: {} };
-      requestInterceptor(config);
-
-      // Verify logger was called
-      expect(mockLogger.debug).toHaveBeenCalledWith(
-        'HTTP GET request to https://api.example.com/test',
+      expect(result).toEqual(mockConfig);
+      expect(consoleSpy).toHaveBeenCalledWith(
+        expect.stringContaining('HTTP Request:'),
         expect.objectContaining({
-          url: 'https://api.example.com/test',
-          method: 'get'
+          method: 'GET',
+          url: '/test',
         })
       );
+      consoleSpy.mockRestore();
     });
 
-    it('should add response interceptor for logging when logger is provided', () => {
+    it('should add correlation ID header if provided', () => {
       // Arrange
-      const mockAxios = createMockAxiosInstance();
-      (axios.create as jest.Mock).mockReturnValue(mockAxios);
+      const mockConfig: AxiosRequestConfig = {
+        method: 'GET',
+        url: '/test',
+        headers: { 'Content-Type': 'application/json' },
+        correlationId: 'test-correlation-id',
+      };
+      jest.spyOn(console, 'debug').mockImplementation();
 
       // Act
-      createHttpClient({ logger: mockLogger });
+      const result = requestInterceptor(mockConfig);
 
       // Assert
-      expect(mockAxios.interceptors.response.use).toHaveBeenCalled();
+      expect(result.headers).toEqual({
+        'Content-Type': 'application/json',
+        'X-Correlation-ID': 'test-correlation-id',
+      });
+      expect(result.correlationId).toBeUndefined(); // Should be removed from config
+    });
+  });
 
-      // Get the success and error handlers
-      const successHandler = mockAxios.interceptors.response.use.mock.calls[0][0];
-      const errorHandler = mockAxios.interceptors.response.use.mock.calls[0][1];
+  describe('Response Interceptors', () => {
+    let client: AxiosInstance;
+    let responseSuccessInterceptor: (response: AxiosResponse) => AxiosResponse;
+    let responseErrorInterceptor: (error: AxiosError) => Promise<never>;
 
-      // Simulate the success handler being called
-      const response: AxiosResponse = {
+    beforeEach(() => {
+      // Reset mocks
+      (axios.create as jest.Mock).mockImplementation(() => ({
+        interceptors: {
+          request: { use: jest.fn() },
+          response: {
+            use: jest.fn((successInterceptor, errorInterceptor) => {
+              responseSuccessInterceptor = successInterceptor;
+              responseErrorInterceptor = errorInterceptor;
+            }),
+          },
+        },
+        defaults: {},
+      }));
+
+      // Create client to capture the interceptors
+      client = createHttpClient();
+    });
+
+    it('should add response logging for successful responses', () => {
+      // Arrange
+      const mockResponse: AxiosResponse = {
         status: 200,
         statusText: 'OK',
-        data: { success: true },
         headers: {},
-        config: { method: 'get', url: 'https://api.example.com/test' } as any
+        data: { success: true },
+        config: {
+          url: '/test',
+          method: 'GET',
+        } as AxiosRequestConfig,
       };
+      const consoleSpy = jest.spyOn(console, 'debug').mockImplementation();
 
-      successHandler(response);
+      // Act
+      const result = responseSuccessInterceptor(mockResponse);
 
-      // Verify logger was called for success
-      expect(mockLogger.debug).toHaveBeenCalledWith(
-        'HTTP 200 response from https://api.example.com/test',
+      // Assert
+      expect(result).toEqual(mockResponse);
+      expect(consoleSpy).toHaveBeenCalledWith(
+        expect.stringContaining('HTTP Response:'),
         expect.objectContaining({
           status: 200,
-          statusText: 'OK'
+          url: '/test',
+          method: 'GET',
         })
       );
+      consoleSpy.mockRestore();
+    });
 
-      // Simulate the error handler being called
-      const error = createMockAxiosError({
-        status: 500,
-        message: 'Server error',
-        config: { method: 'get', url: 'https://api.example.com/test' }
+    it('should transform axios errors into HttpClientError', async () => {
+      // Arrange
+      const mockAxiosError = {
+        isAxiosError: true,
+        config: {
+          url: '/test',
+          method: 'GET',
+        } as AxiosRequestConfig,
+        response: {
+          status: 404,
+          statusText: 'Not Found',
+          data: { message: 'Resource not found' },
+        },
+        message: 'Request failed with status code 404',
+      } as AxiosError;
+      const consoleSpy = jest.spyOn(console, 'error').mockImplementation();
+
+      // Act & Assert
+      await expect(responseErrorInterceptor(mockAxiosError)).rejects.toThrow(HttpClientError);
+      await expect(responseErrorInterceptor(mockAxiosError)).rejects.toMatchObject({
+        message: 'HTTP request failed: Request failed with status code 404',
+        status: 404,
+        data: { message: 'Resource not found' },
+        originalError: mockAxiosError,
       });
 
-      try {
-        errorHandler(error);
-      } catch (e) {
-        // Expected to throw
-      }
-
-      // Verify logger was called for error
-      expect(mockLogger.error).toHaveBeenCalledWith(
-        'HTTP 500 error from https://api.example.com/test',
+      expect(consoleSpy).toHaveBeenCalledWith(
+        expect.stringContaining('HTTP Error:'),
         expect.objectContaining({
-          status: 500,
-          statusText: 'Internal Server Error'
+          status: 404,
+          url: '/test',
+          method: 'GET',
         })
       );
+      consoleSpy.mockRestore();
+    });
+
+    it('should handle network errors without response', async () => {
+      // Arrange
+      const mockAxiosError = {
+        isAxiosError: true,
+        config: {
+          url: '/test',
+          method: 'GET',
+        } as AxiosRequestConfig,
+        response: undefined,
+        message: 'Network Error',
+      } as AxiosError;
+      jest.spyOn(console, 'error').mockImplementation();
+
+      // Act & Assert
+      await expect(responseErrorInterceptor(mockAxiosError)).rejects.toThrow(HttpClientError);
+      await expect(responseErrorInterceptor(mockAxiosError)).rejects.toMatchObject({
+        message: 'HTTP request failed: Network Error',
+        status: 0, // Network errors have status 0
+        data: null,
+        originalError: mockAxiosError,
+      });
+    });
+
+    it('should handle timeout errors', async () => {
+      // Arrange
+      const mockAxiosError = {
+        isAxiosError: true,
+        code: 'ECONNABORTED',
+        config: {
+          url: '/test',
+          method: 'GET',
+          timeout: 5000,
+        } as AxiosRequestConfig,
+        response: undefined,
+        message: 'timeout of 5000ms exceeded',
+      } as AxiosError;
+      jest.spyOn(console, 'error').mockImplementation();
+
+      // Act & Assert
+      await expect(responseErrorInterceptor(mockAxiosError)).rejects.toThrow(HttpClientError);
+      await expect(responseErrorInterceptor(mockAxiosError)).rejects.toMatchObject({
+        message: 'HTTP request failed: Request timeout after 5000ms',
+        status: 0,
+        data: null,
+        originalError: mockAxiosError,
+        isTimeout: true,
+      });
+    });
+
+    it('should handle non-axios errors', async () => {
+      // Arrange
+      const mockError = new Error('Generic error');
+      jest.spyOn(console, 'error').mockImplementation();
+
+      // Act & Assert
+      await expect(responseErrorInterceptor(mockError as unknown as AxiosError)).rejects.toThrow(Error);
+      await expect(responseErrorInterceptor(mockError as unknown as AxiosError)).rejects.toEqual(mockError);
     });
   });
 
-  describe('Error Handling', () => {
-    it('should transform Axios errors into HttpClientErrors', async () => {
-      // Arrange
-      const mockAxios = createMockAxiosInstance();
-      (axios.create as jest.Mock).mockReturnValue(mockAxios);
+  describe('Integration with real Axios', () => {
+    let mockAxios: MockAdapter;
+    let client: AxiosInstance;
 
-      // Configure retry to ensure error transformation
-      const retryConfig: Partial<RetryConfig> = {
-        retries: 1,
-        retryDelay: jest.fn().mockReturnValue(0)
-      };
-
-      // Simulate a server error
-      simulateFailedRequest(mockAxios, 'https://api.example.com/test', 'server', 500);
-
-      // Act
-      const client = createHttpClient({ retry: retryConfig });
+    beforeEach(() => {
+      // Restore axios to use the real implementation
+      jest.restoreAllMocks();
       
-      // Trigger the interceptor by making a request that will fail
-      try {
-        await client.get('https://api.example.com/test');
-        fail('Request should have failed');
-      } catch (error) {
-        // Assert
-        expect(error).toBeInstanceOf(HttpClientError);
-        expect((error as HttpClientError).httpErrorType).toBe(HttpClientErrorType.SERVER);
-        expect((error as HttpClientError).statusCode).toBe(500);
-      }
+      // Create a real client
+      client = createHttpClient({
+        baseURL: 'https://api.example.com',
+      });
+      
+      // Create mock adapter
+      mockAxios = new MockAdapter(client);
     });
 
-    it('should handle network errors correctly', async () => {
+    afterEach(() => {
+      mockAxios.restore();
+    });
+
+    it('should successfully make GET requests', async () => {
       // Arrange
-      const mockAxios = createMockAxiosInstance();
-      (axios.create as jest.Mock).mockReturnValue(mockAxios);
-
-      // Configure retry to ensure error transformation
-      const retryConfig: Partial<RetryConfig> = {
-        retries: 1,
-        retryDelay: jest.fn().mockReturnValue(0)
-      };
-
-      // Simulate a network error
-      simulateNetworkError(mockAxios);
+      const responseData = { id: 1, name: 'Test' };
+      mockAxios.onGet('/users/1').reply(200, responseData);
 
       // Act
-      const client = createHttpClient({ retry: retryConfig });
-      
-      // Trigger the interceptor by making a request that will fail
+      const response = await client.get('/users/1');
+
+      // Assert
+      expect(response.status).toBe(200);
+      expect(response.data).toEqual(responseData);
+    });
+
+    it('should handle error responses correctly', async () => {
+      // Arrange
+      const errorData = { message: 'User not found' };
+      mockAxios.onGet('/users/999').reply(404, errorData);
+
+      // Act & Assert
       try {
-        await client.get('https://api.example.com/test');
-        fail('Request should have failed');
+        await client.get('/users/999');
+        fail('Expected request to fail');
       } catch (error) {
-        // Assert
         expect(error).toBeInstanceOf(HttpClientError);
-        expect((error as HttpClientError).httpErrorType).toBe(HttpClientErrorType.NETWORK);
-        expect((error as HttpClientError).statusCode).toBeUndefined();
+        const httpError = error as HttpClientError;
+        expect(httpError.status).toBe(404);
+        expect(httpError.data).toEqual(errorData);
+        expect(httpError.message).toContain('HTTP request failed');
       }
     });
 
     it('should handle timeout errors correctly', async () => {
       // Arrange
-      const mockAxios = createMockAxiosInstance();
-      (axios.create as jest.Mock).mockReturnValue(mockAxios);
+      mockAxios.onGet('/slow-endpoint').timeout();
 
-      // Configure retry to ensure error transformation
-      const retryConfig: Partial<RetryConfig> = {
-        retries: 1,
-        retryDelay: jest.fn().mockReturnValue(0)
-      };
-
-      // Simulate a timeout error
-      simulateTimeoutError(mockAxios);
-
-      // Act
-      const client = createHttpClient({ retry: retryConfig });
-      
-      // Trigger the interceptor by making a request that will fail
+      // Act & Assert
       try {
-        await client.get('https://api.example.com/test');
-        fail('Request should have failed');
+        await client.get('/slow-endpoint', { timeout: 100 });
+        fail('Expected request to timeout');
       } catch (error) {
-        // Assert
         expect(error).toBeInstanceOf(HttpClientError);
-        expect((error as HttpClientError).httpErrorType).toBe(HttpClientErrorType.NETWORK);
-        expect((error as HttpClientError).originalError.code).toBe('ECONNABORTED');
+        const httpError = error as HttpClientError;
+        expect(httpError.isTimeout).toBe(true);
+        expect(httpError.message).toContain('Request timeout');
       }
     });
 
-    it('should handle client errors correctly', async () => {
+    it('should handle network errors correctly', async () => {
       // Arrange
-      const mockAxios = createMockAxiosInstance();
-      (axios.create as jest.Mock).mockReturnValue(mockAxios);
+      mockAxios.onGet('/network-error').networkError();
 
-      // Configure retry to ensure error transformation
-      const retryConfig: Partial<RetryConfig> = {
-        retries: 1,
-        retryDelay: jest.fn().mockReturnValue(0)
-      };
-
-      // Simulate a client error
-      simulateFailedRequest(mockAxios, 'https://api.example.com/test', 'client', 400);
-
-      // Act
-      const client = createHttpClient({ retry: retryConfig });
-      
-      // Trigger the interceptor by making a request that will fail
+      // Act & Assert
       try {
-        await client.get('https://api.example.com/test');
-        fail('Request should have failed');
+        await client.get('/network-error');
+        fail('Expected network error');
       } catch (error) {
-        // Assert
         expect(error).toBeInstanceOf(HttpClientError);
-        expect((error as HttpClientError).httpErrorType).toBe(HttpClientErrorType.CLIENT);
-        expect((error as HttpClientError).statusCode).toBe(400);
+        const httpError = error as HttpClientError;
+        expect(httpError.status).toBe(0);
+        expect(httpError.message).toContain('HTTP request failed');
       }
     });
-  });
 
-  describe('Integration with Journey-Specific Error Handling', () => {
-    it('should handle journey-specific errors correctly', async () => {
+    it('should support POST requests with data', async () => {
       // Arrange
-      const mockAxios = createMockAxiosInstance();
-      (axios.create as jest.Mock).mockReturnValue(mockAxios);
-
-      // Configure retry to ensure error transformation
-      const retryConfig: Partial<RetryConfig> = {
-        retries: 1,
-        retryDelay: jest.fn().mockReturnValue(0)
-      };
-
-      // Create a journey-specific error
-      const journeyError = allErrors.journey.healthMetricsUnavailable.error as AxiosError;
-      mockAxios.get.mockRejectedValueOnce(journeyError);
+      const requestData = { name: 'New User', email: 'user@example.com' };
+      const responseData = { id: 2, ...requestData };
+      
+      mockAxios.onPost('/users', requestData).reply(201, responseData);
 
       // Act
-      const client = createHttpClient({ retry: retryConfig });
-      
-      // Trigger the interceptor by making a request that will fail
-      try {
-        await client.get('https://api.example.com/test');
-        fail('Request should have failed');
-      } catch (error) {
-        // Assert
-        expect(error).toBeInstanceOf(HttpClientError);
-        expect((error as HttpClientError).httpErrorType).toBe(HttpClientErrorType.SERVER);
-        expect((error as HttpClientError).statusCode).toBe(503);
-        expect((error as HttpClientError).originalError.response?.data).toEqual(
-          expect.objectContaining({
-            journeyType: 'health',
-            errorCode: 'HEALTH_METRICS_UNAVAILABLE'
-          })
-        );
-      }
+      const response = await client.post('/users', requestData);
+
+      // Assert
+      expect(response.status).toBe(201);
+      expect(response.data).toEqual(responseData);
     });
   });
 });

@@ -1,170 +1,212 @@
 /**
  * URL fixtures for testing HTTP utilities, especially SSRF protection mechanisms.
  * These fixtures are designed to test the secure-axios utility's ability to detect
- * and block potentially malicious request targets.
+ * and block malicious request targets.
  */
 
 /**
  * Interface for URL fixture collections
  */
 export interface UrlFixtures {
-  /** URLs that should be allowed by SSRF protection */
-  safe: {
-    /** Public domain URLs */
-    publicDomains: string[];
-    /** Valid public IP addresses */
-    publicIps: string[];
-  };
-  /** URLs that should be blocked by SSRF protection */
-  unsafe: {
-    /** Private IP ranges (10.x.x.x, 172.16-31.x.x, 192.168.x.x) */
-    privateIps: string[];
-    /** Localhost variants */
-    localhost: string[];
-    /** Internal domain patterns */
-    internalDomains: string[];
-    /** IPv6 loopback and link-local addresses */
-    ipv6Special: string[];
-  };
+  /** URLs that should be considered safe and allowed */
+  safe: string[];
+  /** URLs that should be considered unsafe and blocked */
+  unsafe: string[];
 }
 
 /**
- * Safe URLs that should pass SSRF protection
+ * Interface for categorized URL fixtures
  */
-export const safeUrls = {
-  /**
-   * Public domain URLs that should be allowed
-   */
-  publicDomains: [
-    'https://example.com',
-    'https://api.example.org/v1/resources',
-    'http://subdomain.example.net/path?query=value',
-    'https://multiple.subdomain.levels.example.com',
-    'https://dash-separated-domain.com',
-    'https://domain-with-port.com:8080',
-    'https://www.gov.br',
-    'https://austa-health.com',
-  ],
+export interface CategorizedUrlFixtures {
+  /** Public domain URLs that should be allowed */
+  publicDomains: string[];
+  /** Valid public IP addresses that should be allowed */
+  publicIpAddresses: string[];
+  /** Private IP ranges that should be blocked (10.x.x.x, 172.16-31.x.x, 192.168.x.x) */
+  privateIpRanges: string[];
+  /** Localhost variants that should be blocked */
+  localhost: string[];
+  /** Loopback addresses that should be blocked */
+  loopback: string[];
+  /** Internal domain patterns that should be blocked */
+  internalDomains: string[];
+  /** URLs with encoded characters to attempt bypass */
+  encodedUrls: string[];
+  /** Edge cases that test boundary conditions */
+  edgeCases: string[];
+}
 
-  /**
-   * Valid public IP addresses that should be allowed
-   */
-  publicIps: [
-    'https://203.0.113.1',           // TEST-NET-3 block for documentation
-    'https://198.51.100.1',           // TEST-NET-2 block for documentation
-    'https://192.0.2.1',              // TEST-NET-1 block for documentation
-    'http://198.51.100.1:8080/path',  // With port and path
-    'https://[2001:db8::1]',          // IPv6 documentation prefix
-    'https://[2001:db8::1]:8443',     // IPv6 with port
-  ],
+/**
+ * Safe URLs that should pass SSRF validation
+ */
+export const SAFE_URLS: string[] = [
+  'https://www.example.com',
+  'https://api.github.com',
+  'https://austa-health-api.com',
+  'https://203.0.113.1', // TEST-NET-3 block (safe for examples)
+  'https://198.51.100.1', // TEST-NET-2 block (safe for examples)
+  'https://192.0.2.1', // TEST-NET-1 block (safe for examples)
+  'https://www.example.com:8080/api/v1/health',
+  'https://subdomain.example.org/path/to/resource?query=param',
+  'https://user:password@example.com',
+  'http://[2001:db8::1]', // IPv6 documentation prefix
+  'https://xn--80akhbyknj4f.xn--p1ai', // Punycode domain
+];
+
+/**
+ * Unsafe URLs that should be blocked by SSRF validation
+ */
+export const UNSAFE_URLS: string[] = [
+  // Private IP ranges
+  'http://10.0.0.1',
+  'http://10.1.1.1:8080',
+  'https://172.16.0.1',
+  'https://172.20.10.100',
+  'https://172.31.255.255',
+  'http://192.168.0.1',
+  'http://192.168.1.1:3000/api',
+  
+  // Localhost variants
+  'http://localhost',
+  'http://localhost:8080',
+  'http://127.0.0.1',
+  'http://127.0.0.1:3000/api',
+  'http://127.1.1.1',
+  'http://127.255.255.255',
+  
+  // Loopback addresses
+  'http://0.0.0.0',
+  'http://0.0.0.0:8080',
+  'http://[::1]',
+  'http://[::1]:8080',
+  'http://[fe80::1]',
+  'http://[fe80::1%eth0]', // With zone identifier
+  
+  // Internal domains
+  'https://localhost.local',
+  'https://server.local',
+  'https://api.internal',
+  'https://service.internal.company',
+  'https://intranet',
+  
+  // Encoded URLs attempting to bypass filters
+  'http://127.0.0.1%2f@example.com', // URL confusion with encoded slash
+  'http://example.com@127.0.0.1', // URL confusion with @ symbol
+  'http://127.0.0.1%09', // Encoded tab character
+  'http://0177.0.0.1', // Octal representation of 127.0.0.1
+  'http://0x7f.0.0.1', // Hex representation of 127.0.0.1
+  'http://2130706433', // Decimal representation of 127.0.0.1
+];
+
+/**
+ * Public domain URLs that should be allowed
+ */
+export const PUBLIC_DOMAIN_URLS: string[] = [
+  'https://www.example.com',
+  'https://api.github.com',
+  'https://austa-health-api.com',
+  'https://www.example.com:8080/api/v1/health',
+  'https://subdomain.example.org/path/to/resource?query=param',
+  'https://user:password@example.com',
+  'https://xn--80akhbyknj4f.xn--p1ai', // Punycode domain
+];
+
+/**
+ * Valid public IP addresses that should be allowed
+ */
+export const PUBLIC_IP_ADDRESSES: string[] = [
+  'https://203.0.113.1', // TEST-NET-3 block (safe for examples)
+  'https://198.51.100.1', // TEST-NET-2 block (safe for examples)
+  'https://192.0.2.1', // TEST-NET-1 block (safe for examples)
+  'http://[2001:db8::1]', // IPv6 documentation prefix
+];
+
+/**
+ * Private IP ranges that should be blocked
+ */
+export const PRIVATE_IP_RANGES: string[] = [
+  'http://10.0.0.1',
+  'http://10.1.1.1:8080',
+  'https://172.16.0.1',
+  'https://172.20.10.100',
+  'https://172.31.255.255',
+  'http://192.168.0.1',
+  'http://192.168.1.1:3000/api',
+];
+
+/**
+ * Localhost variants that should be blocked
+ */
+export const LOCALHOST_URLS: string[] = [
+  'http://localhost',
+  'http://localhost:8080',
+  'http://127.0.0.1',
+  'http://127.0.0.1:3000/api',
+  'http://127.1.1.1',
+  'http://127.255.255.255',
+];
+
+/**
+ * Loopback addresses that should be blocked
+ */
+export const LOOPBACK_URLS: string[] = [
+  'http://0.0.0.0',
+  'http://0.0.0.0:8080',
+  'http://[::1]',
+  'http://[::1]:8080',
+  'http://[fe80::1]',
+  'http://[fe80::1%eth0]', // With zone identifier
+];
+
+/**
+ * Internal domain patterns that should be blocked
+ */
+export const INTERNAL_DOMAIN_URLS: string[] = [
+  'https://localhost.local',
+  'https://server.local',
+  'https://api.internal',
+  'https://service.internal.company',
+  'https://intranet',
+];
+
+/**
+ * URLs with encoded characters attempting to bypass filters
+ */
+export const ENCODED_URLS: string[] = [
+  'http://127.0.0.1%2f@example.com', // URL confusion with encoded slash
+  'http://example.com@127.0.0.1', // URL confusion with @ symbol
+  'http://127.0.0.1%09', // Encoded tab character
+];
+
+/**
+ * Edge cases that test boundary conditions
+ */
+export const EDGE_CASE_URLS: string[] = [
+  'http://0177.0.0.1', // Octal representation of 127.0.0.1
+  'http://0x7f.0.0.1', // Hex representation of 127.0.0.1
+  'http://2130706433', // Decimal representation of 127.0.0.1
+];
+
+/**
+ * Categorized URL fixtures for comprehensive testing
+ */
+export const CATEGORIZED_URL_FIXTURES: CategorizedUrlFixtures = {
+  publicDomains: PUBLIC_DOMAIN_URLS,
+  publicIpAddresses: PUBLIC_IP_ADDRESSES,
+  privateIpRanges: PRIVATE_IP_RANGES,
+  localhost: LOCALHOST_URLS,
+  loopback: LOOPBACK_URLS,
+  internalDomains: INTERNAL_DOMAIN_URLS,
+  encodedUrls: ENCODED_URLS,
+  edgeCases: EDGE_CASE_URLS,
 };
 
 /**
- * Unsafe URLs that should be blocked by SSRF protection
+ * Complete URL fixtures for testing SSRF protection
  */
-export const unsafeUrls = {
-  /**
-   * Private IP ranges that should be blocked
-   */
-  privateIps: [
-    // Class A private range (10.0.0.0/8)
-    'http://10.0.0.1',
-    'https://10.10.10.10',
-    'http://10.255.255.255',
-    
-    // Class B private range (172.16.0.0/12)
-    'http://172.16.0.1',
-    'https://172.16.10.10',
-    'http://172.17.0.1',             // Common Docker container IP
-    'https://172.20.10.15',
-    'http://172.31.255.255',
-    
-    // Class C private range (192.168.0.0/16)
-    'http://192.168.0.1',             // Common router IP
-    'https://192.168.1.1',            // Common router IP
-    'http://192.168.1.254',
-    'https://192.168.0.10:8080',      // With port
-    
-    // Alternative notations for private IPs
-    'http://0xA.0x0.0x0.0x1',         // Hex notation for 10.0.0.1
-    'http://0xAC10.0x0.0x0.0x1',      // Hex notation for 172.16.0.1
-    'http://0xC0A80001',              // Hex notation for 192.168.0.1
-    'http://10.0.0.1:80',             // With explicit port
-    'http://172.16.0.1:443',          // With explicit port
-    'http://192.168.0.1:8080/path',   // With port and path
-  ],
-
-  /**
-   * Localhost variants that should be blocked
-   */
-  localhost: [
-    // Loopback addresses
-    'http://127.0.0.1',
-    'http://127.0.0.1:8080',
-    'https://127.0.0.1',
-    'http://127.1.1.1',               // Any 127.x.x.x is loopback
-    'http://127.255.255.255',
-    
-    // Localhost names
-    'http://localhost',
-    'https://localhost',
-    'http://localhost:8080',
-    'https://localhost:3000/api',
-    
-    // Zero addresses
-    'http://0.0.0.0',
-    'https://0.0.0.0:8080',
-    
-    // Alternative notations for localhost
-    'http://0x7f000001',              // Hex notation for 127.0.0.1
-    'http://0x7f.0x0.0x0.0x1',        // Hex notation for 127.0.0.1
-    'http://2130706433',              // Decimal notation for 127.0.0.1
-    'http://0177.0.0.01',             // Octal notation for 127.0.0.1
-  ],
-
-  /**
-   * Internal domain patterns that should be blocked
-   */
-  internalDomains: [
-    'http://service.local',
-    'https://api.local',
-    'http://localhost.localdomain',
-    'https://intranet.company',
-    'http://host.internal',
-    'https://service.internal',
-    'http://machine.corp',
-    'https://server.corp',
-    'http://router.home',
-    'https://nas.home',
-    'http://printer.private',
-    'https://server.private',
-    'http://service.example.local',    // Subdomain with .local TLD
-    'https://api.internal.example',    // Subdomain with .internal component
-  ],
-
-  /**
-   * IPv6 loopback and link-local addresses that should be blocked
-   */
-  ipv6Special: [
-    'http://[::1]',                   // IPv6 loopback
-    'https://[::1]',
-    'http://[::1]:8080',
-    'https://[::1]:3000/api',
-    'http://[fe80::1]',               // IPv6 link-local
-    'https://[fe80::1]',
-    'http://[fe80::1]:8080',
-    'https://[fe80::1%eth0]',         // With zone index
-    'http://[fe80:0000:0000:0000:0000:0000:0000:0001]', // Expanded notation
-    'https://[0:0:0:0:0:0:0:1]',      // Compressed notation for ::1
-  ],
+export const URL_FIXTURES: UrlFixtures = {
+  safe: SAFE_URLS,
+  unsafe: UNSAFE_URLS,
 };
 
-/**
- * Complete collection of URL fixtures for testing
- */
-export const urlFixtures: UrlFixtures = {
-  safe: safeUrls,
-  unsafe: unsafeUrls,
-};
-
-export default urlFixtures;
+export default URL_FIXTURES;

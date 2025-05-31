@@ -1,45 +1,29 @@
 /**
- * @file adapters/web/index.ts
- * @description Centralized export point for all web-specific adapters
+ * Web Platform Adapters
  * 
  * This file exports all web-specific adapter implementations for the journey context.
  * These adapters bridge the unified journey context API with Next.js web platform capabilities.
+ * 
+ * The adapters implement platform-specific functionality while adhering to common interfaces
+ * defined in the @austa/interfaces package, enabling consistent usage patterns across platforms.
  */
 
-// Authentication adapter for web platform (uses localStorage/cookies for token storage)
-import AuthAdapter from './AuthAdapter';
+// Authentication adapter for web platform (handles JWT tokens, OAuth flows, session management)
+export { default as AuthAdapter } from './AuthAdapter';
 
-// Gamification adapter for web platform (handles web-specific event processing)
-import GamificationAdapter from './GamificationAdapter';
+// Navigation adapter for web platform (integrates with Next.js router)
+export { default as NavigationAdapter } from './NavigationAdapter';
 
-// Journey adapter for web platform (integrates with Next.js routing)
-import JourneyAdapter from './JourneyAdapter';
+// Storage adapter for web platform (uses localStorage, sessionStorage, cookies)
+export { default as StorageAdapter } from './StorageAdapter';
 
-// Notification adapter for web platform (handles web notifications and websockets)
-import NotificationAdapter from './NotificationAdapter';
+// Gamification adapter for web platform (connects to gamification engine API)
+export { default as GamificationAdapter } from './GamificationAdapter';
 
-// Storage adapter for web platform (uses localStorage/sessionStorage)
-import StorageAdapter from './StorageAdapter';
+// Journey-specific adapters for web platform
+export { default as HealthJourneyAdapter } from './HealthJourneyAdapter';
+export { default as CareJourneyAdapter } from './CareJourneyAdapter';
+export { default as PlanJourneyAdapter } from './PlanJourneyAdapter';
 
-// Navigation adapter for web platform (uses Next.js router)
-import NavigationAdapter from './NavigationAdapter';
-
-// Export all adapters individually for direct imports
-export {
-  AuthAdapter,
-  GamificationAdapter,
-  JourneyAdapter,
-  NotificationAdapter,
-  StorageAdapter,
-  NavigationAdapter
-};
-
-// Export default object with all adapters for convenience
-export default {
-  auth: AuthAdapter,
-  gamification: GamificationAdapter,
-  journey: JourneyAdapter,
-  notification: NotificationAdapter,
-  storage: StorageAdapter,
-  navigation: NavigationAdapter
-};
+// Notification adapter for web platform (handles web notifications, in-app messages)
+export { default as NotificationAdapter } from './NotificationAdapter';

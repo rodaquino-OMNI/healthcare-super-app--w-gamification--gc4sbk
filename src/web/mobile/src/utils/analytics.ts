@@ -1,12 +1,19 @@
-// Import types from @austa/interfaces instead of local type definitions
-import { GamificationEventType, BaseGamificationEvent } from '@austa/interfaces/gamification/events';
-import { JourneyId } from '@austa/interfaces/common';
+/**
+ * @file Analytics service for the AUSTA SuperApp mobile application
+ * 
+ * Implements a centralized analytics toolkit that provides tracking for Google Analytics,
+ * Datadog RUM, and Sentry error monitoring. Supports journey-specific analytics tracking
+ * and integrates with the gamification engine for achievement-related events.
+ */
+
+// Import analytics event types from @austa/interfaces
+import { GamificationEventType } from '@austa/interfaces/gamification';
 
 // Import journey context from @austa/journey-context
-import { useJourney } from '@austa/journey-context';
+import { useJourney, JOURNEY_IDS } from '@austa/journey-context';
 
 // Import constants
-import * as Constants from '../constants';
+import * as Constants from '../constants/index';
 
 // Analytics services mock implementations
 const ReactGA = {
@@ -19,8 +26,7 @@ const ReactGA = {
 const Sentry = {
   init: (_options: any) => {},
   setUser: (_user: any | null) => {},
-  captureException: (_error: Error, _context?: any) => {},
-  withScope: (_callback: (scope: any) => void) => {}
+  captureException: (_error: Error, _context?: any) => {}
 };
 
 const datadogRum = {
@@ -28,8 +34,7 @@ const datadogRum = {
   addAction: (_name: string, _params: any) => {},
   setUser: (_user: any) => {},
   clearUser: () => {},
-  addTiming: (_name: string, _time: number) => {},
-  addError: (_error: Error, _source?: string, _context?: any) => {}
+  addTiming: (_name: string, _time: number) => {}
 };
 
 // Define environment-specific constants without using process.env
@@ -37,51 +42,31 @@ const datadogRum = {
 const ENVIRONMENT: string = 'development';
 const APP_VERSION = '1.0.0';
 
-// Enhanced logger implementation with better error handling
+// Simple logger implementation that doesn't depend on console
 const logger = {
-  log: (...args: any[]): void => {
-    if (ENVIRONMENT !== 'production') {
-      try {
-        console.log('[Analytics]', ...args);
-      } catch (e) {
-        // Silent fail for logging errors
-      }
-    }
-  },
-  error: (...args: any[]): void => {
-    if (ENVIRONMENT !== 'production') {
-      try {
-        console.error('[Analytics Error]', ...args);
-      } catch (e) {
-        // Silent fail for logging errors
-      }
-    }
-  },
-  warn: (...args: any[]): void => {
-    if (ENVIRONMENT !== 'production') {
-      try {
-        console.warn('[Analytics Warning]', ...args);
-      } catch (e) {
-        // Silent fail for logging errors
-      }
-    }
-  }
+  log: (..._args: any[]): void => {},
+  error: (..._args: any[]): void => {},
+  warn: (..._args: any[]): void => {}
 };
 
 // Default to enabling analytics
 let analyticsEnabled = true;
 
-// Track current journey context for analytics
-let currentJourneyId: JourneyId | null = null;
+// Current journey context
+let currentJourneyId: string | null = null;
 
 /**
  * Analytics initialization options
  */
 export interface AnalyticsInitOptions {
+  /** User ID for analytics tracking */
   userId?: string;
+  /** Additional user properties for segmentation */
   userProperties?: Record<string, any>;
+  /** Whether analytics tracking is enabled */
   enableAnalytics?: boolean;
-  currentJourneyId?: JourneyId;
+  /** Initial journey ID */
+  journeyId?: string;
 }
 
 /**
@@ -94,9 +79,9 @@ export const initAnalytics = async (options: AnalyticsInitOptions = {}): Promise
     // Update analytics enabled flag
     analyticsEnabled = options.enableAnalytics !== false;
 
-    // Set current journey if provided
-    if (options.currentJourneyId) {
-      currentJourneyId = options.currentJourneyId;
+    // Set initial journey context if provided
+    if (options.journeyId) {
+      currentJourneyId = options.journeyId;
     }
 
     // Initialize Google Analytics
@@ -107,7 +92,7 @@ export const initAnalytics = async (options: AnalyticsInitOptions = {}): Promise
       testMode: ENVIRONMENT !== 'production'
     });
 
-    // Initialize Datadog RUM with enhanced error handling
+    // Initialize Datadog RUM
     datadogRum.init({
       applicationId: 'XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX', // Replace with actual Datadog app ID
       clientToken: 'pub_XXXXXXXX', // Replace with actual Datadog token
@@ -120,17 +105,26 @@ export const initAnalytics = async (options: AnalyticsInitOptions = {}): Promise
       service: 'austa-mobile-app'
     });
 
-    // Set up Sentry with enhanced error handling
+    // Set up Sentry
     Sentry.init({
       dsn: 'https://example@sentry.io/123456', // Replace with actual Sentry DSN
       environment: ENVIRONMENT,
       release: APP_VERSION,
       enableAutoSessionTracking: true,
       tracesSampleRate: 1.0,
-      beforeSend: (event: any) => {
-        // Add journey context to all error events
-        if (currentJourneyId && event.tags) {
-          event.tags.journey_id = currentJourneyId;
+      // Add stronger error boundaries
+      beforeSend: (event) => {
+        // Filter out non-critical errors in production
+        if (ENVIRONMENT === 'production') {
+          // Example: filter out network errors that might be temporary
+          if (event.exception?.values?.some(ex => 
+            ex.type === 'NetworkError' || 
+            ex.value?.includes('Network request failed')
+          )) {
+            // Log but don't send to Sentry
+            logger.warn('Network error filtered from Sentry:', event);
+            return null;
+          }
         }
         return event;
       }
@@ -149,14 +143,15 @@ export const initAnalytics = async (options: AnalyticsInitOptions = {}): Promise
     // Set default event parameters
     ReactGA.set({
       app_version: APP_VERSION,
-      environment: ENVIRONMENT
+      environment: ENVIRONMENT,
+      ...(currentJourneyId && { journey_id: currentJourneyId })
     });
 
     // Log initialization event
     trackEvent('app_initialized', {
       app_version: APP_VERSION,
       environment: ENVIRONMENT,
-      ...(currentJourneyId && { current_journey: currentJourneyId })
+      ...(currentJourneyId && { journey_id: currentJourneyId })
     });
 
     logger.log('Analytics initialized successfully');
@@ -164,13 +159,19 @@ export const initAnalytics = async (options: AnalyticsInitOptions = {}): Promise
     // Enhanced error handling to prevent app crashes
     logger.error('Failed to initialize analytics:', error);
     
-    // Attempt to record the initialization failure if possible
+    // Track the initialization error if possible
     try {
-      if (Sentry && typeof Sentry.captureException === 'function') {
-        Sentry.captureException(error instanceof Error ? error : new Error('Analytics initialization failed'));
+      if (error instanceof Error) {
+        Sentry.captureException(error, {
+          tags: {
+            error_name: 'analytics_initialization_failed',
+            error_context: 'initAnalytics'
+          }
+        });
       }
     } catch (e) {
-      // Silent fail for error reporting errors
+      // Silently fail if error tracking itself fails
+      logger.error('Failed to track analytics initialization error:', e);
     }
     
     // Continue without analytics to not block the app functionality
@@ -178,42 +179,54 @@ export const initAnalytics = async (options: AnalyticsInitOptions = {}): Promise
 };
 
 /**
- * Updates the current journey ID for analytics context
- * @param journeyId The current journey ID
+ * Updates the current journey context for analytics tracking.
+ * This should be called when the user switches between journeys.
+ * @param journeyId The ID of the current journey
  */
-export const updateAnalyticsJourney = (journeyId: JourneyId): void => {
-  if (!journeyId) return;
+export const updateJourneyContext = (journeyId: string): void => {
+  if (!analyticsEnabled || !journeyId) return;
 
   try {
-    // Update the current journey ID
+    // Validate journey ID
+    const validJourneyIds = Object.values(Constants.JOURNEY_IDS);
+    if (!validJourneyIds.includes(journeyId as any)) {
+      logger.warn(`Invalid journey ID: ${journeyId}. Journey context not updated.`);
+      return;
+    }
+
+    // Update current journey context
     currentJourneyId = journeyId;
 
-    // Track journey change event
-    trackEvent('journey_changed', {
-      journey_id: journeyId
+    // Update journey context in analytics services
+    ReactGA.set({ journey_id: journeyId });
+
+    // Track journey switch event
+    trackEvent('journey_switched', {
+      journey_id: journeyId,
+      previous_journey_id: currentJourneyId || 'none'
     });
 
-    logger.log(`Analytics journey updated to: ${journeyId}`);
+    logger.log(`Journey context updated to: ${journeyId}`);
   } catch (error) {
-    logger.error('Error updating analytics journey:', error);
+    logger.error('Error updating journey context:', error);
   }
 };
 
 /**
  * Tracks when a user views a screen in the application.
  * @param screenName The name of the screen being viewed
- * @param journeyId The journey ID the screen belongs to (optional, defaults to current journey)
+ * @param journeyId The journey ID the screen belongs to (optional, uses current journey if not provided)
  * @param params Additional parameters to include with the event (optional)
  */
 export const trackScreenView = (
   screenName: string,
-  journeyId?: JourneyId,
+  journeyId?: string,
   params?: Record<string, any>
 ): void => {
   if (!analyticsEnabled || !screenName) return;
 
   try {
-    // Use provided journeyId or fall back to current journey
+    // Use provided journey ID or current journey context
     const effectiveJourneyId = journeyId || currentJourneyId;
 
     // Build event parameters
@@ -234,15 +247,21 @@ export const trackScreenView = (
 
     logger.log(`Screen view tracked: ${screenName}`, eventParams);
   } catch (error) {
+    // Enhanced error handling
     logger.error('Error tracking screen view:', error);
     
-    // Attempt to record the error if possible
+    // Report error to Sentry but don't crash the app
     try {
-      if (Sentry && typeof Sentry.captureException === 'function') {
-        Sentry.captureException(error instanceof Error ? error : new Error('Screen view tracking failed'));
+      if (error instanceof Error) {
+        Sentry.captureException(error, {
+          tags: {
+            error_name: 'screen_view_tracking_failed',
+            screen_name: screenName
+          }
+        });
       }
     } catch (e) {
-      // Silent fail for error reporting errors
+      // Silently fail if error tracking itself fails
     }
   }
 };
@@ -263,7 +282,7 @@ export const trackEvent = (eventName: string, params?: Record<string, any>): voi
       .replace(/[^a-z0-9_]/g, '_')
       .replace(/__+/g, '_');
 
-    // Add current journey context if available and not already provided
+    // Add journey context if available and not already in params
     const eventParams = {
       ...(currentJourneyId && !params?.journey_id && { journey_id: currentJourneyId }),
       ...params
@@ -281,15 +300,21 @@ export const trackEvent = (eventName: string, params?: Record<string, any>): voi
 
     logger.log(`Event tracked: ${formattedEventName}`, eventParams);
   } catch (error) {
+    // Enhanced error handling
     logger.error('Error tracking event:', error);
     
-    // Attempt to record the error if possible
+    // Report error to Sentry but don't crash the app
     try {
-      if (Sentry && typeof Sentry.captureException === 'function') {
-        Sentry.captureException(error instanceof Error ? error : new Error('Event tracking failed'));
+      if (error instanceof Error) {
+        Sentry.captureException(error, {
+          tags: {
+            error_name: 'event_tracking_failed',
+            event_name: eventName
+          }
+        });
       }
     } catch (e) {
-      // Silent fail for error reporting errors
+      // Silently fail if error tracking itself fails
     }
   }
 };
@@ -301,7 +326,7 @@ export const trackEvent = (eventName: string, params?: Record<string, any>): voi
  * @param params Additional parameters to include with the event (optional)
  */
 export const trackJourneyEvent = (
-  journeyId: JourneyId,
+  journeyId: string,
   eventName: string,
   params?: Record<string, any>
 ): void => {
@@ -337,15 +362,22 @@ export const trackJourneyEvent = (
     // Track the event
     trackEvent(formattedEventName, eventParams);
   } catch (error) {
+    // Enhanced error handling
     logger.error('Error tracking journey event:', error);
     
-    // Attempt to record the error if possible
+    // Report error to Sentry but don't crash the app
     try {
-      if (Sentry && typeof Sentry.captureException === 'function') {
-        Sentry.captureException(error instanceof Error ? error : new Error('Journey event tracking failed'));
+      if (error instanceof Error) {
+        Sentry.captureException(error, {
+          tags: {
+            error_name: 'journey_event_tracking_failed',
+            journey_id: journeyId,
+            event_name: eventName
+          }
+        });
       }
     } catch (e) {
-      // Silent fail for error reporting errors
+      // Silently fail if error tracking itself fails
     }
   }
 };
@@ -359,7 +391,7 @@ export const trackHealthEvent = (
   eventName: string,
   params?: Record<string, any>
 ): void => {
-  trackJourneyEvent(Constants.JOURNEY_IDS.MyHealth as JourneyId, eventName, params);
+  trackJourneyEvent(Constants.JOURNEY_IDS.MyHealth, eventName, params);
 };
 
 /**
@@ -371,7 +403,7 @@ export const trackCareEvent = (
   eventName: string,
   params?: Record<string, any>
 ): void => {
-  trackJourneyEvent(Constants.JOURNEY_IDS.CareNow as JourneyId, eventName, params);
+  trackJourneyEvent(Constants.JOURNEY_IDS.CareNow, eventName, params);
 };
 
 /**
@@ -383,48 +415,53 @@ export const trackPlanEvent = (
   eventName: string,
   params?: Record<string, any>
 ): void => {
-  trackJourneyEvent(Constants.JOURNEY_IDS.MyPlan as JourneyId, eventName, params);
+  trackJourneyEvent(Constants.JOURNEY_IDS.MyPlan, eventName, params);
 };
 
 /**
- * Tracks a gamification-related event.
- * @param eventName The name of the event to track
+ * Tracks a gamification-related event using the GamificationEventType from @austa/interfaces.
+ * @param eventType The gamification event type to track
  * @param params Additional parameters to include with the event (optional)
  */
 export const trackGamificationEvent = (
-  eventName: string,
+  eventType: GamificationEventType | string,
   params?: Record<string, any>
 ): void => {
-  if (!analyticsEnabled || !eventName) return;
+  if (!analyticsEnabled || !eventType) return;
 
   try {
-    // Format with gamification prefix
-    const formattedEventName = `gamification_${eventName}`;
-
-    // Add current journey context if available and not already provided
-    const eventParams = {
-      ...(currentJourneyId && !params?.journey_id && { journey_id: currentJourneyId }),
-      ...params
-    };
+    // Format with gamification prefix if it's a string
+    const formattedEventName = typeof eventType === 'string' 
+      ? `gamification_${eventType.toLowerCase()}` 
+      : `gamification_${eventType.toLowerCase()}`;
 
     // Track the event
-    trackEvent(formattedEventName, eventParams);
+    trackEvent(formattedEventName, {
+      event_type: eventType,
+      ...params
+    });
   } catch (error) {
+    // Enhanced error handling
     logger.error('Error tracking gamification event:', error);
     
-    // Attempt to record the error if possible
+    // Report error to Sentry but don't crash the app
     try {
-      if (Sentry && typeof Sentry.captureException === 'function') {
-        Sentry.captureException(error instanceof Error ? error : new Error('Gamification event tracking failed'));
+      if (error instanceof Error) {
+        Sentry.captureException(error, {
+          tags: {
+            error_name: 'gamification_event_tracking_failed',
+            event_type: String(eventType)
+          }
+        });
       }
     } catch (e) {
-      // Silent fail for error reporting errors
+      // Silently fail if error tracking itself fails
     }
   }
 };
 
 /**
- * Tracks when a user unlocks an achievement.
+ * Tracks when a user unlocks an achievement using the GamificationEventType from @austa/interfaces.
  * @param achievementId The ID of the unlocked achievement
  * @param achievementName The display name of the achievement
  * @param journeyId The journey the achievement belongs to
@@ -433,7 +470,7 @@ export const trackGamificationEvent = (
 export const trackAchievementUnlocked = (
   achievementId: string,
   achievementName: string,
-  journeyId: JourneyId,
+  journeyId: string,
   xpEarned: number
 ): void => {
   if (!analyticsEnabled) return;
@@ -456,27 +493,30 @@ export const trackAchievementUnlocked = (
       xp_earned: xpEarned
     };
 
-    // Track as a gamification event
-    trackGamificationEvent('achievement_unlocked', eventParams);
-
-    // Also send to Datadog RUM as a specific action for better visibility
-    datadogRum.addAction('achievement_unlocked', eventParams);
+    // Track using the GamificationEventType enum from @austa/interfaces
+    trackGamificationEvent(GamificationEventType.ACHIEVEMENT_UNLOCKED, eventParams);
   } catch (error) {
+    // Enhanced error handling
     logger.error('Error tracking achievement unlock:', error);
     
-    // Attempt to record the error if possible
+    // Report error to Sentry but don't crash the app
     try {
-      if (Sentry && typeof Sentry.captureException === 'function') {
-        Sentry.captureException(error instanceof Error ? error : new Error('Achievement tracking failed'));
+      if (error instanceof Error) {
+        Sentry.captureException(error, {
+          tags: {
+            error_name: 'achievement_tracking_failed',
+            achievement_id: achievementId
+          }
+        });
       }
     } catch (e) {
-      // Silent fail for error reporting errors
+      // Silently fail if error tracking itself fails
     }
   }
 };
 
 /**
- * Tracks when a user levels up in the gamification system.
+ * Tracks when a user levels up in the gamification system using the GamificationEventType from @austa/interfaces.
  * @param newLevel The new level the user has reached
  * @param xpEarned The amount of XP earned to reach this level
  */
@@ -489,82 +529,82 @@ export const trackLevelUp = (
   try {
     const eventParams = {
       new_level: newLevel,
-      xp_earned: xpEarned,
-      ...(currentJourneyId && { journey_id: currentJourneyId })
+      xp_earned: xpEarned
     };
 
-    // Track as a gamification event
-    trackGamificationEvent('level_up', eventParams);
-
-    // Also send to Datadog RUM as a specific action for better visibility
-    datadogRum.addAction('level_up', eventParams);
+    // Track using the GamificationEventType enum from @austa/interfaces
+    trackGamificationEvent(GamificationEventType.LEVEL_UP, eventParams);
   } catch (error) {
+    // Enhanced error handling
     logger.error('Error tracking level up:', error);
     
-    // Attempt to record the error if possible
+    // Report error to Sentry but don't crash the app
     try {
-      if (Sentry && typeof Sentry.captureException === 'function') {
-        Sentry.captureException(error instanceof Error ? error : new Error('Level up tracking failed'));
+      if (error instanceof Error) {
+        Sentry.captureException(error, {
+          tags: {
+            error_name: 'level_up_tracking_failed',
+            new_level: String(newLevel)
+          }
+        });
       }
     } catch (e) {
-      // Silent fail for error reporting errors
+      // Silently fail if error tracking itself fails
     }
   }
 };
 
 /**
- * Tracks when a user completes a quest in the gamification system.
+ * Tracks when a user completes a quest using the GamificationEventType from @austa/interfaces.
  * @param questId The ID of the completed quest
  * @param questName The display name of the quest
- * @param journeyId The journey the quest belongs to (optional)
- * @param xpEarned The amount of XP earned from the quest
+ * @param journeyId The journey the quest belongs to
+ * @param xpEarned The amount of XP earned from completing the quest
  */
 export const trackQuestCompleted = (
   questId: string,
   questName: string,
-  journeyId?: JourneyId,
-  xpEarned?: number
+  journeyId: string,
+  xpEarned: number
 ): void => {
   if (!analyticsEnabled) return;
 
   try {
-    // Use provided journeyId or fall back to current journey
-    const effectiveJourneyId = journeyId || currentJourneyId;
-
-    // Get journey name if journey ID is available
-    let journeyName = '';
-    if (effectiveJourneyId) {
-      const journeyKey = Object.keys(Constants.JOURNEY_IDS).find(
-        key => Constants.JOURNEY_IDS[key as keyof typeof Constants.JOURNEY_IDS] === effectiveJourneyId
-      );
-      
-      journeyName = journeyKey 
-        ? Constants.JOURNEY_NAMES[journeyKey as keyof typeof Constants.JOURNEY_NAMES] 
-        : '';
-    }
+    // Get journey name
+    const journeyKey = Object.keys(Constants.JOURNEY_IDS).find(
+      key => Constants.JOURNEY_IDS[key as keyof typeof Constants.JOURNEY_IDS] === journeyId
+    );
+    
+    const journeyName = journeyKey 
+      ? Constants.JOURNEY_NAMES[journeyKey as keyof typeof Constants.JOURNEY_NAMES] 
+      : '';
 
     const eventParams = {
       quest_id: questId,
       quest_name: questName,
-      ...(effectiveJourneyId && { journey_id: effectiveJourneyId, journey_name: journeyName }),
-      ...(xpEarned !== undefined && { xp_earned: xpEarned })
+      journey_id: journeyId,
+      journey_name: journeyName,
+      xp_earned: xpEarned
     };
 
-    // Track as a gamification event
-    trackGamificationEvent('quest_completed', eventParams);
-
-    // Also send to Datadog RUM as a specific action for better visibility
-    datadogRum.addAction('quest_completed', eventParams);
+    // Track using the GamificationEventType enum from @austa/interfaces
+    trackGamificationEvent(GamificationEventType.QUEST_COMPLETED, eventParams);
   } catch (error) {
+    // Enhanced error handling
     logger.error('Error tracking quest completion:', error);
     
-    // Attempt to record the error if possible
+    // Report error to Sentry but don't crash the app
     try {
-      if (Sentry && typeof Sentry.captureException === 'function') {
-        Sentry.captureException(error instanceof Error ? error : new Error('Quest completion tracking failed'));
+      if (error instanceof Error) {
+        Sentry.captureException(error, {
+          tags: {
+            error_name: 'quest_completion_tracking_failed',
+            quest_id: questId
+          }
+        });
       }
     } catch (e) {
-      // Silent fail for error reporting errors
+      // Silently fail if error tracking itself fails
     }
   }
 };
@@ -581,32 +621,19 @@ export const trackError = (
   context?: Record<string, any>
 ): void => {
   try {
-    // Add journey context if available and not already provided
+    // Add journey context if available
     const errorContext = {
-      ...(currentJourneyId && !context?.journey_id && { journey_id: currentJourneyId }),
+      ...(currentJourneyId && { journey_id: currentJourneyId }),
       ...context
     };
 
-    // Log error to Sentry with enhanced context
-    Sentry.withScope((scope: any) => {
-      // Add tags for filtering in Sentry UI
-      scope.setTags({
+    // Log error to Sentry with context
+    Sentry.captureException(error, {
+      tags: {
         error_name: errorName,
-        ...(errorContext && errorContext)
-      });
-
-      // Add extra context data
-      if (errorContext) {
-        Object.entries(errorContext).forEach(([key, value]) => {
-          scope.setExtra(key, value);
-        });
+        ...errorContext
       }
-
-      Sentry.captureException(error);
     });
-
-    // Log error to Datadog RUM
-    datadogRum.addError(error, errorName, errorContext);
 
     // Create error parameters with error details and context
     const errorParams = {
@@ -638,9 +665,9 @@ export const trackPerformanceMetric = (
   if (!analyticsEnabled) return;
 
   try {
-    // Add journey context if available and not already provided
+    // Add journey context if available
     const metricContext = {
-      ...(currentJourneyId && !context?.journey_id && { journey_id: currentJourneyId }),
+      ...(currentJourneyId && { journey_id: currentJourneyId }),
       ...context
     };
 
@@ -657,15 +684,21 @@ export const trackPerformanceMetric = (
     // Call trackEvent with performance_metric event and parameters
     trackEvent('performance_metric', metricParams);
   } catch (error) {
+    // Enhanced error handling
     logger.error('Error tracking performance metric:', error);
     
-    // Attempt to record the error if possible
+    // Report error to Sentry but don't crash the app
     try {
-      if (Sentry && typeof Sentry.captureException === 'function') {
-        Sentry.captureException(error instanceof Error ? error : new Error('Performance metric tracking failed'));
+      if (error instanceof Error) {
+        Sentry.captureException(error, {
+          tags: {
+            error_name: 'performance_metric_tracking_failed',
+            metric_name: metricName
+          }
+        });
       }
     } catch (e) {
-      // Silent fail for error reporting errors
+      // Silently fail if error tracking itself fails
     }
   }
 };
@@ -694,15 +727,20 @@ export const setUserProperties = (properties: Record<string, any>): void => {
 
     logger.log('User properties set');
   } catch (error) {
+    // Enhanced error handling
     logger.error('Error setting user properties:', error);
     
-    // Attempt to record the error if possible
+    // Report error to Sentry but don't crash the app
     try {
-      if (Sentry && typeof Sentry.captureException === 'function') {
-        Sentry.captureException(error instanceof Error ? error : new Error('Setting user properties failed'));
+      if (error instanceof Error) {
+        Sentry.captureException(error, {
+          tags: {
+            error_name: 'user_properties_setting_failed'
+          }
+        });
       }
     } catch (e) {
-      // Silent fail for error reporting errors
+      // Silently fail if error tracking itself fails
     }
   }
 };
@@ -732,15 +770,20 @@ export const setUserId = (userId: string): void => {
 
     logger.log('User ID set');
   } catch (error) {
+    // Enhanced error handling
     logger.error('Error setting user ID:', error);
     
-    // Attempt to record the error if possible
+    // Report error to Sentry but don't crash the app
     try {
-      if (Sentry && typeof Sentry.captureException === 'function') {
-        Sentry.captureException(error instanceof Error ? error : new Error('Setting user ID failed'));
+      if (error instanceof Error) {
+        Sentry.captureException(error, {
+          tags: {
+            error_name: 'user_id_setting_failed'
+          }
+        });
       }
     } catch (e) {
-      // Silent fail for error reporting errors
+      // Silently fail if error tracking itself fails
     }
   }
 };
@@ -751,7 +794,9 @@ export const setUserId = (userId: string): void => {
 export const resetAnalyticsData = (): void => {
   try {
     // Log user_logout event before resetting
-    trackEvent('user_logout');
+    trackEvent('user_logout', {
+      ...(currentJourneyId && { journey_id: currentJourneyId })
+    });
 
     // Reset analytics data in Google Analytics
     ReactGA.set({ userId: undefined });
@@ -762,57 +807,62 @@ export const resetAnalyticsData = (): void => {
     // Reset user in Datadog RUM
     datadogRum.clearUser();
 
-    // Reset current journey ID
+    // Reset journey context
     currentJourneyId = null;
 
     logger.log('Analytics data reset');
   } catch (error) {
+    // Enhanced error handling
     logger.error('Error resetting analytics data:', error);
     
-    // Attempt to record the error if possible
+    // Report error to Sentry but don't crash the app
     try {
-      if (Sentry && typeof Sentry.captureException === 'function') {
-        Sentry.captureException(error instanceof Error ? error : new Error('Resetting analytics data failed'));
+      if (error instanceof Error) {
+        Sentry.captureException(error, {
+          tags: {
+            error_name: 'analytics_reset_failed'
+          }
+        });
       }
     } catch (e) {
-      // Silent fail for error reporting errors
+      // Silently fail if error tracking itself fails
     }
   }
 };
 
 /**
- * Hook that provides analytics functions with current journey context.
- * This hook should be used in components that need to track analytics events.
- * @returns Object containing analytics functions with journey context
+ * Hook that provides analytics functions with the current journey context.
+ * This hook automatically updates analytics with the current journey.
+ * 
+ * @returns Object containing analytics functions that use the current journey context
  */
 export const useAnalytics = () => {
   // Get current journey from context
-  const { currentJourney } = useJourney();
+  const { currentJourney, journeyData } = useJourney();
   
-  // Update analytics journey when journey changes
+  // Update journey context when it changes
   React.useEffect(() => {
-    if (currentJourney?.id) {
-      updateAnalyticsJourney(currentJourney.id as JourneyId);
+    if (currentJourney) {
+      updateJourneyContext(currentJourney);
     }
-  }, [currentJourney?.id]);
-
+  }, [currentJourney]);
+  
+  // Return analytics functions that use the current journey
   return {
     trackEvent,
     trackScreenView: (screenName: string, params?: Record<string, any>) => 
-      trackScreenView(screenName, currentJourney?.id as JourneyId, params),
+      trackScreenView(screenName, currentJourney, params),
     trackJourneyEvent: (eventName: string, params?: Record<string, any>) => 
-      currentJourney?.id ? trackJourneyEvent(currentJourney.id as JourneyId, eventName, params) : undefined,
-    trackHealthEvent,
-    trackCareEvent,
-    trackPlanEvent,
+      trackJourneyEvent(currentJourney, eventName, params),
     trackGamificationEvent,
     trackAchievementUnlocked,
     trackLevelUp,
     trackQuestCompleted,
     trackError,
     trackPerformanceMetric,
-    setUserProperties,
-    setUserId,
-    resetAnalyticsData
+    // Journey-specific tracking functions
+    trackHealthEvent,
+    trackCareEvent,
+    trackPlanEvent,
   };
 };

@@ -1,71 +1,74 @@
 /**
- * Authentication Adapters
+ * Platform Adapter Selection
  * 
- * This file provides a unified entry point for platform-specific authentication adapters.
- * It automatically detects the current platform and initializes the appropriate adapter.
+ * This file provides platform-specific adapters based on the runtime environment,
+ * enabling the journey context package to be platform-agnostic while still
+ * accessing platform-specific features. It dynamically selects the appropriate
+ * adapters for web or mobile environments.
+ *
+ * The adapters bridge the unified journey context API with platform-specific
+ * implementations, allowing for consistent usage patterns across platforms while
+ * leveraging platform-specific capabilities.
  */
 
-// Platform detection function
-const detectPlatform = (): 'web' | 'mobile' => {
-  try {
-    // Primary check: React Native specific global
-    if (typeof navigator !== 'undefined' && navigator.product === 'ReactNative') {
-      return 'mobile';
-    }
-    
-    // Secondary check: React Native specific APIs
-    if (
-      typeof global !== 'undefined' && 
-      ((global as any).ReactNative || (global as any).__REACT_NATIVE_DEVTOOLS_GLOBAL_HOOK__)
-    ) {
-      return 'mobile';
-    }
-    
-    // Tertiary check: Web-specific APIs that don't exist in React Native
-    if (
-      typeof window !== 'undefined' && 
-      typeof document !== 'undefined' && 
-      typeof window.localStorage !== 'undefined'
-    ) {
-      return 'web';
-    }
-    
-    // Default to web platform if detection is inconclusive
-    // This is a safer default for SSR environments
-    return 'web';
-  } catch (error) {
-    // If any error occurs during detection, default to web
-    console.warn('Platform detection failed, defaulting to web:', error);
-    return 'web';
-  }
+// Import platform detection utility
+import { isPlatformWeb } from '../utils/platform';
+
+// Import platform-specific adapters
+import * as WebAdapters from './web/index';
+import * as MobileAdapters from './mobile/index';
+
+/**
+ * Dynamically select the appropriate adapter based on the runtime platform.
+ * This approach preserves tree-shaking capabilities by conditionally exporting
+ * only the adapters needed for the current platform.
+ */
+
+// Auth adapter exports
+export const AuthAdapter = isPlatformWeb()
+  ? WebAdapters.AuthAdapter
+  : MobileAdapters.AuthAdapter;
+
+// Gamification adapter exports
+export const GamificationAdapter = isPlatformWeb()
+  ? WebAdapters.GamificationAdapter
+  : MobileAdapters.GamificationAdapter;
+
+// Journey adapter exports
+export const JourneyAdapter = isPlatformWeb()
+  ? WebAdapters.JourneyAdapter
+  : MobileAdapters.JourneyAdapter;
+
+// Navigation adapter exports
+export const NavigationAdapter = isPlatformWeb()
+  ? WebAdapters.NavigationAdapter
+  : MobileAdapters.NavigationAdapter;
+
+// Notification adapter exports
+export const NotificationAdapter = isPlatformWeb()
+  ? WebAdapters.NotificationAdapter
+  : MobileAdapters.NotificationAdapter;
+
+// Storage adapter exports
+export const StorageAdapter = isPlatformWeb()
+  ? WebAdapters.StorageAdapter
+  : MobileAdapters.StorageAdapter;
+
+/**
+ * Export all adapters as a unified object for convenience when needing
+ * access to multiple adapters at once.
+ */
+export const Adapters = {
+  AuthAdapter,
+  GamificationAdapter,
+  JourneyAdapter,
+  NavigationAdapter,
+  NotificationAdapter,
+  StorageAdapter,
 };
 
 /**
- * Initializes the appropriate authentication adapter based on the detected platform
+ * Re-export platform detection utility for consumers that need to perform
+ * additional platform-specific logic.
  */
-export function initAuthAdapter(): void {
-  const platform = detectPlatform();
-  
-  if (platform === 'web') {
-    // Dynamically import the web adapter to avoid bundling issues
-    import('./web/authAdapter').then(({ initWebAuthAdapter }) => {
-      initWebAuthAdapter();
-    }).catch(error => {
-      console.error('Failed to initialize web auth adapter:', error);
-    });
-  } else {
-    // Dynamically import the mobile adapter to avoid bundling issues
-    import('./mobile/authAdapter').then(({ initMobileAuthAdapter }) => {
-      initMobileAuthAdapter();
-    }).catch(error => {
-      console.error('Failed to initialize mobile auth adapter:', error);
-    });
-  }
-}
-
-// Auto-initialize the adapter when this module is imported
-initAuthAdapter();
-
-// Re-export the adapters for direct access if needed
-export { default as webAuthAdapter } from './web/authAdapter';
-export { default as mobileAuthAdapter } from './mobile/authAdapter';
+export { isPlatformWeb } from '../utils/platform';

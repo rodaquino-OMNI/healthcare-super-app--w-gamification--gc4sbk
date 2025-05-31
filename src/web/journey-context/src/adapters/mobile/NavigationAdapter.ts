@@ -5,26 +5,27 @@
  * React Navigation implementation details and provides journey-aware navigation capabilities.
  */
 
-import { Platform } from 'react-native';
-import { NavigationContainerRef, CommonActions, StackActions } from '@react-navigation/native';
-import { Linking } from 'react-native';
-import { JourneyId, JOURNEY_IDS } from '../../../types/journey.types';
+import { JourneyId, JOURNEY_IDS, isValidJourneyId } from '../../../types/journey.types';
 
 /**
  * Navigation parameters that can be passed during navigation
  */
-export type NavigationParams = Record<string, any>;
+export interface NavigationParams {
+  [key: string]: any;
+}
 
 /**
- * Route configuration for deep linking
+ * Deep link configuration for the application
  */
 export interface DeepLinkConfig {
   /** The URL scheme for the app (e.g., 'austa://') */
   scheme: string;
-  /** The URL host for universal links (e.g., 'app.austa.com.br') */
-  host: string;
-  /** Map of paths to screen names */
-  screens: Record<string, string>;
+  /** The host for universal links (e.g., 'app.austa.com.br') */
+  host?: string;
+  /** Whether to enable universal links */
+  enableUniversalLinks: boolean;
+  /** Mapping of URL paths to screen names */
+  pathToScreenMap: Record<string, string>;
 }
 
 /**
@@ -34,14 +35,14 @@ export interface DeepLinkConfig {
 export type RouteGuard = (routeName: string, params?: NavigationParams) => boolean | Promise<boolean>;
 
 /**
- * Navigation error with additional context
+ * Navigation error with enhanced details
  */
 export class NavigationError extends Error {
   /** The route that was being navigated to */
   routeName: string;
   /** The parameters that were being passed */
   params?: NavigationParams;
-  /** The original error if this is a wrapper */
+  /** The original error if available */
   originalError?: Error;
 
   constructor(message: string, routeName: string, params?: NavigationParams, originalError?: Error) {
@@ -54,553 +55,530 @@ export class NavigationError extends Error {
 }
 
 /**
- * Mobile-specific navigation adapter for React Navigation
+ * React Native Navigation Adapter
+ * 
+ * Provides a unified interface for navigation operations in React Native,
+ * abstracting the underlying React Navigation implementation details.
  */
 export class NavigationAdapter {
-  /** Reference to the navigation container */
-  private navigationRef: React.RefObject<NavigationContainerRef<any>> | null = null;
-  /** Route guards to check before navigation */
-  private routeGuards: RouteGuard[] = [];
+  /** Reference to the navigation object */
+  private navigationRef: any = null;
   /** Deep link configuration */
-  private deepLinkConfig: DeepLinkConfig | null = null;
-  /** Current journey ID */
+  private deepLinkConfig: DeepLinkConfig;
+  /** Route guards for protected routes */
+  private routeGuards: Map<string, RouteGuard> = new Map();
+  /** Journey-specific route guards */
+  private journeyRouteGuards: Map<JourneyId, RouteGuard> = new Map();
+  /** Default journey to fallback to */
+  private defaultJourney: JourneyId = JOURNEY_IDS.HEALTH;
+  /** Current journey */
   private currentJourney: JourneyId = JOURNEY_IDS.HEALTH;
-  /** Callback to update journey context when navigation changes */
-  private onJourneyChange: ((journeyId: JourneyId) => void) | null = null;
+  /** Navigation state change listeners */
+  private navigationStateListeners: Array<(state: any) => void> = [];
 
   /**
-   * Initialize the navigation adapter
-   * @param navigationRef Reference to the React Navigation container
+   * Creates a new NavigationAdapter instance
+   * 
+   * @param deepLinkConfig - Configuration for deep linking
    */
-  public initialize(navigationRef: React.RefObject<NavigationContainerRef<any>>): void {
+  constructor(deepLinkConfig: DeepLinkConfig) {
+    this.deepLinkConfig = deepLinkConfig;
+  }
+
+  /**
+   * Sets the navigation reference from React Navigation
+   * 
+   * @param navigationRef - Reference to the React Navigation object
+   */
+  public setNavigationRef(navigationRef: any): void {
     this.navigationRef = navigationRef;
-    this.setupDeepLinkHandlers();
   }
 
   /**
-   * Configure deep linking for the application
-   * @param config Deep link configuration
+   * Sets the current journey
+   * 
+   * @param journeyId - The journey ID to set as current
    */
-  public configureDeepLinks(config: DeepLinkConfig): void {
-    this.deepLinkConfig = config;
-  }
-
-  /**
-   * Set up handlers for deep links
-   */
-  private setupDeepLinkHandlers(): void {
-    if (!this.deepLinkConfig) return;
-
-    // Handle initial URL when app is opened from a link
-    Linking.getInitialURL().then(url => {
-      if (url) {
-        this.handleDeepLink(url);
-      }
-    }).catch(err => {
-      console.error('Error getting initial URL:', err);
-    });
-
-    // Handle deep links when app is already running
-    const linkingListener = Linking.addEventListener('url', ({ url }) => {
-      this.handleDeepLink(url);
-    });
-
-    // Return cleanup function (not used here but good practice)
-    return () => {
-      linkingListener.remove();
-    };
-  }
-
-  /**
-   * Process a deep link URL and navigate accordingly
-   * @param url The deep link URL to process
-   */
-  private handleDeepLink(url: string): void {
-    if (!this.deepLinkConfig || !this.navigationRef?.current) return;
-
-    try {
-      const { scheme, host, screens } = this.deepLinkConfig;
-      const parsedUrl = new URL(url);
-      
-      // Check if this is a valid deep link for our app
-      const isAppScheme = url.startsWith(`${scheme}`);
-      const isUniversalLink = parsedUrl.host === host;
-      
-      if (!isAppScheme && !isUniversalLink) return;
-      
-      // Extract the path without leading slash
-      const path = parsedUrl.pathname.startsWith('/') 
-        ? parsedUrl.pathname.substring(1) 
-        : parsedUrl.pathname;
-      
-      // Find matching screen
-      const screenName = screens[path];
-      if (!screenName) return;
-      
-      // Extract query parameters
-      const params: NavigationParams = {};
-      parsedUrl.searchParams.forEach((value, key) => {
-        params[key] = value;
-      });
-      
-      // Extract journey ID from params or path
-      const journeyId = params.journeyId as JourneyId || this.getJourneyFromPath(path);
-      if (journeyId && Object.values(JOURNEY_IDS).includes(journeyId)) {
-        this.updateJourney(journeyId);
-      }
-      
-      // Navigate to the screen
-      this.navigate(screenName, params);
-    } catch (error) {
-      console.error('Error handling deep link:', error);
+  public setCurrentJourney(journeyId: JourneyId): void {
+    if (isValidJourneyId(journeyId)) {
+      this.currentJourney = journeyId;
+    } else {
+      console.warn(`Invalid journey ID: ${journeyId}, using default journey instead`);
+      this.currentJourney = this.defaultJourney;
     }
   }
 
   /**
-   * Extract journey ID from a path if possible
-   * @param path URL path
-   * @returns Journey ID if found, undefined otherwise
+   * Sets the default journey
+   * 
+   * @param journeyId - The journey ID to set as default
    */
-  private getJourneyFromPath(path: string): JourneyId | undefined {
-    // Check if path starts with a journey ID
-    const pathParts = path.split('/');
-    const firstPart = pathParts[0]?.toLowerCase();
-    
-    if (firstPart === 'health') return JOURNEY_IDS.HEALTH;
-    if (firstPart === 'care') return JOURNEY_IDS.CARE;
-    if (firstPart === 'plan') return JOURNEY_IDS.PLAN;
+  public setDefaultJourney(journeyId: JourneyId): void {
+    if (isValidJourneyId(journeyId)) {
+      this.defaultJourney = journeyId;
+    } else {
+      console.warn(`Invalid journey ID: ${journeyId}, default journey not changed`);
+    }
+  }
+
+  /**
+   * Adds a route guard for a specific route
+   * 
+   * @param routeName - The route name to guard
+   * @param guard - The guard function
+   */
+  public addRouteGuard(routeName: string, guard: RouteGuard): void {
+    this.routeGuards.set(routeName, guard);
+  }
+
+  /**
+   * Removes a route guard for a specific route
+   * 
+   * @param routeName - The route name to remove the guard from
+   */
+  public removeRouteGuard(routeName: string): void {
+    this.routeGuards.delete(routeName);
+  }
+
+  /**
+   * Adds a journey-specific route guard
+   * 
+   * @param journeyId - The journey ID to guard
+   * @param guard - The guard function
+   */
+  public addJourneyRouteGuard(journeyId: JourneyId, guard: RouteGuard): void {
+    if (isValidJourneyId(journeyId)) {
+      this.journeyRouteGuards.set(journeyId, guard);
+    } else {
+      console.warn(`Invalid journey ID: ${journeyId}, journey route guard not added`);
+    }
+  }
+
+  /**
+   * Removes a journey-specific route guard
+   * 
+   * @param journeyId - The journey ID to remove the guard from
+   */
+  public removeJourneyRouteGuard(journeyId: JourneyId): void {
+    this.journeyRouteGuards.delete(journeyId);
+  }
+
+  /**
+   * Adds a navigation state change listener
+   * 
+   * @param listener - The listener function
+   * @returns A function to remove the listener
+   */
+  public addNavigationStateListener(listener: (state: any) => void): () => void {
+    this.navigationStateListeners.push(listener);
+    return () => {
+      this.navigationStateListeners = this.navigationStateListeners.filter(l => l !== listener);
+    };
+  }
+
+  /**
+   * Notifies all navigation state listeners of a state change
+   * 
+   * @param state - The new navigation state
+   */
+  private notifyNavigationStateListeners(state: any): void {
+    this.navigationStateListeners.forEach(listener => {
+      try {
+        listener(state);
+      } catch (error) {
+        console.error('Error in navigation state listener:', error);
+      }
+    });
+  }
+
+  /**
+   * Checks if a route is allowed based on route guards
+   * 
+   * @param routeName - The route name to check
+   * @param params - The navigation parameters
+   * @returns True if navigation is allowed, false otherwise
+   */
+  private async isRouteAllowed(routeName: string, params?: NavigationParams): Promise<boolean> {
+    // Check route-specific guard
+    const routeGuard = this.routeGuards.get(routeName);
+    if (routeGuard) {
+      try {
+        const isAllowed = await Promise.resolve(routeGuard(routeName, params));
+        if (!isAllowed) {
+          return false;
+        }
+      } catch (error) {
+        console.error(`Error in route guard for ${routeName}:`, error);
+        return false;
+      }
+    }
+
+    // Check journey-specific guard if this is a journey route
+    const journeyId = this.getJourneyIdFromRoute(routeName);
+    if (journeyId) {
+      const journeyGuard = this.journeyRouteGuards.get(journeyId);
+      if (journeyGuard) {
+        try {
+          const isAllowed = await Promise.resolve(journeyGuard(routeName, params));
+          if (!isAllowed) {
+            return false;
+          }
+        } catch (error) {
+          console.error(`Error in journey route guard for ${journeyId}:`, error);
+          return false;
+        }
+      }
+    }
+
+    return true;
+  }
+
+  /**
+   * Extracts the journey ID from a route name
+   * 
+   * @param routeName - The route name to check
+   * @returns The journey ID if found, undefined otherwise
+   */
+  private getJourneyIdFromRoute(routeName: string): JourneyId | undefined {
+    // Check if route name starts with a journey prefix
+    if (routeName.startsWith('Health')) {
+      return JOURNEY_IDS.HEALTH;
+    } else if (routeName.startsWith('Care')) {
+      return JOURNEY_IDS.CARE;
+    } else if (routeName.startsWith('Plan')) {
+      return JOURNEY_IDS.PLAN;
+    }
     
     return undefined;
   }
 
   /**
-   * Set the callback for journey changes
-   * @param callback Function to call when journey changes
-   */
-  public setJourneyChangeCallback(callback: (journeyId: JourneyId) => void): void {
-    this.onJourneyChange = callback;
-  }
-
-  /**
-   * Update the current journey and notify listeners
-   * @param journeyId The new journey ID
-   */
-  private updateJourney(journeyId: JourneyId): void {
-    if (this.currentJourney !== journeyId) {
-      this.currentJourney = journeyId;
-      if (this.onJourneyChange) {
-        this.onJourneyChange(journeyId);
-      }
-    }
-  }
-
-  /**
-   * Add a route guard to check before navigation
-   * @param guard Function that returns true to allow navigation or false to block
-   * @returns Function to remove the guard
-   */
-  public addRouteGuard(guard: RouteGuard): () => void {
-    this.routeGuards.push(guard);
-    return () => {
-      this.routeGuards = this.routeGuards.filter(g => g !== guard);
-    };
-  }
-
-  /**
-   * Check if navigation should be allowed based on route guards
-   * @param routeName Screen to navigate to
-   * @param params Navigation parameters
-   * @returns Promise that resolves to true if navigation is allowed
-   */
-  private async checkRouteGuards(routeName: string, params?: NavigationParams): Promise<boolean> {
-    for (const guard of this.routeGuards) {
-      try {
-        const result = await Promise.resolve(guard(routeName, params));
-        if (!result) return false;
-      } catch (error) {
-        console.error('Error in route guard:', error);
-        return false;
-      }
-    }
-    return true;
-  }
-
-  /**
-   * Navigate to a screen
-   * @param routeName Screen to navigate to
-   * @param params Navigation parameters
-   * @throws NavigationError if navigation fails
+   * Navigates to a specific screen
+   * 
+   * @param routeName - The name of the route to navigate to
+   * @param params - Optional parameters to pass to the route
+   * @throws NavigationError if navigation fails or is not allowed
    */
   public async navigate(routeName: string, params?: NavigationParams): Promise<void> {
-    if (!this.navigationRef?.current) {
-      throw new NavigationError(
-        'Navigation failed: Navigation container not initialized',
-        routeName,
-        params
-      );
-    }
-
     try {
-      // Check route guards
-      const isAllowed = await this.checkRouteGuards(routeName, params);
-      if (!isAllowed) {
+      if (!this.navigationRef || !this.navigationRef.isReady()) {
         throw new NavigationError(
-          'Navigation blocked by route guard',
-          routeName,
+          'Navigation is not ready', 
+          routeName, 
           params
         );
       }
 
-      // Extract journey ID from params if present
-      if (params?.journeyId && Object.values(JOURNEY_IDS).includes(params.journeyId)) {
-        this.updateJourney(params.journeyId as JourneyId);
+      // Check if navigation is allowed by route guards
+      const isAllowed = await this.isRouteAllowed(routeName, params);
+      if (!isAllowed) {
+        throw new NavigationError(
+          'Navigation not allowed by route guard', 
+          routeName, 
+          params
+        );
       }
 
-      // Perform navigation
-      this.navigationRef.current.navigate(routeName, params);
+      // Update journey context if navigating to a journey route
+      const journeyId = this.getJourneyIdFromRoute(routeName);
+      if (journeyId && journeyId !== this.currentJourney) {
+        this.setCurrentJourney(journeyId);
+      }
+
+      // Perform the navigation
+      this.navigationRef.navigate(routeName, params);
+      
+      // Notify state listeners
+      const currentState = this.navigationRef.getRootState();
+      this.notifyNavigationStateListeners(currentState);
     } catch (error) {
       if (error instanceof NavigationError) {
         throw error;
       } else {
         throw new NavigationError(
-          `Navigation failed: ${error instanceof Error ? error.message : String(error)}`,
-          routeName,
-          params,
-          error instanceof Error ? error : undefined
+          `Failed to navigate to ${routeName}`, 
+          routeName, 
+          params, 
+          error instanceof Error ? error : new Error(String(error))
         );
       }
     }
   }
 
   /**
-   * Navigate to a specific journey's main screen
-   * @param journeyId Journey to navigate to
-   * @param params Additional navigation parameters
+   * Navigates back to the previous screen
+   * 
+   * @throws NavigationError if navigation fails
    */
-  public navigateToJourney(journeyId: JourneyId, params?: NavigationParams): Promise<void> {
-    // Map journey IDs to their main screen routes
-    const journeyRoutes: Record<JourneyId, string> = {
-      [JOURNEY_IDS.HEALTH]: 'HealthDashboard',
-      [JOURNEY_IDS.CARE]: 'CareDashboard',
-      [JOURNEY_IDS.PLAN]: 'PlanDashboard'
-    };
-
-    const routeName = journeyRoutes[journeyId];
-    return this.navigate(routeName, { ...params, journeyId });
-  }
-
-  /**
-   * Go back to the previous screen
-   * @param fallbackRoute Route to navigate to if there's no screen to go back to
-   */
-  public goBack(fallbackRoute?: string): void {
-    if (!this.navigationRef?.current) {
-      throw new NavigationError(
-        'Navigation failed: Navigation container not initialized',
-        'goBack',
-        { fallbackRoute }
-      );
-    }
-
+  public goBack(): void {
     try {
-      if (this.navigationRef.current.canGoBack()) {
-        this.navigationRef.current.goBack();
-      } else if (fallbackRoute) {
-        this.navigate(fallbackRoute);
+      if (!this.navigationRef || !this.navigationRef.isReady()) {
+        throw new NavigationError('Navigation is not ready', 'goBack');
       }
-    } catch (error) {
-      throw new NavigationError(
-        `Failed to go back: ${error instanceof Error ? error.message : String(error)}`,
-        'goBack',
-        { fallbackRoute },
-        error instanceof Error ? error : undefined
-      );
-    }
-  }
 
-  /**
-   * Reset the navigation state to a given route
-   * @param routeName Screen to reset to
-   * @param params Navigation parameters
-   */
-  public reset(routeName: string, params?: NavigationParams): void {
-    if (!this.navigationRef?.current) {
-      throw new NavigationError(
-        'Navigation failed: Navigation container not initialized',
-        routeName,
-        params
-      );
-    }
-
-    try {
-      this.navigationRef.current.dispatch(
-        CommonActions.reset({
-          index: 0,
-          routes: [
-            { name: routeName, params },
-          ],
-        })
-      );
-    } catch (error) {
-      throw new NavigationError(
-        `Failed to reset navigation: ${error instanceof Error ? error.message : String(error)}`,
-        routeName,
-        params,
-        error instanceof Error ? error : undefined
-      );
-    }
-  }
-
-  /**
-   * Replace the current screen with a new one
-   * @param routeName Screen to navigate to
-   * @param params Navigation parameters
-   */
-  public replace(routeName: string, params?: NavigationParams): void {
-    if (!this.navigationRef?.current) {
-      throw new NavigationError(
-        'Navigation failed: Navigation container not initialized',
-        routeName,
-        params
-      );
-    }
-
-    try {
-      this.navigationRef.current.dispatch(
-        StackActions.replace(routeName, params)
-      );
-    } catch (error) {
-      throw new NavigationError(
-        `Failed to replace screen: ${error instanceof Error ? error.message : String(error)}`,
-        routeName,
-        params,
-        error instanceof Error ? error : undefined
-      );
-    }
-  }
-
-  /**
-   * Push a new screen onto the stack
-   * @param routeName Screen to navigate to
-   * @param params Navigation parameters
-   */
-  public push(routeName: string, params?: NavigationParams): void {
-    if (!this.navigationRef?.current) {
-      throw new NavigationError(
-        'Navigation failed: Navigation container not initialized',
-        routeName,
-        params
-      );
-    }
-
-    try {
-      this.navigationRef.current.dispatch(
-        StackActions.push(routeName, params)
-      );
-    } catch (error) {
-      throw new NavigationError(
-        `Failed to push screen: ${error instanceof Error ? error.message : String(error)}`,
-        routeName,
-        params,
-        error instanceof Error ? error : undefined
-      );
-    }
-  }
-
-  /**
-   * Pop a number of screens from the stack
-   * @param count Number of screens to pop (default: 1)
-   */
-  public pop(count: number = 1): void {
-    if (!this.navigationRef?.current) {
-      throw new NavigationError(
-        'Navigation failed: Navigation container not initialized',
-        'pop',
-        { count }
-      );
-    }
-
-    try {
-      this.navigationRef.current.dispatch(
-        StackActions.pop(count)
-      );
-    } catch (error) {
-      throw new NavigationError(
-        `Failed to pop screen: ${error instanceof Error ? error.message : String(error)}`,
-        'pop',
-        { count },
-        error instanceof Error ? error : undefined
-      );
-    }
-  }
-
-  /**
-   * Pop to a specific screen in the stack
-   * @param routeName Screen to pop to
-   */
-  public popTo(routeName: string): void {
-    if (!this.navigationRef?.current) {
-      throw new NavigationError(
-        'Navigation failed: Navigation container not initialized',
-        routeName
-      );
-    }
-
-    try {
-      // Get the current route name
-      const state = this.navigationRef.current.getState();
-      const routes = state.routes;
-      
-      // Find the target route in the stack
-      const targetIndex = routes.findIndex(route => route.name === routeName);
-      
-      if (targetIndex >= 0) {
-        // Calculate how many screens to pop
-        const currentIndex = state.index;
-        const popCount = currentIndex - targetIndex;
+      if (this.navigationRef.canGoBack()) {
+        this.navigationRef.goBack();
         
-        if (popCount > 0) {
-          this.pop(popCount);
-        }
+        // Notify state listeners
+        const currentState = this.navigationRef.getRootState();
+        this.notifyNavigationStateListeners(currentState);
+      } else {
+        throw new NavigationError('Cannot go back from this screen', 'goBack');
       }
     } catch (error) {
-      throw new NavigationError(
-        `Failed to pop to screen: ${error instanceof Error ? error.message : String(error)}`,
-        routeName,
-        undefined,
-        error instanceof Error ? error : undefined
-      );
+      if (error instanceof NavigationError) {
+        throw error;
+      } else {
+        throw new NavigationError(
+          'Failed to go back', 
+          'goBack', 
+          undefined, 
+          error instanceof Error ? error : new Error(String(error))
+        );
+      }
     }
   }
 
   /**
-   * Get the current route information
-   * @returns Current route name and params, or null if not available
+   * Resets the navigation state to a specific route
+   * 
+   * @param routeName - The name of the route to reset to
+   * @param params - Optional parameters to pass to the route
+   * @throws NavigationError if navigation fails or is not allowed
    */
-  public getCurrentRoute(): { name: string; params?: NavigationParams } | null {
-    if (!this.navigationRef?.current) return null;
-
+  public async reset(routeName: string, params?: NavigationParams): Promise<void> {
     try {
-      const route = this.navigationRef.current.getCurrentRoute();
-      return route ? { name: route.name, params: route.params } : null;
+      if (!this.navigationRef || !this.navigationRef.isReady()) {
+        throw new NavigationError(
+          'Navigation is not ready', 
+          routeName, 
+          params
+        );
+      }
+
+      // Check if navigation is allowed by route guards
+      const isAllowed = await this.isRouteAllowed(routeName, params);
+      if (!isAllowed) {
+        throw new NavigationError(
+          'Navigation not allowed by route guard', 
+          routeName, 
+          params
+        );
+      }
+
+      // Update journey context if resetting to a journey route
+      const journeyId = this.getJourneyIdFromRoute(routeName);
+      if (journeyId && journeyId !== this.currentJourney) {
+        this.setCurrentJourney(journeyId);
+      }
+
+      // Perform the reset
+      this.navigationRef.reset({
+        index: 0,
+        routes: [{ name: routeName, params }],
+      });
+      
+      // Notify state listeners
+      const currentState = this.navigationRef.getRootState();
+      this.notifyNavigationStateListeners(currentState);
     } catch (error) {
-      console.error('Error getting current route:', error);
-      return null;
+      if (error instanceof NavigationError) {
+        throw error;
+      } else {
+        throw new NavigationError(
+          `Failed to reset to ${routeName}`, 
+          routeName, 
+          params, 
+          error instanceof Error ? error : new Error(String(error))
+        );
+      }
     }
   }
 
   /**
-   * Check if a specific screen is in the navigation stack
-   * @param routeName Screen name to check for
-   * @returns True if the screen is in the stack
+   * Handles a deep link URL
+   * 
+   * @param url - The deep link URL to handle
+   * @returns True if the deep link was handled, false otherwise
    */
-  public isRouteInStack(routeName: string): boolean {
-    if (!this.navigationRef?.current) return false;
-
+  public async handleDeepLink(url: string): Promise<boolean> {
     try {
-      const state = this.navigationRef.current.getState();
-      return state.routes.some(route => route.name === routeName);
+      // Check if URL matches our scheme
+      const { scheme, host, pathToScreenMap } = this.deepLinkConfig;
+      
+      // Handle app scheme links (e.g., austa://screen/param)
+      if (url.startsWith(`${scheme}`)) {
+        const path = url.substring(scheme.length);
+        return await this.processDeepLinkPath(path, pathToScreenMap);
+      }
+      
+      // Handle universal links (e.g., https://app.austa.com.br/screen/param)
+      if (host && url.includes(host)) {
+        const urlObj = new URL(url);
+        const path = urlObj.pathname;
+        return await this.processDeepLinkPath(path, pathToScreenMap);
+      }
+      
+      return false;
     } catch (error) {
-      console.error('Error checking route in stack:', error);
+      console.error('Error handling deep link:', error);
       return false;
     }
   }
 
   /**
-   * Create a deep link URL for a specific screen
-   * @param routeName Screen to link to
-   * @param params Parameters to include in the link
-   * @param useUniversalLink Whether to use universal link format (default: false)
-   * @returns Deep link URL or null if deep linking is not configured
+   * Processes a deep link path and navigates to the corresponding screen
+   * 
+   * @param path - The path from the deep link URL
+   * @param pathToScreenMap - Mapping of paths to screen names
+   * @returns True if the path was processed successfully, false otherwise
    */
-  public createDeepLink(
-    routeName: string, 
-    params?: NavigationParams, 
-    useUniversalLink: boolean = false
-  ): string | null {
-    if (!this.deepLinkConfig) return null;
+  private async processDeepLinkPath(path: string, pathToScreenMap: Record<string, string>): Promise<boolean> {
+    // Find the matching path pattern
+    const matchingPathPattern = Object.keys(pathToScreenMap).find(pattern => {
+      // Convert route pattern to regex
+      // e.g., '/health/:metricId' becomes /^\/health\/([^\/]+)$/
+      const regexPattern = new RegExp(
+        `^${pattern.replace(/\//g, '\\/').replace(/:[^/]+/g, '([^\\/]+)')}$`
+      );
+      return regexPattern.test(path);
+    });
 
-    try {
-      const { scheme, host, screens } = this.deepLinkConfig;
+    if (matchingPathPattern) {
+      const screenName = pathToScreenMap[matchingPathPattern];
       
-      // Find the path for this route name
-      const path = Object.entries(screens).find(([_, screen]) => screen === routeName)?.[0];
-      if (!path) return null;
+      // Extract parameters from the path
+      const params: NavigationParams = {};
+      const paramNames = matchingPathPattern.match(/:[^/]+/g) || [];
       
-      // Build query string from params
-      let queryString = '';
-      if (params) {
-        const searchParams = new URLSearchParams();
-        Object.entries(params).forEach(([key, value]) => {
-          if (value !== undefined && value !== null) {
-            searchParams.append(key, String(value));
-          }
-        });
-        const search = searchParams.toString();
-        if (search) {
-          queryString = `?${search}`;
+      if (paramNames.length > 0) {
+        // Convert route pattern to regex with capture groups
+        const regexPattern = new RegExp(
+          `^${matchingPathPattern.replace(/\//g, '\\/').replace(/:[^/]+/g, '([^\\/]+)')}$`
+        );
+        
+        const matches = path.match(regexPattern);
+        if (matches && matches.length > 1) {
+          // Skip the first match (full string) and map remaining matches to param names
+          paramNames.forEach((param, index) => {
+            const paramName = param.substring(1); // Remove the ':' prefix
+            params[paramName] = matches[index + 1];
+          });
         }
       }
       
-      // Create the URL in the appropriate format
-      if (useUniversalLink) {
-        // Universal link format (https://app.austa.com.br/path)
-        return `https://${host}/${path}${queryString}`;
+      // Navigate to the screen
+      await this.navigate(screenName, params);
+      return true;
+    }
+    
+    return false;
+  }
+
+  /**
+   * Gets the current route name
+   * 
+   * @returns The current route name or undefined if not available
+   */
+  public getCurrentRouteName(): string | undefined {
+    try {
+      if (!this.navigationRef || !this.navigationRef.isReady()) {
+        return undefined;
+      }
+      
+      const route = this.navigationRef.getCurrentRoute();
+      return route?.name;
+    } catch (error) {
+      console.error('Error getting current route name:', error);
+      return undefined;
+    }
+  }
+
+  /**
+   * Gets the current route parameters
+   * 
+   * @returns The current route parameters or undefined if not available
+   */
+  public getCurrentRouteParams(): NavigationParams | undefined {
+    try {
+      if (!this.navigationRef || !this.navigationRef.isReady()) {
+        return undefined;
+      }
+      
+      const route = this.navigationRef.getCurrentRoute();
+      return route?.params;
+    } catch (error) {
+      console.error('Error getting current route params:', error);
+      return undefined;
+    }
+  }
+
+  /**
+   * Checks if the navigation can go back
+   * 
+   * @returns True if navigation can go back, false otherwise
+   */
+  public canGoBack(): boolean {
+    try {
+      if (!this.navigationRef || !this.navigationRef.isReady()) {
+        return false;
+      }
+      
+      return this.navigationRef.canGoBack();
+    } catch (error) {
+      console.error('Error checking if can go back:', error);
+      return false;
+    }
+  }
+
+  /**
+   * Creates a deep link URL for a specific screen
+   * 
+   * @param screenName - The name of the screen to link to
+   * @param params - Optional parameters to include in the link
+   * @param useUniversalLink - Whether to use a universal link (if configured)
+   * @returns The deep link URL or undefined if it couldn't be created
+   */
+  public createDeepLink(
+    screenName: string, 
+    params?: NavigationParams, 
+    useUniversalLink: boolean = false
+  ): string | undefined {
+    try {
+      const { scheme, host, enableUniversalLinks, pathToScreenMap } = this.deepLinkConfig;
+      
+      // Find the path pattern for this screen
+      const pathPattern = Object.entries(pathToScreenMap).find(
+        ([_, screen]) => screen === screenName
+      )?.[0];
+      
+      if (!pathPattern) {
+        return undefined;
+      }
+      
+      // Replace path parameters with actual values
+      let path = pathPattern;
+      if (params) {
+        Object.entries(params).forEach(([key, value]) => {
+          path = path.replace(`:${key}`, String(value));
+        });
+      }
+      
+      // Check if all parameters have been replaced
+      if (path.includes(':')) {
+        console.warn(`Not all parameters were provided for deep link to ${screenName}`);
+        return undefined;
+      }
+      
+      // Create the URL
+      if (useUniversalLink && enableUniversalLinks && host) {
+        return `https://${host}${path}`;
       } else {
-        // App scheme format (austa://path)
-        return `${scheme}${path}${queryString}`;
+        return `${scheme}${path}`;
       }
     } catch (error) {
       console.error('Error creating deep link:', error);
-      return null;
+      return undefined;
     }
-  }
-
-  /**
-   * Open a URL in the device's browser
-   * @param url URL to open
-   * @returns Promise that resolves when the URL is opened
-   */
-  public async openURL(url: string): Promise<void> {
-    try {
-      const supported = await Linking.canOpenURL(url);
-      
-      if (supported) {
-        await Linking.openURL(url);
-      } else {
-        throw new Error(`Cannot open URL: ${url}`);
-      }
-    } catch (error) {
-      throw new NavigationError(
-        `Failed to open URL: ${error instanceof Error ? error.message : String(error)}`,
-        'openURL',
-        { url },
-        error instanceof Error ? error : undefined
-      );
-    }
-  }
-
-  /**
-   * Add a journey-specific route guard
-   * @param journeyId Journey to guard routes for
-   * @param guard Function that returns true to allow navigation or false to block
-   * @returns Function to remove the guard
-   */
-  public addJourneyRouteGuard(journeyId: JourneyId, guard: RouteGuard): () => void {
-    // Create a wrapper guard that only applies to the specified journey
-    const journeyGuard: RouteGuard = (routeName, params) => {
-      // Only apply this guard if we're in the specified journey
-      if (this.currentJourney === journeyId) {
-        return guard(routeName, params);
-      }
-      // Otherwise, allow navigation
-      return true;
-    };
-    
-    return this.addRouteGuard(journeyGuard);
   }
 }
-
-// Create and export a singleton instance
-const navigationAdapter = new NavigationAdapter();
-export default navigationAdapter;

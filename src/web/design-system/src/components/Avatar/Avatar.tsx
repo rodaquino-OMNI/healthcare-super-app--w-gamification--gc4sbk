@@ -1,105 +1,95 @@
-/**
- * @file Avatar component implementation
- * @description Renders a user profile image with fallback options
- */
-
 import React, { useState } from 'react';
-
-// Import primitives from @design-system/primitives package
+import { AvatarProps } from '@austa/interfaces/components';
 import { Icon } from '@design-system/primitives/components/Icon';
 import { Text } from '@design-system/primitives/components/Text';
-
-// Import AvatarProps interface from @austa/interfaces/components
-import { AvatarProps } from '@austa/interfaces/components';
-
-// Import styled components
 import { AvatarContainer, AvatarImage, AvatarFallback } from './Avatar.styles';
 
 /**
- * Helper function to extract initials from a name
- * @param name - The name to extract initials from
+ * Helper function to get initials from a name or alt text
+ * @param text - The text to extract initials from
  * @returns Up to two characters representing the initials
  */
-const getInitials = (name?: string): string => {
-  if (!name) return '';
+const getInitials = (text?: string): string => {
+  if (!text) return '';
   
-  const parts = name.trim().split(/\s+/);
+  const words = text.trim().split(/\s+/);
   
-  if (parts.length === 1) {
-    return parts[0].charAt(0).toUpperCase();
+  if (words.length === 1) {
+    return words[0].charAt(0).toUpperCase();
   }
   
-  return (
-    parts[0].charAt(0) + parts[parts.length - 1].charAt(0)
-  ).toUpperCase();
+  return `${words[0].charAt(0)}${words[words.length - 1].charAt(0)}`.toUpperCase();
 };
 
 /**
- * Avatar component that displays a user profile image or falls back to initials/icon
- * @param props - The component props
- * @returns A React component
+ * Avatar component that displays a user's profile image or falls back to initials or an icon.
+ * 
+ * The component now supports journey-specific theming through the journey prop,
+ * which applies appropriate background and text colors based on the selected journey.
+ *
+ * @example
+ * // Basic usage with image
+ * <Avatar src="https://example.com/avatar.jpg" alt="John Doe" />
+ * 
+ * @example
+ * // With journey-specific theming
+ * <Avatar src="https://example.com/avatar.jpg" alt="John Doe" journey="health" />
+ * 
+ * @example
+ * // With custom size
+ * <Avatar src="https://example.com/avatar.jpg" alt="John Doe" size={64} />
+ * 
+ * @example
+ * // Forced fallback to initials
+ * <Avatar alt="John Doe" showFallback />
  */
 export const Avatar: React.FC<AvatarProps> = ({
   src,
-  alt = '',
+  alt,
   size = 40,
-  showFallback = false,
   journey,
-  onImageError,
+  showFallback = false,
   testID,
-  className,
+  onImageError,
   ...rest
 }) => {
-  // Track image loading errors
-  const [hasError, setHasError] = useState(showFallback);
-  
-  // Handle image loading errors
-  const handleImageError = () => {
-    setHasError(true);
-    if (onImageError) {
-      onImageError();
-    }
-  };
-  
-  // Get initials from alt text if available
+  const [hasError, setHasError] = useState(false);
+  const sizeInPx = typeof size === 'number' ? `${size}px` : size;
+  const shouldShowFallback = showFallback || !src || hasError;
   const initials = getInitials(alt);
   
-  // Convert size to string with 'px' for styling
-  const sizeWithUnit = `${size}px`;
-  
+  const handleImageError = (e: React.SyntheticEvent<HTMLImageElement>) => {
+    setHasError(true);
+    if (onImageError) {
+      onImageError(e);
+    }
+  };
+
   return (
     <AvatarContainer 
-      size={sizeWithUnit} 
+      size={sizeInPx} 
       journey={journey}
-      className={className}
       data-testid={testID}
+      aria-label={alt}
       {...rest}
     >
-      {src && !hasError ? (
-        <AvatarImage 
-          src={src} 
-          alt={alt} 
-          onError={handleImageError} 
-        />
-      ) : (
-        <AvatarFallback size={sizeWithUnit}>
-          {initials ? (
-            <Text 
-              variant="body"
-              weight="medium"
-              color={journey ? `journeys.${journey}.text` : 'neutral.gray700'}
-            >
-              {initials}
-            </Text>
-          ) : (
-            <Icon 
-              name="profile" 
-              size={size / 2} 
-              color={journey ? `journeys.${journey}.text` : 'neutral.gray700'}
-            />
-          )}
+      {!shouldShowFallback ? (
+        <AvatarImage src={src} alt={alt} onError={handleImageError} />
+      ) : initials ? (
+        <AvatarFallback size={sizeInPx} journey={journey}>
+          <Text size={`calc(${sizeInPx} / 3)`} weight="medium" journey={journey}>
+            {initials}
+          </Text>
         </AvatarFallback>
+      ) : (
+        <Icon 
+          name="profile" 
+          size={`calc(${sizeInPx} * 0.6)`} 
+          color={journey ? `journeys.${journey}.text` : 'neutral.gray700'}
+        />
       )}
     </AvatarContainer>
   );
 };
+
+export default Avatar;

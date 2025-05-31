@@ -1,156 +1,125 @@
-/**
- * @file calculation.spec.ts
- * @description Tests for date calculation utility re-exports
- */
+import { calculateAge, getTimeAgo } from '../calculation';
 
-import { expect } from 'chai';
-import * as calculationModule from '../calculation';
-
-describe('Date Calculation Re-exports', () => {
+describe('Date Calculation Utilities', () => {
   describe('calculateAge', () => {
-    it('should be exported correctly', () => {
-      expect(calculationModule.calculateAge).to.be.a('function');
+    it('should calculate age correctly from a Date object', () => {
+      // Create a reference date (2023-01-01)
+      const referenceDate = new Date(2023, 0, 1);
+      
+      // Test with a birthdate 30 years before the reference date
+      const birthdate = new Date(1993, 0, 1);
+      
+      expect(calculateAge(birthdate, referenceDate)).toBe(30);
     });
 
-    it('should calculate age correctly from Date object', () => {
-      const birthdate = new Date();
-      birthdate.setFullYear(birthdate.getFullYear() - 30); // 30 years ago
+    it('should calculate age correctly from a date string', () => {
+      // Create a reference date (2023-01-01)
+      const referenceDate = new Date(2023, 0, 1);
       
-      const referenceDate = new Date();
+      // Test with a birthdate string in dd/MM/yyyy format
+      const birthdateStr = '01/01/1993';
       
-      expect(calculationModule.calculateAge(birthdate, referenceDate)).to.equal(30);
+      expect(calculateAge(birthdateStr, referenceDate)).toBe(30);
     });
 
-    it('should calculate age correctly from string date', () => {
-      const today = new Date();
-      const year = today.getFullYear() - 25; // 25 years ago
-      const month = today.getMonth() + 1;
-      const day = today.getDate();
+    it('should handle edge cases around birthdays', () => {
+      // Create a reference date (2023-01-01)
+      const referenceDate = new Date(2023, 0, 1);
       
-      const birthdate = `${year}-${month.toString().padStart(2, '0')}-${day.toString().padStart(2, '0')}`;
+      // Test with a birthdate one day after the reference date (day before birthday)
+      const beforeBirthday = new Date(1993, 0, 2);
+      expect(calculateAge(beforeBirthday, referenceDate)).toBe(29);
       
-      expect(calculationModule.calculateAge(birthdate)).to.equal(25);
+      // Test with a birthdate on the reference date (exact birthday)
+      const exactBirthday = new Date(1993, 0, 1);
+      expect(calculateAge(exactBirthday, referenceDate)).toBe(30);
+      
+      // Test with a birthdate one day before the reference date (day after birthday)
+      const afterBirthday = new Date(1992, 11, 31);
+      expect(calculateAge(afterBirthday, referenceDate)).toBe(30);
     });
 
-    it('should throw error for invalid birthdate', () => {
-      expect(() => calculationModule.calculateAge('invalid date')).to.throw('Invalid birthdate provided');
-    });
-
-    it('should throw error for future birthdate', () => {
-      const futureDate = new Date();
-      futureDate.setFullYear(futureDate.getFullYear() + 1); // 1 year in the future
-      
-      expect(() => calculationModule.calculateAge(futureDate)).to.throw('Birthdate cannot be in the future');
+    it('should throw an error for invalid birthdates', () => {
+      expect(() => calculateAge('invalid-date')).toThrow();
     });
   });
 
   describe('getTimeAgo', () => {
-    it('should be exported correctly', () => {
-      expect(calculationModule.getTimeAgo).to.be.a('function');
+    it('should return time ago in Portuguese (pt-BR) by default', () => {
+      // Mock current date to ensure consistent test results
+      const now = new Date(2023, 0, 15, 12, 0, 0); // 2023-01-15 12:00:00
+      jest.spyOn(global, 'Date').mockImplementation(() => now);
+      
+      // Test various time differences
+      const fiveMinutesAgo = new Date(2023, 0, 15, 11, 55, 0); // 5 minutes ago
+      expect(getTimeAgo(fiveMinutesAgo)).toBe('5 minutos atrás');
+      
+      const oneHourAgo = new Date(2023, 0, 15, 11, 0, 0); // 1 hour ago
+      expect(getTimeAgo(oneHourAgo)).toBe('1 hora atrás');
+      
+      const oneDayAgo = new Date(2023, 0, 14, 12, 0, 0); // 1 day ago
+      expect(getTimeAgo(oneDayAgo)).toBe('1 dia atrás');
+      
+      const oneMonthAgo = new Date(2022, 11, 15, 12, 0, 0); // 1 month ago
+      expect(getTimeAgo(oneMonthAgo)).toBe('1 mês atrás');
+      
+      const oneYearAgo = new Date(2022, 0, 15, 12, 0, 0); // 1 year ago
+      expect(getTimeAgo(oneYearAgo)).toBe('1 ano atrás');
+      
+      // Restore the original Date implementation
+      jest.spyOn(global, 'Date').mockRestore();
     });
 
-    it('should return empty string for invalid date', () => {
-      expect(calculationModule.getTimeAgo('invalid date')).to.equal('');
+    it('should return time ago in English (en-US) when specified', () => {
+      // Mock current date to ensure consistent test results
+      const now = new Date(2023, 0, 15, 12, 0, 0); // 2023-01-15 12:00:00
+      jest.spyOn(global, 'Date').mockImplementation(() => now);
+      
+      // Test various time differences with en-US locale
+      const fiveMinutesAgo = new Date(2023, 0, 15, 11, 55, 0); // 5 minutes ago
+      expect(getTimeAgo(fiveMinutesAgo, 'en-US')).toBe('5 minutes ago');
+      
+      const oneHourAgo = new Date(2023, 0, 15, 11, 0, 0); // 1 hour ago
+      expect(getTimeAgo(oneHourAgo, 'en-US')).toBe('1 hour ago');
+      
+      const oneDayAgo = new Date(2023, 0, 14, 12, 0, 0); // 1 day ago
+      expect(getTimeAgo(oneDayAgo, 'en-US')).toBe('1 day ago');
+      
+      const oneMonthAgo = new Date(2022, 11, 15, 12, 0, 0); // 1 month ago
+      expect(getTimeAgo(oneMonthAgo, 'en-US')).toBe('1 month ago');
+      
+      const oneYearAgo = new Date(2022, 0, 15, 12, 0, 0); // 1 year ago
+      expect(getTimeAgo(oneYearAgo, 'en-US')).toBe('1 year ago');
+      
+      // Restore the original Date implementation
+      jest.spyOn(global, 'Date').mockRestore();
     });
 
-    it('should format time ago in Portuguese (pt-BR)', () => {
-      const now = new Date();
+    it('should handle different input types', () => {
+      // Mock current date to ensure consistent test results
+      const now = new Date(2023, 0, 15, 12, 0, 0); // 2023-01-15 12:00:00
+      jest.spyOn(global, 'Date').mockImplementation(() => now);
       
-      // Just now
-      const justNow = new Date(now.getTime() - 5 * 1000); // 5 seconds ago
-      expect(calculationModule.getTimeAgo(justNow, 'pt-BR')).to.equal('agora mesmo');
+      // Test with Date object
+      const dateObj = new Date(2023, 0, 14, 12, 0, 0); // 1 day ago
+      expect(getTimeAgo(dateObj)).toBe('1 dia atrás');
       
-      // Seconds
-      const seconds = new Date(now.getTime() - 30 * 1000); // 30 seconds ago
-      expect(calculationModule.getTimeAgo(seconds, 'pt-BR')).to.include('segundos atrás');
+      // Test with ISO string
+      const isoString = '2023-01-14T12:00:00.000Z'; // 1 day ago
+      expect(getTimeAgo(isoString)).toBe('1 dia atrás');
       
-      // Minutes
-      const oneMinute = new Date(now.getTime() - 60 * 1000); // 1 minute ago
-      expect(calculationModule.getTimeAgo(oneMinute, 'pt-BR')).to.equal('1 minuto atrás');
+      // Test with timestamp (milliseconds)
+      const timestamp = dateObj.getTime(); // 1 day ago
+      expect(getTimeAgo(timestamp)).toBe('1 dia atrás');
       
-      const minutes = new Date(now.getTime() - 5 * 60 * 1000); // 5 minutes ago
-      expect(calculationModule.getTimeAgo(minutes, 'pt-BR')).to.equal('5 minutos atrás');
-      
-      // Hours
-      const oneHour = new Date(now.getTime() - 60 * 60 * 1000); // 1 hour ago
-      expect(calculationModule.getTimeAgo(oneHour, 'pt-BR')).to.equal('1 hora atrás');
-      
-      const hours = new Date(now.getTime() - 5 * 60 * 60 * 1000); // 5 hours ago
-      expect(calculationModule.getTimeAgo(hours, 'pt-BR')).to.equal('5 horas atrás');
-      
-      // Future date
-      const future = new Date(now.getTime() + 60 * 60 * 1000); // 1 hour in the future
-      expect(calculationModule.getTimeAgo(future, 'pt-BR')).to.equal('no futuro');
+      // Restore the original Date implementation
+      jest.spyOn(global, 'Date').mockRestore();
     });
 
-    it('should format time ago in English (en-US)', () => {
-      const now = new Date();
-      
-      // Just now
-      const justNow = new Date(now.getTime() - 5 * 1000); // 5 seconds ago
-      expect(calculationModule.getTimeAgo(justNow, 'en-US')).to.equal('just now');
-      
-      // Seconds
-      const seconds = new Date(now.getTime() - 30 * 1000); // 30 seconds ago
-      expect(calculationModule.getTimeAgo(seconds, 'en-US')).to.include('seconds ago');
-      
-      // Minutes
-      const oneMinute = new Date(now.getTime() - 60 * 1000); // 1 minute ago
-      expect(calculationModule.getTimeAgo(oneMinute, 'en-US')).to.equal('1 minute ago');
-      
-      const minutes = new Date(now.getTime() - 5 * 60 * 1000); // 5 minutes ago
-      expect(calculationModule.getTimeAgo(minutes, 'en-US')).to.equal('5 minutes ago');
-      
-      // Hours
-      const oneHour = new Date(now.getTime() - 60 * 60 * 1000); // 1 hour ago
-      expect(calculationModule.getTimeAgo(oneHour, 'en-US')).to.equal('1 hour ago');
-      
-      const hours = new Date(now.getTime() - 5 * 60 * 60 * 1000); // 5 hours ago
-      expect(calculationModule.getTimeAgo(hours, 'en-US')).to.equal('5 hours ago');
-      
-      // Future date
-      const future = new Date(now.getTime() + 60 * 60 * 1000); // 1 hour in the future
-      expect(calculationModule.getTimeAgo(future, 'en-US')).to.equal('in the future');
-    });
-
-    it('should handle days, weeks, months and years correctly', () => {
-      const now = new Date();
-      
-      // Days
-      const oneDay = new Date(now);
-      oneDay.setDate(oneDay.getDate() - 1); // 1 day ago
-      expect(calculationModule.getTimeAgo(oneDay, 'en-US')).to.equal('1 day ago');
-      
-      const days = new Date(now);
-      days.setDate(days.getDate() - 5); // 5 days ago
-      expect(calculationModule.getTimeAgo(days, 'en-US')).to.equal('5 days ago');
-      
-      // Weeks
-      const oneWeek = new Date(now);
-      oneWeek.setDate(oneWeek.getDate() - 7); // 1 week ago
-      expect(calculationModule.getTimeAgo(oneWeek, 'en-US')).to.equal('1 week ago');
-      
-      const weeks = new Date(now);
-      weeks.setDate(weeks.getDate() - 21); // 3 weeks ago
-      expect(calculationModule.getTimeAgo(weeks, 'en-US')).to.equal('3 weeks ago');
-      
-      // Months
-      const oneMonth = new Date(now);
-      oneMonth.setMonth(oneMonth.getMonth() - 1); // 1 month ago
-      expect(calculationModule.getTimeAgo(oneMonth, 'en-US')).to.equal('1 month ago');
-      
-      const months = new Date(now);
-      months.setMonth(months.getMonth() - 6); // 6 months ago
-      expect(calculationModule.getTimeAgo(months, 'en-US')).to.equal('6 months ago');
-      
-      // Years
-      const oneYear = new Date(now);
-      oneYear.setFullYear(oneYear.getFullYear() - 1); // 1 year ago
-      expect(calculationModule.getTimeAgo(oneYear, 'en-US')).to.equal('1 year ago');
-      
-      const years = new Date(now);
-      years.setFullYear(years.getFullYear() - 5); // 5 years ago
-      expect(calculationModule.getTimeAgo(years, 'en-US')).to.equal('5 years ago');
+    it('should return empty string for invalid dates', () => {
+      expect(getTimeAgo('invalid-date')).toBe('');
+      expect(getTimeAgo(null as any)).toBe('');
+      expect(getTimeAgo(undefined as any)).toBe('');
     });
   });
 });

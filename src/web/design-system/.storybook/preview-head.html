@@ -1,104 +1,69 @@
-<!-- Font loading for Inter font family -->
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@100;200;300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+<!-- preview-head.html - Injects custom HTML into the head of the Storybook preview iframe -->
 
-<!-- Meta viewport tags for responsive testing -->
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0">
-<meta http-equiv="X-UA-Compatible" content="ie=edge">
+<!-- Meta tags for responsive testing -->
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<meta http-equiv="X-UA-Compatible" content="IE=edge" />
+
+<!-- Font loading for the design system's typography -->
+<!-- Inter font for base text and headings -->
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap" rel="stylesheet" />
+
+<!-- Roboto Mono for monospaced text -->
+<link href="https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;500;700&display=swap" rel="stylesheet" />
 
 <!-- Base CSS resets and normalization -->
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/normalize/8.0.1/normalize.min.css" />
+
+<!-- Base styles for Storybook preview -->
 <style>
-  /* Use a more intuitive box-sizing model */
+  /* Apply base font family to all elements */
+  html, body {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol";
+    font-size: 16px;
+    line-height: 1.5;
+    color: rgba(0, 0, 0, 0.87);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+
+  /* Ensure proper box-sizing for all elements */
   *, *::before, *::after {
     box-sizing: border-box;
   }
 
   /* Remove default margin and padding */
-  body, h1, h2, h3, h4, h5, h6, p, figure, blockquote, dl, dd {
+  body, h1, h2, h3, h4, h5, h6, p, ol, ul {
     margin: 0;
     padding: 0;
   }
 
-  /* Set core body defaults */
-  body {
-    min-height: 100vh;
-    text-rendering: optimizeSpeed;
-    line-height: 1.5;
-    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
-    -webkit-font-smoothing: antialiased;
-    -moz-osx-font-smoothing: grayscale;
+  /* Set monospace font for code elements */
+  code, pre, kbd, samp {
+    font-family: 'Roboto Mono', SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
   }
 
-  /* Make images easier to work with */
-  img, picture {
+  /* Ensure images are responsive by default */
+  img {
     max-width: 100%;
-    display: block;
+    height: auto;
   }
 
-  /* Inherit fonts for inputs and buttons */
-  input, button, textarea, select {
-    font: inherit;
+  /* Set default focus styles */
+  :focus {
+    outline: 2px solid #3772FF;
+    outline-offset: 2px;
   }
 
-  /* Remove list styles on ul, ol elements */
-  ul, ol {
-    list-style: none;
-    margin: 0;
-    padding: 0;
-  }
-
-  /* Set default font weight for headings */
-  h1, h2, h3, h4, h5, h6 {
-    font-weight: bold;
-  }
-
-  /* Set default styles for links */
-  a {
-    text-decoration: none;
-    color: inherit;
-  }
-
-  /* Remove all animations, transitions and smooth scroll for people that prefer not to see them */
+  /* Support for reduced motion preferences */
   @media (prefers-reduced-motion: reduce) {
-    html:focus-within {
-      scroll-behavior: auto;
-    }
-    
-    *, *::before, *::after {
+    * {
       animation-duration: 0.01ms !important;
       animation-iteration-count: 1 !important;
       transition-duration: 0.01ms !important;
       scroll-behavior: auto !important;
     }
-  }
-
-  /* Journey-specific color variables for reference */
-  :root {
-    /* Brand Colors */
-    --brand-primary: #3772FF;
-    --brand-secondary: #5096FF;
-    --brand-tertiary: #A9C4FF;
-    
-    /* Journey Colors */
-    --health-primary: #00B383;
-    --health-secondary: #4DDBBA;
-    --care-primary: #FF8C42;
-    --care-secondary: #FFAD75;
-    --plan-primary: #3772FF;
-    --plan-secondary: #5096FF;
-    
-    /* Semantic Colors */
-    --success: #00B383;
-    --warning: #FFB054;
-    --error: #FF5454;
-    --info: #5096FF;
-    
-    /* Neutral Colors */
-    --white: #FFFFFF;
-    --gray-100: #F8F9FA;
-    --gray-200: #E9ECEF;
-    --gray-900: #212529;
-    --black: #000000;
   }
 </style>

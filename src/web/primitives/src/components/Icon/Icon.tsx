@@ -16,6 +16,8 @@ export interface IconProps {
   'aria-hidden'?: boolean;
   /** Accessible label for the icon (required when aria-hidden is false) */
   'aria-label'?: string;
+  /** Test ID for component testing */
+  testID?: string;
 }
 
 /**
@@ -209,6 +211,7 @@ export const Icon: React.FC<IconProps> = ({
   color, 
   'aria-hidden': ariaHidden = true,
   'aria-label': ariaLabel,
+  testID,
   ...props 
 }) => {
   const icon = iconPaths[name];
@@ -228,7 +231,7 @@ export const Icon: React.FC<IconProps> = ({
       size={size} 
       color={color} 
       aria-hidden={ariaHidden} 
-      data-testid="icon-container"
+      data-testid={testID || 'icon-container'}
       {...props}
     >
       <svg 
@@ -245,3 +248,5 @@ export const Icon: React.FC<IconProps> = ({
     </IconContainer>
   );
 };
+
+export default Icon;

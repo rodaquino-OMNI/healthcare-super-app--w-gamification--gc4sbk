@@ -36,25 +36,25 @@ declare module '@react-native-community/netinfo' {
   export * from '@react-native-community/netinfo';
 }
 
-// AUSTA Design System - UI component library with journey-specific theming
+// AUSTA Design System - Main component library
 declare module '@austa/design-system' {
   // Re-export everything from the module
   export * from '@austa/design-system';
 }
 
-// Design System Primitives - Fundamental design elements (colors, typography, spacing)
+// Design System Primitives - Atomic design elements
 declare module '@design-system/primitives' {
   // Re-export everything from the module
   export * from '@design-system/primitives';
 }
 
-// AUSTA Interfaces - Shared TypeScript interfaces for cross-journey data models
+// AUSTA Interfaces - Shared TypeScript definitions
 declare module '@austa/interfaces' {
   // Re-export everything from the module
   export * from '@austa/interfaces';
 }
 
-// AUSTA Journey Context - Context provider for journey-specific state management
+// AUSTA Journey Context - Journey state management
 declare module '@austa/journey-context' {
   // Re-export everything from the module
   export * from '@austa/journey-context';

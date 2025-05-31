@@ -3,63 +3,65 @@ import { ExecutionContext, PipeTransform, Type } from '@nestjs/common';
 /**
  * Parameter decorator factory that extracts the authenticated user from the request object.
  * 
- * This decorator simplifies access to user data in controller methods by extracting the user
- * object attached to the request by authentication middleware or guards (typically JwtAuthGuard).
- * 
- * @remarks
- * The decorator can be used in two ways:
- * 1. Without arguments to get the entire user object
- * 2. With a string argument to extract a specific property from the user object
- * 
- * It also supports pipe transforms for validation or transformation of the extracted user data.
- * 
+ * This decorator simplifies access to user data in controller methods. The user object must be 
+ * attached to the request by an authentication middleware or guard (typically JwtAuthGuard) 
+ * before this decorator can access it.
+ *
  * @example
- * ```typescript
  * // Get the entire user object
  * @Get('profile')
  * @UseGuards(JwtAuthGuard)
  * getProfile(@CurrentUser() user: User) {
  *   return user;
  * }
- * 
+ *
+ * @example
  * // Get a specific property from the user object
  * @Get('user-id')
  * @UseGuards(JwtAuthGuard)
  * getUserId(@CurrentUser('id') userId: string) {
  *   return { userId };
  * }
- * 
- * // With validation pipe
+ *
+ * @example
+ * // Use with a pipe for validation
  * @Get('profile')
  * @UseGuards(JwtAuthGuard)
  * getProfile(@CurrentUser(new ValidationPipe()) user: User) {
  *   return user;
  * }
- * ```
+ *
+ * @example
+ * // Get a specific property with a pipe
+ * @Get('user-id')
+ * @UseGuards(JwtAuthGuard)
+ * getUserId(@CurrentUser('id', new ValidationPipe()) userId: string) {
+ *   return { userId };
+ * }
  */
 export declare const CurrentUser: {
   /**
-   * Parameter decorator that extracts the authenticated user from the request.
-   * 
-   * @param dataOrPipes - Optional property path to extract from the user object or pipes to apply
-   * @returns A parameter decorator function
+   * Parameter decorator that extracts the authenticated user from the request object.
+   * Returns the entire user object.
    */
-  (...dataOrPipes: []): ParameterDecorator;
-  
+  (): ParameterDecorator;
+
   /**
-   * Parameter decorator that extracts the authenticated user from the request.
-   * 
-   * @param dataOrPipes - Property path to extract from the user object and/or pipes to apply
-   * @returns A parameter decorator function
+   * Parameter decorator that extracts a specific property from the authenticated user.
+   * @param data - The property name to extract from the user object
    */
-  (...dataOrPipes: (string | PipeTransform<any, any> | Type<PipeTransform<any, any>>)[]): ParameterDecorator;
-  
+  (data: string): ParameterDecorator;
+
   /**
-   * Parameter decorator that extracts the authenticated user from the request.
-   * 
-   * @param data - Property path to extract from the user object
-   * @param pipes - Pipes to apply to the extracted user data
-   * @returns A parameter decorator function
+   * Parameter decorator that extracts the authenticated user and passes it through provided pipes.
+   * @param pipes - One or more pipes to process the user object
    */
-  (data: string, ...pipes: (PipeTransform<any, any> | Type<PipeTransform<any, any>>)[]): ParameterDecorator;
+  (...pipes: Array<PipeTransform<any, any> | Type<PipeTransform<any, any>>>): ParameterDecorator;
+
+  /**
+   * Parameter decorator that extracts a specific property from the authenticated user and passes it through provided pipes.
+   * @param data - The property name to extract from the user object
+   * @param pipes - One or more pipes to process the extracted property
+   */
+  (data: string, ...pipes: Array<PipeTransform<any, any> | Type<PipeTransform<any, any>>>): ParameterDecorator;
 };

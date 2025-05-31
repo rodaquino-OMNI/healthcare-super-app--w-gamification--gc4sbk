@@ -1,201 +1,190 @@
 /**
- * @file Component exports for the AUSTA SuperApp design system
+ * @file Central barrel file that exports all UI components from the design system.
+ * This file provides a clean public API for consumers, allowing applications to import
+ * multiple components from a single path.
  * 
- * This file serves as the central barrel export for all UI components in the design system.
- * It provides a clean public API for consumers, allowing applications to import multiple
- * components from a single path.
- * 
- * Example usage:
- * ```tsx
+ * @example
+ * // Import multiple components from a single path
  * import { Button, Card, Input } from '@austa/design-system/components';
- * ```
- * 
- * Components are organized by functional category to improve discoverability:
- * - Input Controls: Form elements and interactive controls
- * - Containers: Layout and content containers
- * - Feedback: Progress indicators and notifications
- * - Navigation: Navigation and identification elements
  */
 
-// Import component interfaces from @austa/interfaces
-import type {
-  AccordionProps,
-  AvatarProps,
-  BadgeProps,
-  ButtonProps,
-  CardProps,
-  CheckboxProps,
-  DatePickerProps,
-  InputProps,
-  ModalProps,
-  ProgressBarProps,
-  ProgressCircleProps,
-  RadioButtonProps,
-  SelectProps,
-  TabsProps,
-  ToastProps
-} from '@austa/interfaces/components';
+import { ComponentType } from 'react';
 
-// ===== Input Controls =====
+// Import interfaces from @austa/interfaces
+import type { ButtonProps, CardProps, InputProps, ModalProps } from '@austa/interfaces/components';
+import type { JourneyType } from '@austa/interfaces/common';
+
+/**
+ * Input Components
+ * Components that collect user input in various forms
+ */
 
 /**
  * Button component for triggering actions
- * 
- * @supports variants: primary, secondary, tertiary
- * @supports sizes: sm, md, lg
- * @supports states: disabled, loading
- * @supports journeys: health, care, plan
+ * @see ButtonProps from '@austa/interfaces/components'
  */
 export { Button } from './Button';
-export type { ButtonProps };
+export type { ButtonProps } from './Button';
+
+/**
+ * Checkbox component for boolean selections
+ * @see CheckboxProps
+ */
+export { Checkbox } from './Checkbox';
+export type { CheckboxProps } from './Checkbox';
+
+/**
+ * DatePicker component for selecting dates
+ * @see DatePickerProps
+ */
+export { DatePicker } from './DatePicker';
+export type { DatePickerProps } from './DatePicker';
 
 /**
  * Input component for text entry
- * 
- * @supports types: text, email, password, number
- * @supports states: disabled, error
- * @supports journeys: health, care, plan
+ * @see InputProps from '@austa/interfaces/components'
  */
 export { Input } from './Input';
-export type { InputProps };
+export type { InputProps } from './Input';
 
 /**
- * Select component for dropdown selection
- * 
- * @supports variants: single, multi
- * @supports features: search, filtering
- * @supports states: disabled, error
- * @supports journeys: health, care, plan
- */
-export { Select } from './Select';
-export type { SelectProps };
-
-/**
- * Checkbox component for boolean selection
- * 
- * @supports states: checked, unchecked, disabled, error
- * @supports journeys: health, care, plan
- * @supports platforms: web, mobile
- */
-export { Checkbox } from './Checkbox';
-export type { CheckboxProps };
-
-/**
- * RadioButton component for single selection from a group
- * 
- * @supports states: selected, unselected, disabled, error
- * @supports journeys: health, care, plan
- * @supports platforms: web, mobile
+ * RadioButton component for single-choice selections
+ * @see RadioButtonProps
  */
 export { RadioButton } from './RadioButton';
-export type { RadioButtonProps };
+export type { RadioButtonProps } from './RadioButton';
 
 /**
- * DatePicker component for date selection
- * 
- * @supports features: min/max dates, custom format, locale (pt-BR)
- * @supports states: disabled, error
- * @supports journeys: health, care, plan
- * @supports methods: open(), close(), clear()
+ * Select component for dropdown selections
+ * @see SelectProps
  */
-export { DatePicker } from './DatePicker';
-export type { DatePickerProps };
-
-// ===== Containers =====
+export { Select } from './Select';
+export type { SelectProps } from './Select';
 
 /**
- * Card component for content grouping
- * 
- * @supports elevations: sm, md, lg
- * @supports features: journey-specific accents, onPress handling
- * @supports journeys: health, care, plan
+ * Container Components
+ * Components that contain and organize other components
  */
-export { Card } from './Card';
-export type { CardProps };
 
 /**
- * Modal component for overlay dialogs
- * 
- * @supports features: title, close button, backdrop click
- * @supports journeys: health, care, plan
- * @supports a11y: focus trap, escape to close
- */
-export { Modal } from './Modal';
-export type { ModalProps };
-
-/**
- * Accordion component for collapsible content
- * 
- * @supports states: expanded, collapsed
- * @supports features: controlled/uncontrolled mode
- * @supports journeys: health, care, plan
- * @supports a11y: keyboard navigation
+ * Accordion component for collapsible content sections
+ * @see AccordionProps
  */
 export { Accordion } from './Accordion';
-export type { AccordionProps };
+export type { AccordionProps } from './Accordion';
 
-// ===== Feedback =====
+/**
+ * Card component for contained content with consistent styling
+ * @see CardProps from '@austa/interfaces/components'
+ */
+export { Card } from './Card';
+export type { CardProps } from './Card';
+
+/**
+ * Modal component for dialogs and popups
+ * @see ModalProps from '@austa/interfaces/components'
+ */
+export { Modal } from './Modal';
+export type { ModalProps } from './Modal';
+
+/**
+ * Tabs component for tabbed navigation
+ * @see TabsProps
+ */
+export { Tabs } from './Tabs';
+export type { TabsProps } from './Tabs';
+
+/**
+ * Feedback Components
+ * Components that provide visual feedback to users
+ */
+
+/**
+ * Badge component for status indicators and labels
+ * @see BadgeProps
+ */
+export { Badge } from './Badge';
+export type { BadgeProps } from './Badge';
 
 /**
  * ProgressBar component for horizontal progress indication
- * 
- * @supports sizes: sm, md, lg
- * @supports features: level markers, percentage display
- * @supports journeys: health, care, plan
- * @supports a11y: aria-valuenow, aria-valuemin, aria-valuemax
+ * @see ProgressBarProps
  */
 export { ProgressBar } from './ProgressBar';
-export type { ProgressBarProps };
+export type { ProgressBarProps } from './ProgressBar';
 
 /**
  * ProgressCircle component for circular progress indication
- * 
- * @supports features: customizable size, stroke width, percentage display
- * @supports journeys: health, care, plan
- * @supports a11y: aria-valuenow, aria-valuemin, aria-valuemax
+ * @see ProgressCircleProps
  */
 export { ProgressCircle } from './ProgressCircle';
-export type { ProgressCircleProps };
+export type { ProgressCircleProps } from './ProgressCircle';
 
 /**
  * Toast component for temporary notifications
- * 
- * @supports types: success, error, warning, info
- * @supports features: auto-dismiss, close button
- * @supports journeys: health, care, plan
- * @supports a11y: role="alert"
+ * @see ToastProps
  */
 export { Toast } from './Toast';
-export type { ToastProps };
-
-// ===== Navigation =====
+export type { ToastProps } from './Toast';
 
 /**
- * Tabs component for content organization
- * 
- * @supports features: controlled/uncontrolled mode
- * @supports journeys: health, care, plan
- * @supports a11y: keyboard navigation, ARIA roles
+ * Display Components
+ * Components for displaying information
  */
-export { Tabs } from './Tabs';
-export type { TabsProps };
 
 /**
- * Avatar component for user representation
- * 
- * @supports features: image with fallback to initials or icon
- * @supports sizes: customizable via size prop
- * @supports journeys: health, care, plan
+ * Avatar component for user profile images
+ * @see AvatarProps
  */
 export { Avatar } from './Avatar';
-export type { AvatarProps };
+export type { AvatarProps } from './Avatar';
 
 /**
- * Badge component for status indication
- * 
- * @supports states: unlocked, locked
- * @supports sizes: sm, md, lg
- * @supports journeys: health, care, plan
+ * Component Groups
+ * Convenience exports for related components
  */
-export { Badge } from './Badge';
-export type { BadgeProps };
+
+/**
+ * All input components grouped together
+ */
+export const InputComponents = {
+  Button,
+  Checkbox,
+  DatePicker,
+  Input,
+  RadioButton,
+  Select,
+};
+
+/**
+ * All container components grouped together
+ */
+export const ContainerComponents = {
+  Accordion,
+  Card,
+  Modal,
+  Tabs,
+};
+
+/**
+ * All feedback components grouped together
+ */
+export const FeedbackComponents = {
+  Badge,
+  ProgressBar,
+  ProgressCircle,
+  Toast,
+};
+
+/**
+ * All display components grouped together
+ */
+export const DisplayComponents = {
+  Avatar,
+};
+
+/**
+ * Helper type for components that support journey theming
+ * @template T The component props type
+ */
+export type JourneyAwareComponent<T> = ComponentType<T & { journey?: JourneyType }>;

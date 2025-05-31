@@ -1,618 +1,576 @@
 /**
- * Authentication Test User Fixtures
- * 
- * This file provides standardized user objects for testing authentication and authorization
- * components across the AUSTA SuperApp. It includes users with various roles, permissions,
- * and profile information to support comprehensive testing of role-based access control
- * guards and decorators.
- * 
- * These fixtures are designed to be used in unit, integration, and e2e tests to ensure
- * consistent user-related test cases across the application.
+ * Test fixtures for user data with various roles, permissions, and profile information.
+ * Used for testing authentication and authorization components across the AUSTA SuperApp.
  */
 
-import { AuthenticatedUser, Role, Permission } from '../../src/types';
-import { PERMISSIONS } from '../../src/constants';
+import { JwtPayload } from '../../src/interfaces';
+import { JourneyType } from '@austa/interfaces';
 
 /**
- * Standard permissions used across test fixtures
+ * User fixture interface with all properties needed for comprehensive testing
  */
-export const testPermissions: Record<string, Permission> = {
-  // User management permissions
-  userCreate: {
-    id: '1',
-    name: PERMISSIONS.USER_CREATE,
-    description: 'Create new users',
-    resource: 'user',
-    action: 'create',
-  },
-  userRead: {
-    id: '2',
-    name: PERMISSIONS.USER_READ,
-    description: 'Read user information',
-    resource: 'user',
-    action: 'read',
-  },
-  userUpdate: {
-    id: '3',
-    name: PERMISSIONS.USER_UPDATE,
-    description: 'Update user information',
-    resource: 'user',
-    action: 'update',
-  },
-  userDelete: {
-    id: '4',
-    name: PERMISSIONS.USER_DELETE,
-    description: 'Delete users',
-    resource: 'user',
-    action: 'delete',
-  },
-  
-  // Role management permissions
-  roleCreate: {
-    id: '5',
-    name: PERMISSIONS.ROLE_CREATE,
-    description: 'Create new roles',
-    resource: 'role',
-    action: 'create',
-  },
-  roleRead: {
-    id: '6',
-    name: PERMISSIONS.ROLE_READ,
-    description: 'Read role information',
-    resource: 'role',
-    action: 'read',
-  },
-  roleUpdate: {
-    id: '7',
-    name: PERMISSIONS.ROLE_UPDATE,
-    description: 'Update role information',
-    resource: 'role',
-    action: 'update',
-  },
-  roleDelete: {
-    id: '8',
-    name: PERMISSIONS.ROLE_DELETE,
-    description: 'Delete roles',
-    resource: 'role',
-    action: 'delete',
-  },
-  
-  // Journey-specific permissions
-  healthJourneyAccess: {
-    id: '9',
-    name: PERMISSIONS.HEALTH_JOURNEY_ACCESS,
-    description: 'Access to Health Journey',
-    resource: 'journey',
-    action: 'access:health',
-  },
-  careJourneyAccess: {
-    id: '10',
-    name: PERMISSIONS.CARE_JOURNEY_ACCESS,
-    description: 'Access to Care Journey',
-    resource: 'journey',
-    action: 'access:care',
-  },
-  planJourneyAccess: {
-    id: '11',
-    name: PERMISSIONS.PLAN_JOURNEY_ACCESS,
-    description: 'Access to Plan Journey',
-    resource: 'journey',
-    action: 'access:plan',
-  },
-  
-  // Admin permissions
-  adminAccess: {
-    id: '12',
-    name: PERMISSIONS.ADMIN_ACCESS,
-    description: 'Admin access to all features',
-    resource: 'admin',
-    action: 'access',
-  },
-  systemConfig: {
-    id: '13',
-    name: PERMISSIONS.SYSTEM_CONFIG,
-    description: 'Configure system settings',
-    resource: 'system',
-    action: 'config',
+export interface UserFixture {
+  id: string;
+  email: string;
+  firstName: string;
+  lastName: string;
+  roles: string[];
+  permissions: string[];
+  journeyAccess: JourneyType[];
+  isActive: boolean;
+  isVerified: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+  lastLoginAt?: Date;
+  profileData?: Record<string, any>;
+}
+
+/**
+ * JWT payload fixture interface for token testing
+ */
+export interface JwtPayloadFixture extends JwtPayload {
+  userId: string;
+  email: string;
+  roles: string[];
+  permissions: string[];
+  journeyAccess: JourneyType[];
+  iat: number;
+  exp: number;
+}
+
+/**
+ * Admin user with access to all journeys and full permissions
+ */
+export const adminUser: UserFixture = {
+  id: '00000000-0000-0000-0000-000000000001',
+  email: 'admin@austa.health',
+  firstName: 'Admin',
+  lastName: 'User',
+  roles: ['admin', 'health_admin', 'care_admin', 'plan_admin'],
+  permissions: [
+    'users:create', 'users:read', 'users:update', 'users:delete',
+    'roles:create', 'roles:read', 'roles:update', 'roles:delete',
+    'permissions:create', 'permissions:read', 'permissions:update', 'permissions:delete',
+    'health:read', 'health:write', 'health:admin',
+    'care:read', 'care:write', 'care:admin',
+    'plan:read', 'plan:write', 'plan:admin',
+  ],
+  journeyAccess: [JourneyType.HEALTH, JourneyType.CARE, JourneyType.PLAN],
+  isActive: true,
+  isVerified: true,
+  createdAt: new Date('2023-01-01T00:00:00Z'),
+  updatedAt: new Date('2023-01-01T00:00:00Z'),
+  lastLoginAt: new Date('2023-06-01T12:00:00Z'),
+  profileData: {
+    preferredLanguage: 'pt-BR',
+    notificationPreferences: {
+      email: true,
+      push: true,
+      sms: true,
+    },
+    adminLevel: 'super',
   },
 };
 
 /**
- * Standard roles used across test fixtures
+ * Health journey admin user with full access to health journey
  */
-export const testRoles: Record<string, Role> = {
-  // Core roles
-  admin: {
-    id: '1',
-    name: 'admin',
-    description: 'System administrator with full access',
-    isSystem: true,
-    permissions: [
-      testPermissions.userCreate,
-      testPermissions.userRead,
-      testPermissions.userUpdate,
-      testPermissions.userDelete,
-      testPermissions.roleCreate,
-      testPermissions.roleRead,
-      testPermissions.roleUpdate,
-      testPermissions.roleDelete,
-      testPermissions.adminAccess,
-      testPermissions.systemConfig,
-      testPermissions.healthJourneyAccess,
-      testPermissions.careJourneyAccess,
-      testPermissions.planJourneyAccess,
-    ],
-  },
-  user: {
-    id: '2',
-    name: 'user',
-    description: 'Regular user with basic access',
-    isSystem: true,
-    permissions: [
-      testPermissions.userRead,
-    ],
-  },
-  
-  // Health journey roles
-  healthViewer: {
-    id: '3',
-    name: 'health:viewer',
-    description: 'Can view health data but not modify',
-    journeyId: 'health',
-    permissions: [
-      testPermissions.healthJourneyAccess,
-    ],
-  },
-  healthEditor: {
-    id: '4',
-    name: 'health:editor',
-    description: 'Can view and edit health data',
-    journeyId: 'health',
-    permissions: [
-      testPermissions.healthJourneyAccess,
-    ],
-  },
-  healthManager: {
-    id: '5',
-    name: 'health:manager',
-    description: 'Can manage health goals and insights',
-    journeyId: 'health',
-    permissions: [
-      testPermissions.healthJourneyAccess,
-    ],
-  },
-  healthAdmin: {
-    id: '6',
-    name: 'health:admin',
-    description: 'Full access to health journey features',
-    journeyId: 'health',
-    permissions: [
-      testPermissions.healthJourneyAccess,
-      testPermissions.adminAccess,
-    ],
-  },
-  
-  // Care journey roles
-  careViewer: {
-    id: '7',
-    name: 'care:viewer',
-    description: 'Can view care information but not modify',
-    journeyId: 'care',
-    permissions: [
-      testPermissions.careJourneyAccess,
-    ],
-  },
-  careScheduler: {
-    id: '8',
-    name: 'care:scheduler',
-    description: 'Can schedule and manage appointments',
-    journeyId: 'care',
-    permissions: [
-      testPermissions.careJourneyAccess,
-    ],
-  },
-  careProvider: {
-    id: '9',
-    name: 'care:provider',
-    description: 'Healthcare provider with access to patient data',
-    journeyId: 'care',
-    permissions: [
-      testPermissions.careJourneyAccess,
-    ],
-  },
-  careAdmin: {
-    id: '10',
-    name: 'care:admin',
-    description: 'Full access to care journey features',
-    journeyId: 'care',
-    permissions: [
-      testPermissions.careJourneyAccess,
-      testPermissions.adminAccess,
-    ],
-  },
-  
-  // Plan journey roles
-  planViewer: {
-    id: '11',
-    name: 'plan:viewer',
-    description: 'Can view plan and benefits information',
-    journeyId: 'plan',
-    permissions: [
-      testPermissions.planJourneyAccess,
-    ],
-  },
-  planMember: {
-    id: '12',
-    name: 'plan:member',
-    description: 'Can submit claims and access member benefits',
-    journeyId: 'plan',
-    permissions: [
-      testPermissions.planJourneyAccess,
-    ],
-  },
-  planManager: {
-    id: '13',
-    name: 'plan:manager',
-    description: 'Can manage plan configurations and approvals',
-    journeyId: 'plan',
-    permissions: [
-      testPermissions.planJourneyAccess,
-    ],
-  },
-  planAdmin: {
-    id: '14',
-    name: 'plan:admin',
-    description: 'Full access to plan journey features',
-    journeyId: 'plan',
-    permissions: [
-      testPermissions.planJourneyAccess,
-      testPermissions.adminAccess,
-    ],
+export const healthAdminUser: UserFixture = {
+  id: '00000000-0000-0000-0000-000000000002',
+  email: 'health.admin@austa.health',
+  firstName: 'Health',
+  lastName: 'Admin',
+  roles: ['health_admin'],
+  permissions: [
+    'health:read', 'health:write', 'health:admin',
+    'health:metrics:read', 'health:metrics:write',
+    'health:goals:read', 'health:goals:write',
+    'health:devices:read', 'health:devices:write',
+    'health:insights:read', 'health:insights:write',
+  ],
+  journeyAccess: [JourneyType.HEALTH],
+  isActive: true,
+  isVerified: true,
+  createdAt: new Date('2023-01-02T00:00:00Z'),
+  updatedAt: new Date('2023-01-02T00:00:00Z'),
+  lastLoginAt: new Date('2023-06-02T12:00:00Z'),
+  profileData: {
+    preferredLanguage: 'pt-BR',
+    specialization: 'nutrition',
+    department: 'Health Services',
   },
 };
 
 /**
- * Test user fixtures with various roles and permissions
+ * Care journey admin user with full access to care journey
  */
-export const testUsers: Record<string, AuthenticatedUser> = {
-  // System administrator with full access
-  admin: {
-    id: '1',
-    email: 'admin@austa.health',
-    name: 'System Administrator',
-    roles: ['admin'],
-    permissions: Object.values(testPermissions).map(p => p.name),
-    lastAuthenticated: new Date('2023-01-01T00:00:00Z'),
-  },
-  
-  // Regular user with basic access
-  regularUser: {
-    id: '2',
-    email: 'user@austa.health',
-    name: 'Regular User',
-    roles: ['user'],
-    permissions: [PERMISSIONS.USER_READ],
-    lastAuthenticated: new Date('2023-01-01T00:00:00Z'),
-  },
-  
-  // Health journey users
-  healthViewer: {
-    id: '3',
-    email: 'health.viewer@austa.health',
-    name: 'Health Viewer',
-    roles: ['user', 'health:viewer'],
-    permissions: [PERMISSIONS.USER_READ, PERMISSIONS.HEALTH_JOURNEY_ACCESS],
-    journeyAttributes: {
-      health: {
-        preferredMetrics: ['weight', 'steps', 'heartRate'],
-        hasConnectedDevices: false,
-      },
-    },
-    lastAuthenticated: new Date('2023-01-01T00:00:00Z'),
-  },
-  healthEditor: {
-    id: '4',
-    email: 'health.editor@austa.health',
-    name: 'Health Editor',
-    roles: ['user', 'health:editor'],
-    permissions: [PERMISSIONS.USER_READ, PERMISSIONS.HEALTH_JOURNEY_ACCESS],
-    journeyAttributes: {
-      health: {
-        preferredMetrics: ['weight', 'steps', 'heartRate', 'bloodPressure'],
-        hasConnectedDevices: true,
-        deviceIds: ['fitbit-123', 'scale-456'],
-      },
-    },
-    lastAuthenticated: new Date('2023-01-01T00:00:00Z'),
-  },
-  healthManager: {
-    id: '5',
-    email: 'health.manager@austa.health',
-    name: 'Health Manager',
-    roles: ['user', 'health:manager'],
-    permissions: [PERMISSIONS.USER_READ, PERMISSIONS.HEALTH_JOURNEY_ACCESS],
-    journeyAttributes: {
-      health: {
-        preferredMetrics: ['weight', 'steps', 'heartRate', 'bloodPressure', 'sleep'],
-        hasConnectedDevices: true,
-        deviceIds: ['fitbit-789', 'scale-012', 'smartwatch-345'],
-        canManageGoals: true,
-      },
-    },
-    lastAuthenticated: new Date('2023-01-01T00:00:00Z'),
-  },
-  healthAdmin: {
-    id: '6',
-    email: 'health.admin@austa.health',
-    name: 'Health Admin',
-    roles: ['user', 'health:admin'],
-    permissions: [PERMISSIONS.USER_READ, PERMISSIONS.HEALTH_JOURNEY_ACCESS, PERMISSIONS.ADMIN_ACCESS],
-    journeyAttributes: {
-      health: {
-        preferredMetrics: ['weight', 'steps', 'heartRate', 'bloodPressure', 'sleep', 'glucose'],
-        hasConnectedDevices: true,
-        deviceIds: ['fitbit-admin', 'scale-admin', 'smartwatch-admin'],
-        canManageGoals: true,
-        isAdmin: true,
-      },
-    },
-    lastAuthenticated: new Date('2023-01-01T00:00:00Z'),
-  },
-  
-  // Care journey users
-  careViewer: {
-    id: '7',
-    email: 'care.viewer@austa.health',
-    name: 'Care Viewer',
-    roles: ['user', 'care:viewer'],
-    permissions: [PERMISSIONS.USER_READ, PERMISSIONS.CARE_JOURNEY_ACCESS],
-    journeyAttributes: {
-      care: {
-        preferredSpecialties: ['general', 'cardiology'],
-        hasAppointments: false,
-      },
-    },
-    lastAuthenticated: new Date('2023-01-01T00:00:00Z'),
-  },
-  careScheduler: {
-    id: '8',
-    email: 'care.scheduler@austa.health',
-    name: 'Care Scheduler',
-    roles: ['user', 'care:scheduler'],
-    permissions: [PERMISSIONS.USER_READ, PERMISSIONS.CARE_JOURNEY_ACCESS],
-    journeyAttributes: {
-      care: {
-        preferredSpecialties: ['general', 'cardiology', 'dermatology'],
-        hasAppointments: true,
-        appointmentIds: ['apt-123', 'apt-456'],
-        canScheduleForOthers: true,
-      },
-    },
-    lastAuthenticated: new Date('2023-01-01T00:00:00Z'),
-  },
-  careProvider: {
-    id: '9',
-    email: 'care.provider@austa.health',
-    name: 'Care Provider',
-    roles: ['user', 'care:provider'],
-    permissions: [PERMISSIONS.USER_READ, PERMISSIONS.CARE_JOURNEY_ACCESS],
-    journeyAttributes: {
-      care: {
-        providerSpecialty: 'cardiology',
-        providerLicense: 'MD12345',
-        hasPatients: true,
-        patientCount: 25,
-        canPrescribe: true,
-      },
-    },
-    lastAuthenticated: new Date('2023-01-01T00:00:00Z'),
-  },
-  careAdmin: {
-    id: '10',
-    email: 'care.admin@austa.health',
-    name: 'Care Admin',
-    roles: ['user', 'care:admin'],
-    permissions: [PERMISSIONS.USER_READ, PERMISSIONS.CARE_JOURNEY_ACCESS, PERMISSIONS.ADMIN_ACCESS],
-    journeyAttributes: {
-      care: {
-        providerSpecialty: 'administration',
-        providerLicense: 'ADM98765',
-        hasPatients: false,
-        canManageProviders: true,
-        isAdmin: true,
-      },
-    },
-    lastAuthenticated: new Date('2023-01-01T00:00:00Z'),
-  },
-  
-  // Plan journey users
-  planViewer: {
-    id: '11',
-    email: 'plan.viewer@austa.health',
-    name: 'Plan Viewer',
-    roles: ['user', 'plan:viewer'],
-    permissions: [PERMISSIONS.USER_READ, PERMISSIONS.PLAN_JOURNEY_ACCESS],
-    journeyAttributes: {
-      plan: {
-        planId: 'basic-plan',
-        memberSince: '2022-01-01',
-        hasClaims: false,
-      },
-    },
-    lastAuthenticated: new Date('2023-01-01T00:00:00Z'),
-  },
-  planMember: {
-    id: '12',
-    email: 'plan.member@austa.health',
-    name: 'Plan Member',
-    roles: ['user', 'plan:member'],
-    permissions: [PERMISSIONS.USER_READ, PERMISSIONS.PLAN_JOURNEY_ACCESS],
-    journeyAttributes: {
-      plan: {
-        planId: 'premium-plan',
-        memberSince: '2021-06-15',
-        hasClaims: true,
-        claimIds: ['claim-123', 'claim-456'],
-        benefitUtilization: 0.75,
-      },
-    },
-    lastAuthenticated: new Date('2023-01-01T00:00:00Z'),
-  },
-  planManager: {
-    id: '13',
-    email: 'plan.manager@austa.health',
-    name: 'Plan Manager',
-    roles: ['user', 'plan:manager'],
-    permissions: [PERMISSIONS.USER_READ, PERMISSIONS.PLAN_JOURNEY_ACCESS],
-    journeyAttributes: {
-      plan: {
-        departmentId: 'claims-processing',
-        employeeId: 'EMP789',
-        canApproveClaims: true,
-        claimsProcessed: 150,
-        approvalLimit: 5000,
-      },
-    },
-    lastAuthenticated: new Date('2023-01-01T00:00:00Z'),
-  },
-  planAdmin: {
-    id: '14',
-    email: 'plan.admin@austa.health',
-    name: 'Plan Admin',
-    roles: ['user', 'plan:admin'],
-    permissions: [PERMISSIONS.USER_READ, PERMISSIONS.PLAN_JOURNEY_ACCESS, PERMISSIONS.ADMIN_ACCESS],
-    journeyAttributes: {
-      plan: {
-        departmentId: 'plan-administration',
-        employeeId: 'ADM012',
-        canConfigurePlans: true,
-        canApproveClaims: true,
-        approvalLimit: null, // unlimited
-        isAdmin: true,
-      },
-    },
-    lastAuthenticated: new Date('2023-01-01T00:00:00Z'),
-  },
-  
-  // Multi-journey users
-  multiJourneyUser: {
-    id: '15',
-    email: 'multi.journey@austa.health',
-    name: 'Multi-Journey User',
-    roles: ['user', 'health:viewer', 'care:viewer', 'plan:member'],
-    permissions: [
-      PERMISSIONS.USER_READ,
-      PERMISSIONS.HEALTH_JOURNEY_ACCESS,
-      PERMISSIONS.CARE_JOURNEY_ACCESS,
-      PERMISSIONS.PLAN_JOURNEY_ACCESS,
-    ],
-    journeyAttributes: {
-      health: {
-        preferredMetrics: ['weight', 'steps'],
-        hasConnectedDevices: true,
-        deviceIds: ['fitbit-multi'],
-      },
-      care: {
-        preferredSpecialties: ['general'],
-        hasAppointments: true,
-        appointmentIds: ['apt-multi-1'],
-      },
-      plan: {
-        planId: 'family-plan',
-        memberSince: '2022-03-15',
-        hasClaims: true,
-        claimIds: ['claim-multi-1'],
-      },
-    },
-    lastAuthenticated: new Date('2023-01-01T00:00:00Z'),
-  },
-  
-  // Special test cases
-  noRolesUser: {
-    id: '16',
-    email: 'no.roles@austa.health',
-    name: 'No Roles User',
-    roles: [],
-    permissions: [],
-    lastAuthenticated: new Date('2023-01-01T00:00:00Z'),
-  },
-  expiredSessionUser: {
-    id: '17',
-    email: 'expired.session@austa.health',
-    name: 'Expired Session User',
-    roles: ['user'],
-    permissions: [PERMISSIONS.USER_READ],
-    lastAuthenticated: new Date('2020-01-01T00:00:00Z'), // Very old authentication
-  },
-  allJourneysAdmin: {
-    id: '18',
-    email: 'all.journeys.admin@austa.health',
-    name: 'All Journeys Admin',
-    roles: ['user', 'health:admin', 'care:admin', 'plan:admin'],
-    permissions: [
-      PERMISSIONS.USER_READ,
-      PERMISSIONS.HEALTH_JOURNEY_ACCESS,
-      PERMISSIONS.CARE_JOURNEY_ACCESS,
-      PERMISSIONS.PLAN_JOURNEY_ACCESS,
-      PERMISSIONS.ADMIN_ACCESS,
-    ],
-    journeyAttributes: {
-      health: { isAdmin: true },
-      care: { isAdmin: true },
-      plan: { isAdmin: true },
-    },
-    lastAuthenticated: new Date('2023-01-01T00:00:00Z'),
+export const careAdminUser: UserFixture = {
+  id: '00000000-0000-0000-0000-000000000003',
+  email: 'care.admin@austa.health',
+  firstName: 'Care',
+  lastName: 'Admin',
+  roles: ['care_admin'],
+  permissions: [
+    'care:read', 'care:write', 'care:admin',
+    'care:appointments:read', 'care:appointments:write',
+    'care:providers:read', 'care:providers:write',
+    'care:medications:read', 'care:medications:write',
+    'care:telemedicine:read', 'care:telemedicine:write',
+  ],
+  journeyAccess: [JourneyType.CARE],
+  isActive: true,
+  isVerified: true,
+  createdAt: new Date('2023-01-03T00:00:00Z'),
+  updatedAt: new Date('2023-01-03T00:00:00Z'),
+  lastLoginAt: new Date('2023-06-03T12:00:00Z'),
+  profileData: {
+    preferredLanguage: 'pt-BR',
+    specialization: 'general_practice',
+    department: 'Care Services',
   },
 };
 
 /**
- * Helper function to get a user with specific roles for testing
- * @param roles Array of role names to assign to the test user
- * @returns A test user with the specified roles
+ * Plan journey admin user with full access to plan journey
  */
-export function getUserWithRoles(roles: string[]): AuthenticatedUser {
+export const planAdminUser: UserFixture = {
+  id: '00000000-0000-0000-0000-000000000004',
+  email: 'plan.admin@austa.health',
+  firstName: 'Plan',
+  lastName: 'Admin',
+  roles: ['plan_admin'],
+  permissions: [
+    'plan:read', 'plan:write', 'plan:admin',
+    'plan:benefits:read', 'plan:benefits:write',
+    'plan:claims:read', 'plan:claims:write',
+    'plan:coverage:read', 'plan:coverage:write',
+    'plan:documents:read', 'plan:documents:write',
+  ],
+  journeyAccess: [JourneyType.PLAN],
+  isActive: true,
+  isVerified: true,
+  createdAt: new Date('2023-01-04T00:00:00Z'),
+  updatedAt: new Date('2023-01-04T00:00:00Z'),
+  lastLoginAt: new Date('2023-06-04T12:00:00Z'),
+  profileData: {
+    preferredLanguage: 'pt-BR',
+    specialization: 'insurance',
+    department: 'Plan Services',
+  },
+};
+
+/**
+ * Regular user with access to all journeys but limited permissions
+ */
+export const regularUser: UserFixture = {
+  id: '00000000-0000-0000-0000-000000000005',
+  email: 'user@example.com',
+  firstName: 'Regular',
+  lastName: 'User',
+  roles: ['user', 'health_user', 'care_user', 'plan_user'],
+  permissions: [
+    'health:read',
+    'health:metrics:read',
+    'health:goals:read',
+    'care:read',
+    'care:appointments:read',
+    'care:medications:read',
+    'plan:read',
+    'plan:benefits:read',
+    'plan:claims:read',
+  ],
+  journeyAccess: [JourneyType.HEALTH, JourneyType.CARE, JourneyType.PLAN],
+  isActive: true,
+  isVerified: true,
+  createdAt: new Date('2023-01-05T00:00:00Z'),
+  updatedAt: new Date('2023-01-05T00:00:00Z'),
+  lastLoginAt: new Date('2023-06-05T12:00:00Z'),
+  profileData: {
+    preferredLanguage: 'pt-BR',
+    notificationPreferences: {
+      email: true,
+      push: true,
+      sms: false,
+    },
+    healthProfile: {
+      height: 175,
+      weight: 70,
+      bloodType: 'A+',
+    },
+  },
+};
+
+/**
+ * Health journey user with read-only access
+ */
+export const healthReadOnlyUser: UserFixture = {
+  id: '00000000-0000-0000-0000-000000000006',
+  email: 'health.readonly@example.com',
+  firstName: 'Health',
+  lastName: 'ReadOnly',
+  roles: ['health_readonly'],
+  permissions: [
+    'health:read',
+    'health:metrics:read',
+    'health:goals:read',
+    'health:devices:read',
+    'health:insights:read',
+  ],
+  journeyAccess: [JourneyType.HEALTH],
+  isActive: true,
+  isVerified: true,
+  createdAt: new Date('2023-01-06T00:00:00Z'),
+  updatedAt: new Date('2023-01-06T00:00:00Z'),
+  lastLoginAt: new Date('2023-06-06T12:00:00Z'),
+  profileData: {
+    preferredLanguage: 'pt-BR',
+    healthProfile: {
+      height: 165,
+      weight: 60,
+      bloodType: 'O+',
+    },
+  },
+};
+
+/**
+ * Care journey user with read-only access
+ */
+export const careReadOnlyUser: UserFixture = {
+  id: '00000000-0000-0000-0000-000000000007',
+  email: 'care.readonly@example.com',
+  firstName: 'Care',
+  lastName: 'ReadOnly',
+  roles: ['care_readonly'],
+  permissions: [
+    'care:read',
+    'care:appointments:read',
+    'care:providers:read',
+    'care:medications:read',
+    'care:telemedicine:read',
+  ],
+  journeyAccess: [JourneyType.CARE],
+  isActive: true,
+  isVerified: true,
+  createdAt: new Date('2023-01-07T00:00:00Z'),
+  updatedAt: new Date('2023-01-07T00:00:00Z'),
+  lastLoginAt: new Date('2023-06-07T12:00:00Z'),
+  profileData: {
+    preferredLanguage: 'pt-BR',
+    careProfile: {
+      primaryPhysician: 'Dr. Silva',
+      allergies: ['penicillin'],
+      emergencyContact: 'João Silva, (11) 98765-4321',
+    },
+  },
+};
+
+/**
+ * Plan journey user with read-only access
+ */
+export const planReadOnlyUser: UserFixture = {
+  id: '00000000-0000-0000-0000-000000000008',
+  email: 'plan.readonly@example.com',
+  firstName: 'Plan',
+  lastName: 'ReadOnly',
+  roles: ['plan_readonly'],
+  permissions: [
+    'plan:read',
+    'plan:benefits:read',
+    'plan:claims:read',
+    'plan:coverage:read',
+    'plan:documents:read',
+  ],
+  journeyAccess: [JourneyType.PLAN],
+  isActive: true,
+  isVerified: true,
+  createdAt: new Date('2023-01-08T00:00:00Z'),
+  updatedAt: new Date('2023-01-08T00:00:00Z'),
+  lastLoginAt: new Date('2023-06-08T12:00:00Z'),
+  profileData: {
+    preferredLanguage: 'pt-BR',
+    planProfile: {
+      planId: 'PREMIUM-2023',
+      memberId: 'MBR-123456',
+      startDate: '2023-01-01',
+      coverageLevel: 'family',
+    },
+  },
+};
+
+/**
+ * User with access to health and care journeys
+ */
+export const healthCareUser: UserFixture = {
+  id: '00000000-0000-0000-0000-000000000009',
+  email: 'health.care@example.com',
+  firstName: 'Health',
+  lastName: 'Care',
+  roles: ['health_user', 'care_user'],
+  permissions: [
+    'health:read', 'health:write',
+    'health:metrics:read', 'health:metrics:write',
+    'health:goals:read', 'health:goals:write',
+    'care:read', 'care:write',
+    'care:appointments:read', 'care:appointments:write',
+    'care:medications:read', 'care:medications:write',
+  ],
+  journeyAccess: [JourneyType.HEALTH, JourneyType.CARE],
+  isActive: true,
+  isVerified: true,
+  createdAt: new Date('2023-01-09T00:00:00Z'),
+  updatedAt: new Date('2023-01-09T00:00:00Z'),
+  lastLoginAt: new Date('2023-06-09T12:00:00Z'),
+  profileData: {
+    preferredLanguage: 'pt-BR',
+    healthProfile: {
+      height: 180,
+      weight: 75,
+      bloodType: 'B+',
+    },
+    careProfile: {
+      primaryPhysician: 'Dr. Santos',
+      allergies: ['sulfa'],
+      emergencyContact: 'Maria Santos, (11) 91234-5678',
+    },
+  },
+};
+
+/**
+ * User with access to health and plan journeys
+ */
+export const healthPlanUser: UserFixture = {
+  id: '00000000-0000-0000-0000-000000000010',
+  email: 'health.plan@example.com',
+  firstName: 'Health',
+  lastName: 'Plan',
+  roles: ['health_user', 'plan_user'],
+  permissions: [
+    'health:read', 'health:write',
+    'health:metrics:read', 'health:metrics:write',
+    'health:goals:read', 'health:goals:write',
+    'plan:read', 'plan:write',
+    'plan:benefits:read', 'plan:benefits:write',
+    'plan:claims:read', 'plan:claims:write',
+  ],
+  journeyAccess: [JourneyType.HEALTH, JourneyType.PLAN],
+  isActive: true,
+  isVerified: true,
+  createdAt: new Date('2023-01-10T00:00:00Z'),
+  updatedAt: new Date('2023-01-10T00:00:00Z'),
+  lastLoginAt: new Date('2023-06-10T12:00:00Z'),
+  profileData: {
+    preferredLanguage: 'pt-BR',
+    healthProfile: {
+      height: 170,
+      weight: 65,
+      bloodType: 'AB+',
+    },
+    planProfile: {
+      planId: 'STANDARD-2023',
+      memberId: 'MBR-654321',
+      startDate: '2023-01-01',
+      coverageLevel: 'individual',
+    },
+  },
+};
+
+/**
+ * User with access to care and plan journeys
+ */
+export const carePlanUser: UserFixture = {
+  id: '00000000-0000-0000-0000-000000000011',
+  email: 'care.plan@example.com',
+  firstName: 'Care',
+  lastName: 'Plan',
+  roles: ['care_user', 'plan_user'],
+  permissions: [
+    'care:read', 'care:write',
+    'care:appointments:read', 'care:appointments:write',
+    'care:medications:read', 'care:medications:write',
+    'plan:read', 'plan:write',
+    'plan:benefits:read', 'plan:benefits:write',
+    'plan:claims:read', 'plan:claims:write',
+  ],
+  journeyAccess: [JourneyType.CARE, JourneyType.PLAN],
+  isActive: true,
+  isVerified: true,
+  createdAt: new Date('2023-01-11T00:00:00Z'),
+  updatedAt: new Date('2023-01-11T00:00:00Z'),
+  lastLoginAt: new Date('2023-06-11T12:00:00Z'),
+  profileData: {
+    preferredLanguage: 'pt-BR',
+    careProfile: {
+      primaryPhysician: 'Dr. Oliveira',
+      allergies: ['latex'],
+      emergencyContact: 'Carlos Oliveira, (11) 98765-1234',
+    },
+    planProfile: {
+      planId: 'PREMIUM-2023',
+      memberId: 'MBR-789012',
+      startDate: '2023-01-01',
+      coverageLevel: 'family',
+    },
+  },
+};
+
+/**
+ * Inactive user for testing account status checks
+ */
+export const inactiveUser: UserFixture = {
+  id: '00000000-0000-0000-0000-000000000012',
+  email: 'inactive@example.com',
+  firstName: 'Inactive',
+  lastName: 'User',
+  roles: ['user'],
+  permissions: ['health:read', 'care:read', 'plan:read'],
+  journeyAccess: [JourneyType.HEALTH, JourneyType.CARE, JourneyType.PLAN],
+  isActive: false,
+  isVerified: true,
+  createdAt: new Date('2023-01-12T00:00:00Z'),
+  updatedAt: new Date('2023-01-12T00:00:00Z'),
+  lastLoginAt: new Date('2023-03-12T12:00:00Z'),
+  profileData: {
+    preferredLanguage: 'pt-BR',
+    deactivationReason: 'User requested account deactivation',
+    deactivationDate: '2023-06-12',
+  },
+};
+
+/**
+ * Unverified user for testing email verification flows
+ */
+export const unverifiedUser: UserFixture = {
+  id: '00000000-0000-0000-0000-000000000013',
+  email: 'unverified@example.com',
+  firstName: 'Unverified',
+  lastName: 'User',
+  roles: ['user'],
+  permissions: ['health:read', 'care:read', 'plan:read'],
+  journeyAccess: [JourneyType.HEALTH, JourneyType.CARE, JourneyType.PLAN],
+  isActive: true,
+  isVerified: false,
+  createdAt: new Date('2023-01-13T00:00:00Z'),
+  updatedAt: new Date('2023-01-13T00:00:00Z'),
+  profileData: {
+    preferredLanguage: 'pt-BR',
+    registrationSource: 'web',
+    verificationEmailSent: true,
+    verificationEmailSentAt: '2023-01-13T00:05:00Z',
+  },
+};
+
+/**
+ * User with no roles for testing default role assignment
+ */
+export const noRolesUser: UserFixture = {
+  id: '00000000-0000-0000-0000-000000000014',
+  email: 'noroles@example.com',
+  firstName: 'NoRoles',
+  lastName: 'User',
+  roles: [],
+  permissions: [],
+  journeyAccess: [],
+  isActive: true,
+  isVerified: true,
+  createdAt: new Date('2023-01-14T00:00:00Z'),
+  updatedAt: new Date('2023-01-14T00:00:00Z'),
+  lastLoginAt: new Date('2023-06-14T12:00:00Z'),
+  profileData: {
+    preferredLanguage: 'pt-BR',
+    registrationSource: 'mobile',
+  },
+};
+
+/**
+ * Collection of all user fixtures for easy import
+ */
+export const userFixtures = {
+  adminUser,
+  healthAdminUser,
+  careAdminUser,
+  planAdminUser,
+  regularUser,
+  healthReadOnlyUser,
+  careReadOnlyUser,
+  planReadOnlyUser,
+  healthCareUser,
+  healthPlanUser,
+  carePlanUser,
+  inactiveUser,
+  unverifiedUser,
+  noRolesUser,
+};
+
+/**
+ * JWT payload fixtures for token testing
+ */
+export const jwtPayloadFixtures: Record<string, JwtPayloadFixture> = {
+  adminPayload: {
+    userId: adminUser.id,
+    email: adminUser.email,
+    roles: adminUser.roles,
+    permissions: adminUser.permissions,
+    journeyAccess: adminUser.journeyAccess,
+    iat: Math.floor(Date.now() / 1000),
+    exp: Math.floor(Date.now() / 1000) + 3600, // 1 hour from now
+  },
+  regularUserPayload: {
+    userId: regularUser.id,
+    email: regularUser.email,
+    roles: regularUser.roles,
+    permissions: regularUser.permissions,
+    journeyAccess: regularUser.journeyAccess,
+    iat: Math.floor(Date.now() / 1000),
+    exp: Math.floor(Date.now() / 1000) + 3600, // 1 hour from now
+  },
+  healthUserPayload: {
+    userId: healthReadOnlyUser.id,
+    email: healthReadOnlyUser.email,
+    roles: healthReadOnlyUser.roles,
+    permissions: healthReadOnlyUser.permissions,
+    journeyAccess: healthReadOnlyUser.journeyAccess,
+    iat: Math.floor(Date.now() / 1000),
+    exp: Math.floor(Date.now() / 1000) + 3600, // 1 hour from now
+  },
+  expiredPayload: {
+    userId: regularUser.id,
+    email: regularUser.email,
+    roles: regularUser.roles,
+    permissions: regularUser.permissions,
+    journeyAccess: regularUser.journeyAccess,
+    iat: Math.floor(Date.now() / 1000) - 7200, // 2 hours ago
+    exp: Math.floor(Date.now() / 1000) - 3600, // 1 hour ago
+  },
+};
+
+/**
+ * Helper function to create a custom user fixture
+ * @param overrides - Properties to override in the base user fixture
+ * @returns A custom user fixture with the specified overrides
+ */
+export function createUserFixture(overrides: Partial<UserFixture> = {}): UserFixture {
   return {
-    id: 'test-user-id',
-    email: 'test.user@austa.health',
-    name: 'Test User',
-    roles,
-    permissions: roles.flatMap(role => {
-      const roleObj = Object.values(testRoles).find(r => r.name === role);
-      return roleObj?.permissions?.map(p => p.name) || [];
-    }),
-    lastAuthenticated: new Date(),
+    ...regularUser,
+    id: `custom-${Math.random().toString(36).substring(2, 9)}`,
+    email: `user-${Math.random().toString(36).substring(2, 9)}@example.com`,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+    ...overrides,
   };
 }
 
 /**
- * Helper function to get a user with specific permissions for testing
- * @param permissions Array of permission names to assign to the test user
- * @returns A test user with the specified permissions
+ * Helper function to create a custom JWT payload fixture
+ * @param overrides - Properties to override in the base JWT payload fixture
+ * @returns A custom JWT payload fixture with the specified overrides
  */
-export function getUserWithPermissions(permissions: string[]): AuthenticatedUser {
+export function createJwtPayloadFixture(overrides: Partial<JwtPayloadFixture> = {}): JwtPayloadFixture {
   return {
-    id: 'test-user-id',
-    email: 'test.user@austa.health',
-    name: 'Test User',
-    roles: ['user'],
-    permissions,
-    lastAuthenticated: new Date(),
-  };
-}
-
-/**
- * Helper function to create a custom test user
- * @param overrides Properties to override in the default test user
- * @returns A custom test user with the specified properties
- */
-export function createTestUser(overrides: Partial<AuthenticatedUser>): AuthenticatedUser {
-  return {
-    id: 'test-user-id',
-    email: 'test.user@austa.health',
-    name: 'Test User',
-    roles: ['user'],
-    permissions: [PERMISSIONS.USER_READ],
-    lastAuthenticated: new Date(),
+    ...jwtPayloadFixtures.regularUserPayload,
+    userId: `custom-${Math.random().toString(36).substring(2, 9)}`,
+    email: `user-${Math.random().toString(36).substring(2, 9)}@example.com`,
+    iat: Math.floor(Date.now() / 1000),
+    exp: Math.floor(Date.now() / 1000) + 3600,
     ...overrides,
   };
 }

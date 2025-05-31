@@ -1,114 +1,141 @@
 import React from 'react';
-import { Text } from '@design-system/primitives/src/components';
-import { AchievementBadge } from '../AchievementBadge';
+import { Box, Text } from '@design-system/primitives/components';
 import { Achievement } from '@austa/interfaces/gamification/achievements';
-import { useJourney } from '@austa/journey-context/src/hooks';
-import { colors } from '@design-system/primitives/src/tokens';
-import {
-  ModalOverlay,
-  ModalContent,
-  ModalTitle,
-  AchievementTitle,
-  AchievementDescription,
-  DismissButton,
-  BadgeContainer
+import { AchievementBadge } from '../AchievementBadge';
+import { useJourney } from '@austa/journey-context/src/hooks/useJourney';
+import { Modal } from '../../components/Modal/Modal';
+import { 
+  AchievementContent, 
+  BadgeContainer, 
+  TextContainer, 
+  DismissButton 
 } from './AchievementNotification.styles';
 
+/**
+ * Props for the AchievementNotification component
+ */
 export interface AchievementNotificationProps {
   /**
    * The achievement to display in the notification
    */
   achievement: Achievement;
-  /**
-   * Callback function called when the notification is dismissed
-   */
-  onDismiss: () => void;
+  
   /**
    * Whether the notification is visible
-   * @default true
    */
-  isVisible?: boolean;
+  visible: boolean;
+  
+  /**
+   * Callback function when the notification is closed
+   */
+  onClose: () => void;
+  
+  /**
+   * Optional test ID for component testing
+   */
+  testID?: string;
 }
 
 /**
- * AchievementNotification component
- * 
- * Displays a modal notification when users unlock achievements.
- * Shows the achievement badge, title, and description with journey-specific theming.
- * 
+ * AchievementNotification component displays a modal notification when users unlock achievements.
+ * It renders an AchievementBadge along with the achievement title and description,
+ * and provides an OK button to dismiss the notification.
+ *
  * @example
  * ```tsx
- * <AchievementNotification 
- *   achievement={achievement}
- *   onDismiss={() => setShowNotification(false)}
+ * <AchievementNotification
+ *   achievement={achievementData}
+ *   visible={showNotification}
+ *   onClose={() => setShowNotification(false)}
  * />
  * ```
  */
 export const AchievementNotification: React.FC<AchievementNotificationProps> = ({
   achievement,
-  onDismiss,
-  isVisible = true,
+  visible,
+  onClose,
+  testID = 'achievement-notification',
 }) => {
-  const { activeJourney } = useJourney();
-  const journeyKey = achievement.journey || activeJourney;
+  // Get journey theme from the achievement's journey property
+  const { getJourneyTheme } = useJourney();
+  const journeyTheme = achievement.journey || 'health';
   
-  // If not visible, don't render anything
-  if (!isVisible) return null;
-  
-  // Get journey-specific color
-  const getJourneyColor = () => {
-    switch (journeyKey) {
-      case 'health':
-        return colors.journeys.health.primary;
-      case 'care':
-        return colors.journeys.care.primary;
-      case 'plan':
-        return colors.journeys.plan.primary;
-      default:
-        return colors.journeys.health.primary;
-    }
-  };
-
-  const journeyColor = getJourneyColor();
-
   return (
-    <ModalOverlay
-      role="dialog"
-      aria-modal="true"
+    <Modal
+      visible={visible}
+      onClose={onClose}
+      journeyTheme={journeyTheme}
+      showCloseButton={false}
+      closeOnClickOutside={false}
       aria-labelledby="achievement-title"
       aria-describedby="achievement-description"
+      testID={testID}
     >
-      <ModalContent journeyColor={journeyColor}>
-        <ModalTitle as="h2" journeyColor={journeyColor}>
-          Achievement Unlocked!
-        </ModalTitle>
+      <AchievementContent>
+        <Box 
+          marginBottom="md"
+          aria-hidden="true"
+        >
+          <Text 
+            fontSize="xl" 
+            fontWeight="bold" 
+            color={theme => theme.colors.journeys[journeyTheme].primary}
+          >
+            Achievement Unlocked!
+          </Text>
+        </Box>
         
         <BadgeContainer>
           <AchievementBadge
             size="lg"
             unlocked={true}
-            journey={journeyKey}
+            journey={journeyTheme}
             icon={achievement.icon}
+            accessibilityLabel={`${achievement.title} achievement badge`}
           />
         </BadgeContainer>
         
-        <AchievementTitle as="h3" id="achievement-title">
-          {achievement.title}
-        </AchievementTitle>
-        
-        <AchievementDescription as="p" id="achievement-description">
-          {achievement.description}
-        </AchievementDescription>
+        <TextContainer>
+          <Text 
+            fontSize="lg" 
+            fontWeight="bold" 
+            marginBottom="xs"
+            id="achievement-title"
+          >
+            {achievement.title}
+          </Text>
+          <Text 
+            fontSize="md" 
+            color="gray.600"
+            id="achievement-description"
+          >
+            {achievement.description}
+          </Text>
+          
+          <Box marginTop="md">
+            <Text 
+              fontSize="md" 
+              fontWeight="bold" 
+              color={theme => theme.colors.journeys[journeyTheme].primary}
+            >
+              +{achievement.points} XP
+            </Text>
+          </Box>
+        </TextContainer>
         
         <DismissButton
-          as="button"
-          journeyColor={journeyColor}
-          onClick={onDismiss}
-          aria-label="Close achievement notification"
+          journey={journeyTheme}
+          onPress={onClose}
+          accessibilityRole="button"
+          accessibilityLabel="Close achievement notification"
         >
-          OK
+          <Text color="white" fontWeight="medium">
+            OK
+          </Text>
         </DismissButton>
-      </ModalContent>
-    </ModalOverlay>
+      </AchievementContent>
+    </Modal>
   );
 };
+
+export default AchievementNotification;

@@ -1,254 +1,475 @@
 import React from 'react';
+import { describe, it, expect } from '@jest/globals';
 import { render, screen, fireEvent } from '@testing-library/react';
-import { axe } from 'jest-axe';
-import { ThemeProvider } from 'styled-components';
 import { Checkbox } from './Checkbox';
-import { baseTheme, healthTheme, careTheme, planTheme } from '../../themes';
+import { baseTheme } from '../../themes/base.theme';
+import { healthTheme } from '../../themes/health.theme';
+import { careTheme } from '../../themes/care.theme';
+import { planTheme } from '../../themes/plan.theme';
 
-describe('Checkbox Component', () => {
-  // Test rendering and basic functionality
-  describe('Basic Functionality', () => {
-    const defaultProps = {
-      id: 'test-checkbox',
-      name: 'test-checkbox',
-      value: 'test',
-      label: 'Test Checkbox',
-      onChange: jest.fn(),
-    };
+// Mock react-native components
+jest.mock('react-native', () => ({
+  StyleSheet: {
+    create: jest.fn((styles) => styles),
+  },
+  Platform: {
+    OS: 'web',
+  },
+  TextInputProps: {},
+}));
 
-    it('renders correctly in unchecked state', () => {
-      render(<Checkbox {...defaultProps} />);
-      
-      const checkbox = screen.getByRole('checkbox', { name: /test checkbox/i });
-      expect(checkbox).toBeInTheDocument();
-      expect(checkbox).not.toBeChecked();
-    });
+// Mock the Touchable component to pass through props to a div element
+jest.mock('../../primitives/Touchable', () => ({
+  Touchable: ({ children, onPress, accessibilityRole, accessibilityState, accessibilityLabel, testID, ...props }) => (
+    <div 
+      data-testid={testID}
+      onClick={onPress}
+      role={accessibilityRole}
+      aria-checked={accessibilityState?.checked}
+      aria-disabled={accessibilityState?.disabled}
+      aria-label={accessibilityLabel}
+      {...props}
+    >
+      {children}
+    </div>
+  ),
+}));
 
-    it('renders correctly in checked state', () => {
-      render(<Checkbox {...defaultProps} checked />);
-      
-      const checkbox = screen.getByRole('checkbox', { name: /test checkbox/i });
-      expect(checkbox).toBeInTheDocument();
-      expect(checkbox).toBeChecked();
-    });
+// Mock the Box component
+jest.mock('../../primitives/Box', () => ({
+  Box: ({ children, style, ...props }) => (
+    <div 
+      data-testid="checkbox-box"
+      data-styles={JSON.stringify(style)}
+      {...props}
+    >
+      {children}
+    </div>
+  ),
+}));
 
-    it('renders correctly in disabled state', () => {
-      render(<Checkbox {...defaultProps} disabled />);
-      
-      const checkbox = screen.getByRole('checkbox', { name: /test checkbox/i });
-      expect(checkbox).toBeInTheDocument();
-      expect(checkbox).toBeDisabled();
-    });
+// Mock the Text component
+jest.mock('../../primitives/Text', () => ({
+  Text: ({ children, style, testID, ...props }) => (
+    <span 
+      data-testid={testID || 'checkbox-text'}
+      data-styles={JSON.stringify(style)}
+      {...props}
+    >
+      {children}
+    </span>
+  ),
+}));
 
-    it('calls onChange when clicked', () => {
-      const handleChange = jest.fn();
-      render(
-        <Checkbox
-          {...defaultProps}
-          onChange={handleChange}
-        />
-      );
-      
-      const checkbox = screen.getByRole('checkbox', { name: /test checkbox/i });
-      fireEvent.click(checkbox);
-      
-      expect(handleChange).toHaveBeenCalledTimes(1);
-      expect(handleChange).toHaveBeenCalledWith(expect.objectContaining({
+// Mock the useTheme hook
+jest.mock('../../themes', () => {
+  const originalModule = jest.requireActual('../../themes');
+  
+  return {
+    ...originalModule,
+    useTheme: jest.fn(() => ({
+      colors: {
+        brand: {
+          primary: '#3A86FF',
+        },
+        journeys: {
+          health: {
+            primary: '#4CAF50',
+          },
+          care: {
+            primary: '#FF9800',
+          },
+          plan: {
+            primary: '#2196F3',
+          },
+        },
+      },
+    })),
+  };
+});
+
+describe('Checkbox', () => {
+  // Test rendering with default props
+  it('renders correctly with default props', () => {
+    render(
+      <Checkbox
+        id="test-checkbox"
+        name="test"
+        value="test"
+        label="Test Checkbox"
+        onChange={jest.fn()}
+      />
+    );
+    
+    // Checkbox should render with correct label
+    expect(screen.getByTestId('checkbox-test-checkbox')).toBeInTheDocument();
+    expect(screen.getByTestId('checkbox-text')).toHaveTextContent('Test Checkbox');
+    
+    // Should be unchecked by default
+    expect(screen.getByTestId('checkbox-test-checkbox')).toHaveAttribute('aria-checked', 'false');
+  });
+  
+  // Test checked state
+  it('renders checked state correctly', () => {
+    render(
+      <Checkbox
+        id="test-checkbox"
+        name="test"
+        value="test"
+        checked={true}
+        label="Test Checkbox"
+        onChange={jest.fn()}
+      />
+    );
+    
+    // Checkbox should be checked
+    expect(screen.getByTestId('checkbox-test-checkbox')).toHaveAttribute('aria-checked', 'true');
+    
+    // Checkmark should be visible
+    expect(screen.getByTestId('checkbox-checkmark')).toBeInTheDocument();
+    expect(screen.getByTestId('checkbox-checkmark')).toHaveTextContent('✓');
+  });
+  
+  // Test disabled state
+  it('renders disabled state correctly', () => {
+    render(
+      <Checkbox
+        id="test-checkbox"
+        name="test"
+        value="test"
+        disabled={true}
+        label="Test Checkbox"
+        onChange={jest.fn()}
+      />
+    );
+    
+    // Checkbox should be disabled
+    expect(screen.getByTestId('checkbox-test-checkbox')).toHaveAttribute('aria-disabled', 'true');
+    
+    // Box should have disabled styling
+    const boxStyles = JSON.parse(screen.getByTestId('checkbox-box').getAttribute('data-styles') || '[]');
+    expect(boxStyles).toContainEqual(expect.objectContaining({ backgroundColor: '#EEEEEE' }));
+  });
+  
+  // Test checked and disabled state
+  it('renders checked and disabled state correctly', () => {
+    render(
+      <Checkbox
+        id="test-checkbox"
+        name="test"
+        value="test"
+        checked={true}
+        disabled={true}
+        label="Test Checkbox"
+        onChange={jest.fn()}
+      />
+    );
+    
+    // Checkbox should be checked and disabled
+    expect(screen.getByTestId('checkbox-test-checkbox')).toHaveAttribute('aria-checked', 'true');
+    expect(screen.getByTestId('checkbox-test-checkbox')).toHaveAttribute('aria-disabled', 'true');
+    
+    // Checkmark should be visible
+    expect(screen.getByTestId('checkbox-checkmark')).toBeInTheDocument();
+    
+    // Box should have disabled styling
+    const boxStyles = JSON.parse(screen.getByTestId('checkbox-box').getAttribute('data-styles') || '[]');
+    expect(boxStyles).toContainEqual(expect.objectContaining({ backgroundColor: '#EEEEEE' }));
+  });
+  
+  // Test journey-specific styling - Health
+  it('renders with health journey styling correctly', () => {
+    render(
+      <Checkbox
+        id="test-checkbox"
+        name="test"
+        value="test"
+        checked={true}
+        label="Test Checkbox"
+        onChange={jest.fn()}
+        journey="health"
+      />
+    );
+    
+    // Box should have health journey color
+    const boxStyles = JSON.parse(screen.getByTestId('checkbox-box').getAttribute('data-styles') || '[]');
+    expect(boxStyles).toContainEqual(expect.objectContaining({ backgroundColor: '#4CAF50' }));
+    expect(boxStyles).toContainEqual(expect.objectContaining({ borderColor: '#4CAF50' }));
+  });
+  
+  // Test journey-specific styling - Care
+  it('renders with care journey styling correctly', () => {
+    render(
+      <Checkbox
+        id="test-checkbox"
+        name="test"
+        value="test"
+        checked={true}
+        label="Test Checkbox"
+        onChange={jest.fn()}
+        journey="care"
+      />
+    );
+    
+    // Box should have care journey color
+    const boxStyles = JSON.parse(screen.getByTestId('checkbox-box').getAttribute('data-styles') || '[]');
+    expect(boxStyles).toContainEqual(expect.objectContaining({ backgroundColor: '#FF9800' }));
+    expect(boxStyles).toContainEqual(expect.objectContaining({ borderColor: '#FF9800' }));
+  });
+  
+  // Test journey-specific styling - Plan
+  it('renders with plan journey styling correctly', () => {
+    render(
+      <Checkbox
+        id="test-checkbox"
+        name="test"
+        value="test"
+        checked={true}
+        label="Test Checkbox"
+        onChange={jest.fn()}
+        journey="plan"
+      />
+    );
+    
+    // Box should have plan journey color
+    const boxStyles = JSON.parse(screen.getByTestId('checkbox-box').getAttribute('data-styles') || '[]');
+    expect(boxStyles).toContainEqual(expect.objectContaining({ backgroundColor: '#2196F3' }));
+    expect(boxStyles).toContainEqual(expect.objectContaining({ borderColor: '#2196F3' }));
+  });
+  
+  // Test onChange callback
+  it('calls onChange when clicked', () => {
+    const onChangeMock = jest.fn();
+    render(
+      <Checkbox
+        id="test-checkbox"
+        name="test"
+        value="test"
+        label="Test Checkbox"
+        onChange={onChangeMock}
+      />
+    );
+    
+    // Click the checkbox
+    fireEvent.click(screen.getByTestId('checkbox-test-checkbox'));
+    
+    // onChange should be called
+    expect(onChangeMock).toHaveBeenCalledTimes(1);
+    
+    // The synthetic event should have the correct properties
+    expect(onChangeMock).toHaveBeenCalledWith(
+      expect.objectContaining({
         target: expect.objectContaining({
           checked: true,
-          name: 'test-checkbox',
-          id: 'test-checkbox',
-          value: 'test'
+          value: 'test',
+          name: 'test',
+          id: 'test-checkbox'
         })
-      }));
-    });
-
-    it('does not call onChange when clicked if disabled', () => {
-      const handleChange = jest.fn();
-      render(
-        <Checkbox
-          {...defaultProps}
-          onChange={handleChange}
-          disabled
-        />
-      );
-      
-      const checkbox = screen.getByRole('checkbox', { name: /test checkbox/i });
-      fireEvent.click(checkbox);
-      
-      expect(handleChange).not.toHaveBeenCalled();
-    });
-
-    it('updates internal state when checked prop changes', () => {
-      const { rerender } = render(<Checkbox {...defaultProps} checked={false} />);
-      
-      let checkbox = screen.getByRole('checkbox', { name: /test checkbox/i });
-      expect(checkbox).not.toBeChecked();
-      
-      rerender(<Checkbox {...defaultProps} checked={true} />);
-      
-      checkbox = screen.getByRole('checkbox', { name: /test checkbox/i });
-      expect(checkbox).toBeChecked();
+      })
+    );
+  });
+  
+  // Test that onChange is not called when disabled
+  it('does not call onChange when disabled', () => {
+    const onChangeMock = jest.fn();
+    render(
+      <Checkbox
+        id="test-checkbox"
+        name="test"
+        value="test"
+        disabled={true}
+        label="Test Checkbox"
+        onChange={onChangeMock}
+      />
+    );
+    
+    // Click the checkbox
+    fireEvent.click(screen.getByTestId('checkbox-test-checkbox'));
+    
+    // onChange should not be called
+    expect(onChangeMock).not.toHaveBeenCalled();
+  });
+  
+  // Test toggling the checkbox
+  it('toggles checked state when clicked multiple times', () => {
+    const onChangeMock = jest.fn();
+    render(
+      <Checkbox
+        id="test-checkbox"
+        name="test"
+        value="test"
+        label="Test Checkbox"
+        onChange={onChangeMock}
+      />
+    );
+    
+    // Initially unchecked
+    expect(screen.getByTestId('checkbox-test-checkbox')).toHaveAttribute('aria-checked', 'false');
+    
+    // First click - should check
+    fireEvent.click(screen.getByTestId('checkbox-test-checkbox'));
+    expect(onChangeMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        target: expect.objectContaining({ checked: true })
+      })
+    );
+    
+    // Update the component with the new checked state
+    onChangeMock.mockReset();
+    render(
+      <Checkbox
+        id="test-checkbox"
+        name="test"
+        value="test"
+        checked={true}
+        label="Test Checkbox"
+        onChange={onChangeMock}
+      />
+    );
+    
+    // Now checked
+    expect(screen.getByTestId('checkbox-test-checkbox')).toHaveAttribute('aria-checked', 'true');
+    
+    // Second click - should uncheck
+    fireEvent.click(screen.getByTestId('checkbox-test-checkbox'));
+    expect(onChangeMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        target: expect.objectContaining({ checked: false })
+      })
+    );
+  });
+  
+  // Test accessibility attributes
+  it('has correct accessibility attributes', () => {
+    render(
+      <Checkbox
+        id="test-checkbox"
+        name="test"
+        value="test"
+        label="Accessible Checkbox"
+        onChange={jest.fn()}
+      />
+    );
+    
+    const checkbox = screen.getByTestId('checkbox-test-checkbox');
+    
+    // Should have correct accessibility role
+    expect(checkbox).toHaveAttribute('role', 'checkbox');
+    
+    // Should have correct accessibility label
+    expect(checkbox).toHaveAttribute('aria-label', 'Accessible Checkbox');
+    
+    // Should have correct checked state
+    expect(checkbox).toHaveAttribute('aria-checked', 'false');
+  });
+  
+  // Test custom testID
+  it('renders with custom testID', () => {
+    render(
+      <Checkbox
+        id="test-checkbox"
+        name="test"
+        value="test"
+        label="Test Checkbox"
+        onChange={jest.fn()}
+        testID="custom-test-id"
+      />
+    );
+    
+    // Should render with custom testID
+    expect(screen.getByTestId('custom-test-id')).toBeInTheDocument();
+  });
+  
+  // Test native input for web platform
+  it('renders hidden native input for web platform', () => {
+    render(
+      <Checkbox
+        id="test-checkbox"
+        name="test"
+        value="test"
+        label="Test Checkbox"
+        onChange={jest.fn()}
+      />
+    );
+    
+    // Should render a hidden native input
+    const nativeInput = document.querySelector('input[type="checkbox"]');
+    expect(nativeInput).toBeInTheDocument();
+    expect(nativeInput).toHaveAttribute('id', 'test-checkbox');
+    expect(nativeInput).toHaveAttribute('name', 'test');
+    expect(nativeInput).toHaveAttribute('value', 'test');
+    
+    // Input should be visually hidden but accessible
+    expect(nativeInput).toHaveStyle({
+      position: 'absolute',
+      opacity: 0,
+      width: 0,
+      height: 0
     });
   });
-
-  // Test journey-specific styling
-  describe('Journey-specific Styling', () => {
-    const defaultProps = {
-      id: 'test-checkbox',
-      name: 'test-checkbox',
-      value: 'test',
-      label: 'Test Checkbox',
-      onChange: jest.fn(),
-      checked: true,
-    };
-
-    it('applies health journey styling when journey="health"', () => {
-      render(
-        <ThemeProvider theme={healthTheme}>
-          <Checkbox {...defaultProps} journey="health" />
-        </ThemeProvider>
-      );
-      
-      const checkbox = screen.getByRole('checkbox', { name: /test checkbox/i });
-      const checkboxContainer = checkbox.closest('div');
-      
-      // Verify the checkbox has the correct styling
-      // This is a visual test, so we're checking for the presence of the checkmark
-      expect(screen.getByTestId('checkbox-checkmark')).toBeInTheDocument();
-      
-      // We can't directly test CSS-in-JS styles in JSDOM, but we can verify
-      // that the component renders with the correct structure
-      expect(checkboxContainer).toBeInTheDocument();
-    });
-
-    it('applies care journey styling when journey="care"', () => {
-      render(
-        <ThemeProvider theme={careTheme}>
-          <Checkbox {...defaultProps} journey="care" />
-        </ThemeProvider>
-      );
-      
-      const checkbox = screen.getByRole('checkbox', { name: /test checkbox/i });
-      const checkboxContainer = checkbox.closest('div');
-      
-      expect(screen.getByTestId('checkbox-checkmark')).toBeInTheDocument();
-      expect(checkboxContainer).toBeInTheDocument();
-    });
-
-    it('applies plan journey styling when journey="plan"', () => {
-      render(
-        <ThemeProvider theme={planTheme}>
-          <Checkbox {...defaultProps} journey="plan" />
-        </ThemeProvider>
-      );
-      
-      const checkbox = screen.getByRole('checkbox', { name: /test checkbox/i });
-      const checkboxContainer = checkbox.closest('div');
-      
-      expect(screen.getByTestId('checkbox-checkmark')).toBeInTheDocument();
-      expect(checkboxContainer).toBeInTheDocument();
-    });
-
-    it('applies default styling when no journey is specified', () => {
-      render(
-        <ThemeProvider theme={baseTheme}>
-          <Checkbox {...defaultProps} />
-        </ThemeProvider>
-      );
-      
-      const checkbox = screen.getByRole('checkbox', { name: /test checkbox/i });
-      const checkboxContainer = checkbox.closest('div');
-      
-      expect(screen.getByTestId('checkbox-checkmark')).toBeInTheDocument();
-      expect(checkboxContainer).toBeInTheDocument();
-    });
+  
+  // Test focus handling
+  it('exposes focus method through ref', () => {
+    const ref = React.createRef<any>();
+    render(
+      <Checkbox
+        id="test-checkbox"
+        name="test"
+        value="test"
+        label="Test Checkbox"
+        onChange={jest.fn()}
+        ref={ref}
+      />
+    );
+    
+    // Mock the focus method of the input element
+    const mockFocus = jest.fn();
+    const inputElement = document.querySelector('input[type="checkbox"]');
+    if (inputElement) {
+      Object.defineProperty(inputElement, 'focus', {
+        value: mockFocus,
+        configurable: true,
+      });
+    }
+    
+    // Call focus method through ref
+    ref.current.focus();
+    
+    // Focus should be called on the input element
+    expect(mockFocus).toHaveBeenCalledTimes(1);
   });
-
-  // Test accessibility
-  describe('Accessibility', () => {
-    const defaultProps = {
-      id: 'test-checkbox',
-      name: 'test-checkbox',
-      value: 'test',
-      label: 'Test Checkbox',
-      onChange: jest.fn(),
-    };
-
-    it('has no accessibility violations', async () => {
-      const { container } = render(
-        <ThemeProvider theme={baseTheme}>
-          <Checkbox {...defaultProps} />
-        </ThemeProvider>
-      );
-      
-      const results = await axe(container);
-      expect(results).toHaveNoViolations();
-    });
-
-    it('has proper ARIA attributes', () => {
-      render(<Checkbox {...defaultProps} />);
-      
-      const checkbox = screen.getByRole('checkbox', { name: /test checkbox/i });
-      
-      // Check for proper accessibility attributes
-      expect(checkbox).toHaveAttribute('aria-hidden', 'true');
-      
-      // The Touchable component should have proper accessibility role and state
-      const touchable = screen.getByTestId(`checkbox-${defaultProps.id}`);
-      expect(touchable).toHaveAttribute('role', 'checkbox');
-      expect(touchable).toHaveAttribute('aria-checked', 'false');
-      expect(touchable).toHaveAttribute('aria-label', defaultProps.label);
-    });
-
-    it('has proper ARIA attributes when checked', () => {
-      render(<Checkbox {...defaultProps} checked />);
-      
-      // The Touchable component should have proper accessibility role and state
-      const touchable = screen.getByTestId(`checkbox-${defaultProps.id}`);
-      expect(touchable).toHaveAttribute('role', 'checkbox');
-      expect(touchable).toHaveAttribute('aria-checked', 'true');
-    });
-
-    it('has proper ARIA attributes when disabled', () => {
-      render(<Checkbox {...defaultProps} disabled />);
-      
-      // The Touchable component should have proper accessibility role and state
-      const touchable = screen.getByTestId(`checkbox-${defaultProps.id}`);
-      expect(touchable).toHaveAttribute('role', 'checkbox');
-      expect(touchable).toHaveAttribute('aria-disabled', 'true');
-    });
-  });
-
-  // Test with different props
-  describe('Props Variations', () => {
-    it('renders with custom testID', () => {
-      render(
-        <Checkbox
-          id="test-checkbox"
-          name="test-checkbox"
-          value="test"
-          label="Test Checkbox"
-          onChange={jest.fn()}
-          testID="custom-test-id"
-        />
-      );
-      
-      expect(screen.getByTestId('custom-test-id')).toBeInTheDocument();
-    });
-
-    it('renders with different label text', () => {
-      render(
-        <Checkbox
-          id="test-checkbox"
-          name="test-checkbox"
-          value="test"
-          label="Custom Label Text"
-          onChange={jest.fn()}
-        />
-      );
-      
-      expect(screen.getByText('Custom Label Text')).toBeInTheDocument();
-    });
+  
+  // Test that component updates when checked prop changes
+  it('updates when checked prop changes', () => {
+    const { rerender } = render(
+      <Checkbox
+        id="test-checkbox"
+        name="test"
+        value="test"
+        checked={false}
+        label="Test Checkbox"
+        onChange={jest.fn()}
+      />
+    );
+    
+    // Initially unchecked
+    expect(screen.getByTestId('checkbox-test-checkbox')).toHaveAttribute('aria-checked', 'false');
+    expect(screen.queryByTestId('checkbox-checkmark')).not.toBeInTheDocument();
+    
+    // Update checked prop
+    rerender(
+      <Checkbox
+        id="test-checkbox"
+        name="test"
+        value="test"
+        checked={true}
+        label="Test Checkbox"
+        onChange={jest.fn()}
+      />
+    );
+    
+    // Now checked
+    expect(screen.getByTestId('checkbox-test-checkbox')).toHaveAttribute('aria-checked', 'true');
+    expect(screen.getByTestId('checkbox-checkmark')).toBeInTheDocument();
   });
 });

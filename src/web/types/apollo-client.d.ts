@@ -1,149 +1,259 @@
 /**
- * Apollo Client Type Augmentation
+ * Type augmentation for Apollo Client 3.8.10
  * 
- * This file extends Apollo Client's type system with project-specific GraphQL schema types
- * from @austa/interfaces. It provides type safety for GraphQL queries, mutations, and
- * subscriptions by connecting Apollo's generic type parameters to the strongly-typed
- * schema definitions generated for the project.
+ * This declaration file enhances Apollo Client's type system with project-specific
+ * GraphQL schema types from @austa/interfaces. It provides type safety for GraphQL
+ * queries, mutations, and subscriptions by connecting Apollo's generic type parameters
+ * to the strongly-typed schema definitions generated for the project.
+ * 
+ * @module apollo-client
  */
 
-import { FieldPolicy, FieldReadFunction, TypePolicies } from '@apollo/client/cache';
-import { DocumentNode } from 'graphql';
 import { 
-  // Import journey-specific GraphQL operation types
-  HealthTypes, 
-  CareTypes, 
-  PlanTypes, 
-  GamificationTypes, 
-  AuthTypes,
-  // Import error and response types
-  ErrorTypes,
-  ResponseTypes
-} from '@austa/interfaces/api';
+  OperationVariables,
+  QueryResult,
+  MutationResult,
+  SubscriptionResult,
+  ApolloError,
+  QueryHookOptions,
+  MutationHookOptions,
+  SubscriptionHookOptions
+} from '@apollo/client';
 
-// Type for all possible GraphQL operations in the application
-type AustaGraphQLOperations = 
-  | HealthTypes.Operations
-  | CareTypes.Operations
-  | PlanTypes.Operations
-  | GamificationTypes.Operations
-  | AuthTypes.Operations;
+import { 
+  GraphQLOperation,
+  GraphQLError,
+  GraphQLErrorResponse,
+  GraphQLQueryVariables,
+  GraphQLMutationVariables,
+  GraphQLSubscriptionVariables,
+  GraphQLQueryResult,
+  GraphQLMutationResult,
+  GraphQLSubscriptionResult
+} from '@austa/interfaces/api/graphql.types';
 
-// Type for all possible GraphQL errors in the application
-type AustaGraphQLErrors = ErrorTypes.GraphQLError;
+// Import journey-specific GraphQL types
+import { 
+  HealthGraphQLOperations,
+  CareGraphQLOperations,
+  PlanGraphQLOperations,
+  AuthGraphQLOperations,
+  GamificationGraphQLOperations
+} from '@austa/interfaces';
 
-// Extend the Apollo Client module
+/**
+ * Augment the @apollo/client module with project-specific types
+ */
 declare module '@apollo/client' {
   /**
-   * Extend the useQuery hook with AUSTA-specific types
+   * Enhanced useQuery hook with strong typing for journey-specific operations
+   * 
+   * @template TOperation - The GraphQL operation type (from @austa/interfaces)
+   * @template TVariables - The variables type for the operation
+   * @param query - The GraphQL query document
+   * @param options - The query options
+   * @returns Strongly-typed query result
    */
   export function useQuery<
-    TData = any,
-    TVariables = AustaGraphQLOperations['variables']
+    TOperation extends GraphQLOperation,
+    TVariables extends GraphQLQueryVariables = OperationVariables
   >(
-    query: DocumentNode,
-    options?: QueryHookOptions<TData, TVariables>
-  ): QueryResult<TData, TVariables> & {
-    error?: AustaGraphQLErrors;
+    query: any,
+    options?: QueryHookOptions<GraphQLQueryResult<TOperation>, TVariables>
+  ): QueryResult<GraphQLQueryResult<TOperation>, TVariables> & {
+    error: ApolloError & {
+      graphQLErrors: GraphQLError[];
+      networkError: Error | null;
+      errorResponse: GraphQLErrorResponse | null;
+    };
   };
 
   /**
-   * Extend the useMutation hook with AUSTA-specific types
+   * Enhanced useMutation hook with strong typing for journey-specific operations
+   * 
+   * @template TOperation - The GraphQL operation type (from @austa/interfaces)
+   * @template TVariables - The variables type for the operation
+   * @param mutation - The GraphQL mutation document
+   * @param options - The mutation options
+   * @returns Strongly-typed mutation result tuple
    */
   export function useMutation<
-    TData = any,
-    TVariables = AustaGraphQLOperations['variables']
+    TOperation extends GraphQLOperation,
+    TVariables extends GraphQLMutationVariables = OperationVariables
   >(
-    mutation: DocumentNode,
-    options?: MutationHookOptions<TData, TVariables>
-  ): MutationTuple<TData, TVariables> & {
-    error?: AustaGraphQLErrors;
-  };
+    mutation: any,
+    options?: MutationHookOptions<GraphQLMutationResult<TOperation>, TVariables>
+  ): [
+    (variables?: TVariables) => Promise<MutationResult<GraphQLMutationResult<TOperation>>>,
+    MutationResult<GraphQLMutationResult<TOperation>> & {
+      error: ApolloError & {
+        graphQLErrors: GraphQLError[];
+        networkError: Error | null;
+        errorResponse: GraphQLErrorResponse | null;
+      };
+    }
+  ];
 
   /**
-   * Extend the useSubscription hook with AUSTA-specific types
+   * Enhanced useSubscription hook with strong typing for journey-specific operations
+   * 
+   * @template TOperation - The GraphQL operation type (from @austa/interfaces)
+   * @template TVariables - The variables type for the operation
+   * @param subscription - The GraphQL subscription document
+   * @param options - The subscription options
+   * @returns Strongly-typed subscription result
    */
   export function useSubscription<
-    TData = any,
-    TVariables = AustaGraphQLOperations['variables']
+    TOperation extends GraphQLOperation,
+    TVariables extends GraphQLSubscriptionVariables = OperationVariables
   >(
-    subscription: DocumentNode,
-    options?: SubscriptionHookOptions<TData, TVariables>
-  ): SubscriptionResult<TData> & {
-    error?: AustaGraphQLErrors;
+    subscription: any,
+    options?: SubscriptionHookOptions<GraphQLSubscriptionResult<TOperation>, TVariables>
+  ): SubscriptionResult<GraphQLSubscriptionResult<TOperation>, TVariables> & {
+    error: ApolloError & {
+      graphQLErrors: GraphQLError[];
+      networkError: Error | null;
+      errorResponse: GraphQLErrorResponse | null;
+    };
   };
 
   /**
-   * Extend the ApolloError type with AUSTA-specific error details
+   * Enhanced ApolloError type with strongly-typed GraphQL errors
    */
   export interface ApolloError {
-    journeyContext?: string;
-    errorCode?: ErrorTypes.ErrorCode;
-    validationErrors?: ErrorTypes.ValidationError[];
-    graphQLErrors: ReadonlyArray<AustaGraphQLErrors>;
+    graphQLErrors: GraphQLError[];
+    networkError: Error | null;
+    errorResponse: GraphQLErrorResponse | null;
+    message: string;
+    extraInfo?: any;
   }
 
   /**
-   * Extend the ApolloClient type with AUSTA-specific configuration
+   * Enhanced QueryResult type with journey-specific operation typing
    */
-  export interface ApolloClientOptions<TCacheShape> {
-    journeyContext?: string;
-    defaultOptions?: DefaultOptions;
+  export interface QueryResult<TData, TVariables> {
+    data?: TData;
+    loading: boolean;
+    error?: ApolloError;
+    variables?: TVariables;
+    refetch: (variables?: TVariables) => Promise<QueryResult<TData, TVariables>>;
+    fetchMore: (options: { variables?: TVariables }) => Promise<QueryResult<TData, TVariables>>;
+    networkStatus: number;
+    client: ApolloClient<any>;
+    called: boolean;
   }
 
   /**
-   * Extend the DefaultOptions type with AUSTA-specific defaults
+   * Enhanced MutationResult type with journey-specific operation typing
    */
-  export interface DefaultOptions {
-    watchQuery?: WatchQueryOptions<AustaGraphQLOperations['variables']>;
-    query?: QueryOptions<AustaGraphQLOperations['variables']>;
-    mutation?: MutationOptions<any, AustaGraphQLOperations['variables']>;
+  export interface MutationResult<TData> {
+    data?: TData;
+    loading: boolean;
+    error?: ApolloError;
+    called: boolean;
+    client: ApolloClient<any>;
+    reset: () => void;
+  }
+
+  /**
+   * Enhanced SubscriptionResult type with journey-specific operation typing
+   */
+  export interface SubscriptionResult<TData, TVariables> {
+    data?: TData;
+    loading: boolean;
+    error?: ApolloError;
+    variables?: TVariables;
   }
 }
 
 /**
- * Extend the Apollo Cache module
+ * Journey-specific type helpers for GraphQL operations
  */
-declare module '@apollo/client/cache' {
-  export interface TypePolicies {
-    // Journey-specific type policies
-    HealthMetric?: TypePolicy;
-    Appointment?: TypePolicy;
-    InsurancePlan?: TypePolicy;
-    GamificationProfile?: TypePolicy;
-    User?: TypePolicy;
-    // Add other journey-specific types as needed
-  }
-}
+declare global {
+  namespace ApolloClientTypes {
+    /**
+     * Health journey GraphQL operation types
+     */
+    export namespace Health {
+      export type Query<T extends keyof HealthGraphQLOperations['queries']> = 
+        GraphQLQueryResult<HealthGraphQLOperations['queries'][T]>;
+      
+      export type QueryVariables<T extends keyof HealthGraphQLOperations['queries']> = 
+        GraphQLQueryVariables & HealthGraphQLOperations['queries'][T]['variables'];
+      
+      export type Mutation<T extends keyof HealthGraphQLOperations['mutations']> = 
+        GraphQLMutationResult<HealthGraphQLOperations['mutations'][T]>;
+      
+      export type MutationVariables<T extends keyof HealthGraphQLOperations['mutations']> = 
+        GraphQLMutationVariables & HealthGraphQLOperations['mutations'][T]['variables'];
+    }
 
-/**
- * Extend the Apollo React Hooks module
- */
-declare module '@apollo/client/react/hooks' {
-  /**
-   * Extend the QueryResult type with AUSTA-specific fields
-   */
-  export interface QueryResult<TData = any, TVariables = any> {
-    journeyContext?: string;
-    error?: AustaGraphQLErrors;
-    data?: TData & ResponseTypes.GraphQLResponse<TData>;
-  }
+    /**
+     * Care journey GraphQL operation types
+     */
+    export namespace Care {
+      export type Query<T extends keyof CareGraphQLOperations['queries']> = 
+        GraphQLQueryResult<CareGraphQLOperations['queries'][T]>;
+      
+      export type QueryVariables<T extends keyof CareGraphQLOperations['queries']> = 
+        GraphQLQueryVariables & CareGraphQLOperations['queries'][T]['variables'];
+      
+      export type Mutation<T extends keyof CareGraphQLOperations['mutations']> = 
+        GraphQLMutationResult<CareGraphQLOperations['mutations'][T]>;
+      
+      export type MutationVariables<T extends keyof CareGraphQLOperations['mutations']> = 
+        GraphQLMutationVariables & CareGraphQLOperations['mutations'][T]['variables'];
+    }
 
-  /**
-   * Extend the MutationResult type with AUSTA-specific fields
-   */
-  export interface MutationResult<TData = any> {
-    journeyContext?: string;
-    error?: AustaGraphQLErrors;
-    data?: TData & ResponseTypes.GraphQLResponse<TData>;
-  }
+    /**
+     * Plan journey GraphQL operation types
+     */
+    export namespace Plan {
+      export type Query<T extends keyof PlanGraphQLOperations['queries']> = 
+        GraphQLQueryResult<PlanGraphQLOperations['queries'][T]>;
+      
+      export type QueryVariables<T extends keyof PlanGraphQLOperations['queries']> = 
+        GraphQLQueryVariables & PlanGraphQLOperations['queries'][T]['variables'];
+      
+      export type Mutation<T extends keyof PlanGraphQLOperations['mutations']> = 
+        GraphQLMutationResult<PlanGraphQLOperations['mutations'][T]>;
+      
+      export type MutationVariables<T extends keyof PlanGraphQLOperations['mutations']> = 
+        GraphQLMutationVariables & PlanGraphQLOperations['mutations'][T]['variables'];
+    }
 
-  /**
-   * Extend the SubscriptionResult type with AUSTA-specific fields
-   */
-  export interface SubscriptionResult<TData = any> {
-    journeyContext?: string;
-    error?: AustaGraphQLErrors;
-    data?: TData & ResponseTypes.GraphQLResponse<TData>;
+    /**
+     * Auth GraphQL operation types
+     */
+    export namespace Auth {
+      export type Query<T extends keyof AuthGraphQLOperations['queries']> = 
+        GraphQLQueryResult<AuthGraphQLOperations['queries'][T]>;
+      
+      export type QueryVariables<T extends keyof AuthGraphQLOperations['queries']> = 
+        GraphQLQueryVariables & AuthGraphQLOperations['queries'][T]['variables'];
+      
+      export type Mutation<T extends keyof AuthGraphQLOperations['mutations']> = 
+        GraphQLMutationResult<AuthGraphQLOperations['mutations'][T]>;
+      
+      export type MutationVariables<T extends keyof AuthGraphQLOperations['mutations']> = 
+        GraphQLMutationVariables & AuthGraphQLOperations['mutations'][T]['variables'];
+    }
+
+    /**
+     * Gamification GraphQL operation types
+     */
+    export namespace Gamification {
+      export type Query<T extends keyof GamificationGraphQLOperations['queries']> = 
+        GraphQLQueryResult<GamificationGraphQLOperations['queries'][T]>;
+      
+      export type QueryVariables<T extends keyof GamificationGraphQLOperations['queries']> = 
+        GraphQLQueryVariables & GamificationGraphQLOperations['queries'][T]['variables'];
+      
+      export type Mutation<T extends keyof GamificationGraphQLOperations['mutations']> = 
+        GraphQLMutationResult<GamificationGraphQLOperations['mutations'][T]>;
+      
+      export type MutationVariables<T extends keyof GamificationGraphQLOperations['mutations']> = 
+        GraphQLMutationVariables & GamificationGraphQLOperations['mutations'][T]['variables'];
+    }
   }
 }

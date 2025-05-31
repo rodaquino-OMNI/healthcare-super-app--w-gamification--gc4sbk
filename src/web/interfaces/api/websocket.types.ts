@@ -1,623 +1,508 @@
 /**
- * WebSocket Types for AUSTA SuperApp
+ * WebSocket TypeScript interfaces for the AUSTA SuperApp
  * 
- * This module defines TypeScript interfaces for WebSocket communication in the AUSTA SuperApp,
- * covering real-time events, notifications, connection status, and subscription management.
- * It provides type safety for Socket.io operations across both web and mobile platforms.
- * 
- * @packageDocumentation
+ * This file defines the TypeScript interfaces for WebSocket communication
+ * in the AUSTA SuperApp, including real-time events, notifications,
+ * connection status, and subscription management.
  */
 
-import { NotificationType, NotificationChannel, Notification } from '../notification/types';
-import { TelemedicineSession } from '../care/types';
-import { HealthMetric } from '../health/types';
-import { Achievement, Quest, Reward } from '../gamification/types';
+import { Notification } from '../notification';
 
 /**
- * Connection states for WebSocket connections
+ * Socket.io connection options for the AUSTA SuperApp
+ */
+export interface SocketConnectionOptions {
+  /**
+   * Authentication token for the WebSocket connection
+   */
+  auth: {
+    token: string;
+  };
+  /**
+   * Whether to automatically reconnect on connection loss
+   * @default true
+   */
+  reconnection?: boolean;
+  /**
+   * Maximum number of reconnection attempts
+   * @default 10
+   */
+  reconnectionAttempts?: number;
+  /**
+   * Delay between reconnection attempts in milliseconds
+   * @default 1000
+   */
+  reconnectionDelay?: number;
+  /**
+   * Maximum delay between reconnection attempts in milliseconds
+   * @default 5000
+   */
+  reconnectionDelayMax?: number;
+  /**
+   * Timeout for connection attempts in milliseconds
+   * @default 20000
+   */
+  timeout?: number;
+}
+
+/**
+ * WebSocket connection states
  */
 export enum WebSocketConnectionState {
-  /** Socket is disconnected */
-  DISCONNECTED = 'disconnected',
-  
-  /** Socket is in the process of connecting */
   CONNECTING = 'connecting',
-  
-  /** Socket is connected and ready */
   CONNECTED = 'connected',
-  
-  /** Socket connection is experiencing issues */
-  UNSTABLE = 'unstable',
-  
-  /** Socket is reconnecting after a disconnection */
+  DISCONNECTED = 'disconnected',
   RECONNECTING = 'reconnecting',
+  ERROR = 'error'
 }
 
 /**
- * Reasons for WebSocket disconnection
+ * WebSocket connection status information
  */
-export enum WebSocketDisconnectReason {
-  /** Client initiated disconnect */
-  CLIENT_DISCONNECT = 'client_disconnect',
-  
-  /** Server initiated disconnect */
-  SERVER_DISCONNECT = 'server_disconnect',
-  
-  /** Transport error (network issues) */
-  TRANSPORT_ERROR = 'transport_error',
-  
-  /** Transport closed unexpectedly */
-  TRANSPORT_CLOSE = 'transport_close',
-  
-  /** Ping timeout (no response from server) */
-  PING_TIMEOUT = 'ping_timeout',
-  
-  /** Parse error (invalid packet) */
-  PARSE_ERROR = 'parse_error',
-}
-
-/**
- * WebSocket connection options
- */
-export interface WebSocketConnectionOptions {
-  /** URL for the WebSocket connection */
-  url?: string;
-  
-  /** Path for the WebSocket connection */
-  path?: string;
-  
-  /** Authentication token */
-  auth?: {
-    token: string;
-  };
-  
-  /** Whether to reconnect automatically */
-  autoReconnect?: boolean;
-  
-  /** Maximum number of reconnection attempts */
-  maxReconnectionAttempts?: number;
-  
-  /** Reconnection delay in milliseconds */
-  reconnectionDelay?: number;
-  
-  /** Timeout for connection attempts in milliseconds */
-  timeout?: number;
-  
-  /** Additional query parameters */
-  query?: Record<string, string>;
-  
-  /** Transport options */
-  transports?: Array<'websocket' | 'polling'>;
-}
-
-/**
- * WebSocket connection statistics
- */
-export interface WebSocketConnectionStats {
-  /** Timestamp of the last successful connection */
-  lastConnectedAt?: Date;
-  
-  /** Timestamp of the last disconnection */
-  lastDisconnectedAt?: Date;
-  
-  /** Number of successful connections */
-  connectionCount: number;
-  
-  /** Number of disconnections */
-  disconnectionCount: number;
-  
-  /** Number of reconnection attempts */
-  reconnectionAttempts: number;
-  
-  /** Average ping time in milliseconds */
-  averagePing?: number;
-  
-  /** Current ping time in milliseconds */
-  currentPing?: number;
-  
-  /** Number of messages sent */
-  messagesSent: number;
-  
-  /** Number of messages received */
-  messagesReceived: number;
-}
-
-/**
- * WebSocket connection information
- */
-export interface WebSocketConnection {
-  /** Current connection state */
+export interface WebSocketConnectionStatus {
+  /**
+   * Current connection state
+   */
   state: WebSocketConnectionState;
-  
-  /** Socket ID (if connected) */
+  /**
+   * Error message if state is ERROR
+   */
+  error?: string;
+  /**
+   * Timestamp of the last connection state change
+   */
+  timestamp: number;
+  /**
+   * Number of reconnection attempts if state is RECONNECTING
+   */
+  reconnectAttempt?: number;
+  /**
+   * Socket ID assigned by the server when connected
+   */
   socketId?: string;
-  
-  /** Connection options */
-  options: WebSocketConnectionOptions;
-  
-  /** Connection statistics */
-  stats: WebSocketConnectionStats;
-  
-  /** Last error that occurred */
-  lastError?: Error;
-  
-  /** Last disconnect reason */
-  lastDisconnectReason?: WebSocketDisconnectReason;
+  /**
+   * User ID associated with the connection
+   */
+  userId?: string;
 }
 
 /**
- * Notification subscription information
+ * Payload for subscribing to journey-specific notifications
  */
-export interface NotificationSubscription {
-  /** Unique identifier for the subscription */
-  id: string;
-  
-  /** User ID associated with the subscription */
+export interface SubscriptionPayload {
+  /**
+   * Journey ID to subscribe to (e.g., 'health', 'care', 'plan')
+   */
+  journey: string;
+}
+
+/**
+ * Payload for marking a notification as read
+ */
+export interface MarkAsReadPayload {
+  /**
+   * ID of the notification to mark as read
+   */
+  notificationId: number;
+}
+
+/**
+ * Server response for successful connection
+ */
+export interface ConnectedResponse {
+  /**
+   * User ID associated with the connection
+   */
   userId: string;
-  
-  /** Types of notifications to subscribe to */
-  types: NotificationType[];
-  
-  /** Channels to receive notifications on */
-  channels: NotificationChannel[];
-  
-  /** Whether the subscription is active */
-  active: boolean;
-  
-  /** Timestamp when the subscription was created */
-  createdAt: Date;
-  
-  /** Timestamp when the subscription was last updated */
-  updatedAt: Date;
 }
 
 /**
- * Notification subscription request
+ * Server response for successful subscription
  */
-export interface SubscribeToNotificationsRequest {
-  /** Types of notifications to subscribe to */
-  types: NotificationType[];
-  
-  /** Channels to receive notifications on */
-  channels: NotificationChannel[];
+export interface SubscribedResponse {
+  /**
+   * Journey ID that was subscribed to
+   */
+  journey: string;
 }
 
 /**
- * Notification subscription response
+ * Server response for successful unsubscription
  */
-export interface SubscribeToNotificationsResponse {
-  /** Subscription information */
-  subscription: NotificationSubscription;
-  
-  /** Success status */
-  success: boolean;
-  
-  /** Error message (if any) */
-  error?: string;
+export interface UnsubscribedResponse {
+  /**
+   * Journey ID that was unsubscribed from
+   */
+  journey: string;
 }
 
 /**
- * Notification unsubscribe request
+ * Server response for successfully marking a notification as read
  */
-export interface UnsubscribeFromNotificationsRequest {
-  /** Subscription ID to unsubscribe from */
-  subscriptionId: string;
+export interface MarkedResponse {
+  /**
+   * ID of the notification that was marked as read
+   */
+  notificationId: number;
 }
 
 /**
- * Notification unsubscribe response
+ * Server error response
  */
-export interface UnsubscribeFromNotificationsResponse {
-  /** Success status */
-  success: boolean;
-  
-  /** Error message (if any) */
-  error?: string;
+export interface ErrorResponse {
+  /**
+   * Error message
+   */
+  message: string;
+  /**
+   * Error code (optional)
+   */
+  code?: string;
 }
 
 /**
- * Telemedicine session join request
+ * WebSocket event types for client-to-server communication
  */
-export interface JoinTelemedicineSessionRequest {
-  /** Session ID to join */
+export enum WebSocketClientEvent {
+  /**
+   * Subscribe to journey-specific notifications
+   */
+  SUBSCRIBE = 'subscribe',
+  /**
+   * Unsubscribe from journey-specific notifications
+   */
+  UNSUBSCRIBE = 'unsubscribe',
+  /**
+   * Mark a notification as read
+   */
+  MARK_AS_READ = 'markAsRead'
+}
+
+/**
+ * WebSocket event types for server-to-client communication
+ */
+export enum WebSocketServerEvent {
+  /**
+   * Connection established and authenticated
+   */
+  CONNECTED = 'connected',
+  /**
+   * Successfully subscribed to a journey
+   */
+  SUBSCRIBED = 'subscribed',
+  /**
+   * Successfully unsubscribed from a journey
+   */
+  UNSUBSCRIBED = 'unsubscribed',
+  /**
+   * Successfully marked a notification as read
+   */
+  MARKED = 'marked',
+  /**
+   * New notification received
+   */
+  NOTIFICATION = 'notification',
+  /**
+   * Error occurred
+   */
+  ERROR = 'error'
+}
+
+/**
+ * Telemedicine session WebSocket events
+ */
+export enum TelemedicineSocketEvent {
+  /**
+   * Join a telemedicine session
+   */
+  JOIN_SESSION = 'joinSession',
+  /**
+   * Leave a telemedicine session
+   */
+  LEAVE_SESSION = 'leaveSession',
+  /**
+   * Send a message in a telemedicine session
+   */
+  SEND_MESSAGE = 'sendMessage',
+  /**
+   * Offer WebRTC connection
+   */
+  VIDEO_OFFER = 'videoOffer',
+  /**
+   * Answer WebRTC connection
+   */
+  VIDEO_ANSWER = 'videoAnswer',
+  /**
+   * Send ICE candidate for WebRTC
+   */
+  NEW_ICE_CANDIDATE = 'newIceCandidate',
+  /**
+   * End the video call
+   */
+  END_CALL = 'endCall',
+  /**
+   * Toggle video stream
+   */
+  TOGGLE_VIDEO = 'toggleVideo',
+  /**
+   * Toggle audio stream
+   */
+  TOGGLE_AUDIO = 'toggleAudio',
+  /**
+   * Participant joined the session
+   */
+  PARTICIPANT_JOINED = 'participantJoined',
+  /**
+   * Participant left the session
+   */
+  PARTICIPANT_LEFT = 'participantLeft',
+  /**
+   * Session ended
+   */
+  SESSION_ENDED = 'sessionEnded'
+}
+
+/**
+ * Payload for joining a telemedicine session
+ */
+export interface JoinSessionPayload {
+  /**
+   * ID of the telemedicine session to join
+   */
   sessionId: string;
-  
-  /** User role in the session */
-  role: 'patient' | 'provider' | 'observer';
-  
-  /** User display name */
-  displayName: string;
-  
-  /** User's video enabled status */
-  videoEnabled?: boolean;
-  
-  /** User's audio enabled status */
-  audioEnabled?: boolean;
-}
-
-/**
- * Telemedicine session join response
- */
-export interface JoinTelemedicineSessionResponse {
-  /** Session information */
-  session: TelemedicineSession;
-  
-  /** List of participants */
-  participants: TelemedicineSessionParticipant[];
-  
-  /** Success status */
-  success: boolean;
-  
-  /** Error message (if any) */
-  error?: string;
-}
-
-/**
- * Telemedicine session participant
- */
-export interface TelemedicineSessionParticipant {
-  /** Participant ID */
-  id: string;
-  
-  /** User ID */
-  userId: string;
-  
-  /** Display name */
-  displayName: string;
-  
-  /** Role in the session */
-  role: 'patient' | 'provider' | 'observer';
-  
-  /** Video enabled status */
-  videoEnabled: boolean;
-  
-  /** Audio enabled status */
-  audioEnabled: boolean;
-  
-  /** Connection state */
-  connectionState: 'connected' | 'disconnected' | 'reconnecting';
-  
-  /** Joined timestamp */
-  joinedAt: Date;
-}
-
-/**
- * Telemedicine session message
- */
-export interface TelemedicineSessionMessage {
-  /** Message ID */
-  id: string;
-  
-  /** Session ID */
-  sessionId: string;
-  
-  /** Sender ID */
-  senderId: string;
-  
-  /** Sender display name */
-  senderName: string;
-  
-  /** Message content */
-  content: string;
-  
-  /** Timestamp */
-  timestamp: Date;
-  
-  /** Message type */
-  type: 'text' | 'system' | 'file';
-  
-  /** File URL (if type is 'file') */
-  fileUrl?: string;
-  
-  /** File name (if type is 'file') */
-  fileName?: string;
-  
-  /** File size in bytes (if type is 'file') */
-  fileSize?: number;
-}
-
-/**
- * Telemedicine session state update
- */
-export interface TelemedicineSessionStateUpdate {
-  /** Session ID */
-  sessionId: string;
-  
-  /** Session state */
-  state: 'waiting' | 'active' | 'ended' | 'cancelled';
-  
-  /** Timestamp of the update */
-  timestamp: Date;
-  
-  /** Reason for state change */
-  reason?: string;
-}
-
-/**
- * Telemedicine participant state update
- */
-export interface TelemedicineParticipantStateUpdate {
-  /** Session ID */
-  sessionId: string;
-  
-  /** Participant ID */
-  participantId: string;
-  
-  /** Video enabled status */
-  videoEnabled?: boolean;
-  
-  /** Audio enabled status */
-  audioEnabled?: boolean;
-  
-  /** Connection state */
-  connectionState?: 'connected' | 'disconnected' | 'reconnecting';
-}
-
-/**
- * Health metric real-time update
- */
-export interface HealthMetricUpdate {
-  /** Metric information */
-  metric: HealthMetric;
-  
-  /** Source of the update */
-  source: 'device' | 'manual' | 'integration';
-  
-  /** Timestamp of the update */
-  timestamp: Date;
-}
-
-/**
- * Achievement earned event
- */
-export interface AchievementEarnedEvent {
-  /** User ID */
-  userId: string;
-  
-  /** Achievement information */
-  achievement: Achievement;
-  
-  /** Timestamp when earned */
-  earnedAt: Date;
-  
-  /** XP points awarded */
-  xpAwarded: number;
-}
-
-/**
- * Quest completed event
- */
-export interface QuestCompletedEvent {
-  /** User ID */
-  userId: string;
-  
-  /** Quest information */
-  quest: Quest;
-  
-  /** Timestamp when completed */
-  completedAt: Date;
-  
-  /** XP points awarded */
-  xpAwarded: number;
-  
-  /** Rewards earned */
-  rewards: Reward[];
-}
-
-/**
- * Level up event
- */
-export interface LevelUpEvent {
-  /** User ID */
-  userId: string;
-  
-  /** New level */
-  newLevel: number;
-  
-  /** Previous level */
-  previousLevel: number;
-  
-  /** XP at new level */
-  currentXp: number;
-  
-  /** XP required for next level */
-  nextLevelXp: number;
-  
-  /** Rewards unlocked */
-  unlockedRewards: Reward[];
-}
-
-/**
- * Server to client events interface for Socket.io
- */
-export interface ServerToClientEvents {
-  /** Connection established event */
-  connect: () => void;
-  
-  /** Connection error event */
-  connect_error: (error: Error) => void;
-  
-  /** Disconnection event */
-  disconnect: (reason: WebSocketDisconnectReason) => void;
-  
-  /** Reconnection attempt event */
-  reconnect_attempt: (attemptNumber: number) => void;
-  
-  /** Reconnection error event */
-  reconnect_error: (error: Error) => void;
-  
-  /** Reconnection failed event */
-  reconnect_failed: () => void;
-  
-  /** Reconnection successful event */
-  reconnect: (attemptNumber: number) => void;
-  
-  /** Ping event */
-  ping: () => void;
-  
-  /** Pong event (response to ping) */
-  pong: (latency: number) => void;
-  
-  /** New notification received */
-  notification: (notification: Notification) => void;
-  
-  /** Notification read status update */
-  notification_read: (notificationId: string) => void;
-  
-  /** Notification deleted */
-  notification_deleted: (notificationId: string) => void;
-  
-  /** Batch of notifications received */
-  notifications_batch: (notifications: Notification[]) => void;
-  
-  /** Achievement earned */
-  achievement_earned: (event: AchievementEarnedEvent) => void;
-  
-  /** Quest completed */
-  quest_completed: (event: QuestCompletedEvent) => void;
-  
-  /** Level up */
-  level_up: (event: LevelUpEvent) => void;
-  
-  /** Health metric update */
-  health_metric_update: (update: HealthMetricUpdate) => void;
-  
-  /** Telemedicine session state update */
-  telemedicine_session_state: (update: TelemedicineSessionStateUpdate) => void;
-  
-  /** Telemedicine participant state update */
-  telemedicine_participant_state: (update: TelemedicineParticipantStateUpdate) => void;
-  
-  /** Telemedicine session message */
-  telemedicine_message: (message: TelemedicineSessionMessage) => void;
-}
-
-/**
- * Client to server events interface for Socket.io
- */
-export interface ClientToServerEvents {
-  /** Subscribe to notifications */
-  subscribe_to_notifications: (
-    request: SubscribeToNotificationsRequest,
-    callback: (response: SubscribeToNotificationsResponse) => void
-  ) => void;
-  
-  /** Unsubscribe from notifications */
-  unsubscribe_from_notifications: (
-    request: UnsubscribeFromNotificationsRequest,
-    callback: (response: UnsubscribeFromNotificationsResponse) => void
-  ) => void;
-  
-  /** Mark notification as read */
-  mark_notification_read: (
-    notificationId: string,
-    callback?: (success: boolean) => void
-  ) => void;
-  
-  /** Mark all notifications as read */
-  mark_all_notifications_read: (
-    callback?: (success: boolean) => void
-  ) => void;
-  
-  /** Join telemedicine session */
-  join_telemedicine_session: (
-    request: JoinTelemedicineSessionRequest,
-    callback: (response: JoinTelemedicineSessionResponse) => void
-  ) => void;
-  
-  /** Leave telemedicine session */
-  leave_telemedicine_session: (
-    sessionId: string,
-    callback?: (success: boolean) => void
-  ) => void;
-  
-  /** Send telemedicine message */
-  send_telemedicine_message: (
-    message: Omit<TelemedicineSessionMessage, 'id' | 'timestamp'>,
-    callback?: (messageId: string) => void
-  ) => void;
-  
-  /** Update telemedicine participant state */
-  update_telemedicine_state: (
-    update: Omit<TelemedicineParticipantStateUpdate, 'participantId'>,
-    callback?: (success: boolean) => void
-  ) => void;
-}
-
-/**
- * Socket.io client configuration
- */
-export interface SocketIOConfig {
-  /** URL for the Socket.io connection */
-  url: string;
-  
-  /** Path for the Socket.io connection */
-  path?: string;
-  
-  /** Authentication token */
-  auth?: {
-    token: string;
+  /**
+   * User information for the participant
+   */
+  user: {
+    id: string;
+    name: string;
+    role: 'patient' | 'provider';
   };
-  
-  /** Whether to reconnect automatically */
-  autoConnect?: boolean;
-  
-  /** Reconnection attempts */
-  reconnectionAttempts?: number;
-  
-  /** Reconnection delay in milliseconds */
-  reconnectionDelay?: number;
-  
-  /** Timeout for connection attempts in milliseconds */
-  timeout?: number;
-  
-  /** Transport options */
-  transports?: Array<'websocket' | 'polling'>;
 }
 
 /**
- * Socket.io client interface with typed events
+ * Payload for sending a message in a telemedicine session
  */
-export interface TypedSocketIOClient {
-  /** Connect to the server */
-  connect: () => void;
-  
-  /** Disconnect from the server */
-  disconnect: () => void;
-  
-  /** Check if connected */
+export interface SendMessagePayload {
+  /**
+   * ID of the telemedicine session
+   */
+  sessionId: string;
+  /**
+   * Content of the message
+   */
+  message: string;
+  /**
+   * Timestamp of the message
+   */
+  timestamp: number;
+}
+
+/**
+ * Payload for WebRTC video offer
+ */
+export interface VideoOfferPayload {
+  /**
+   * ID of the telemedicine session
+   */
+  sessionId: string;
+  /**
+   * Target user ID to send the offer to
+   */
+  target: string;
+  /**
+   * SDP (Session Description Protocol) offer
+   */
+  sdp: RTCSessionDescriptionInit;
+}
+
+/**
+ * Payload for WebRTC video answer
+ */
+export interface VideoAnswerPayload {
+  /**
+   * ID of the telemedicine session
+   */
+  sessionId: string;
+  /**
+   * Target user ID to send the answer to
+   */
+  target: string;
+  /**
+   * SDP (Session Description Protocol) answer
+   */
+  sdp: RTCSessionDescriptionInit;
+}
+
+/**
+ * Payload for WebRTC ICE candidate
+ */
+export interface IceCandidatePayload {
+  /**
+   * ID of the telemedicine session
+   */
+  sessionId: string;
+  /**
+   * Target user ID to send the ICE candidate to
+   */
+  target: string;
+  /**
+   * ICE candidate
+   */
+  candidate: RTCIceCandidateInit;
+}
+
+/**
+ * Payload for toggling video or audio
+ */
+export interface MediaTogglePayload {
+  /**
+   * ID of the telemedicine session
+   */
+  sessionId: string;
+  /**
+   * Whether the media is enabled
+   */
+  enabled: boolean;
+}
+
+/**
+ * Participant information for telemedicine sessions
+ */
+export interface TelemedicineParticipant {
+  /**
+   * User ID of the participant
+   */
+  id: string;
+  /**
+   * Name of the participant
+   */
+  name: string;
+  /**
+   * Role of the participant
+   */
+  role: 'patient' | 'provider';
+  /**
+   * Whether the participant's video is enabled
+   */
+  videoEnabled: boolean;
+  /**
+   * Whether the participant's audio is enabled
+   */
+  audioEnabled: boolean;
+  /**
+   * Whether the participant is connected
+   */
   connected: boolean;
+}
+
+/**
+ * WebSocket client interface for the AUSTA SuperApp
+ */
+export interface WebSocketClient {
+  /**
+   * Connect to the WebSocket server
+   * @param options Connection options
+   */
+  connect(options: SocketConnectionOptions): Promise<void>;
   
-  /** Socket ID */
-  id?: string;
+  /**
+   * Disconnect from the WebSocket server
+   */
+  disconnect(): void;
   
-  /** Emit an event to the server */
-  emit: <T extends keyof ClientToServerEvents>(
-    event: T,
-    ...args: Parameters<ClientToServerEvents[T]>
-  ) => void;
+  /**
+   * Subscribe to journey-specific notifications
+   * @param journey Journey ID to subscribe to
+   */
+  subscribe(journey: string): Promise<void>;
   
-  /** Listen for an event from the server */
-  on: <T extends keyof ServerToClientEvents>(
-    event: T,
-    listener: ServerToClientEvents[T]
-  ) => void;
+  /**
+   * Unsubscribe from journey-specific notifications
+   * @param journey Journey ID to unsubscribe from
+   */
+  unsubscribe(journey: string): Promise<void>;
   
-  /** Listen for an event from the server once */
-  once: <T extends keyof ServerToClientEvents>(
-    event: T,
-    listener: ServerToClientEvents[T]
-  ) => void;
+  /**
+   * Mark a notification as read
+   * @param notificationId ID of the notification to mark as read
+   */
+  markAsRead(notificationId: number): Promise<void>;
   
-  /** Remove a listener */
-  off: <T extends keyof ServerToClientEvents>(
-    event: T,
-    listener?: ServerToClientEvents[T]
-  ) => void;
+  /**
+   * Add an event listener for WebSocket events
+   * @param event Event type to listen for
+   * @param listener Callback function to execute when the event occurs
+   */
+  on<T>(event: WebSocketServerEvent | TelemedicineSocketEvent, listener: (data: T) => void): void;
   
-  /** Get current connection state */
-  getConnectionState: () => WebSocketConnectionState;
+  /**
+   * Remove an event listener for WebSocket events
+   * @param event Event type to stop listening for
+   * @param listener Callback function to remove
+   */
+  off<T>(event: WebSocketServerEvent | TelemedicineSocketEvent, listener: (data: T) => void): void;
   
-  /** Get connection statistics */
-  getConnectionStats: () => WebSocketConnectionStats;
+  /**
+   * Get the current connection status
+   */
+  getStatus(): WebSocketConnectionStatus;
+  
+  /**
+   * Join a telemedicine session
+   * @param sessionId ID of the telemedicine session to join
+   * @param user User information for the participant
+   */
+  joinTelemedicineSession(sessionId: string, user: { id: string; name: string; role: 'patient' | 'provider' }): Promise<void>;
+  
+  /**
+   * Leave a telemedicine session
+   * @param sessionId ID of the telemedicine session to leave
+   */
+  leaveTelemedicineSession(sessionId: string): Promise<void>;
+  
+  /**
+   * Send a message in a telemedicine session
+   * @param sessionId ID of the telemedicine session
+   * @param message Content of the message
+   */
+  sendTelemedicineMessage(sessionId: string, message: string): Promise<void>;
+  
+  /**
+   * Send a WebRTC video offer
+   * @param sessionId ID of the telemedicine session
+   * @param target Target user ID to send the offer to
+   * @param sdp SDP offer
+   */
+  sendVideoOffer(sessionId: string, target: string, sdp: RTCSessionDescriptionInit): Promise<void>;
+  
+  /**
+   * Send a WebRTC video answer
+   * @param sessionId ID of the telemedicine session
+   * @param target Target user ID to send the answer to
+   * @param sdp SDP answer
+   */
+  sendVideoAnswer(sessionId: string, target: string, sdp: RTCSessionDescriptionInit): Promise<void>;
+  
+  /**
+   * Send a WebRTC ICE candidate
+   * @param sessionId ID of the telemedicine session
+   * @param target Target user ID to send the ICE candidate to
+   * @param candidate ICE candidate
+   */
+  sendIceCandidate(sessionId: string, target: string, candidate: RTCIceCandidateInit): Promise<void>;
+  
+  /**
+   * Toggle video in a telemedicine session
+   * @param sessionId ID of the telemedicine session
+   * @param enabled Whether video is enabled
+   */
+  toggleVideo(sessionId: string, enabled: boolean): Promise<void>;
+  
+  /**
+   * Toggle audio in a telemedicine session
+   * @param sessionId ID of the telemedicine session
+   * @param enabled Whether audio is enabled
+   */
+  toggleAudio(sessionId: string, enabled: boolean): Promise<void>;
 }

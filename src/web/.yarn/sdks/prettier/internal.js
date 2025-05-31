@@ -1,102 +1,191 @@
 /**
- * Internal utilities for the Prettier SDK
- * 
- * This file contains internal utilities used by the Prettier SDK to handle
- * module resolution in the Yarn PnP environment.
+ * @file internal.js
+ * @description Internal implementation details for the Prettier SDK integration with Yarn's Plug'n'Play mode.
+ * This file contains utility functions and helpers used by the main SDK entry point.
  */
+
+'use strict';
 
 const path = require('path');
-
-// Find the project root directory
-const findProjectRoot = () => {
-  const pnpFilePath = path.resolve(__dirname, '../../../../.pnp.cjs');
-  return path.dirname(pnpFilePath);
-};
-
-// Get the PnP API
-const getPnpApi = () => {
-  const pnpFilePath = path.resolve(__dirname, '../../../../.pnp.cjs');
-  try {
-    return require(pnpFilePath);
-  } catch (error) {
-    throw new Error(`Failed to load PnP API: ${error.message}`);
-  }
-};
+const fs = require('fs');
 
 /**
- * Resolve a module using the PnP API
- * 
+ * Resolve the PnP API module
+ */
+let pnpApi;
+try {
+  pnpApi = require('pnpapi');
+} catch (error) {
+  throw new Error(`PnP API not found: ${error.message}`);
+}
+
+/**
+ * Resolves a module using the PnP API
  * @param {string} request - The module to resolve
- * @param {string} [issuer] - The file that is requesting the module
- * @returns {string|null} - The resolved module path or null if not found
+ * @param {string} issuer - The path of the file making the request
+ * @returns {string} - The resolved module path
  */
-const resolveModule = (request, issuer) => {
+function resolveModule(request, issuer) {
   try {
-    const pnpApi = getPnpApi();
-    return pnpApi.resolveRequest(
-      request,
-      issuer || path.join(process.cwd(), 'noop.js')
-    );
+    return pnpApi.resolveRequest(request, issuer);
   } catch (error) {
-    return null;
+    throw new Error(`Failed to resolve module '${request}' from '${issuer}': ${error.message}`);
   }
-};
+}
 
 /**
- * Create a require function that is aware of the PnP environment
- * 
- * @returns {Function} - A require function that can resolve modules in the PnP environment
+ * Checks if a file exists
+ * @param {string} filePath - The path to check
+ * @returns {boolean} - Whether the file exists
  */
-const createPnPAwareRequire = () => {
-  return (request) => {
-    const resolved = resolveModule(request);
-    if (resolved) {
-      return require(resolved);
-    }
-    return require(request);
-  };
-};
-
-/**
- * Load a Prettier plugin using the PnP API
- * 
- * @param {string} pluginName - The name of the plugin to load
- * @returns {Object|null} - The loaded plugin or null if not found
- */
-const loadPrettierPlugin = (pluginName) => {
+function fileExists(filePath) {
   try {
-    const resolved = resolveModule(pluginName);
-    if (resolved) {
-      return require(resolved);
-    }
-    return null;
+    return fs.statSync(filePath).isFile();
   } catch (error) {
-    console.warn(`Failed to load Prettier plugin ${pluginName}:`, error.message);
+    return false;
+  }
+}
+
+/**
+ * Checks if a directory exists
+ * @param {string} dirPath - The path to check
+ * @returns {boolean} - Whether the directory exists
+ */
+function directoryExists(dirPath) {
+  try {
+    return fs.statSync(dirPath).isDirectory();
+  } catch (error) {
+    return false;
+  }
+}
+
+/**
+ * Resolves a configuration file path
+ * @param {string} configPath - The path to the configuration file
+ * @returns {string|null} - The resolved configuration file path or null if not found
+ */
+function resolveConfigFile(configPath) {
+  if (!configPath) {
     return null;
   }
+
+  // If the path is absolute, check if it exists
+  if (path.isAbsolute(configPath)) {
+    return fileExists(configPath) ? configPath : null;
+  }
+
+  // Otherwise, resolve it relative to the current working directory
+  const absolutePath = path.resolve(process.cwd(), configPath);
+  return fileExists(absolutePath) ? absolutePath : null;
+}
+
+/**
+ * Finds a Prettier configuration file in the given directory or its ancestors
+ * @param {string} directory - The directory to start searching from
+ * @returns {string|null} - The path to the configuration file or null if not found
+ */
+function findConfigFile(directory) {
+  const configFileNames = [
+    '.prettierrc',
+    '.prettierrc.json',
+    '.prettierrc.yaml',
+    '.prettierrc.yml',
+    '.prettierrc.js',
+    '.prettierrc.cjs',
+    'prettier.config.js',
+    'prettier.config.cjs',
+    '.prettierrc.toml'
+  ];
+
+  let currentDir = directory;
+  while (currentDir) {
+    for (const fileName of configFileNames) {
+      const filePath = path.join(currentDir, fileName);
+      if (fileExists(filePath)) {
+        return filePath;
+      }
+    }
+
+    // Move up to the parent directory
+    const parentDir = path.dirname(currentDir);
+    if (parentDir === currentDir) {
+      break;
+    }
+    currentDir = parentDir;
+  }
+
+  return null;
+}
+
+/**
+ * Path alias mapping for the monorepo
+ */
+const pathAliases = {
+  '@app/auth': './src/web/shared/auth',
+  '@app/shared': './src/web/shared',
+  '@austa/design-system': './src/web/design-system',
+  '@design-system/primitives': './src/web/primitives',
+  '@austa/interfaces': './src/web/interfaces',
+  '@austa/journey-context': './src/web/journey-context',
+  '@austa/health': './src/web/shared/health',
+  '@austa/care': './src/web/shared/care',
+  '@austa/plan': './src/web/shared/plan'
 };
 
 /**
- * Load multiple Prettier plugins using the PnP API
- * 
- * @param {Array<string>} pluginNames - The names of the plugins to load
- * @returns {Array<Object>} - The loaded plugins
+ * Resolves a path alias to its actual path
+ * @param {string} alias - The alias to resolve
+ * @returns {string|null} - The resolved path or null if the alias is not found
  */
-const loadPrettierPlugins = (pluginNames) => {
-  if (!Array.isArray(pluginNames)) {
-    return [];
+function resolvePathAlias(alias) {
+  // Check if the import path starts with any of our registered aliases
+  for (const [prefix, aliasPath] of Object.entries(pathAliases)) {
+    if (alias.startsWith(prefix)) {
+      // Replace the alias prefix with the actual path
+      return path.join(process.cwd(), alias.replace(prefix, aliasPath));
+    }
+  }
+  return null;
+}
+
+/**
+ * Resolves a plugin path
+ * @param {string} pluginPath - The plugin path to resolve
+ * @returns {string} - The resolved plugin path
+ */
+function resolvePluginPath(pluginPath) {
+  // Check if the plugin is specified as a path
+  if (pluginPath.startsWith('./') || pluginPath.startsWith('../') || path.isAbsolute(pluginPath)) {
+    return pluginPath;
   }
 
-  return pluginNames
-    .map(loadPrettierPlugin)
-    .filter(Boolean);
-};
+  // Check if the plugin uses a path alias
+  const aliasPath = resolvePathAlias(pluginPath);
+  if (aliasPath) {
+    return aliasPath;
+  }
+
+  // Otherwise, try to resolve it as a package
+  try {
+    return resolveModule(pluginPath, process.cwd());
+  } catch (error) {
+    // If that fails, try to resolve it relative to the Prettier package
+    try {
+      const prettierPath = resolveModule('prettier', process.cwd());
+      return resolveModule(pluginPath, prettierPath);
+    } catch (innerError) {
+      throw new Error(`Failed to resolve plugin '${pluginPath}': ${innerError.message}`);
+    }
+  }
+}
 
 module.exports = {
-  findProjectRoot,
-  getPnpApi,
   resolveModule,
-  createPnPAwareRequire,
-  loadPrettierPlugin,
-  loadPrettierPlugins,
+  fileExists,
+  directoryExists,
+  resolveConfigFile,
+  findConfigFile,
+  resolvePathAlias,
+  resolvePluginPath,
+  pathAliases
 };

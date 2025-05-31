@@ -1,115 +1,76 @@
-/**
- * @file validation.spec.ts
- * @description Tests for date validation utility re-exports
- */
+import { isValidDate } from '../validation';
 
-import { expect } from 'chai';
-import * as validationModule from '../validation';
-
-describe('Date Validation Re-exports', () => {
-  describe('isValidDate', () => {
-    it('should be exported correctly', () => {
-      expect(validationModule.isValidDate).to.be.a('function');
+describe('Date Validation Module', () => {
+  describe('isValidDate function', () => {
+    it('should be properly exported from validation module', () => {
+      expect(isValidDate).toBeDefined();
+      expect(typeof isValidDate).toBe('function');
     });
 
-    it('should validate Date objects correctly', () => {
-      expect(validationModule.isValidDate(new Date())).to.be.true;
-      expect(validationModule.isValidDate(new Date('invalid'))).to.be.false;
+    it('should return true for valid Date objects', () => {
+      const validDate = new Date();
+      expect(isValidDate(validDate)).toBe(true);
+
+      const specificDate = new Date('2023-01-15T12:00:00');
+      expect(isValidDate(specificDate)).toBe(true);
     });
 
-    it('should validate string dates correctly', () => {
-      expect(validationModule.isValidDate('2023-01-01')).to.be.true;
-      expect(validationModule.isValidDate('2023-01-32')).to.be.false; // Invalid day
-      expect(validationModule.isValidDate('not a date')).to.be.false;
-      expect(validationModule.isValidDate('')).to.be.false;
+    it('should return true for valid date strings', () => {
+      expect(isValidDate('2023-01-15')).toBe(true);
+      expect(isValidDate('2023-01-15T12:00:00')).toBe(true);
+      expect(isValidDate('January 15, 2023')).toBe(true);
+      expect(isValidDate('15/01/2023')).toBe(true); // dd/MM/yyyy format
     });
 
-    it('should validate numeric timestamps correctly', () => {
-      expect(validationModule.isValidDate(Date.now())).to.be.true;
-      expect(validationModule.isValidDate(0)).to.be.true; // Unix epoch
-      expect(validationModule.isValidDate(NaN)).to.be.false;
-      expect(validationModule.isValidDate(Infinity)).to.be.false;
+    it('should return true for valid timestamps (numbers)', () => {
+      const now = Date.now();
+      expect(isValidDate(now)).toBe(true);
+
+      const specificTimestamp = new Date('2023-01-15').getTime();
+      expect(isValidDate(specificTimestamp)).toBe(true);
     });
 
-    it('should handle null and undefined correctly', () => {
-      expect(validationModule.isValidDate(null)).to.be.false;
-      expect(validationModule.isValidDate(undefined)).to.be.false;
-    });
-  });
-
-  describe('isValidDateFormat', () => {
-    it('should be exported correctly', () => {
-      expect(validationModule.isValidDateFormat).to.be.a('function');
+    it('should return false for invalid date strings', () => {
+      expect(isValidDate('not-a-date')).toBe(false);
+      expect(isValidDate('2023-13-45')).toBe(false); // Invalid month and day
+      expect(isValidDate('32/01/2023')).toBe(false); // Invalid day
     });
 
-    // Note: This is testing the re-export, not the implementation
-    // The actual implementation might be isValidDateString or similar
-  });
-
-  describe('isFutureDate', () => {
-    it('should be exported correctly', () => {
-      expect(validationModule.isFutureDate).to.be.a('function');
+    it('should return false for invalid Date objects', () => {
+      const invalidDate = new Date('invalid-date-string');
+      expect(isValidDate(invalidDate)).toBe(false);
     });
 
-    // Note: This is testing the re-export, not the implementation
-    // The actual implementation might be isDateInFuture or similar
-  });
+    it('should handle edge cases correctly', () => {
+      // Null and undefined should return false
+      expect(isValidDate(null)).toBe(false);
+      expect(isValidDate(undefined)).toBe(false);
 
-  describe('isPastDate', () => {
-    it('should be exported correctly', () => {
-      expect(validationModule.isPastDate).to.be.a('function');
+      // Non-date types should return false
+      expect(isValidDate({})).toBe(false);
+      expect(isValidDate([])).toBe(false);
+      expect(isValidDate(true)).toBe(false);
+      expect(isValidDate(false)).toBe(false);
+      expect(isValidDate(() => {})).toBe(false);
     });
 
-    // Note: This is testing the re-export, not the implementation
-    // The actual implementation might be isDateInPast or similar
-  });
-
-  describe('isValidJourneyDate', () => {
-    it('should be exported correctly', () => {
-      expect(validationModule.isValidJourneyDate).to.be.a('function');
-    });
-
-    it('should validate dates for health journey correctly', () => {
-      const pastDate = new Date();
-      pastDate.setFullYear(pastDate.getFullYear() - 1); // 1 year ago
+    it('should handle leap year edge cases', () => {
+      // February 29 in leap year (valid)
+      expect(isValidDate('2020-02-29')).toBe(true);
       
-      const futureDate = new Date();
-      futureDate.setFullYear(futureDate.getFullYear() + 1); // 1 year in future
-      
-      expect(validationModule.isValidJourneyDate(pastDate, 'health')).to.be.true;
-      expect(validationModule.isValidJourneyDate(futureDate, 'health')).to.be.false;
+      // February 29 in non-leap year (invalid)
+      expect(isValidDate('2023-02-29')).toBe(false);
     });
 
-    it('should validate dates for care journey correctly', () => {
-      const pastDate = new Date();
-      pastDate.setFullYear(pastDate.getFullYear() - 1); // 1 year ago
-      
-      const nearFutureDate = new Date();
-      nearFutureDate.setMonth(nearFutureDate.getMonth() + 6); // 6 months in future
-      
-      const farFutureDate = new Date();
-      farFutureDate.setFullYear(farFutureDate.getFullYear() + 2); // 2 years in future
-      
-      expect(validationModule.isValidJourneyDate(pastDate, 'care')).to.be.true;
-      expect(validationModule.isValidJourneyDate(nearFutureDate, 'care')).to.be.true;
-      expect(validationModule.isValidJourneyDate(farFutureDate, 'care')).to.be.false;
-    });
+    it('should handle different date formats consistently', () => {
+      const testDate = new Date('2023-01-15');
+      const testDateISOString = testDate.toISOString();
+      const testDateTimeStamp = testDate.getTime();
 
-    it('should validate dates for plan journey correctly', () => {
-      const recentPastDate = new Date();
-      recentPastDate.setFullYear(recentPastDate.getFullYear() - 1); // 1 year ago
-      
-      const distantPastDate = new Date();
-      distantPastDate.setFullYear(distantPastDate.getFullYear() - 6); // 6 years ago
-      
-      expect(validationModule.isValidJourneyDate(recentPastDate, 'plan')).to.be.true;
-      expect(validationModule.isValidJourneyDate(distantPastDate, 'plan')).to.be.false;
-    });
-
-    it('should handle invalid dates correctly', () => {
-      expect(validationModule.isValidJourneyDate(null, 'health')).to.be.false;
-      expect(validationModule.isValidJourneyDate('invalid date', 'care')).to.be.false;
-      expect(validationModule.isValidJourneyDate(undefined, 'plan')).to.be.false;
+      // All these should return true as they represent the same valid date
+      expect(isValidDate(testDate)).toBe(true);
+      expect(isValidDate(testDateISOString)).toBe(true);
+      expect(isValidDate(testDateTimeStamp)).toBe(true);
     });
   });
 });

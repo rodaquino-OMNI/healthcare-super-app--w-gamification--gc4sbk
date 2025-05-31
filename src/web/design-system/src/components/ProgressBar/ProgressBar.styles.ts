@@ -1,6 +1,6 @@
 import styled from 'styled-components';
-import { ThemeProps } from '@austa/interfaces';
-import { spacing, borderRadius, colors, animation, breakpoints } from '@design-system/primitives';
+import { ThemeProps } from '@austa/interfaces/themes';
+import { colors, spacing, borderRadius, animation, breakpoints } from '@design-system/primitives/tokens';
 
 export const ProgressBarContainer = styled.div`
   position: relative;
@@ -24,13 +24,13 @@ interface ProgressBarFillProps {
   journey?: 'health' | 'care' | 'plan';
 }
 
-export const ProgressBarFill = styled.div<ProgressBarFillProps>`
+export const ProgressBarFill = styled.div<ProgressBarFillProps & ThemeProps>`
   position: absolute;
   top: 0;
   left: 0;
   height: 100%;
   width: ${({ progress }) => `${Math.min(Math.max(progress, 0), 100)}%`};
-  background-color: ${({ journey, theme }: ProgressBarFillProps & ThemeProps<any>) => 
+  background-color: ${({ journey, theme }) => 
     journey 
       ? theme.colors.journeys[journey].primary 
       : theme.colors.brand.primary
@@ -39,15 +39,23 @@ export const ProgressBarFill = styled.div<ProgressBarFillProps>`
   transition: width ${animation.duration.medium} ${animation.easing.easeInOut};
   
   /* Add subtle gradient effect for better visual appeal */
-  background-image: linear-gradient(
-    to right,
-    ${({ journey, theme }: ProgressBarFillProps & ThemeProps<any>) => 
-      journey 
-        ? `${theme.colors.journeys[journey].primary}99, ${theme.colors.journeys[journey].primary}` 
-        : `${theme.colors.brand.primary}99, ${theme.colors.brand.primary}`
-    }
-  );
+  background-image: ${({ journey, theme }) => {
+    const baseColor = journey 
+      ? theme.colors.journeys[journey].primary 
+      : theme.colors.brand.primary;
+    const lighterColor = journey 
+      ? theme.colors.journeys[journey].light 
+      : theme.colors.brand.light;
+    return `linear-gradient(to right, ${baseColor}, ${lighterColor})`;
+  }};
   
-  /* Add subtle shadow for depth */
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1) inset;
+  /* Add subtle animation on hover for interactive feedback */
+  &:hover {
+    opacity: 0.9;
+    transition: width ${animation.duration.medium} ${animation.easing.easeInOut}, opacity ${animation.duration.fast} ${animation.easing.easeOut};
+  }
+  
+  @media (max-width: ${breakpoints.sm}) {
+    border-radius: ${borderRadius.sm};
+  }
 `;

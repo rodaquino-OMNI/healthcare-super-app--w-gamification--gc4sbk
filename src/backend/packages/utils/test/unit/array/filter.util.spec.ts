@@ -2,361 +2,266 @@ import {
   uniqueBy,
   filterByProperties,
   rejectByProperties,
-  differenceBy,
-  intersectionBy,
-  compact,
-  filterWithRejections,
-  PropertyMatcher,
-  FilterProperties
+  differenceBy
 } from '../../../src/array/filter.util';
 
 describe('Array Filter Utilities', () => {
-  // Test data for reuse across tests
+  // Test data for uniqueBy tests
   const users = [
-    { id: 1, name: 'Alice', age: 30, active: true, tags: ['admin', 'user'] },
-    { id: 2, name: 'Bob', age: 25, active: true, tags: ['user'] },
-    { id: 3, name: 'Charlie', age: 35, active: false, tags: ['user'] },
-    { id: 4, name: 'alice', age: 28, active: true, tags: ['user', 'support'] },
-    { id: 5, name: 'David', age: 40, active: true, tags: ['user', 'manager'] }
+    { id: 1, name: 'John', age: 30 },
+    { id: 2, name: 'Jane', age: 25 },
+    { id: 3, name: 'John', age: 40 },
+    { id: 4, name: 'Bob', age: 35 },
+    { id: 5, name: 'Jane', age: 28 }
   ];
 
-  const numbers = [1, 2, 2, 3, 4, 4, 5];
-  const strings = ['a', 'b', 'b', 'c', 'A', 'a'];
-  const mixed = [1, 'a', true, 1, 'a', true, { id: 1 }, { id: 1 }, { id: 2 }];
+  // Test data for filterByProperties and rejectByProperties tests
+  const healthMetrics = [
+    { type: 'bloodPressure', value: 120, unit: 'mmHg', journeyId: 'health' },
+    { type: 'heartRate', value: 75, unit: 'bpm', journeyId: 'health' },
+    { type: 'weight', value: 70, unit: 'kg', journeyId: 'health' },
+    { type: 'bloodPressure', value: 130, unit: 'mmHg', journeyId: 'health' },
+    { type: 'glucose', value: 100, unit: 'mg/dL', journeyId: 'health' }
+  ];
+
+  // Test data for differenceBy tests
+  const array1 = [{ id: 1, name: 'John' }, { id: 2, name: 'Jane' }, { id: 3, name: 'Bob' }];
+  const array2 = [{ id: 2, name: 'Jane' }, { id: 3, name: 'Bob' }, { id: 4, name: 'Alice' }];
 
   describe('uniqueBy', () => {
-    it('should filter unique primitive values', () => {
-      expect(uniqueBy(numbers)).toEqual([1, 2, 3, 4, 5]);
-      expect(uniqueBy(strings)).toEqual(['a', 'b', 'c', 'A']);
-    });
-
-    it('should filter unique objects by key', () => {
-      const result = uniqueBy(users, 'id');
-      expect(result).toHaveLength(5);
-      expect(result.map(u => u.id)).toEqual([1, 2, 3, 4, 5]);
-    });
-
-    it('should filter unique objects by selector function', () => {
-      // Case-insensitive name uniqueness
-      const result = uniqueBy(users, user => user.name.toLowerCase());
-      expect(result).toHaveLength(4); // 'Alice' and 'alice' should be considered the same
+    it('should filter array for unique elements by string key', () => {
+      const result = uniqueBy(users, 'name');
       
-      // Verify 'Alice' was kept and 'alice' was filtered out (or vice versa)
-      const names = result.map(u => u.name.toLowerCase());
-      expect(names).toContain('alice');
-      expect(names.filter(name => name === 'alice')).toHaveLength(1);
+      expect(result).toHaveLength(3); // John, Jane, Bob
+      expect(result.map(user => user.name).sort()).toEqual(['Bob', 'Jane', 'John']);
+    });
+
+    it('should filter array for unique elements using selector function', () => {
+      const result = uniqueBy(users, user => user.age > 30 ? 'senior' : 'junior');
+      
+      expect(result).toHaveLength(2); // One 'junior' and one 'senior'
+      expect(result.some(user => user.age <= 30)).toBeTruthy(); // At least one junior
+      expect(result.some(user => user.age > 30)).toBeTruthy(); // At least one senior
+    });
+
+    it('should return the first occurrence when duplicates are found', () => {
+      const result = uniqueBy(users, 'name');
+      
+      // Check that the first John (age 30) is kept, not the second John (age 40)
+      const johnUser = result.find(user => user.name === 'John');
+      expect(johnUser).toBeDefined();
+      expect(johnUser?.age).toBe(30);
+      
+      // Check that the first Jane (age 25) is kept, not the second Jane (age 28)
+      const janeUser = result.find(user => user.name === 'Jane');
+      expect(janeUser).toBeDefined();
+      expect(janeUser?.age).toBe(25);
     });
 
     it('should handle empty arrays', () => {
-      expect(uniqueBy([])).toEqual([]);
-      expect(uniqueBy([], 'id')).toEqual([]);
-      expect(uniqueBy([], item => item)).toEqual([]);
+      const result = uniqueBy([], 'name');
+      expect(result).toEqual([]);
     });
 
-    it('should handle arrays with objects that have missing properties', () => {
-      const items = [
-        { id: 1, name: 'Item 1' },
-        { id: 2 }, // missing name
-        { name: 'Item 3' }, // missing id
-        { id: 1, name: 'Item 1 Duplicate' }
+    it('should handle arrays with undefined or null values', () => {
+      const mixedArray = [
+        { id: 1, name: 'John' },
+        { id: 2, name: undefined },
+        { id: 3, name: null },
+        { id: 4, name: 'John' },
+        { id: 5 } // Missing name property
       ];
-
-      const resultById = uniqueBy(items, 'id');
-      expect(resultById).toHaveLength(3); // 3 unique IDs (including undefined)
-
-      const resultByName = uniqueBy(items, 'name');
-      expect(resultByName).toHaveLength(3); // 3 unique names (including undefined)
+      
+      const result = uniqueBy(mixedArray, 'name');
+      
+      // Should have 3 unique values: 'John', undefined, and null
+      expect(result).toHaveLength(3);
     });
 
-    it('should handle complex objects with nested properties', () => {
-      const complexItems = [
-        { id: 1, meta: { category: 'A', tags: ['x', 'y'] } },
-        { id: 2, meta: { category: 'B', tags: ['z'] } },
-        { id: 3, meta: { category: 'A', tags: ['x'] } },
-        { id: 4, meta: { category: 'C' } } // missing tags
-      ];
-
-      // Unique by category
-      const result = uniqueBy(complexItems, item => item.meta.category);
-      expect(result).toHaveLength(3); // 3 unique categories: A, B, C
-    });
-
-    it('should throw error for null or undefined arrays', () => {
-      expect(() => uniqueBy(null as any)).toThrow();
-      expect(() => uniqueBy(undefined as any)).toThrow();
+    it('should throw an error when key is not a string or function', () => {
+      // @ts-expect-error Testing invalid input
+      expect(() => uniqueBy(users, 123)).toThrow();
     });
   });
 
   describe('filterByProperties', () => {
-    it('should filter objects by exact property match', () => {
-      const result = filterByProperties(users, { name: 'Alice' });
-      expect(result).toHaveLength(1);
-      expect(result[0].id).toBe(1);
-    });
-
-    it('should filter objects by multiple properties with AND logic', () => {
-      const result = filterByProperties(users, { age: 30, active: true });
-      expect(result).toHaveLength(1);
-      expect(result[0].name).toBe('Alice');
-    });
-
-    it('should filter objects by multiple properties with OR logic', () => {
-      const result = filterByProperties(users, { name: 'Alice', age: 25 }, false);
+    it('should filter objects by exact property value match', () => {
+      const result = filterByProperties(healthMetrics, { type: 'bloodPressure' });
+      
       expect(result).toHaveLength(2);
-      expect(result.map(u => u.name)).toContain('Alice');
-      expect(result.map(u => u.name)).toContain('Bob');
+      expect(result.every(metric => metric.type === 'bloodPressure')).toBeTruthy();
     });
 
-    it('should filter objects using contains matcher', () => {
-      const result = filterByProperties(users, { name: { contains: 'li' } });
-      expect(result).toHaveLength(3);
-      expect(result.map(u => u.name)).toEqual(['Alice', 'Charlie', 'alice']);
+    it('should filter objects by multiple property values', () => {
+      const result = filterByProperties(healthMetrics, { 
+        type: 'bloodPressure', 
+        unit: 'mmHg' 
+      });
+      
+      expect(result).toHaveLength(2);
+      expect(result.every(metric => metric.type === 'bloodPressure' && metric.unit === 'mmHg')).toBeTruthy();
     });
 
-    it('should filter objects using startsWith and endsWith matchers', () => {
-      const startsWithA = filterByProperties(users, { name: { startsWith: 'A' } });
-      expect(startsWithA).toHaveLength(1);
-      expect(startsWithA[0].name).toBe('Alice');
-
-      const endsWithE = filterByProperties(users, { name: { endsWith: 'e' } });
-      expect(endsWithE).toHaveLength(2);
-      expect(endsWithE.map(u => u.name)).toEqual(['Alice', 'Charlie']);
+    it('should support filtering with array of possible values', () => {
+      const result = filterByProperties(healthMetrics, { 
+        type: ['bloodPressure', 'heartRate'] 
+      });
+      
+      expect(result).toHaveLength(3); // 2 bloodPressure + 1 heartRate
+      expect(result.every(metric => 
+        metric.type === 'bloodPressure' || metric.type === 'heartRate'
+      )).toBeTruthy();
     });
 
-    it('should filter objects using in and notIn matchers', () => {
-      const inResult = filterByProperties(users, { age: { in: [25, 30, 40] } });
-      expect(inResult).toHaveLength(3);
-      expect(inResult.map(u => u.age)).toEqual([30, 25, 40]);
-
-      const notInResult = filterByProperties(users, { age: { notIn: [25, 30, 40] } });
-      expect(notInResult).toHaveLength(2);
-      expect(notInResult.map(u => u.age)).toEqual([35, 28]);
+    it('should support filtering with predicate functions', () => {
+      const result = filterByProperties(healthMetrics, { 
+        value: (val) => val > 100 
+      });
+      
+      expect(result.length).toBeGreaterThan(0);
+      expect(result.every(metric => metric.value > 100)).toBeTruthy();
     });
 
-    it('should filter objects using numeric comparison matchers', () => {
-      const gtResult = filterByProperties(users, { age: { gt: 30 } });
-      expect(gtResult).toHaveLength(2);
-      expect(gtResult.map(u => u.age)).toEqual([35, 40]);
-
-      const lteResult = filterByProperties(users, { age: { lte: 30 } });
-      expect(lteResult).toHaveLength(3);
-      expect(lteResult.map(u => u.age)).toEqual([30, 25, 28]);
-
-      const betweenResult = filterByProperties(users, { age: { between: [25, 35] } });
-      expect(betweenResult).toHaveLength(4);
-      expect(betweenResult.map(u => u.age)).toEqual([30, 25, 35, 28]);
-    });
-
-    it('should filter objects using exists matcher', () => {
-      const items = [
-        { id: 1, name: 'Item 1', description: 'Desc 1' },
-        { id: 2, name: 'Item 2' }, // missing description
-        { id: 3, name: 'Item 3', description: null },
-        { id: 4, name: 'Item 4', description: undefined }
-      ];
-
-      const existsResult = filterByProperties(items, { description: { exists: true } });
-      expect(existsResult).toHaveLength(1);
-      expect(existsResult[0].id).toBe(1);
-
-      const notExistsResult = filterByProperties(items, { description: { exists: false } });
-      expect(notExistsResult).toHaveLength(3);
-      expect(notExistsResult.map(item => item.id)).toEqual([2, 3, 4]);
-    });
-
-    it('should filter objects using regex matcher', () => {
-      const result = filterByProperties(users, { name: { regex: /^[A-C]/ } });
-      expect(result).toHaveLength(3);
-      expect(result.map(u => u.name)).toEqual(['Alice', 'Bob', 'Charlie']);
-    });
-
-    it('should return a copy of the original array if no properties specified', () => {
-      const result = filterByProperties(users, {});
-      expect(result).toEqual(users);
-      expect(result).not.toBe(users); // Should be a new array instance
+    it('should return empty array when no matches are found', () => {
+      const result = filterByProperties(healthMetrics, { type: 'nonexistent' });
+      expect(result).toEqual([]);
     });
 
     it('should handle empty arrays', () => {
-      expect(filterByProperties([], { name: 'Alice' })).toEqual([]);
+      const result = filterByProperties([], { type: 'bloodPressure' });
+      expect(result).toEqual([]);
     });
 
-    it('should throw error for null or undefined arrays', () => {
-      expect(() => filterByProperties(null as any, { name: 'Alice' })).toThrow();
-      expect(() => filterByProperties(undefined as any, { name: 'Alice' })).toThrow();
+    it('should handle empty filter criteria', () => {
+      const result = filterByProperties(healthMetrics, {});
+      expect(result).toEqual(healthMetrics); // Should return the original array
+    });
+
+    it('should throw an error when filter is not an object', () => {
+      // @ts-expect-error Testing invalid input
+      expect(() => filterByProperties(healthMetrics, 'invalid')).toThrow();
     });
   });
 
   describe('rejectByProperties', () => {
-    it('should reject objects by exact property match', () => {
-      const result = rejectByProperties(users, { name: 'Alice' });
-      expect(result).toHaveLength(4);
-      expect(result.map(u => u.name)).not.toContain('Alice');
+    it('should reject objects by exact property value match', () => {
+      const result = rejectByProperties(healthMetrics, { type: 'bloodPressure' });
+      
+      expect(result).toHaveLength(healthMetrics.length - 2); // All except bloodPressure
+      expect(result.every(metric => metric.type !== 'bloodPressure')).toBeTruthy();
     });
 
-    it('should reject objects by multiple properties with AND logic', () => {
-      const result = rejectByProperties(users, { age: 30, active: true });
-      expect(result).toHaveLength(4);
-      expect(result.map(u => u.name)).not.toContain('Alice');
+    it('should reject objects by multiple property values', () => {
+      const result = rejectByProperties(healthMetrics, { 
+        type: 'bloodPressure', 
+        unit: 'mmHg' 
+      });
+      
+      // Should exclude items that match BOTH criteria
+      expect(result.length).toBe(healthMetrics.length - 2);
+      expect(result.some(metric => 
+        metric.type === 'bloodPressure' && metric.unit === 'mmHg'
+      )).toBeFalsy();
     });
 
-    it('should reject objects by multiple properties with OR logic', () => {
-      const result = rejectByProperties(users, { name: 'Alice', age: 25 }, false);
-      expect(result).toHaveLength(3);
-      expect(result.map(u => u.name)).not.toContain('Alice');
-      expect(result.map(u => u.name)).not.toContain('Bob');
+    it('should support rejecting with array of possible values', () => {
+      const result = rejectByProperties(healthMetrics, { 
+        type: ['bloodPressure', 'heartRate'] 
+      });
+      
+      expect(result).toHaveLength(2); // Only weight and glucose metrics
+      expect(result.every(metric => 
+        metric.type !== 'bloodPressure' && metric.type !== 'heartRate'
+      )).toBeTruthy();
     });
 
-    it('should be the inverse of filterByProperties', () => {
-      const properties = { age: { gt: 30 } };
+    it('should support rejecting with predicate functions', () => {
+      const result = rejectByProperties(healthMetrics, { 
+        value: (val) => val > 100 
+      });
       
-      const filtered = filterByProperties(users, properties);
-      const rejected = rejectByProperties(users, properties);
-      
-      // The union of filtered and rejected should equal the original array
-      expect([...filtered, ...rejected]).toHaveLength(users.length);
-      
-      // No item should be in both filtered and rejected
-      const filteredIds = filtered.map(u => u.id);
-      const rejectedIds = rejected.map(u => u.id);
-      const intersection = filteredIds.filter(id => rejectedIds.includes(id));
-      expect(intersection).toHaveLength(0);
+      expect(result.length).toBeGreaterThan(0);
+      expect(result.every(metric => !(metric.value > 100))).toBeTruthy();
+    });
+
+    it('should return the original array when no matches are found', () => {
+      const result = rejectByProperties(healthMetrics, { type: 'nonexistent' });
+      expect(result).toEqual(healthMetrics);
     });
 
     it('should handle empty arrays', () => {
-      expect(rejectByProperties([], { name: 'Alice' })).toEqual([]);
+      const result = rejectByProperties([], { type: 'bloodPressure' });
+      expect(result).toEqual([]);
     });
 
-    it('should throw error for null or undefined arrays', () => {
-      expect(() => rejectByProperties(null as any, { name: 'Alice' })).toThrow();
-      expect(() => rejectByProperties(undefined as any, { name: 'Alice' })).toThrow();
+    it('should handle empty filter criteria', () => {
+      const result = rejectByProperties(healthMetrics, {});
+      expect(result).toEqual(healthMetrics); // Should return the original array
+    });
+
+    it('should throw an error when filter is not an object', () => {
+      // @ts-expect-error Testing invalid input
+      expect(() => rejectByProperties(healthMetrics, 'invalid')).toThrow();
     });
   });
 
   describe('differenceBy', () => {
-    it('should return elements from first array not in second array', () => {
-      expect(differenceBy([1, 2, 3, 4], [2, 4, 5])).toEqual([1, 3]);
-      expect(differenceBy(['a', 'b', 'c'], ['b', 'd'])).toEqual(['a', 'c']);
+    it('should return elements from first array not in second array by key', () => {
+      const result = differenceBy(array1, array2, 'id');
+      
+      expect(result).toHaveLength(1);
+      expect(result[0].id).toBe(1); // Only id 1 is unique to array1
     });
 
-    it('should compare objects by key', () => {
-      const firstArray = [
-        { id: 1, name: 'Alice' },
-        { id: 2, name: 'Bob' },
-        { id: 3, name: 'Charlie' }
+    it('should return elements from first array not in second array by selector function', () => {
+      const result = differenceBy(array1, array2, item => item.name);
+      
+      expect(result).toHaveLength(1);
+      expect(result[0].name).toBe('John'); // Only 'John' is unique to array1
+    });
+
+    it('should handle empty first array', () => {
+      const result = differenceBy([], array2, 'id');
+      expect(result).toEqual([]);
+    });
+
+    it('should return all elements when second array is empty', () => {
+      const result = differenceBy(array1, [], 'id');
+      expect(result).toEqual(array1);
+    });
+
+    it('should handle complex objects with nested properties', () => {
+      const complexArray1 = [
+        { user: { id: 1, profile: { name: 'John' } } },
+        { user: { id: 2, profile: { name: 'Jane' } } },
+        { user: { id: 3, profile: { name: 'Bob' } } }
       ];
       
-      const secondArray = [
-        { id: 1, name: 'Alice Smith' }, // Different name, same id
-        { id: 4, name: 'David' }
+      const complexArray2 = [
+        { user: { id: 2, profile: { name: 'Jane' } } },
+        { user: { id: 4, profile: { name: 'Alice' } } }
       ];
       
-      const result = differenceBy(firstArray, secondArray, 'id');
+      const result = differenceBy(complexArray1, complexArray2, item => item.user.id);
+      
+      expect(result).toHaveLength(2); // ids 1 and 3 are unique to complexArray1
+      expect(result.map(item => item.user.id).sort()).toEqual([1, 3]);
+    });
+
+    it('should handle arrays with primitive values', () => {
+      const numbers1 = [1, 2, 3, 4, 5];
+      const numbers2 = [3, 4, 5, 6, 7];
+      
+      // With primitives, the identity function is used as selector
+      const result = differenceBy(numbers1, numbers2, x => x);
+      
       expect(result).toHaveLength(2);
-      expect(result.map(item => item.id)).toEqual([2, 3]);
+      expect(result).toEqual([1, 2]);
     });
 
-    it('should compare objects by selector function', () => {
-      const firstArray = [
-        { id: 1, name: 'Alice' },
-        { id: 2, name: 'Bob' },
-        { id: 3, name: 'Charlie' }
-      ];
-      
-      const secondArray = [
-        { id: 4, name: 'alice' }, // Different id, same name (case-insensitive)
-        { id: 5, name: 'David' }
-      ];
-      
-      const result = differenceBy(
-        firstArray,
-        secondArray,
-        item => item.name.toLowerCase()
-      );
-      
-      expect(result).toHaveLength(2);
-      expect(result.map(item => item.name)).toEqual(['Bob', 'Charlie']);
-    });
-
-    it('should handle empty arrays', () => {
-      expect(differenceBy([], [1, 2, 3])).toEqual([]);
-      expect(differenceBy([1, 2, 3], [])).toEqual([1, 2, 3]);
-      expect(differenceBy([], [])).toEqual([]);
-    });
-
-    it('should handle arrays with mixed data types', () => {
-      const firstArray = [1, 'a', true, { id: 1 }];
-      const secondArray = [1, 'b', { id: 1 }];
-      
-      // Without key or selector, objects are compared by reference
-      const result = differenceBy(firstArray, secondArray);
-      expect(result).toContain('a');
-      expect(result).toContain(true);
-      expect(result).toContain(firstArray[3]); // The object reference is different
-    });
-
-    it('should throw error for null or undefined arrays', () => {
-      expect(() => differenceBy(null as any, [1, 2])).toThrow();
-      expect(() => differenceBy([1, 2], null as any)).toThrow();
-      expect(() => differenceBy(undefined as any, [1, 2])).toThrow();
-      expect(() => differenceBy([1, 2], undefined as any)).toThrow();
-    });
-  });
-
-  // Additional tests for other functions
-  describe('intersectionBy', () => {
-    it('should return elements that exist in both arrays', () => {
-      expect(intersectionBy([1, 2, 3], [2, 3, 4])).toEqual([2, 3]);
-    });
-
-    it('should compare objects by key', () => {
-      const firstArray = [
-        { id: 1, name: 'Alice' },
-        { id: 2, name: 'Bob' },
-        { id: 3, name: 'Charlie' }
-      ];
-      
-      const secondArray = [
-        { id: 1, name: 'Alice Smith' }, // Different name, same id
-        { id: 3, name: 'Charles' }, // Different name, same id
-        { id: 4, name: 'David' }
-      ];
-      
-      const result = intersectionBy(firstArray, secondArray, 'id');
-      expect(result).toHaveLength(2);
-      expect(result.map(item => item.id)).toEqual([1, 3]);
-      // Should return objects from the first array
-      expect(result[0].name).toBe('Alice');
-      expect(result[1].name).toBe('Charlie');
-    });
-  });
-
-  describe('compact', () => {
-    it('should remove null and undefined values', () => {
-      const array = [1, null, 2, undefined, 3];
-      expect(compact(array)).toEqual([1, 2, 3]);
-    });
-
-    it('should keep falsy values that are not null or undefined', () => {
-      const array = [0, '', false, NaN, 1];
-      expect(compact(array)).toEqual([0, '', false, NaN, 1]);
-    });
-  });
-
-  describe('filterWithRejections', () => {
-    it('should separate array into filtered and rejected elements', () => {
-      const { filtered, rejected } = filterWithRejections(numbers, num => num % 2 === 0);
-      expect(filtered).toEqual([2, 2, 4, 4]);
-      expect(rejected).toEqual([1, 3, 5]);
-    });
-
-    it('should work with complex predicates', () => {
-      const { filtered, rejected } = filterWithRejections(users, user => {
-        return user.age > 30 && user.active;
-      });
-      
-      expect(filtered).toHaveLength(1);
-      expect(filtered[0].name).toBe('David');
-      expect(rejected).toHaveLength(4);
+    it('should throw an error when key is not a string or function', () => {
+      // @ts-expect-error Testing invalid input
+      expect(() => differenceBy(array1, array2, 123)).toThrow();
     });
   });
 });

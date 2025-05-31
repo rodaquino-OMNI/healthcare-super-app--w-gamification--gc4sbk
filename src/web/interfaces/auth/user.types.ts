@@ -1,290 +1,523 @@
 /**
- * User profile interfaces for the AUSTA SuperApp
- * Defines data structures for authenticated user profiles, permissions, and preferences.
- * These interfaces ensure consistency in how user data is handled across both web and mobile applications.
+ * User-related interfaces for the AUSTA SuperApp
+ * Defines data structures for authenticated user profiles, permissions, roles, and settings.
  */
 
-/**
- * Represents a user's role in the system
- */
-export enum UserRole {
-  /**
-   * Standard user with basic access
-   */
-  USER = 'USER',
-  
-  /**
-   * Healthcare provider with additional clinical access
-   */
-  PROVIDER = 'PROVIDER',
-  
-  /**
-   * Administrator with system management capabilities
-   */
-  ADMIN = 'ADMIN',
-}
+import { IBaseEntity } from '../common/model';
+import { Nullable } from '../common/types';
 
 /**
- * Represents a specific permission granted to a user
+ * Core user interface with basic identity information
+ * Used for representing the authenticated user throughout the application
  */
-export interface UserPermission {
+export interface IUser extends IBaseEntity {
   /**
-   * Unique identifier for the permission
-   */
-  id: string;
-  
-  /**
-   * Name of the permission
-   */
-  name: string;
-  
-  /**
-   * Resource that this permission applies to
-   */
-  resource: string;
-  
-  /**
-   * Action that is permitted (e.g., 'read', 'write', 'delete')
-   */
-  action: string;
-  
-  /**
-   * Optional conditions that restrict when this permission applies
-   */
-  conditions?: Record<string, any>;
-}
-
-/**
- * Represents user preferences and settings
- */
-export interface UserPreferences {
-  /**
-   * Preferred language for the application
-   */
-  language: string;
-  
-  /**
-   * Notification preferences
-   */
-  notifications: {
-    /**
-     * Email notification settings
-     */
-    email: boolean;
-    
-    /**
-     * Push notification settings
-     */
-    push: boolean;
-    
-    /**
-     * SMS notification settings
-     */
-    sms: boolean;
-    
-    /**
-     * In-app notification settings
-     */
-    inApp: boolean;
-  };
-  
-  /**
-   * Theme preference
-   */
-  theme: 'light' | 'dark' | 'system';
-  
-  /**
-   * Journey-specific preferences
-   */
-  journeyPreferences: {
-    /**
-     * Health journey preferences
-     */
-    health?: Record<string, any>;
-    
-    /**
-     * Care journey preferences
-     */
-    care?: Record<string, any>;
-    
-    /**
-     * Plan journey preferences
-     */
-    plan?: Record<string, any>;
-  };
-}
-
-/**
- * Represents journey-specific user attributes
- */
-export interface JourneyUserAttributes {
-  /**
-   * Health journey specific attributes
-   */
-  health?: {
-    /**
-     * Connected health devices
-     */
-    connectedDevices?: string[];
-    
-    /**
-     * Active health goals
-     */
-    activeGoals?: string[];
-    
-    /**
-     * Health metrics tracking preferences
-     */
-    trackingPreferences?: Record<string, boolean>;
-  };
-  
-  /**
-   * Care journey specific attributes
-   */
-  care?: {
-    /**
-     * Preferred healthcare providers
-     */
-    preferredProviders?: string[];
-    
-    /**
-     * Upcoming appointments
-     */
-    upcomingAppointments?: number;
-    
-    /**
-     * Active medications
-     */
-    activeMedications?: number;
-  };
-  
-  /**
-   * Plan journey specific attributes
-   */
-  plan?: {
-    /**
-     * Active insurance plan ID
-     */
-    activePlanId?: string;
-    
-    /**
-     * Pending claims count
-     */
-    pendingClaims?: number;
-    
-    /**
-     * Available benefits
-     */
-    availableBenefits?: string[];
-  };
-}
-
-/**
- * Represents a user's identity information
- */
-export interface UserIdentity {
-  /**
-   * Unique identifier for the user
-   */
-  id: string;
-  
-  /**
-   * User's email address
+   * User's email address, used as the primary identifier for authentication
    */
   email: string;
   
   /**
-   * User's full name
+   * User's full name for display purposes
    */
   name: string;
   
   /**
    * URL to the user's profile picture
    */
-  profilePictureUrl?: string;
+  avatarUrl: Nullable<string>;
+  
+  /**
+   * Indicates if the user's email has been verified
+   */
+  isEmailVerified: boolean;
+  
+  /**
+   * Indicates if the user account is currently active
+   */
+  isActive: boolean;
+  
+  /**
+   * The user's assigned roles
+   */
+  roles: IUserRole[];
+  
+  /**
+   * The user's permissions derived from roles and direct assignments
+   */
+  permissions: IUserPermission[];
+  
+  /**
+   * The user's profile information
+   */
+  profile: Nullable<IUserProfile>;
+  
+  /**
+   * The user's preferences and settings
+   */
+  settings: IUserSettings;
+  
+  /**
+   * Journey-specific user data
+   */
+  journeyData: IUserJourneyData;
+}
+
+/**
+ * Extended user profile information
+ * Contains additional personal details beyond the core user identity
+ */
+export interface IUserProfile extends IBaseEntity {
+  /**
+   * User's unique identifier
+   */
+  userId: string;
   
   /**
    * User's phone number
    */
-  phoneNumber?: string;
+  phoneNumber: Nullable<string>;
   
   /**
-   * Date when the user account was created
+   * Indicates if the phone number has been verified
    */
-  createdAt: string;
+  isPhoneVerified: boolean;
   
   /**
-   * Date when the user account was last updated
+   * User's date of birth
    */
-  updatedAt: string;
+  dateOfBirth: Nullable<string>;
+  
+  /**
+   * User's gender
+   */
+  gender: Nullable<'male' | 'female' | 'other' | 'prefer_not_to_say'>;
+  
+  /**
+   * User's address information
+   */
+  address: Nullable<IUserAddress>;
+  
+  /**
+   * User's preferred language for the application
+   */
+  preferredLanguage: string;
+  
+  /**
+   * Additional custom attributes for the user profile
+   */
+  attributes: Record<string, any>;
 }
 
 /**
- * Represents a complete user profile with all associated data
+ * User address information
  */
-export interface User {
+export interface IUserAddress {
   /**
-   * User's identity information
+   * Street address line 1
    */
-  identity: UserIdentity;
+  street1: string;
   
   /**
-   * User's assigned roles
+   * Street address line 2 (optional)
    */
-  roles: UserRole[];
+  street2: Nullable<string>;
   
   /**
-   * User's granted permissions
+   * City
    */
-  permissions: UserPermission[];
+  city: string;
   
   /**
-   * User's preferences and settings
+   * State or province
    */
-  preferences: UserPreferences;
+  state: string;
   
   /**
-   * Journey-specific user attributes
+   * Postal or ZIP code
    */
-  journeyAttributes: JourneyUserAttributes;
+  postalCode: string;
   
   /**
-   * Whether the user's email has been verified
+   * Country
    */
-  emailVerified: boolean;
+  country: string;
+}
+
+/**
+ * User permission structure
+ * Represents a single permission assigned to a user
+ */
+export interface IUserPermission {
+  /**
+   * Unique identifier for the permission
+   */
+  id: string;
   
   /**
-   * Whether the user's phone number has been verified
+   * Permission name (e.g., 'read:health_metrics')
    */
-  phoneVerified: boolean;
+  name: string;
   
   /**
-   * Whether the user has completed the onboarding process
+   * Human-readable description of the permission
    */
-  onboardingCompleted: boolean;
+  description: string;
   
   /**
-   * User's gamification profile information
+   * The journey this permission applies to (if journey-specific)
+   */
+  journey: Nullable<'health' | 'care' | 'plan'>;
+  
+  /**
+   * The resource this permission applies to (e.g., 'health_metrics')
+   */
+  resource: string;
+  
+  /**
+   * The action this permission allows (e.g., 'read', 'write', 'delete')
+   */
+  action: string;
+  
+  /**
+   * Indicates if this permission was granted through a role or directly
+   */
+  grantedViaRole: boolean;
+  
+  /**
+   * The role ID that granted this permission (if applicable)
+   */
+  roleId: Nullable<string>;
+}
+
+/**
+ * User role structure
+ * Represents a role assigned to a user
+ */
+export interface IUserRole {
+  /**
+   * Unique identifier for the role
+   */
+  id: string;
+  
+  /**
+   * Role name (e.g., 'admin', 'user', 'health_coach')
+   */
+  name: string;
+  
+  /**
+   * Human-readable description of the role
+   */
+  description: string;
+  
+  /**
+   * The journey this role applies to (if journey-specific)
+   */
+  journey: Nullable<'health' | 'care' | 'plan'>;
+  
+  /**
+   * Indicates if this is a default role assigned to all users
+   */
+  isDefault: boolean;
+}
+
+/**
+ * User preferences and settings
+ * Contains user-configurable options for the application
+ */
+export interface IUserSettings {
+  /**
+   * User's unique identifier
+   */
+  userId: string;
+  
+  /**
+   * Notification preferences
+   */
+  notifications: INotificationSettings;
+  
+  /**
+   * Privacy settings
+   */
+  privacy: IPrivacySettings;
+  
+  /**
+   * Display and theme preferences
+   */
+  display: IDisplaySettings;
+  
+  /**
+   * Journey-specific settings
+   */
+  journeySettings: IJourneySettings;
+}
+
+/**
+ * Notification preferences
+ */
+export interface INotificationSettings {
+  /**
+   * Enable/disable email notifications
+   */
+  emailEnabled: boolean;
+  
+  /**
+   * Enable/disable push notifications
+   */
+  pushEnabled: boolean;
+  
+  /**
+   * Enable/disable SMS notifications
+   */
+  smsEnabled: boolean;
+  
+  /**
+   * Enable/disable in-app notifications
+   */
+  inAppEnabled: boolean;
+  
+  /**
+   * Specific notification types to enable/disable
+   */
+  preferences: {
+    /**
+     * Notifications for achievements and rewards
+     */
+    achievements: boolean;
+    
+    /**
+     * Notifications for appointments and reminders
+     */
+    appointments: boolean;
+    
+    /**
+     * Notifications for health goals and metrics
+     */
+    healthUpdates: boolean;
+    
+    /**
+     * Notifications for plan and benefit updates
+     */
+    planUpdates: boolean;
+    
+    /**
+     * Marketing and promotional notifications
+     */
+    marketing: boolean;
+  };
+}
+
+/**
+ * Privacy settings
+ */
+export interface IPrivacySettings {
+  /**
+   * Share profile with other users
+   */
+  shareProfile: boolean;
+  
+  /**
+   * Appear in leaderboards and social features
+   */
+  showInLeaderboards: boolean;
+  
+  /**
+   * Share health data with healthcare providers
+   */
+  shareHealthData: boolean;
+  
+  /**
+   * Allow data to be used for personalized recommendations
+   */
+  allowPersonalization: boolean;
+}
+
+/**
+ * Display and theme preferences
+ */
+export interface IDisplaySettings {
+  /**
+   * Preferred theme (light, dark, system)
+   */
+  theme: 'light' | 'dark' | 'system';
+  
+  /**
+   * Font size preference
+   */
+  fontSize: 'small' | 'medium' | 'large';
+  
+  /**
+   * Enable/disable animations
+   */
+  enableAnimations: boolean;
+  
+  /**
+   * Enable/disable high contrast mode
+   */
+  highContrast: boolean;
+}
+
+/**
+ * Journey-specific settings
+ */
+export interface IJourneySettings {
+  /**
+   * Health journey settings
+   */
+  health: {
+    /**
+     * Preferred units for health metrics (metric or imperial)
+     */
+    units: 'metric' | 'imperial';
+    
+    /**
+     * Default dashboard view
+     */
+    defaultView: 'summary' | 'metrics' | 'goals';
+    
+    /**
+     * Health metrics to display on dashboard
+     */
+    dashboardMetrics: string[];
+  };
+  
+  /**
+   * Care journey settings
+   */
+  care: {
+    /**
+     * Preferred appointment reminder time (in minutes before appointment)
+     */
+    appointmentReminder: number;
+    
+    /**
+     * Preferred telemedicine provider
+     */
+    preferredProvider: Nullable<string>;
+    
+    /**
+     * Default view for care dashboard
+     */
+    defaultView: 'appointments' | 'medications' | 'providers';
+  };
+  
+  /**
+   * Plan journey settings
+   */
+  plan: {
+    /**
+     * Default view for plan dashboard
+     */
+    defaultView: 'overview' | 'benefits' | 'claims';
+    
+    /**
+     * Enable/disable automatic claim submission
+     */
+    autoSubmitClaims: boolean;
+    
+    /**
+     * Preferred currency for displaying costs
+     */
+    currency: string;
+  };
+}
+
+/**
+ * Journey-specific user data
+ * Contains data specific to each journey that needs to be available in the user context
+ */
+export interface IUserJourneyData {
+  /**
+   * Health journey data
+   */
+  health: {
+    /**
+     * Active health goals count
+     */
+    activeGoalsCount: number;
+    
+    /**
+     * Connected devices count
+     */
+    connectedDevicesCount: number;
+    
+    /**
+     * Latest health metrics summary
+     */
+    latestMetrics: Record<string, any>;
+  };
+  
+  /**
+   * Care journey data
+   */
+  care: {
+    /**
+     * Upcoming appointments count
+     */
+    upcomingAppointmentsCount: number;
+    
+    /**
+     * Active medications count
+     */
+    activeMedicationsCount: number;
+    
+    /**
+     * Next appointment date (if any)
+     */
+    nextAppointmentDate: Nullable<string>;
+  };
+  
+  /**
+   * Plan journey data
+   */
+  plan: {
+    /**
+     * Current plan ID
+     */
+    currentPlanId: Nullable<string>;
+    
+    /**
+     * Current plan name
+     */
+    currentPlanName: Nullable<string>;
+    
+    /**
+     * Pending claims count
+     */
+    pendingClaimsCount: number;
+    
+    /**
+     * Benefits utilization percentage
+     */
+    benefitsUtilization: number;
+  };
+  
+  /**
+   * Gamification data
    */
   gamification: {
     /**
-     * User's current level
+     * Current user level
      */
     level: number;
     
     /**
-     * User's current experience points
+     * Current experience points
      */
     xp: number;
     
     /**
-     * Count of achievements earned
+     * Experience points needed for next level
+     */
+    nextLevelXp: number;
+    
+    /**
+     * Completed achievements count
      */
     achievementsCount: number;
     
     /**
-     * IDs of active quests
+     * Active quests count
      */
-    activeQuests: string[];
+    activeQuestsCount: number;
   };
 }

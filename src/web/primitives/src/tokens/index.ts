@@ -22,102 +22,42 @@
  */
 
 // Import all token categories
-import { colors } from './colors';
-import { typography, fontSizeValues } from './typography';
-import { spacing, spacingValues } from './spacing';
-import { breakpoints, breakpointValues, mediaQueries } from './breakpoints';
-import { shadows } from './shadows';
-import { animation } from './animation';
-
-// Import types from @austa/interfaces for proper typing
-import type {
-  ColorTokens,
-  TypographyTokens,
-  SpacingTokens,
-  BreakpointTokens,
-  ShadowTokens,
-  AnimationTokens,
-  DesignTokens
-} from '@austa/interfaces/themes/tokens.types';
+import { colors, ColorTokens } from './colors';
+import { typography, fontSizeValues, TypographyTokens } from './typography';
+import { spacing, spacingValues, SpacingTokens } from './spacing';
+import { breakpoints, breakpointValues, mediaQueries, BreakpointTokens } from './breakpoints';
+import { shadows, ShadowTokens } from './shadows';
+import { animation, AnimationTokens } from './animation';
 
 // Export individual token categories for granular imports
-export { colors };
-export { typography, fontSizeValues };
-export { spacing, spacingValues };
-export { breakpoints, breakpointValues, mediaQueries };
-export { shadows };
-export { animation };
+export { colors, ColorTokens };
+export { typography, fontSizeValues, TypographyTokens };
+export { spacing, spacingValues, SpacingTokens };
+export { breakpoints, breakpointValues, mediaQueries, BreakpointTokens };
+export { shadows, ShadowTokens };
+export { animation, AnimationTokens };
 
 /**
- * Journey-specific token groupings for easier theme creation.
- * These groupings combine tokens that are commonly used together in each journey.
+ * Interface defining the complete token structure for the design system.
+ * This provides type safety when consuming tokens in components and themes.
  */
-export const journeyTokens = {
-  health: {
-    colors: colors.journeys.health,
-    typography: typography,
-    spacing: spacing,
-    shadows: shadows,
-    animation: animation
-  },
-  care: {
-    colors: colors.journeys.care,
-    typography: typography,
-    spacing: spacing,
-    shadows: shadows,
-    animation: animation
-  },
-  plan: {
-    colors: colors.journeys.plan,
-    typography: typography,
-    spacing: spacing,
-    shadows: shadows,
-    animation: animation
-  }
-};
-
-/**
- * Platform-specific token subsets for web optimization.
- * These tokens are specifically formatted for web usage with CSS-in-JS libraries.
- */
-export const webTokens = {
-  colors: colors,
-  typography: typography,
-  spacing: spacing,
-  breakpoints: breakpoints,
-  mediaQueries: mediaQueries,
-  shadows: shadows,
-  animation: animation
-};
-
-/**
- * Platform-specific token subsets for React Native optimization.
- * These tokens are specifically formatted for React Native StyleSheet usage.
- */
-export const nativeTokens = {
-  colors: colors,
-  typography: {
-    ...typography,
-    // Remove web-specific properties for React Native
-    fontFamily: {
-      sans: 'System',
-      serif: 'System',
-      mono: 'System'
-    }
-  },
-  spacing: spacingValues, // Use raw numeric values for React Native
-  breakpoints: breakpointValues, // Use raw numeric values for React Native
-  shadows: shadows,
-  animation: animation
-};
+export interface DesignTokens {
+  colors: ColorTokens;
+  typography: TypographyTokens;
+  spacing: SpacingTokens;
+  breakpoints: BreakpointTokens;
+  mediaQueries: typeof mediaQueries;
+  shadows: ShadowTokens;
+  animation: AnimationTokens;
+}
 
 /**
  * Consolidated tokens object containing all design token categories.
  * This provides a convenient way to access all tokens through a single import.
  * 
- * @example Import and use in styled-components (Web)
+ * @example Web usage with styled-components
  * ```tsx
- * import { tokens } from '@design-system/primitives/tokens';
+ * import { tokens } from '@design-system/primitives';
  * 
  * const Component = styled.div`
  *   color: ${tokens.colors.journeys.health.primary};
@@ -126,48 +66,96 @@ export const nativeTokens = {
  * `;
  * ```
  * 
- * @example Import and use in React Native
+ * @example React Native usage
  * ```tsx
- * import { nativeTokens } from '@design-system/primitives/tokens';
+ * import { tokens } from '@design-system/primitives';
+ * import { StyleSheet } from 'react-native';
  * 
  * const styles = StyleSheet.create({
  *   container: {
- *     backgroundColor: nativeTokens.colors.journeys.health.primary,
- *     padding: nativeTokens.spacing.md,
+ *     backgroundColor: tokens.colors.journeys.care.background,
+ *     padding: tokens.spacingValues.md,
  *   },
  *   text: {
- *     fontSize: nativeTokens.typography.fontSize.md,
- *     fontWeight: nativeTokens.typography.fontWeight.bold,
+ *     color: tokens.colors.journeys.care.text,
+ *     fontSize: tokens.fontSizeValues.md,
  *   }
  * });
  * ```
- * 
- * @example Import and use with journey-specific tokens
- * ```tsx
- * import { journeyTokens } from '@design-system/primitives/tokens';
- * 
- * // For Health journey components
- * const HealthComponent = styled.div`
- *   color: ${journeyTokens.health.colors.primary};
- *   background-color: ${journeyTokens.health.colors.background};
- * `;
- * 
- * // For Care journey components
- * const CareComponent = styled.div`
- *   color: ${journeyTokens.care.colors.primary};
- *   background-color: ${journeyTokens.care.colors.background};
- * `;
- * ```
  */
 export const tokens: DesignTokens = {
-  colors: colors as ColorTokens,
-  typography: typography as TypographyTokens,
-  spacing: spacing as SpacingTokens,
-  breakpoints: breakpoints as BreakpointTokens,
+  colors,
+  typography,
+  spacing,
+  breakpoints,
   mediaQueries,
-  shadows: shadows as ShadowTokens,
-  animation: animation as AnimationTokens,
+  shadows,
+  animation,
 };
 
-// Default export for convenient importing
+/**
+ * Journey-specific token groupings for easier theme creation.
+ * These groupings combine all tokens relevant to a specific journey.
+ */
+export const journeyTokens = {
+  health: {
+    colors: colors.journeys.health,
+    typography,
+    spacing,
+    breakpoints,
+    mediaQueries,
+    shadows,
+    animation,
+  },
+  care: {
+    colors: colors.journeys.care,
+    typography,
+    spacing,
+    breakpoints,
+    mediaQueries,
+    shadows,
+    animation,
+  },
+  plan: {
+    colors: colors.journeys.plan,
+    typography,
+    spacing,
+    breakpoints,
+    mediaQueries,
+    shadows,
+    animation,
+  },
+};
+
+/**
+ * Platform-specific token subsets optimized for web applications.
+ * Includes all tokens with web-specific optimizations.
+ */
+export const webTokens = {
+  ...tokens,
+  // Web-specific overrides or additions can be added here
+};
+
+/**
+ * Platform-specific token subsets optimized for native mobile applications.
+ * Includes all tokens with React Native-specific optimizations.
+ */
+export const nativeTokens = {
+  ...tokens,
+  // Convert spacing to numeric values for React Native
+  spacing: spacingValues,
+  // Provide numeric breakpoint values
+  breakpoints: breakpointValues,
+  // Remove web-specific mediaQueries
+  mediaQueries: undefined,
+};
+
+/**
+ * Default export for convenient importing.
+ * 
+ * @example
+ * ```tsx
+ * import tokens from '@design-system/primitives';
+ * ```
+ */
 export default tokens;

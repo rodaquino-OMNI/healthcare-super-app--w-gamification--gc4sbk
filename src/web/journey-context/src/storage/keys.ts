@@ -1,216 +1,200 @@
 /**
- * Storage Keys
- * 
- * This module defines standardized storage keys and key generation utilities
- * for persisting different types of journey-related data across platforms.
- * 
- * It provides constants for authentication sessions, journey preferences, and user settings,
- * along with functions for generating namespaced and journey-specific storage keys.
+ * @file Storage Keys
+ * @description Defines standardized storage keys and key generation utilities for persisting
+ * different types of journey-related data across web and mobile platforms.
  */
 
 /**
- * Storage namespace for the AUSTA application
+ * Base namespace for all AUSTA app storage keys
+ * Used as a prefix to prevent collisions with other apps or libraries
  */
 export const STORAGE_NAMESPACE = '@AUSTA';
 
 /**
- * Journey types supported by the application
+ * Journey-specific namespaces
+ * Used to isolate storage between different journeys
  */
-export enum JourneyType {
-  HEALTH = 'health',
-  CARE = 'care',
-  PLAN = 'plan',
-}
+export const JOURNEY_NAMESPACES = {
+  /** Health journey namespace */
+  HEALTH: 'health',
+  /** Care journey namespace */
+  CARE: 'care',
+  /** Plan journey namespace */
+  PLAN: 'plan',
+  /** Cross-journey (shared) namespace */
+  SHARED: 'shared',
+} as const;
 
 /**
- * Base storage keys for common data types
+ * Type representing valid journey namespaces
  */
-export enum BaseStorageKey {
-  // Authentication related keys
-  AUTH_SESSION = 'auth_session',
-  AUTH_REFRESH_TOKEN = 'auth_refresh_token',
-  AUTH_MFA_TEMP_TOKEN = 'auth_mfa_temp_token',
-  
-  // User preferences
-  USER_PREFERENCES = 'user_preferences',
-  LANGUAGE_PREFERENCE = 'language_preference',
-  THEME_PREFERENCE = 'theme_preference',
-  NOTIFICATION_PREFERENCES = 'notification_preferences',
-  
-  // Journey preferences
-  JOURNEY_PREFERENCES = 'journey_preferences',
-  LAST_ACTIVE_JOURNEY = 'last_active_journey',
-  
-  // Application state
-  APP_STATE = 'app_state',
-  ONBOARDING_COMPLETED = 'onboarding_completed',
-  TERMS_ACCEPTED = 'terms_accepted',
-  APP_VERSION = 'app_version',
-  
-  // Feature flags
-  FEATURE_FLAGS = 'feature_flags',
-}
+export type JourneyNamespace = typeof JOURNEY_NAMESPACES[keyof typeof JOURNEY_NAMESPACES];
 
 /**
- * Health journey specific storage keys
+ * Authentication related storage keys
  */
-export enum HealthStorageKey {
-  HEALTH_METRICS = 'health_metrics',
-  HEALTH_GOALS = 'health_goals',
-  DEVICE_CONNECTIONS = 'device_connections',
-  LAST_SYNC_TIMESTAMP = 'last_sync_timestamp',
-  HEALTH_UNITS_PREFERENCE = 'health_units_preference',
-}
+export const AUTH_KEYS = {
+  /** Authentication session storage key */
+  SESSION: `${STORAGE_NAMESPACE}:auth_session`,
+  /** Refresh token storage key */
+  REFRESH_TOKEN: `${STORAGE_NAMESPACE}:refresh_token`,
+  /** User profile storage key */
+  USER_PROFILE: `${STORAGE_NAMESPACE}:user_profile`,
+  /** Authentication state storage key */
+  AUTH_STATE: `${STORAGE_NAMESPACE}:auth_state`,
+  /** Multi-factor authentication temporary token */
+  MFA_TEMP_TOKEN: `${STORAGE_NAMESPACE}:mfa_temp_token`,
+} as const;
 
 /**
- * Care journey specific storage keys
+ * User preferences storage keys
  */
-export enum CareStorageKey {
-  APPOINTMENTS = 'appointments',
-  MEDICATIONS = 'medications',
-  PREFERRED_PROVIDERS = 'preferred_providers',
-  SYMPTOM_HISTORY = 'symptom_history',
-  TELEMEDICINE_SETTINGS = 'telemedicine_settings',
-}
+export const PREFERENCE_KEYS = {
+  /** User theme preference */
+  THEME: `${STORAGE_NAMESPACE}:theme`,
+  /** User language preference */
+  LANGUAGE: `${STORAGE_NAMESPACE}:language`,
+  /** User notification preferences */
+  NOTIFICATIONS: `${STORAGE_NAMESPACE}:notification_preferences`,
+  /** User accessibility preferences */
+  ACCESSIBILITY: `${STORAGE_NAMESPACE}:accessibility`,
+  /** Last active journey */
+  LAST_JOURNEY: `${STORAGE_NAMESPACE}:last_journey`,
+} as const;
 
 /**
- * Plan journey specific storage keys
+ * Journey-specific storage keys
  */
-export enum PlanStorageKey {
-  INSURANCE_CARDS = 'insurance_cards',
-  CLAIM_DRAFTS = 'claim_drafts',
-  BENEFIT_FAVORITES = 'benefit_favorites',
-  DOCUMENT_CACHE = 'document_cache',
-}
+export const JOURNEY_KEYS = {
+  /** Journey state storage key */
+  STATE: 'journey_state',
+  /** Journey preferences storage key */
+  PREFERENCES: 'journey_preferences',
+  /** Journey last viewed screen */
+  LAST_SCREEN: 'last_screen',
+  /** Journey data cache */
+  CACHE: 'data_cache',
+} as const;
+
+/**
+ * Onboarding and tutorial storage keys
+ */
+export const ONBOARDING_KEYS = {
+  /** Completed onboarding steps */
+  COMPLETED_STEPS: `${STORAGE_NAMESPACE}:onboarding_completed_steps`,
+  /** Dismissed tutorials */
+  DISMISSED_TUTORIALS: `${STORAGE_NAMESPACE}:dismissed_tutorials`,
+  /** First time user flag */
+  FIRST_TIME_USER: `${STORAGE_NAMESPACE}:first_time_user`,
+} as const;
+
+/**
+ * Offline data storage keys
+ */
+export const OFFLINE_KEYS = {
+  /** Pending operations queue */
+  PENDING_OPERATIONS: `${STORAGE_NAMESPACE}:pending_operations`,
+  /** Offline data cache */
+  DATA_CACHE: `${STORAGE_NAMESPACE}:offline_data_cache`,
+  /** Last sync timestamp */
+  LAST_SYNC: `${STORAGE_NAMESPACE}:last_sync_timestamp`,
+} as const;
 
 /**
  * Creates a namespaced storage key
- * 
  * @param key - The base key to namespace
- * @returns A namespaced storage key
+ * @param namespace - Optional additional namespace
+ * @returns A fully namespaced storage key
  */
-export function createNamespacedKey(key: string): string {
+export function createStorageKey(key: string, namespace?: string): string {
+  if (namespace) {
+    return `${STORAGE_NAMESPACE}:${namespace}:${key}`;
+  }
   return `${STORAGE_NAMESPACE}:${key}`;
 }
 
 /**
  * Creates a journey-specific storage key
- * 
- * @param journeyType - The journey type (health, care, plan)
- * @param key - The journey-specific key
- * @returns A namespaced journey-specific storage key
+ * @param journeyNamespace - The journey namespace (health, care, plan, or shared)
+ * @param key - The base key to namespace
+ * @returns A journey-namespaced storage key
  */
-export function createJourneyKey(journeyType: JourneyType, key: string): string {
-  return createNamespacedKey(`${journeyType}:${key}`);
+export function createJourneyKey(journeyNamespace: JourneyNamespace, key: string): string {
+  return createStorageKey(key, journeyNamespace);
 }
 
 /**
  * Creates a health journey storage key
- * 
- * @param key - The health journey specific key
- * @returns A namespaced health journey storage key
+ * @param key - The base key to namespace
+ * @returns A health journey-namespaced storage key
  */
-export function createHealthKey(key: HealthStorageKey | string): string {
-  return createJourneyKey(JourneyType.HEALTH, key);
+export function createHealthKey(key: string): string {
+  return createJourneyKey(JOURNEY_NAMESPACES.HEALTH, key);
 }
 
 /**
  * Creates a care journey storage key
- * 
- * @param key - The care journey specific key
- * @returns A namespaced care journey storage key
+ * @param key - The base key to namespace
+ * @returns A care journey-namespaced storage key
  */
-export function createCareKey(key: CareStorageKey | string): string {
-  return createJourneyKey(JourneyType.CARE, key);
+export function createCareKey(key: string): string {
+  return createJourneyKey(JOURNEY_NAMESPACES.CARE, key);
 }
 
 /**
  * Creates a plan journey storage key
- * 
- * @param key - The plan journey specific key
- * @returns A namespaced plan journey storage key
+ * @param key - The base key to namespace
+ * @returns A plan journey-namespaced storage key
  */
-export function createPlanKey(key: PlanStorageKey | string): string {
-  return createJourneyKey(JourneyType.PLAN, key);
+export function createPlanKey(key: string): string {
+  return createJourneyKey(JOURNEY_NAMESPACES.PLAN, key);
+}
+
+/**
+ * Creates a shared (cross-journey) storage key
+ * @param key - The base key to namespace
+ * @returns A shared-namespaced storage key
+ */
+export function createSharedKey(key: string): string {
+  return createJourneyKey(JOURNEY_NAMESPACES.SHARED, key);
+}
+
+/**
+ * Creates a feature-specific storage key within a journey
+ * @param journeyNamespace - The journey namespace
+ * @param feature - The feature identifier
+ * @param key - The specific key for the feature
+ * @returns A feature-specific storage key
+ */
+export function createFeatureKey(
+  journeyNamespace: JourneyNamespace,
+  feature: string,
+  key: string
+): string {
+  return createStorageKey(`${feature}:${key}`, journeyNamespace);
 }
 
 /**
  * Creates a user-specific storage key
- * 
  * @param userId - The user ID
- * @param key - The base key
- * @returns A namespaced user-specific storage key
+ * @param key - The base key to namespace
+ * @returns A user-specific storage key
  */
 export function createUserKey(userId: string, key: string): string {
-  return createNamespacedKey(`user:${userId}:${key}`);
+  return createStorageKey(`user:${userId}:${key}`);
 }
 
 /**
- * Creates a user and journey specific storage key
- * 
+ * Creates a journey-specific user storage key
  * @param userId - The user ID
- * @param journeyType - The journey type
- * @param key - The journey-specific key
- * @returns A namespaced user and journey specific storage key
+ * @param journeyNamespace - The journey namespace
+ * @param key - The base key to namespace
+ * @returns A journey and user-specific storage key
  */
-export function createUserJourneyKey(
+export function createJourneyUserKey(
   userId: string,
-  journeyType: JourneyType,
+  journeyNamespace: JourneyNamespace,
   key: string
 ): string {
-  return createNamespacedKey(`user:${userId}:${journeyType}:${key}`);
+  return createStorageKey(`user:${userId}:${key}`, journeyNamespace);
 }
-
-/**
- * Standard storage keys used across the application
- * These keys are already namespaced and ready to use
- */
-export const StorageKeys = {
-  // Authentication keys
-  AUTH_SESSION: createNamespacedKey(BaseStorageKey.AUTH_SESSION),
-  AUTH_REFRESH_TOKEN: createNamespacedKey(BaseStorageKey.AUTH_REFRESH_TOKEN),
-  AUTH_MFA_TEMP_TOKEN: createNamespacedKey(BaseStorageKey.AUTH_MFA_TEMP_TOKEN),
-  
-  // User preference keys
-  USER_PREFERENCES: createNamespacedKey(BaseStorageKey.USER_PREFERENCES),
-  LANGUAGE_PREFERENCE: createNamespacedKey(BaseStorageKey.LANGUAGE_PREFERENCE),
-  THEME_PREFERENCE: createNamespacedKey(BaseStorageKey.THEME_PREFERENCE),
-  NOTIFICATION_PREFERENCES: createNamespacedKey(BaseStorageKey.NOTIFICATION_PREFERENCES),
-  
-  // Journey preference keys
-  JOURNEY_PREFERENCES: createNamespacedKey(BaseStorageKey.JOURNEY_PREFERENCES),
-  LAST_ACTIVE_JOURNEY: createNamespacedKey(BaseStorageKey.LAST_ACTIVE_JOURNEY),
-  
-  // Application state keys
-  APP_STATE: createNamespacedKey(BaseStorageKey.APP_STATE),
-  ONBOARDING_COMPLETED: createNamespacedKey(BaseStorageKey.ONBOARDING_COMPLETED),
-  TERMS_ACCEPTED: createNamespacedKey(BaseStorageKey.TERMS_ACCEPTED),
-  APP_VERSION: createNamespacedKey(BaseStorageKey.APP_VERSION),
-  
-  // Feature flag keys
-  FEATURE_FLAGS: createNamespacedKey(BaseStorageKey.FEATURE_FLAGS),
-  
-  // Journey-specific key generators
-  Health: {
-    HEALTH_METRICS: createHealthKey(HealthStorageKey.HEALTH_METRICS),
-    HEALTH_GOALS: createHealthKey(HealthStorageKey.HEALTH_GOALS),
-    DEVICE_CONNECTIONS: createHealthKey(HealthStorageKey.DEVICE_CONNECTIONS),
-    LAST_SYNC_TIMESTAMP: createHealthKey(HealthStorageKey.LAST_SYNC_TIMESTAMP),
-    HEALTH_UNITS_PREFERENCE: createHealthKey(HealthStorageKey.HEALTH_UNITS_PREFERENCE),
-  },
-  
-  Care: {
-    APPOINTMENTS: createCareKey(CareStorageKey.APPOINTMENTS),
-    MEDICATIONS: createCareKey(CareStorageKey.MEDICATIONS),
-    PREFERRED_PROVIDERS: createCareKey(CareStorageKey.PREFERRED_PROVIDERS),
-    SYMPTOM_HISTORY: createCareKey(CareStorageKey.SYMPTOM_HISTORY),
-    TELEMEDICINE_SETTINGS: createCareKey(CareStorageKey.TELEMEDICINE_SETTINGS),
-  },
-  
-  Plan: {
-    INSURANCE_CARDS: createPlanKey(PlanStorageKey.INSURANCE_CARDS),
-    CLAIM_DRAFTS: createPlanKey(PlanStorageKey.CLAIM_DRAFTS),
-    BENEFIT_FAVORITES: createPlanKey(PlanStorageKey.BENEFIT_FAVORITES),
-    DOCUMENT_CACHE: createPlanKey(PlanStorageKey.DOCUMENT_CACHE),
-  },
-};

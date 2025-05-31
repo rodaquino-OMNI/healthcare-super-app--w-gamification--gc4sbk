@@ -1,50 +1,58 @@
 /**
  * Authentication interfaces for the AUSTA SuperApp
- * Defines standardized interfaces for authentication operations across the platform
+ * Defines standardized interfaces for authentication requests and responses
+ * across all journeys and platforms (web and mobile).
  */
 
 /**
  * Represents the result of an authentication operation
+ * Contains the authentication token, user information, and status
  */
 export interface IAuthResult {
   /**
-   * Whether the authentication operation was successful
-   */
-  success: boolean;
-  
-  /**
    * JWT access token for authenticated requests
    */
-  accessToken?: string;
+  accessToken: string;
   
   /**
-   * Temporary token for multi-factor authentication flow
+   * JWT refresh token for obtaining new access tokens
    */
-  tempToken?: string;
-  
-  /**
-   * Indicates if multi-factor authentication is required
-   */
-  mfaRequired?: boolean;
+  refreshToken?: string;
   
   /**
    * User information returned after successful authentication
    */
-  user?: {
+  user: {
     id: string;
     email: string;
     name: string;
     roles: string[];
-    [key: string]: any;
+    journeyPreferences?: Record<string, unknown>;
   };
   
   /**
-   * Error message if authentication failed
+   * Indicates if multi-factor authentication is required
+   */
+  requiresMfa?: boolean;
+  
+  /**
+   * Temporary token provided when MFA is required
+   * Used to complete the MFA verification process
+   */
+  tempToken?: string;
+  
+  /**
+   * Token expiration timestamp in seconds since epoch
+   */
+  expiresAt: number;
+  
+  /**
+   * Optional error information if authentication was not successful
    */
   error?: {
     code: string;
     message: string;
-    details?: any;
+    details?: Record<string, unknown>;
   };
 }
 
@@ -63,7 +71,7 @@ export interface ILoginRequest {
   password: string;
   
   /**
-   * Remember user session (extended token expiration)
+   * Optional remember me flag for extended session
    */
   rememberMe?: boolean;
 }
@@ -88,19 +96,14 @@ export interface IRegisterRequest {
   name: string;
   
   /**
-   * User's phone number (optional)
+   * Optional phone number for SMS verification
    */
-  phone?: string;
+  phoneNumber?: string;
   
   /**
-   * Acceptance of terms and conditions
+   * Optional journey-specific preferences
    */
-  acceptedTerms: boolean;
-  
-  /**
-   * Optional additional user data
-   */
-  [key: string]: any;
+  journeyPreferences?: Record<string, unknown>;
 }
 
 /**
@@ -123,7 +126,7 @@ export interface IMfaVerifyRequest {
  */
 export interface ISocialLoginRequest {
   /**
-   * Social provider (e.g., 'google', 'apple', 'facebook')
+   * The social provider (e.g., 'google', 'apple', 'facebook')
    */
   provider: string;
   
@@ -135,37 +138,58 @@ export interface ISocialLoginRequest {
   /**
    * Additional provider-specific data
    */
-  [key: string]: any;
+  providerData?: Record<string, unknown>;
 }
 
 /**
- * Token refresh request
+ * Token refresh request payload
  */
-export interface ITokenRefreshRequest {
+export interface IRefreshTokenRequest {
   /**
-   * Refresh token for obtaining a new access token
+   * Refresh token used to obtain a new access token
    */
-  refreshToken?: string;
+  refreshToken: string;
+}
+
+/**
+ * Password reset request payload
+ */
+export interface IPasswordResetRequest {
+  /**
+   * User's email address
+   */
+  email: string;
+}
+
+/**
+ * Password update request payload
+ */
+export interface IPasswordUpdateRequest {
+  /**
+   * Reset token received via email
+   */
+  resetToken: string;
+  
+  /**
+   * New password
+   */
+  newPassword: string;
 }
 
 /**
  * Authentication session information
+ * Used by client applications to manage the user session
  */
 export interface IAuthSession {
   /**
-   * JWT access token
+   * JWT access token for authenticated requests
    */
   accessToken: string;
   
   /**
-   * Refresh token for obtaining new access tokens
+   * JWT refresh token for obtaining new access tokens
    */
   refreshToken?: string;
-  
-  /**
-   * Token expiration timestamp
-   */
-  expiresAt: number;
   
   /**
    * User information
@@ -175,6 +199,11 @@ export interface IAuthSession {
     email: string;
     name: string;
     roles: string[];
-    [key: string]: any;
+    journeyPreferences?: Record<string, unknown>;
   };
+  
+  /**
+   * Token expiration timestamp in seconds since epoch
+   */
+  expiresAt: number;
 }

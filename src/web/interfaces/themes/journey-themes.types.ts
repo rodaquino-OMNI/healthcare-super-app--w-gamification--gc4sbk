@@ -1,327 +1,310 @@
 /**
  * Journey-Specific Theme Type Definitions
  * 
- * This file defines specialized theme interfaces for each user journey in the AUSTA SuperApp.
- * These interfaces extend the base Theme with journey-specific color palettes, typographic
- * treatments, and component variations that reflect each journey's unique visual identity.
- * 
- * The three journeys are:
- * - Health Journey ("Minha Saúde"): Focused on health metrics and wellness tracking
- * - Care Journey ("Cuidar-me Agora"): Focused on medical appointments and treatments
- * - Plan Journey ("Meu Plano & Benefícios"): Focused on insurance plans and benefits
+ * This file defines TypeScript interfaces for journey-specific themes in the AUSTA SuperApp.
+ * Each journey (Health, Care, Plan) has its own theme interface that extends the base JourneyTheme
+ * with specialized color palettes, typographic treatments, and component variations that reflect
+ * the journey's unique visual identity.
  */
 
-import { Theme } from './theme.types';
-import { ColorScale } from './tokens.types';
+import { JourneyTheme } from './theme.types';
 
 /**
- * Health Journey Theme Interface
- * Extends the base Theme with health journey-specific properties
+ * Health Journey Semantic Colors
+ * Defines semantic color names specific to the Health journey context
  */
-export interface HealthTheme extends Theme {
-  /**
-   * Health journey-specific color palette
-   * Primarily green-based colors for health metrics, goals, and wellness tracking
-   */
-  healthColors: {
-    /** Primary health color scale - green-based */
-    primary: ColorScale;
-    /** Secondary health color scale - complementary to primary */
-    secondary: ColorScale;
-    /** Accent health color scale - for highlights and important elements */
-    accent: ColorScale;
-    /** Semantic colors specific to health metrics */
-    metrics: {
-      /** Color for heart rate metrics */
-      heartRate: string;
-      /** Color for step count metrics */
-      steps: string;
-      /** Color for sleep metrics */
-      sleep: string;
-      /** Color for weight metrics */
-      weight: string;
-      /** Color for blood pressure metrics */
-      bloodPressure: string;
-      /** Color for glucose metrics */
-      glucose: string;
-      /** Color for oxygen saturation metrics */
-      oxygen: string;
-      /** Color for temperature metrics */
-      temperature: string;
-    };
-    /** Semantic colors for health goals */
-    goals: {
-      /** Color for goal not started */
-      notStarted: string;
-      /** Color for goal in progress */
-      inProgress: string;
-      /** Color for goal completed */
-      completed: string;
-      /** Color for goal overachieved */
-      overachieved: string;
-    };
-  };
+export interface HealthSemanticColors {
+  // Health metrics colors
+  metricHigh: string;
+  metricNormal: string;
+  metricLow: string;
+  metricCritical: string;
+  
+  // Goal status colors
+  goalComplete: string;
+  goalInProgress: string;
+  goalBehind: string;
+  
+  // Device connection status
+  deviceConnected: string;
+  deviceDisconnected: string;
+  deviceSyncing: string;
+  
+  // Health insight colors
+  insightPositive: string;
+  insightNeutral: string;
+  insightNegative: string;
+  insightActionable: string;
+}
 
-  /**
-   * Health journey-specific component variations
-   */
-  healthComponents: {
-    /** Health metric card styling */
-    metricCard: {
-      /** Background color for metric cards */
-      backgroundColor: string;
-      /** Border color for metric cards */
-      borderColor: string;
-      /** Text color for metric values */
-      valueColor: string;
-      /** Text color for metric labels */
-      labelColor: string;
+/**
+ * Care Journey Semantic Colors
+ * Defines semantic color names specific to the Care journey context
+ */
+export interface CareSemanticColors {
+  // Appointment status colors
+  appointmentScheduled: string;
+  appointmentConfirmed: string;
+  appointmentCancelled: string;
+  appointmentCompleted: string;
+  
+  // Provider availability colors
+  providerAvailable: string;
+  providerBusy: string;
+  providerUnavailable: string;
+  
+  // Medication status colors
+  medicationActive: string;
+  medicationExpired: string;
+  medicationRefillNeeded: string;
+  
+  // Symptom severity colors
+  symptomMild: string;
+  symptomModerate: string;
+  symptomSevere: string;
+  
+  // Telemedicine status colors
+  teleMedicineAvailable: string;
+  teleMedicineInProgress: string;
+  teleMedicineEnded: string;
+}
+
+/**
+ * Plan Journey Semantic Colors
+ * Defines semantic color names specific to the Plan journey context
+ */
+export interface PlanSemanticColors {
+  // Claim status colors
+  claimSubmitted: string;
+  claimInReview: string;
+  claimApproved: string;
+  claimDenied: string;
+  claimPartial: string;
+  
+  // Coverage status colors
+  coverageActive: string;
+  coverageInactive: string;
+  coverageExpiring: string;
+  
+  // Benefit usage colors
+  benefitUnused: string;
+  benefitPartiallyUsed: string;
+  benefitFullyUsed: string;
+  benefitExceeded: string;
+  
+  // Cost indicator colors
+  costLow: string;
+  costMedium: string;
+  costHigh: string;
+}
+
+/**
+ * Health Journey Component Variations
+ * Defines component style variations specific to the Health journey
+ */
+export interface HealthComponentVariations {
+  // Card variations
+  metricCard: {
+    borderRadius: string;
+    shadow: string;
+    bgGradient: string;
+  };
+  goalCard: {
+    borderRadius: string;
+    shadow: string;
+    bgGradient: string;
+  };
+  deviceCard: {
+    borderRadius: string;
+    shadow: string;
+    bgGradient: string;
+  };
+  
+  // Chart variations
+  healthChart: {
+    lineColor: string;
+    gridColor: string;
+    labelColor: string;
+    tooltipBg: string;
+  };
+}
+
+/**
+ * Care Journey Component Variations
+ * Defines component style variations specific to the Care journey
+ */
+export interface CareComponentVariations {
+  // Card variations
+  appointmentCard: {
+    borderRadius: string;
+    shadow: string;
+    bgGradient: string;
+  };
+  providerCard: {
+    borderRadius: string;
+    shadow: string;
+    bgGradient: string;
+  };
+  medicationCard: {
+    borderRadius: string;
+    shadow: string;
+    bgGradient: string;
+  };
+  
+  // Telemedicine variations
+  videoConsultation: {
+    controlsBg: string;
+    iconColor: string;
+    borderColor: string;
+  };
+  
+  // Symptom checker variations
+  symptomSelector: {
+    activeBg: string;
+    hoverBg: string;
+    borderColor: string;
+  };
+}
+
+/**
+ * Plan Journey Component Variations
+ * Defines component style variations specific to the Plan journey
+ */
+export interface PlanComponentVariations {
+  // Card variations
+  benefitCard: {
+    borderRadius: string;
+    shadow: string;
+    bgGradient: string;
+  };
+  claimCard: {
+    borderRadius: string;
+    shadow: string;
+    bgGradient: string;
+  };
+  coverageCard: {
+    borderRadius: string;
+    shadow: string;
+    bgGradient: string;
+  };
+  
+  // Insurance card variations
+  insuranceCard: {
+    borderRadius: string;
+    shadow: string;
+    bgGradient: string;
+    hologramColor: string;
+  };
+  
+  // Cost simulator variations
+  costSimulator: {
+    barColor: string;
+    labelColor: string;
+    gridColor: string;
+  };
+}
+
+/**
+ * Health Theme Interface
+ * Defines the theme for the Health journey ("Minha Saúde")
+ */
+export interface HealthTheme extends JourneyTheme {
+  journey: 'health';
+  accentColor: string; // Primary green color
+  healthSemantic: HealthSemanticColors;
+  components: HealthComponentVariations;
+  
+  // Health-specific typography variations
+  typography: JourneyTheme['typography'] & {
+    metricValue: {
+      fontFamily: string;
+      fontSize: string;
+      fontWeight: number;
+      lineHeight: number;
     };
-    /** Health goal card styling */
-    goalCard: {
-      /** Background color for goal cards */
-      backgroundColor: string;
-      /** Border color for goal cards */
-      borderColor: string;
-      /** Text color for goal titles */
-      titleColor: string;
-      /** Text color for goal descriptions */
-      descriptionColor: string;
+    goalHeading: {
+      fontFamily: string;
+      fontSize: string;
+      fontWeight: number;
+      lineHeight: number;
     };
-    /** Health chart styling */
-    chart: {
-      /** Background color for charts */
-      backgroundColor: string;
-      /** Grid line color for charts */
-      gridColor: string;
-      /** Axis label color for charts */
-      axisColor: string;
-      /** Data line color for charts */
-      lineColor: string;
-      /** Data point color for charts */
-      pointColor: string;
+    insightText: {
+      fontFamily: string;
+      fontSize: string;
+      fontWeight: number;
+      lineHeight: number;
     };
   };
 }
 
 /**
- * Care Journey Theme Interface
- * Extends the base Theme with care journey-specific properties
+ * Care Theme Interface
+ * Defines the theme for the Care journey ("Cuidar-me Agora")
  */
-export interface CareTheme extends Theme {
-  /**
-   * Care journey-specific color palette
-   * Primarily orange-based colors for appointments, medications, and treatments
-   */
-  careColors: {
-    /** Primary care color scale - orange-based */
-    primary: ColorScale;
-    /** Secondary care color scale - complementary to primary */
-    secondary: ColorScale;
-    /** Accent care color scale - for highlights and important elements */
-    accent: ColorScale;
-    /** Semantic colors for appointment status */
-    appointment: {
-      /** Color for scheduled appointments */
-      scheduled: string;
-      /** Color for confirmed appointments */
-      confirmed: string;
-      /** Color for in-progress appointments */
-      inProgress: string;
-      /** Color for completed appointments */
-      completed: string;
-      /** Color for canceled appointments */
-      canceled: string;
+export interface CareTheme extends JourneyTheme {
+  journey: 'care';
+  accentColor: string; // Primary orange color
+  careSemantic: CareSemanticColors;
+  components: CareComponentVariations;
+  
+  // Care-specific typography variations
+  typography: JourneyTheme['typography'] & {
+    providerName: {
+      fontFamily: string;
+      fontSize: string;
+      fontWeight: number;
+      lineHeight: number;
     };
-    /** Semantic colors for medication status */
-    medication: {
-      /** Color for active medications */
-      active: string;
-      /** Color for taken medications */
-      taken: string;
-      /** Color for missed medications */
-      missed: string;
-      /** Color for expired medications */
-      expired: string;
+    appointmentTime: {
+      fontFamily: string;
+      fontSize: string;
+      fontWeight: number;
+      lineHeight: number;
     };
-    /** Semantic colors for provider specialties */
-    specialty: {
-      /** Color for general practitioners */
-      generalPractitioner: string;
-      /** Color for cardiologists */
-      cardiology: string;
-      /** Color for dermatologists */
-      dermatology: string;
-      /** Color for orthopedists */
-      orthopedics: string;
-      /** Color for neurologists */
-      neurology: string;
-      /** Color for pediatricians */
-      pediatrics: string;
-      /** Color for gynecologists */
-      gynecology: string;
-      /** Color for urologists */
-      urology: string;
-      /** Color for other specialties */
-      other: string;
-    };
-  };
-
-  /**
-   * Care journey-specific component variations
-   */
-  careComponents: {
-    /** Appointment card styling */
-    appointmentCard: {
-      /** Background color for appointment cards */
-      backgroundColor: string;
-      /** Border color for appointment cards */
-      borderColor: string;
-      /** Text color for appointment titles */
-      titleColor: string;
-      /** Text color for appointment details */
-      detailsColor: string;
-    };
-    /** Provider card styling */
-    providerCard: {
-      /** Background color for provider cards */
-      backgroundColor: string;
-      /** Border color for provider cards */
-      borderColor: string;
-      /** Text color for provider names */
-      nameColor: string;
-      /** Text color for provider specialties */
-      specialtyColor: string;
-    };
-    /** Medication card styling */
-    medicationCard: {
-      /** Background color for medication cards */
-      backgroundColor: string;
-      /** Border color for medication cards */
-      borderColor: string;
-      /** Text color for medication names */
-      nameColor: string;
-      /** Text color for medication dosages */
-      dosageColor: string;
+    medicationName: {
+      fontFamily: string;
+      fontSize: string;
+      fontWeight: number;
+      lineHeight: number;
     };
   };
 }
 
 /**
- * Plan Journey Theme Interface
- * Extends the base Theme with plan journey-specific properties
+ * Plan Theme Interface
+ * Defines the theme for the Plan journey ("Meu Plano & Benefícios")
  */
-export interface PlanTheme extends Theme {
-  /**
-   * Plan journey-specific color palette
-   * Primarily blue-based colors for insurance plans, benefits, and claims
-   */
-  planColors: {
-    /** Primary plan color scale - blue-based */
-    primary: ColorScale;
-    /** Secondary plan color scale - complementary to primary */
-    secondary: ColorScale;
-    /** Accent plan color scale - for highlights and important elements */
-    accent: ColorScale;
-    /** Semantic colors for plan types */
-    planType: {
-      /** Color for basic plans */
-      basic: string;
-      /** Color for standard plans */
-      standard: string;
-      /** Color for premium plans */
-      premium: string;
-      /** Color for family plans */
-      family: string;
-      /** Color for corporate plans */
-      corporate: string;
+export interface PlanTheme extends JourneyTheme {
+  journey: 'plan';
+  accentColor: string; // Primary blue color
+  planSemantic: PlanSemanticColors;
+  components: PlanComponentVariations;
+  
+  // Plan-specific typography variations
+  typography: JourneyTheme['typography'] & {
+    planName: {
+      fontFamily: string;
+      fontSize: string;
+      fontWeight: number;
+      lineHeight: number;
     };
-    /** Semantic colors for claim status */
-    claim: {
-      /** Color for submitted claims */
-      submitted: string;
-      /** Color for in-review claims */
-      inReview: string;
-      /** Color for approved claims */
-      approved: string;
-      /** Color for partially approved claims */
-      partiallyApproved: string;
-      /** Color for denied claims */
-      denied: string;
-      /** Color for appealed claims */
-      appealed: string;
+    benefitTitle: {
+      fontFamily: string;
+      fontSize: string;
+      fontWeight: number;
+      lineHeight: number;
     };
-    /** Semantic colors for coverage types */
-    coverage: {
-      /** Color for medical coverage */
-      medical: string;
-      /** Color for dental coverage */
-      dental: string;
-      /** Color for vision coverage */
-      vision: string;
-      /** Color for pharmacy coverage */
-      pharmacy: string;
-      /** Color for mental health coverage */
-      mentalHealth: string;
-      /** Color for alternative therapy coverage */
-      alternativeTherapy: string;
-    };
-  };
-
-  /**
-   * Plan journey-specific component variations
-   */
-  planComponents: {
-    /** Plan card styling */
-    planCard: {
-      /** Background color for plan cards */
-      backgroundColor: string;
-      /** Border color for plan cards */
-      borderColor: string;
-      /** Text color for plan names */
-      nameColor: string;
-      /** Text color for plan details */
-      detailsColor: string;
-    };
-    /** Claim card styling */
-    claimCard: {
-      /** Background color for claim cards */
-      backgroundColor: string;
-      /** Border color for claim cards */
-      borderColor: string;
-      /** Text color for claim titles */
-      titleColor: string;
-      /** Text color for claim amounts */
-      amountColor: string;
-    };
-    /** Benefit card styling */
-    benefitCard: {
-      /** Background color for benefit cards */
-      backgroundColor: string;
-      /** Border color for benefit cards */
-      borderColor: string;
-      /** Text color for benefit names */
-      nameColor: string;
-      /** Text color for benefit descriptions */
-      descriptionColor: string;
+    claimAmount: {
+      fontFamily: string;
+      fontSize: string;
+      fontWeight: number;
+      lineHeight: number;
     };
   };
 }
 
 /**
+ * Journey Theme Type
  * Union type of all journey-specific themes
- * Used for components that can accept any journey theme
  */
-export type JourneyTheme = HealthTheme | CareTheme | PlanTheme;
-
-/**
- * Props for the JourneyThemeProvider component
- */
-export interface JourneyThemeProviderProps {
-  /** The journey theme to provide */
-  theme: JourneyTheme;
-  /** The journey type */
-  journey: 'health' | 'care' | 'plan';
-  /** Children to render within the theme provider */
-  children: React.ReactNode;
-}
+export type JourneySpecificTheme = HealthTheme | CareTheme | PlanTheme;

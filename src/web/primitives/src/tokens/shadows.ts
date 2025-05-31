@@ -9,228 +9,177 @@
  * - lg: Large shadows for modal dialogs and prominent UI elements
  * - xl: Extra large shadows for elements that need maximum elevation
  *
- * @packageDocumentation
+ * @accessibility Shadows should be combined with borders or outlines for elements
+ * that need to maintain visibility in high-contrast mode or when shadows are disabled.
  */
 
+import { Platform } from 'react-native';
+
 /**
- * Interface for CSS shadow values used in web applications
+ * Shadow token interface for web platform (CSS box-shadow)
  */
-export interface CssShadowToken {
-  /** Small shadow - subtle elevation (1px) */
-  sm: string;
-  /** Medium shadow - moderate elevation (4px) */
-  md: string;
-  /** Large shadow - significant elevation (10px) */
-  lg: string;
-  /** Extra large shadow - maximum elevation (20px) */
-  xl: string;
+export interface WebShadowToken {
+  boxShadow: string;
 }
 
 /**
- * Interface for React Native shadow values
- * React Native requires separate shadow properties for iOS and Android
+ * Shadow token interface for React Native platform
  */
-export interface ReactNativeShadowToken {
-  /** Small shadow - subtle elevation (1px) */
-  sm: {
-    shadowColor: string;
-    shadowOffset: { width: number; height: number };
-    shadowOpacity: number;
-    shadowRadius: number;
-    elevation: number;
-  };
-  /** Medium shadow - moderate elevation (4px) */
-  md: {
-    shadowColor: string;
-    shadowOffset: { width: number; height: number };
-    shadowOpacity: number;
-    shadowRadius: number;
-    elevation: number;
-  };
-  /** Large shadow - significant elevation (10px) */
-  lg: {
-    shadowColor: string;
-    shadowOffset: { width: number; height: number };
-    shadowOpacity: number;
-    shadowRadius: number;
-    elevation: number;
-  };
-  /** Extra large shadow - maximum elevation (20px) */
-  xl: {
-    shadowColor: string;
-    shadowOffset: { width: number; height: number };
-    shadowOpacity: number;
-    shadowRadius: number;
-    elevation: number;
-  };
+export interface NativeShadowToken {
+  shadowColor: string;
+  shadowOffset: { width: number; height: number };
+  shadowOpacity: number;
+  shadowRadius: number;
+  elevation?: number; // Android-specific
 }
 
 /**
- * Interface for theme-aware shadow values
- * Allows for different shadow intensities based on theme (light/dark)
+ * Combined shadow token interface for cross-platform usage
  */
-export interface ThemeAwareShadowToken {
-  /** Light theme shadows (higher opacity) */
-  light: CssShadowToken;
-  /** Dark theme shadows (lower opacity) */
-  dark: CssShadowToken;
+export interface ShadowToken {
+  web: WebShadowToken;
+  native: NativeShadowToken;
 }
 
 /**
- * Combined shadow token interface that includes all shadow token types
- * This is the main export type that should be used by the @austa/interfaces package
+ * Shadow intensity configuration for light/dark themes
  */
-export interface ShadowTokens {
-  /** CSS shadow values for web applications */
-  css: CssShadowToken;
-  /** React Native shadow values for mobile applications */
-  native: ReactNativeShadowToken;
-  /** Theme-aware shadow values for dynamic theming */
-  themed: ThemeAwareShadowToken;
-}
-
-/**
- * CSS shadow tokens for web applications
- * 
- * These shadow styles use the CSS box-shadow property with RGBA values
- * for consistent rendering across browsers.
- */
-export const cssShadows: CssShadowToken = {
-  /**
-   * Small shadow - subtle elevation (1px)
-   * Used for buttons, cards, and other slightly elevated components
-   */
-  sm: '0 1px 2px rgba(0, 0, 0, 0.05)',
-
-  /**
-   * Medium shadow - moderate elevation (4px)
-   * Used for dropdowns, popovers, and components that float above the interface
-   */
-  md: '0 4px 6px rgba(0, 0, 0, 0.1)',
-
-  /**
-   * Large shadow - significant elevation (10px)
-   * Used for modal dialogs, sidebars, and other prominent UI elements
-   */
-  lg: '0 10px 15px rgba(0, 0, 0, 0.1)',
-
-  /**
-   * Extra large shadow - maximum elevation (20px)
-   * Used for onboarding spotlights, notifications, and elements requiring maximum emphasis
-   */
-  xl: '0 20px 25px rgba(0, 0, 0, 0.15)',
-};
-
-/**
- * React Native shadow tokens for mobile applications
- * 
- * These shadow styles use platform-specific properties:
- * - iOS: shadowColor, shadowOffset, shadowOpacity, shadowRadius
- * - Android: elevation
- * 
- * Note: React Native handles shadows differently on iOS and Android.
- * These values are calibrated to provide consistent visual appearance across platforms.
- */
-export const nativeShadows: ReactNativeShadowToken = {
-  /**
-   * Small shadow - subtle elevation (1px)
-   * Used for buttons, cards, and other slightly elevated components
-   */
-  sm: {
-    shadowColor: '#000000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 2,
-    elevation: 1,
-  },
-
-  /**
-   * Medium shadow - moderate elevation (4px)
-   * Used for dropdowns, popovers, and components that float above the interface
-   */
-  md: {
-    shadowColor: '#000000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 6,
-    elevation: 4,
-  },
-
-  /**
-   * Large shadow - significant elevation (10px)
-   * Used for modal dialogs, sidebars, and other prominent UI elements
-   */
-  lg: {
-    shadowColor: '#000000',
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.1,
-    shadowRadius: 15,
-    elevation: 10,
-  },
-
-  /**
-   * Extra large shadow - maximum elevation (20px)
-   * Used for onboarding spotlights, notifications, and elements requiring maximum emphasis
-   */
-  xl: {
-    shadowColor: '#000000',
-    shadowOffset: { width: 0, height: 20 },
-    shadowOpacity: 0.15,
-    shadowRadius: 25,
-    elevation: 20,
-  },
-};
-
-/**
- * Theme-aware shadow tokens for dynamic theming
- * 
- * These shadow styles adjust opacity based on theme:
- * - Light theme: Higher opacity for better visibility on light backgrounds
- * - Dark theme: Lower opacity to avoid harsh shadows on dark backgrounds
- */
-export const themedShadows: ThemeAwareShadowToken = {
+export interface ShadowIntensity {
   light: {
-    sm: '0 1px 2px rgba(0, 0, 0, 0.05)',
-    md: '0 4px 6px rgba(0, 0, 0, 0.1)',
-    lg: '0 10px 15px rgba(0, 0, 0, 0.1)',
-    xl: '0 20px 25px rgba(0, 0, 0, 0.15)',
+    opacity: number;
+    color: string;
+  };
+  dark: {
+    opacity: number;
+    color: string;
+  };
+}
+
+// Default shadow intensity configuration
+const defaultIntensity: ShadowIntensity = {
+  light: {
+    opacity: 1,
+    color: 'rgba(0, 0, 0, %opacity%)'
   },
   dark: {
-    sm: '0 1px 2px rgba(0, 0, 0, 0.03)',
-    md: '0 4px 6px rgba(0, 0, 0, 0.07)',
-    lg: '0 10px 15px rgba(0, 0, 0, 0.07)',
-    xl: '0 20px 25px rgba(0, 0, 0, 0.1)',
-  },
+    opacity: 0.85, // Slightly reduced opacity for dark mode
+    color: 'rgba(0, 0, 0, %opacity%)'
+  }
 };
 
 /**
- * Combined shadow tokens for the AUSTA SuperApp design system
- * 
- * This is the main export that includes all shadow token types:
- * - css: For web applications using CSS
- * - native: For mobile applications using React Native
- * - themed: For dynamic theming based on light/dark mode
+ * Creates a shadow token with platform-specific implementations
  */
-export const shadows: ShadowTokens = {
-  css: cssShadows,
-  native: nativeShadows,
-  themed: themedShadows,
+const createShadowToken = (
+  elevation: number,
+  offsetY: number,
+  blurRadius: number,
+  spreadRadius: number,
+  opacity: number,
+  intensity: ShadowIntensity = defaultIntensity
+): ShadowToken => {
+  // Calculate opacities for light/dark modes
+  const lightOpacity = opacity * intensity.light.opacity;
+  const darkOpacity = opacity * intensity.dark.opacity;
+  
+  // Create color strings with correct opacity values
+  const lightColor = intensity.light.color.replace('%opacity%', lightOpacity.toString());
+  const darkColor = intensity.dark.color.replace('%opacity%', darkOpacity.toString());
+  
+  return {
+    web: {
+      boxShadow: `0 ${offsetY}px ${blurRadius}px ${spreadRadius > 0 ? spreadRadius + 'px ' : ''}${lightColor}`,
+    },
+    native: {
+      shadowColor: '#000000',
+      shadowOffset: { width: 0, height: offsetY },
+      shadowOpacity: opacity,
+      shadowRadius: blurRadius / 2, // React Native shadow radius is approximately half of CSS blur radius
+      ...(Platform.OS === 'android' ? { elevation } : {}),
+    },
+  };
 };
 
 /**
- * Accessibility guidance for shadows
- * 
- * When using shadows to indicate elevation, consider the following:
- * 
- * 1. Always ensure sufficient contrast between elements with different elevations
- * 2. Don't rely solely on shadows to communicate important information
- * 3. Consider combining shadows with borders or outlines for better visibility
- * 4. For users with reduced vision or high contrast mode, provide alternative visual cues
- * 5. Test shadow visibility across different devices and lighting conditions
+ * Shadow tokens with platform-specific implementations
  */
+export const shadows = {
+  /**
+   * Small shadow - subtle elevation (1px)
+   * Used for buttons, cards, and other slightly elevated components
+   */
+  sm: createShadowToken(1, 1, 2, 0, 0.05),
+
+  /**
+   * Medium shadow - moderate elevation (4px)
+   * Used for dropdowns, popovers, and components that float above the interface
+   */
+  md: createShadowToken(4, 4, 6, 1, 0.1),
+
+  /**
+   * Large shadow - significant elevation (10px)
+   * Used for modal dialogs, sidebars, and other prominent UI elements
+   */
+  lg: createShadowToken(10, 10, 15, 2, 0.1),
+
+  /**
+   * Extra large shadow - maximum elevation (20px)
+   * Used for onboarding spotlights, notifications, and elements requiring maximum emphasis
+   */
+  xl: createShadowToken(20, 20, 25, 3, 0.15),
+};
 
 /**
- * Default export for backwards compatibility
- * This maintains the same API as the original shadows implementation
+ * Helper function to get platform-specific shadow styles
+ * 
+ * @example
+ * // In a styled-component
+ * const StyledCard = styled.div`
+ *   ${getShadow(shadows.md)}
+ * `;
+ * 
+ * // In a React Native component
+ * const styles = StyleSheet.create({
+ *   card: {
+ *     ...getShadow(shadows.md)
+ *   }
+ * });
  */
-export default cssShadows;
+export const getShadow = (shadowToken: ShadowToken): WebShadowToken | NativeShadowToken => {
+  return Platform.OS === 'web' ? shadowToken.web : shadowToken.native;
+};
+
+/**
+ * Creates a shadow with custom intensity for light/dark themes
+ * 
+ * @example
+ * // Create a custom shadow with higher intensity for dark mode
+ * const customIntensity = {
+ *   light: { opacity: 1, color: 'rgba(0, 0, 0, %opacity%)' },
+ *   dark: { opacity: 1.2, color: 'rgba(0, 0, 0, %opacity%)' }
+ * };
+ * 
+ * const customShadow = createCustomShadow(shadows.md, customIntensity);
+ */
+export const createCustomShadow = (
+  baseShadow: keyof typeof shadows,
+  intensity: ShadowIntensity
+): ShadowToken => {
+  const shadow = shadows[baseShadow];
+  const baseElevation = baseShadow === 'sm' ? 1 : baseShadow === 'md' ? 4 : baseShadow === 'lg' ? 10 : 20;
+  const baseOffsetY = baseElevation;
+  const baseBlurRadius = baseShadow === 'sm' ? 2 : baseShadow === 'md' ? 6 : baseShadow === 'lg' ? 15 : 25;
+  const baseSpreadRadius = baseShadow === 'sm' ? 0 : baseShadow === 'md' ? 1 : baseShadow === 'lg' ? 2 : 3;
+  const baseOpacity = baseShadow === 'sm' ? 0.05 : baseShadow === 'md' ? 0.1 : baseShadow === 'lg' ? 0.1 : 0.15;
+  
+  return createShadowToken(
+    baseElevation,
+    baseOffsetY,
+    baseBlurRadius,
+    baseSpreadRadius,
+    baseOpacity,
+    intensity
+  );
+};
+
+export default shadows;

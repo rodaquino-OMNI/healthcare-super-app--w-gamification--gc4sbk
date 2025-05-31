@@ -1,9 +1,9 @@
 import styled from 'styled-components';
-import { colors, spacing } from '@design-system/primitives/src/tokens';
+import { colors, spacing } from '@design-system/primitives';
 import { Touchable } from '@design-system/primitives/src/components/Touchable';
 import { Box } from '@design-system/primitives/src/components/Box';
 import { Icon } from '@design-system/primitives/src/components/Icon';
-import { useJourneyTheme } from '@austa/journey-context';
+import { useJourneyTheme } from '@austa/journey-context/src/hooks/useJourneyTheme';
 
 /**
  * Determines the size of the badge based on the provided size prop.
@@ -40,8 +40,8 @@ export const BadgeContainer = styled(Touchable)<{
   border-width: 2px;
   border-style: solid;
   border-color: ${props => {
-    const journeyTheme = useJourneyTheme(props.journey);
-    return props.unlocked ? journeyTheme.colors.primary : colors.neutral.gray400;
+    const journeyTheme = useJourneyTheme();
+    return props.unlocked ? journeyTheme.primary : colors.neutral.gray400;
   }};
   display: flex;
   align-items: center;

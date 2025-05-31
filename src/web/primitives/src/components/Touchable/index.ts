@@ -1,20 +1,9 @@
 /**
- * Touchable primitive component entry point
+ * Touchable component barrel file
  * 
- * This file exports the Touchable component and its props interface,
- * providing a clean API surface for consumers of the design system.
- * 
- * @example Import and use
- * ```tsx
- * import { Touchable } from '@design-system/primitives';
- * 
- * <Touchable onPress={() => console.log('Pressed')}>
- *   <Text>Press me</Text>
- * </Touchable>
- * ```
+ * This file exports the Touchable component and its associated types,
+ * providing a clean public API for consumers of this primitive.
  */
 
-import { Touchable, TouchableProps } from './Touchable';
-
-export { Touchable, TouchableProps };
-export default Touchable;
+export { Touchable } from './Touchable';
+export type { TouchableProps, Journey } from './Touchable';

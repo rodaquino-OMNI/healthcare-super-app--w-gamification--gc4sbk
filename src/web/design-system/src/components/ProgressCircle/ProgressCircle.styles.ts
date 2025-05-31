@@ -1,12 +1,13 @@
-import styled, { css } from 'styled-components';
+import styled from 'styled-components';
 import { colors } from '@design-system/primitives/tokens/colors';
-import { animation } from '@design-system/primitives/tokens/animation';
-import { JourneyType } from '@austa/interfaces/common';
+import { animation, web } from '@design-system/primitives/tokens/animation';
+import type { ProgressCircleProps } from '@austa/interfaces/components/core.types';
 
 /**
  * Props for the circle container
  */
 export interface CircleContainerProps {
+  /** Size of the circle container in pixels */
   size: number;
 }
 
@@ -14,6 +15,7 @@ export interface CircleContainerProps {
  * Props for the SVG element
  */
 export interface CircleSVGProps {
+  /** Size of the SVG element in pixels */
   size: number;
 }
 
@@ -21,27 +23,40 @@ export interface CircleSVGProps {
  * Props for the background circle
  */
 export interface CircleBackgroundProps {
+  /** Size of the circle in pixels */
   size: number;
+  /** Width of the circle stroke in pixels */
   strokeWidth: number;
-  color?: string;
+  /** Color of the circle stroke */
+  color: string;
 }
 
 /**
  * Props for the progress circle
  */
 export interface CircleProgressProps {
+  /** Size of the circle in pixels */
   size: number;
+  /** Width of the circle stroke in pixels */
   strokeWidth: number;
+  /** Current progress value (0-100) */
   progress: number;
-  color?: string;
-  journey?: JourneyType;
+  /** Color of the circle stroke */
+  color: string;
+  /** Journey theme to apply ('health', 'care', 'plan') */
+  journey?: string;
+  /** Whether the progress circle is animated */
+  animated?: boolean;
 }
 
 /**
  * Props for the text element
  */
 export interface CircleTextProps {
-  color?: string;
+  /** Color of the text */
+  color: string;
+  /** Size of the text in pixels */
+  fontSize?: number;
 }
 
 /**
@@ -93,17 +108,8 @@ export const CircleProgress = styled.circle<CircleProgressProps>`
     if (color) return color;
     
     // Otherwise use journey color if valid journey provided
-    if (journey) {
-      switch(journey) {
-        case 'health':
-          return colors.journeys.health.primary;
-        case 'care':
-          return colors.journeys.care.primary;
-        case 'plan':
-          return colors.journeys.plan.primary;
-        default:
-          return colors.brand.primary;
-      }
+    if (journey && colors.journeys[journey as keyof typeof colors.journeys]) {
+      return colors.journeys[journey as keyof typeof colors.journeys].primary;
     }
     
     // Fallback to default color
@@ -112,17 +118,19 @@ export const CircleProgress = styled.circle<CircleProgressProps>`
   stroke-width: ${({ strokeWidth }) => strokeWidth}px;
   stroke-linecap: round;
   stroke-dasharray: ${({ size, strokeWidth }) => {
-    // Calculate the circumference for proper dash array
     const circumference = 2 * Math.PI * ((size - strokeWidth) / 2);
     return `${circumference}px ${circumference}px`;
   }};
   stroke-dashoffset: ${({ size, strokeWidth, progress }) => {
-    // Calculate the dash offset based on progress percentage
     const circumference = 2 * Math.PI * ((size - strokeWidth) / 2);
     const progressValue = Math.min(Math.max(progress, 0), 100); // Clamp progress between 0-100
     return `${circumference - (progressValue / 100) * circumference}px`;
   }};
-  transition: stroke-dashoffset ${animation.duration.normal} ${animation.easing.easeInOut};
+  transition: ${({ animated }) => 
+    animated !== false 
+      ? web.getTransition(['stroke-dashoffset'], 'normal', 'easeInOut')
+      : 'none'
+  };
 `;
 
 /**
@@ -132,7 +140,7 @@ export const CircleText = styled.text<CircleTextProps>`
   transform: rotate(90deg); /* Correct orientation for text */
   text-anchor: middle;
   dominant-baseline: middle;
-  font-size: 16px;
+  font-size: ${({ fontSize }) => fontSize || 16}px;
   font-weight: bold;
   fill: ${({ color }) => color || colors.neutral.gray900};
 `;

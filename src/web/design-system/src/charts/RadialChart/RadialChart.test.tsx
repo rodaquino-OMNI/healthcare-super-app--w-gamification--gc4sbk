@@ -3,7 +3,7 @@ import { render, screen } from '@testing-library/react';
 import { describe, it, expect } from '@jest/globals';
 import { RadialChart } from './RadialChart';
 import { tokens } from '@design-system/primitives/tokens';
-import { healthTheme } from '@austa/journey-context';
+import { healthTheme, careTheme, planTheme } from '@austa/journey-context';
 
 describe('RadialChart', () => {
   const mockData = [

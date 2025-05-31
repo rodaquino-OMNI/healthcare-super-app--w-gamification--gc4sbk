@@ -1,127 +1,115 @@
-import React, { createContext, useState, useContext, useEffect, ReactNode } from 'react';
-import { AuthSession } from '@austa/interfaces/auth';
+import React, { createContext, useState, useEffect, useCallback, ReactNode, useContext } from 'react';
+import { getPlatformAdapter } from '../adapters';
+import { createJourneyStorage } from '../storage';
+import { AUTH_STORAGE_KEY } from '../storage/keys';
+import { AuthSession, AuthState } from '@austa/interfaces/auth';
 
 /**
- * Storage adapter interface for platform-agnostic storage
- * This allows the AuthProvider to work with different storage mechanisms
- * (localStorage for web, AsyncStorage for mobile) through a common interface
+ * Buffer time (in ms) before token expiration when we should refresh
+ * Refresh 5 minutes before expiration to ensure continuous service
  */
-export interface StorageAdapter {
-  /**
-   * Retrieves an item from storage by key
-   * @param key - The storage key
-   * @returns A promise resolving to the stored value or null if not found
-   */
-  getItem: (key: string) => Promise<string | null>;
-  
-  /**
-   * Stores an item in storage
-   * @param key - The storage key
-   * @param value - The value to store
-   * @returns A promise that resolves when the operation is complete
-   */
-  setItem: (key: string, value: string) => Promise<void>;
-  
-  /**
-   * Removes an item from storage
-   * @param key - The storage key to remove
-   * @returns A promise that resolves when the operation is complete
-   */
-  removeItem: (key: string) => Promise<void>;
-}
+const REFRESH_BUFFER_TIME = 5 * 60 * 1000;
 
 /**
- * Constants for authentication
+ * Authentication context interface
+ * Defines the shape of the authentication context
  */
-// Storage key for persisting authentication session
-const AUTH_STORAGE_KEY = '@AUSTA:auth_session';
-
-// Buffer time (in ms) before token expiration when we should refresh
-// Refresh 5 minutes before expiration to ensure continuous service
-const REFRESH_BUFFER_TIME = 5 * 60 * 1000; // 5 minutes in milliseconds
-
-/**
- * Auth state interface
- * Represents the core authentication state managed by the provider
- */
-export interface AuthState {
+interface AuthContextType extends AuthState {
   /**
-   * Current authentication session if available, null otherwise
+   * Logs in a user with the provided credentials
+   * @param email - User's email address
+   * @param password - User's password
+   * @returns A promise resolving to the authentication session
    */
-  session: AuthSession | null;
-  
-  /**
-   * Current authentication status
-   * - authenticated: User is logged in with a valid session
-   * - loading: Authentication state is being determined
-   * - unauthenticated: User is not logged in
-   */
-  status: 'authenticated' | 'loading' | 'unauthenticated';
-}
-
-/**
- * Auth context interface
- * Defines the shape of the authentication context provided to components
- */
-export interface AuthContextType extends AuthState {
-  /**
-   * Core authentication methods
-   */
-  // Logs in a user with email and password
   login: (email: string, password: string) => Promise<AuthSession>;
-  // Logs out the current user
+  
+  /**
+   * Registers a new user with the provided data
+   * @param userData - User registration data
+   * @returns A promise resolving to the authentication session
+   */
+  register: (userData: Record<string, any>) => Promise<AuthSession>;
+  
+  /**
+   * Logs out the current user
+   * @returns A promise that resolves when logout is complete
+   */
   logout: () => Promise<void>;
-  // Retrieves the current user's profile
+  
+  /**
+   * Retrieves the current user's profile
+   * @returns A promise resolving to the user profile
+   */
   getProfile: () => Promise<any>;
   
   /**
-   * Additional authentication methods (optional)
+   * Refreshes the authentication token
+   * @returns A promise resolving to the new authentication session
    */
-  // Registers a new user
-  register?: (userData: object) => Promise<AuthSession>;
-  // Verifies a multi-factor authentication code
-  verifyMfa?: (code: string, tempToken: string) => Promise<AuthSession>;
-  // Handles social login (OAuth) with various providers
-  socialLogin?: (provider: string, tokenData: object) => Promise<AuthSession>;
-  // Refreshes the authentication token
-  refreshToken?: () => Promise<AuthSession>;
+  refreshToken: () => Promise<AuthSession>;
   
   /**
-   * Utility methods
+   * Verifies a multi-factor authentication code
+   * @param code - The MFA verification code
+   * @param tempToken - Temporary token from initial login
+   * @returns A promise resolving to the authentication session
    */
-  // Extracts user information from a JWT token
-  getUserFromToken?: (token: string) => any;
+  verifyMfa: (code: string, tempToken: string) => Promise<AuthSession>;
   
   /**
-   * Computed properties for convenience
+   * Handles social login (OAuth) authentication
+   * @param provider - The OAuth provider (e.g., 'google', 'facebook')
+   * @param tokenData - Provider-specific token data
+   * @returns A promise resolving to the authentication session
    */
-  // Whether authentication state is currently loading
+  socialLogin: (provider: string, tokenData: Record<string, any>) => Promise<AuthSession>;
+  
+  /**
+   * Extracts user information from a JWT token
+   * @param token - The JWT token
+   * @returns The decoded token payload
+   */
+  getUserFromToken: (token: string) => any;
+  
+  /**
+   * Whether authentication is currently loading
+   */
   isLoading: boolean;
-  // Whether user is currently authenticated
+  
+  /**
+   * Whether the user is authenticated
+   */
   isAuthenticated: boolean;
 }
 
 /**
- * Initial authentication state
- */
-const initialAuthState: AuthState = {
-  session: null,
-  status: 'loading'
-};
-
-/**
  * Default context value
- * Used when consuming the context outside of a provider (will throw errors)
  */
 const defaultContext: AuthContextType = {
-  ...initialAuthState,
+  session: null,
+  status: 'loading',
   login: async () => {
+    throw new Error('AuthContext not initialized');
+  },
+  register: async () => {
     throw new Error('AuthContext not initialized');
   },
   logout: async () => {
     throw new Error('AuthContext not initialized');
   },
   getProfile: async () => {
+    throw new Error('AuthContext not initialized');
+  },
+  refreshToken: async () => {
+    throw new Error('AuthContext not initialized');
+  },
+  verifyMfa: async () => {
+    throw new Error('AuthContext not initialized');
+  },
+  socialLogin: async () => {
+    throw new Error('AuthContext not initialized');
+  },
+  getUserFromToken: () => {
     throw new Error('AuthContext not initialized');
   },
   isLoading: true,
@@ -135,206 +123,92 @@ const defaultContext: AuthContextType = {
 export const AuthContext = createContext<AuthContextType>(defaultContext);
 
 /**
- * Authentication API interface
- * Defines the methods required for authentication operations
+ * Authentication provider props
  */
-export interface AuthApi {
-  /**
-   * Logs in a user with email and password
-   */
-  login: (email: string, password: string) => Promise<AuthSession>;
-  
-  /**
-   * Logs out the current user
-   */
-  logout: () => Promise<void>;
-  
-  /**
-   * Retrieves the current user's profile
-   */
-  getProfile: () => Promise<any>;
-  
-  /**
-   * Optional: Registers a new user
-   */
-  register?: (userData: object) => Promise<AuthSession>;
-  
-  /**
-   * Optional: Verifies a multi-factor authentication code
-   */
-  verifyMfa?: (code: string, tempToken: string) => Promise<AuthSession>;
-  
-  /**
-   * Optional: Handles social login (OAuth) with various providers
-   */
-  socialLogin?: (provider: string, tokenData: object) => Promise<AuthSession>;
-  
-  /**
-   * Optional: Refreshes the authentication token
-   */
-  refreshToken?: () => Promise<AuthSession>;
-}
-
-/**
- * Router interface for navigation after authentication events
- */
-export interface AuthRouter {
-  /**
-   * Navigates to a new route
-   */
-  push: (path: string) => void;
-}
-
-/**
- * Auth provider props
- */
-export interface AuthProviderProps {
-  /**
-   * Child components that will have access to the auth context
-   */
+interface AuthProviderProps {
   children: ReactNode;
-  
   /**
-   * Storage adapter for persisting authentication state
-   * Different implementations for web and mobile platforms
+   * Optional initial session for server-side rendering (web only)
    */
-  storageAdapter: StorageAdapter;
-  
-  /**
-   * Authentication API implementation
-   * Contains methods for authentication operations
-   */
-  authApi: AuthApi;
-  
-  /**
-   * Optional callback for session changes
-   * Useful for syncing authentication state with other systems
-   */
-  onSessionChange?: (session: AuthSession | null) => void;
-  
-  /**
-   * Optional router for navigation after authentication events
-   * Different implementations for web and mobile platforms
-   */
-  router?: AuthRouter;
+  initialSession?: AuthSession | null;
 }
 
 /**
- * Platform-agnostic authentication provider component
+ * Authentication Provider component
  * Manages authentication state and provides authentication functions to child components
+ * Works across both web and mobile platforms through platform-specific adapters
  */
-export const AuthProvider: React.FC<AuthProviderProps> = ({
-  children,
-  storageAdapter,
-  authApi,
-  onSessionChange,
-  router
+export const AuthProvider: React.FC<AuthProviderProps> = ({ 
+  children, 
+  initialSession = null 
 }) => {
+  // Get platform-specific auth adapter
+  const authAdapter = getPlatformAdapter('auth');
+  
+  // Create storage instance
+  const storage = createJourneyStorage();
+  
   // Authentication state
-  const [authState, setAuthState] = useState<AuthState>(initialAuthState);
-  const [refreshTimerId, setRefreshTimerId] = useState<NodeJS.Timeout | number | null>(null);
-
+  const [authState, setAuthState] = useState<AuthState>({
+    session: initialSession,
+    status: initialSession ? 'authenticated' : 'loading'
+  });
+  
+  // Refresh timer for token renewal
+  const [refreshTimerId, setRefreshTimerId] = useState<NodeJS.Timeout | null>(null);
+  
   // Computed properties for convenience
   const isLoading = authState.status === 'loading';
   const isAuthenticated = authState.status === 'authenticated';
-
+  
   /**
    * Updates the authentication session and status
    */
-  const setSession = (newSession: AuthSession | null) => {
+  const setSession = useCallback((newSession: AuthSession | null) => {
     setAuthState({
       session: newSession,
       status: newSession ? 'authenticated' : 'unauthenticated'
     });
-
-    // Notify parent components of session change if callback provided
-    if (onSessionChange) {
-      onSessionChange(newSession);
-    }
-  };
-
+  }, []);
+  
   /**
    * Persists the authentication session to storage
    */
-  const persistSession = async (session: AuthSession | null) => {
+  const persistSession = useCallback(async (session: AuthSession | null) => {
     try {
       if (session) {
-        await storageAdapter.setItem(AUTH_STORAGE_KEY, JSON.stringify(session));
+        await storage.setItem(AUTH_STORAGE_KEY, session, { 
+          expires: session.expiresAt,
+          secure: true
+        });
       } else {
-        await storageAdapter.removeItem(AUTH_STORAGE_KEY);
+        await storage.removeItem(AUTH_STORAGE_KEY);
       }
     } catch (error) {
       console.error('Error persisting auth session:', error);
     }
-  };
-
-  /**
-   * Loads the saved authentication session from storage
-   */
-  const loadPersistedSession = async () => {
-    try {
-      const sessionData = await storageAdapter.getItem(AUTH_STORAGE_KEY);
-      
-      if (sessionData) {
-        const session = JSON.parse(sessionData) as AuthSession;
-        
-        // Check if the session is expired
-        const isExpired = session.expiresAt < Date.now();
-        
-        if (isExpired) {
-          // Try to refresh the token if expired and refresh function is available
-          if (authApi.refreshToken) {
-            try {
-              await handleRefreshToken();
-            } catch (error) {
-              // If refresh fails, clear the session
-              await storageAdapter.removeItem(AUTH_STORAGE_KEY);
-              setSession(null);
-            }
-          } else {
-            // No refresh function available, clear the session
-            await storageAdapter.removeItem(AUTH_STORAGE_KEY);
-            setSession(null);
-          }
-        } else {
-          // Session is valid, set it
-          setSession(session);
-          
-          // Schedule token refresh if refresh function is available
-          if (authApi.refreshToken) {
-            scheduleTokenRefresh(session.expiresAt);
-          }
-        }
-      } else {
-        // No session found
-        setSession(null);
-      }
-    } catch (error) {
-      console.error('Error loading auth session:', error);
-      setSession(null);
-    }
-  };
-
+  }, [storage]);
+  
   /**
    * Schedule a token refresh before expiration
    */
-  const scheduleTokenRefresh = (expiresAt: number) => {
-    // Only proceed if refresh function is available
-    if (!authApi.refreshToken) return;
-
+  const scheduleTokenRefresh = useCallback((expiresAt: number) => {
     // Clear any existing refresh timer
     if (refreshTimerId) {
-      clearTimeout(refreshTimerId as NodeJS.Timeout);
+      clearTimeout(refreshTimerId);
+      setRefreshTimerId(null);
     }
     
-    // Calculate when to refresh (before expiration)
+    // Calculate when to refresh (5 minutes before expiration)
     const timeUntilRefresh = expiresAt - Date.now() - REFRESH_BUFFER_TIME;
     
     // Only schedule if we need to refresh in the future
     if (timeUntilRefresh > 0) {
       const timerId = setTimeout(async () => {
         try {
-          await handleRefreshToken();
+          if (authState.session) {
+            await handleRefreshToken();
+          }
         } catch (error) {
           console.error('Auto token refresh failed:', error);
           // If refresh fails during auto-refresh, we'll keep the current session
@@ -342,10 +216,56 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({
         }
       }, timeUntilRefresh);
       
-      setRefreshTimerId(timerId);
+      setRefreshTimerId(timerId as unknown as NodeJS.Timeout);
     }
-  };
-
+  }, [refreshTimerId, authState.session]);
+  
+  /**
+   * Load the saved authentication session from storage
+   */
+  const loadPersistedSession = useCallback(async () => {
+    try {
+      // Skip if we already have an initial session (SSR on web)
+      if (initialSession) {
+        scheduleTokenRefresh(initialSession.expiresAt);
+        return;
+      }
+      
+      const session = await storage.getItem<AuthSession>(AUTH_STORAGE_KEY);
+      
+      if (session) {
+        // Check if the session is expired
+        const isExpired = session.expiresAt < Date.now();
+        
+        if (isExpired) {
+          // Try to refresh the token if expired
+          try {
+            await handleRefreshToken();
+          } catch (error) {
+            // If refresh fails, clear the session
+            await storage.removeItem(AUTH_STORAGE_KEY);
+            setSession(null);
+          }
+        } else {
+          // Session is valid, set it
+          setSession(session);
+          
+          // Schedule token refresh
+          scheduleTokenRefresh(session.expiresAt);
+        }
+      } else {
+        // No session found
+        setAuthState(prev => ({
+          ...prev,
+          status: 'unauthenticated'
+        }));
+      }
+    } catch (error) {
+      console.error('Error loading auth session:', error);
+      setSession(null);
+    }
+  }, [initialSession, storage, scheduleTokenRefresh, setSession]);
+  
   /**
    * Handles user login
    */
@@ -353,13 +273,11 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({
     try {
       setAuthState(prev => ({ ...prev, status: 'loading' }));
       
-      const session = await authApi.login(email, password);
+      const session = await authAdapter.login(email, password);
       setSession(session);
       
-      // Schedule token refresh if refresh function is available
-      if (authApi.refreshToken) {
-        scheduleTokenRefresh(session.expiresAt);
-      }
+      // Schedule token refresh
+      scheduleTokenRefresh(session.expiresAt);
       
       return session;
     } catch (error) {
@@ -367,25 +285,19 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({
       throw error;
     }
   };
-
+  
   /**
    * Handles user registration
    */
-  const handleRegister = async (userData: object): Promise<AuthSession> => {
-    if (!authApi.register) {
-      throw new Error('Registration not implemented');
-    }
-    
+  const handleRegister = async (userData: Record<string, any>): Promise<AuthSession> => {
     try {
       setAuthState(prev => ({ ...prev, status: 'loading' }));
       
-      const session = await authApi.register(userData);
+      const session = await authAdapter.register(userData);
       setSession(session);
       
-      // Schedule token refresh if refresh function is available
-      if (authApi.refreshToken) {
-        scheduleTokenRefresh(session.expiresAt);
-      }
+      // Schedule token refresh
+      scheduleTokenRefresh(session.expiresAt);
       
       return session;
     } catch (error) {
@@ -393,7 +305,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({
       throw error;
     }
   };
-
+  
   /**
    * Handles user logout
    */
@@ -401,23 +313,25 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({
     try {
       // Clear any scheduled token refresh
       if (refreshTimerId) {
-        clearTimeout(refreshTimerId as NodeJS.Timeout);
+        clearTimeout(refreshTimerId);
         setRefreshTimerId(null);
       }
       
-      await authApi.logout();
+      // Call adapter logout if we have a session
+      if (authState.session) {
+        await authAdapter.logout();
+      }
+      
+      // Clear session regardless of adapter result
+      setSession(null);
     } catch (error) {
       console.error('Logout error:', error);
-    } finally {
+      // Still clear the session even if the API call fails
       setSession(null);
-      
-      // Navigate to login page if router is provided
-      if (router) {
-        router.push('/login');
-      }
+      throw error;
     }
   };
-
+  
   /**
    * Retrieves user profile
    */
@@ -427,7 +341,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({
     }
     
     try {
-      return await authApi.getProfile();
+      return await authAdapter.getProfile();
     } catch (error) {
       // If we get an unauthorized error, clear the session
       if ((error as any)?.response?.status === 401) {
@@ -436,74 +350,18 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({
       throw error;
     }
   };
-
-  /**
-   * Handle MFA verification
-   */
-  const handleMfaVerification = async (code: string, tempToken: string): Promise<AuthSession> => {
-    if (!authApi.verifyMfa) {
-      throw new Error('MFA verification not implemented');
-    }
-    
-    try {
-      setAuthState(prev => ({ ...prev, status: 'loading' }));
-      
-      const session = await authApi.verifyMfa(code, tempToken);
-      setSession(session);
-      
-      // Schedule token refresh if refresh function is available
-      if (authApi.refreshToken) {
-        scheduleTokenRefresh(session.expiresAt);
-      }
-      
-      return session;
-    } catch (error) {
-      setSession(null);
-      throw error;
-    }
-  };
-
-  /**
-   * Handle social login (OAuth)
-   */
-  const handleSocialLogin = async (provider: string, tokenData: object): Promise<AuthSession> => {
-    if (!authApi.socialLogin) {
-      throw new Error('Social login not implemented');
-    }
-    
-    try {
-      setAuthState(prev => ({ ...prev, status: 'loading' }));
-      
-      const session = await authApi.socialLogin(provider, tokenData);
-      setSession(session);
-      
-      // Schedule token refresh if refresh function is available
-      if (authApi.refreshToken) {
-        scheduleTokenRefresh(session.expiresAt);
-      }
-      
-      return session;
-    } catch (error) {
-      setSession(null);
-      throw error;
-    }
-  };
-
+  
   /**
    * Refresh the authentication token
    */
   const handleRefreshToken = async (): Promise<AuthSession> => {
-    if (!authApi.refreshToken) {
-      throw new Error('Token refresh not implemented');
-    }
-    
     try {
       // Only attempt refresh if we have a session
       if (!authState.session) {
         throw new Error('No session to refresh');
       }
       
-      const newSession = await authApi.refreshToken();
+      const newSession = await authAdapter.refreshToken();
       setSession(newSession);
       
       // Schedule the next token refresh
@@ -517,88 +375,86 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({
       throw error;
     }
   };
-
+  
   /**
-   * Get user information from token
-   * Decodes a JWT token to extract the payload
-   * 
-   * @param token - The JWT token to decode
-   * @returns The decoded token payload or null if decoding fails
+   * Handle MFA verification
    */
-  const getUserFromToken = (token: string): any => {
+  const handleMfaVerification = async (code: string, tempToken: string): Promise<AuthSession> => {
     try {
-      // Security enhancement: Validate token format before attempting to decode
-      if (!token || typeof token !== 'string' || !token.includes('.')) {
-        throw new Error('Invalid token format');
-      }
+      setAuthState(prev => ({ ...prev, status: 'loading' }));
       
-      // This is a secure implementation of JWT decoding without external dependencies
-      // It extracts the payload portion of the JWT and decodes it
-      const base64Url = token.split('.')[1];
-      const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+      const session = await authAdapter.verifyMfa(code, tempToken);
+      setSession(session);
       
-      // Handle padding
-      const pad = base64.length % 4;
-      const paddedBase64 = pad ? base64 + '='.repeat(4 - pad) : base64;
+      // Schedule token refresh
+      scheduleTokenRefresh(session.expiresAt);
       
-      // Decode the base64 string
-      const jsonPayload = decodeURIComponent(
-        atob(paddedBase64)
-          .split('')
-          .map(c => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2))
-          .join('')
-      );
-      
-      return JSON.parse(jsonPayload);
+      return session;
     } catch (error) {
-      console.error('Error decoding token:', error);
-      return null;
+      setSession(null);
+      throw error;
     }
   };
-
+  
   /**
-   * Effect to load the persisted session on mount
-   * and clean up resources on unmount
+   * Handle social login (OAuth)
    */
+  const handleSocialLogin = async (provider: string, tokenData: Record<string, any>): Promise<AuthSession> => {
+    try {
+      setAuthState(prev => ({ ...prev, status: 'loading' }));
+      
+      const session = await authAdapter.socialLogin(provider, tokenData);
+      setSession(session);
+      
+      // Schedule token refresh
+      scheduleTokenRefresh(session.expiresAt);
+      
+      return session;
+    } catch (error) {
+      setSession(null);
+      throw error;
+    }
+  };
+  
+  /**
+   * Get user information from token
+   */
+  const getUserFromToken = (token: string): any => {
+    return authAdapter.getUserFromToken(token);
+  };
+  
+  // Load the persisted session on mount
   useEffect(() => {
-    // Load the persisted session when the component mounts
     loadPersistedSession();
     
-    // Clean up the refresh timer when the component unmounts
+    // Clean up the refresh timer on unmount
     return () => {
       if (refreshTimerId) {
-        clearTimeout(refreshTimerId as NodeJS.Timeout);
+        clearTimeout(refreshTimerId);
       }
     };
-    // We intentionally omit dependencies to only run on mount/unmount
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  /**
-   * Effect to persist the session whenever it changes
-   */
+  }, [loadPersistedSession, refreshTimerId]);
+  
+  // Persist the session whenever it changes
   useEffect(() => {
-    // Persist the session to storage whenever it changes
     persistSession(authState.session);
-    // We only want to depend on authState.session
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [authState.session]);
-
+  }, [authState.session, persistSession]);
+  
   // Combine state and methods to provide through context
   const contextValue: AuthContextType = {
     ...authState,
     login: handleLogin,
+    register: handleRegister,
     logout: handleLogout,
     getProfile: handleGetProfile,
+    refreshToken: handleRefreshToken,
+    verifyMfa: handleMfaVerification,
+    socialLogin: handleSocialLogin,
+    getUserFromToken,
     isLoading,
-    isAuthenticated,
-    ...(authApi.register && { register: handleRegister }),
-    ...(authApi.verifyMfa && { verifyMfa: handleMfaVerification }),
-    ...(authApi.socialLogin && { socialLogin: handleSocialLogin }),
-    ...(authApi.refreshToken && { refreshToken: handleRefreshToken }),
-    getUserFromToken
+    isAuthenticated
   };
-
+  
   return (
     <AuthContext.Provider value={contextValue}>
       {children}
@@ -608,27 +464,9 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({
 
 /**
  * Custom hook to use the auth context
- * Provides a type-safe way to access the authentication context
- * 
- * @example
- * ```tsx
- * const { session, login, logout, isAuthenticated } = useAuth();
- * 
- * // Use authentication state and methods
- * if (isAuthenticated) {
- *   console.log('User is logged in:', session?.user);
- * }
- * 
- * // Login function
- * const handleLogin = async () => {
- *   try {
- *     await login('user@example.com', 'password');
- *     // Handle successful login
- *   } catch (error) {
- *     // Handle login error
- *   }
- * };
- * ```
+ * Provides access to authentication state and methods
+ * @returns Authentication context value
+ * @throws Error if used outside of an AuthProvider
  */
 export const useAuth = (): AuthContextType => {
   const context = useContext(AuthContext);
@@ -640,5 +478,4 @@ export const useAuth = (): AuthContextType => {
   return context;
 };
 
-// Default export for easier imports
 export default AuthProvider;

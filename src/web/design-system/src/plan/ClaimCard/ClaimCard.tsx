@@ -5,10 +5,6 @@ import { useTranslation } from 'react-i18next';
 // Import primitives from @design-system/primitives package
 import { Text } from '@design-system/primitives/components/Text';
 import { Icon } from '@design-system/primitives/components/Icon';
-import { Box } from '@design-system/primitives/components/Box';
-
-// Import theme tokens from primitives package
-import { tokens } from '@design-system/primitives/tokens';
 
 // Import from @austa/interfaces for type safety
 import { Claim, ClaimStatus } from '@austa/interfaces/plan';
@@ -71,11 +67,16 @@ export interface ClaimCardProps {
 const getStatusIcon = (status: ClaimStatus): string => {
   switch (status) {
     case 'approved':
+    case 'partially_approved':
       return 'check-circle';
     case 'denied':
       return 'x-circle';
     case 'additional_info_required':
       return 'alert-circle';
+    case 'appealed':
+      return 'alert-triangle';
+    case 'in_review':
+      return 'search';
     case 'pending':
     default:
       return 'clock';
@@ -88,14 +89,18 @@ const getStatusIcon = (status: ClaimStatus): string => {
 const getStatusColor = (status: ClaimStatus): string => {
   switch (status) {
     case 'approved':
-      return tokens.colors.semantic.success;
+    case 'partially_approved':
+      return 'success';
     case 'denied':
-      return tokens.colors.semantic.error;
+      return 'error';
     case 'additional_info_required':
-      return tokens.colors.semantic.warning;
+    case 'appealed':
+      return 'warning';
+    case 'in_review':
+      return 'info';
     case 'pending':
     default:
-      return tokens.colors.semantic.info;
+      return 'info';
   }
 };
 
@@ -110,34 +115,17 @@ const formatCurrency = (amount: number): string => {
 };
 
 /**
- * Maps ClaimStatus to the status prop expected by ClaimStatusText component
- */
-type StatusTextType = 'pending' | 'approved' | 'denied' | 'inReview' | 'moreInfo';
-
-const mapClaimStatusToStatusText = (status: ClaimStatus): StatusTextType => {
-  switch (status) {
-    case 'additional_info_required':
-      return 'moreInfo';
-    case 'approved':
-      return 'approved';
-    case 'denied':
-      return 'denied';
-    case 'pending':
-      return 'pending';
-    default:
-      return 'pending';
-  }
-};
-
-/**
  * Component for displaying insurance claim information in a card format
  * 
  * @example
- * <ClaimCard 
- *   claim={claimData} 
- *   onViewDetails={() => handleViewDetails(claimData.id)} 
- *   onTrackClaim={() => handleTrackClaim(claimData.id)} 
+ * ```tsx
+ * <ClaimCard
+ *   claim={claim}
+ *   onPress={() => handleClaimPress(claim.id)}
+ *   onViewDetails={() => navigateToClaimDetails(claim.id)}
+ *   onTrackClaim={() => navigateToClaimTracking(claim.id)}
  * />
+ * ```
  */
 export const ClaimCard: React.FC<ClaimCardProps> = ({
   claim,
@@ -153,54 +141,45 @@ export const ClaimCard: React.FC<ClaimCardProps> = ({
   const statusColor = getStatusColor(claim.status);
   
   const formattedAmount = formatCurrency(claim.amount);
-  const formattedDate = format(new Date(claim.submittedAt), 'dd/MM/yyyy');
+  const formattedDate = format(
+    typeof claim.submittedAt === 'string' ? new Date(claim.submittedAt) : claim.submittedAt, 
+    'dd/MM/yyyy'
+  );
   
   // Map the status to the ClaimStatusText component status prop
-  const mappedStatus = mapClaimStatusToStatusText(claim.status);
+  const mappedStatus = claim.status === 'additional_info_required' ? 'moreInfo' : 
+                       claim.status === 'in_review' ? 'inReview' :
+                       claim.status === 'partially_approved' ? 'approved' :
+                       claim.status as 'pending' | 'approved' | 'denied' | 'inReview' | 'moreInfo' | 'appealed';
   
-  // Generate descriptive accessibility label if not provided
-  const generatedAccessibilityLabel = `${t(`claim.type.${claim.type}`)}, ${formattedAmount}, ${t(`claim.status.${claim.status}`)}${claim.documents.length > 0 ? `, ${t('claim.documents', { count: claim.documents.length })}` : ''}`;
+  // Create a descriptive accessibility label if none provided
+  const cardAccessibilityLabel = accessibilityLabel || 
+    `${t(`claim.type.${claim.type}`)} ${formattedAmount}, ${t(`claim.status.${claim.status}`)}. ${t('claim.submittedOn')} ${formattedDate}`;
   
   return (
     <Card
       journey="plan"
       onPress={onPress}
       interactive={!!onPress}
-      accessibilityLabel={accessibilityLabel || generatedAccessibilityLabel}
+      accessibilityLabel={cardAccessibilityLabel}
       role="article"
-      aria-labelledby={`claim-${claim.id}-title claim-${claim.id}-amount claim-${claim.id}-status`}
     >
       <ClaimCardHeader>
-        <Text 
-          fontWeight="medium" 
-          fontSize={compact ? 'sm' : 'md'}
-          id={`claim-${claim.id}-title`}
-        >
+        <Text fontWeight="medium" fontSize={compact ? 'sm' : 'md'}>
           {t(`claim.type.${claim.type}`)}
         </Text>
-        <Text 
-          fontSize="sm" 
-          color="neutral.gray600"
-          aria-label={t('claim.submittedOnAriaLabel', { date: formattedDate })}
-        >
+        <Text fontSize="sm" color="neutral.gray600" aria-label={`${t('claim.submittedOn')} ${formattedDate}`}>
           {t('claim.submittedOn')} {formattedDate}
         </Text>
       </ClaimCardHeader>
       
       <ClaimCardBody>
-        <Text 
-          fontWeight="bold" 
-          fontSize={compact ? 'lg' : 'xl'}
-          id={`claim-${claim.id}-amount`}
-        >
+        <Text fontWeight="bold" fontSize={compact ? 'lg' : 'xl'} aria-label={`${t('claim.amount')}: ${formattedAmount}`}>
           {formattedAmount}
         </Text>
         
-        {!compact && claim.documents.length > 0 && (
-          <Text 
-            fontSize="sm"
-            aria-label={t('claim.documentsAriaLabel', { count: claim.documents.length })}
-          >
+        {!compact && claim.documents && claim.documents.length > 0 && (
+          <Text fontSize="sm" aria-label={t('claim.documents', { count: claim.documents.length })}>
             {t('claim.documents', { count: claim.documents.length })}
           </Text>
         )}
@@ -209,8 +188,7 @@ export const ClaimCard: React.FC<ClaimCardProps> = ({
       <ClaimCardFooter>
         <ClaimStatusText 
           status={mappedStatus}
-          id={`claim-${claim.id}-status`}
-          aria-live="polite"
+          aria-label={t(`claim.status.${claim.status}`)}
         >
           <Icon 
             name={statusIcon} 
@@ -224,14 +202,15 @@ export const ClaimCard: React.FC<ClaimCardProps> = ({
         </ClaimStatusText>
         
         {showActions && !compact && (
-          <Box display="flex" flexDirection="row" gap="sm">
+          <div>
             {onViewDetails && (
               <Button 
                 variant="tertiary" 
                 size="sm" 
                 onPress={onViewDetails} 
                 journey="plan"
-                aria-label={t('claim.viewDetailsAriaLabel', { type: t(`claim.type.${claim.type}`) })}
+                aria-label={t('claim.viewDetails')}
+                marginRight="xs"
               >
                 {t('claim.viewDetails')}
               </Button>
@@ -243,12 +222,12 @@ export const ClaimCard: React.FC<ClaimCardProps> = ({
                 size="sm" 
                 onPress={onTrackClaim} 
                 journey="plan"
-                aria-label={t('claim.trackAriaLabel', { type: t(`claim.type.${claim.type}`) })}
+                aria-label={t('claim.track')}
               >
                 {t('claim.track')}
               </Button>
             )}
-          </Box>
+          </div>
         )}
       </ClaimCardFooter>
     </Card>

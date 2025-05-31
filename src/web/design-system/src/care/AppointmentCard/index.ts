@@ -1,9 +1,7 @@
 /**
- * @file Entry point for the AppointmentCard component
+ * @file index.ts
+ * @description Public entry point for the AppointmentCard component
  */
 
 export { AppointmentCard } from './AppointmentCard';
-export type { AppointmentCardProps } from '@austa/interfaces/care';
-
-// Default export for more flexible importing
-export default { AppointmentCard };
+export type { AppointmentCardProps } from './AppointmentCard';

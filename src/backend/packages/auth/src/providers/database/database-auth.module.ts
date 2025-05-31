@@ -1,168 +1,175 @@
-/**
- * @file Database Authentication Module
- * 
- * This module registers the database authentication providers for dependency injection.
- * It provides factory functions to create and configure database authentication providers
- * with different options, handling integration with database services and other dependencies.
- *
- * @module @austa/auth/providers/database
- */
-
-import { DynamicModule, Module, Provider } from '@nestjs/common';
+import { DynamicModule, Global, Module, Provider, Type } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 
-// Import from other @austa packages
-import { DatabaseModule } from '@austa/database';
 import { PrismaService } from '@austa/database';
-import { LoggingModule } from '@austa/logging';
 import { LoggerService } from '@austa/logging';
 
-// Import local components
 import { DatabaseAuthProvider } from './database-auth-provider';
+import { IDatabaseAuthProvider } from './database-auth-provider.interface';
 
 /**
  * Configuration options for the DatabaseAuthModule
  */
 export interface DatabaseAuthModuleOptions {
   /**
-   * The database table/collection to use for user authentication
-   * @default 'users'
+   * Whether to make the module global (available to all modules without importing)
    */
-  userTable?: string;
+  isGlobal?: boolean;
   
   /**
-   * The field to use as the username for authentication
-   * @default 'email'
+   * Custom provider to use instead of the default DatabaseAuthProvider
    */
-  usernameField?: string;
+  customProvider?: Type<IDatabaseAuthProvider>;
   
   /**
-   * The field to use as the password for authentication
-   * @default 'password'
+   * Configuration for the database auth provider
    */
-  passwordField?: string;
-  
-  /**
-   * Whether to enable case-insensitive username matching
-   * @default true
-   */
-  caseInsensitiveMatch?: boolean;
-  
-  /**
-   * Custom provider token name
-   * @default 'DATABASE_AUTH_PROVIDER'
-   */
-  providerToken?: string;
+  providerConfig?: {
+    /**
+     * The field to use for user lookup (default: 'email')
+     */
+    userLookupField?: string;
+    
+    /**
+     * The field containing the password hash (default: 'password')
+     */
+    passwordField?: string;
+    
+    /**
+     * Custom error messages
+     */
+    errorMessages?: {
+      userNotFound?: string;
+      invalidCredentials?: string;
+      accountLocked?: string;
+    };
+  };
 }
 
 /**
- * Default options for the DatabaseAuthModule
+ * NestJS module that registers the database authentication providers for dependency injection.
+ * It provides factory functions to create and configure database authentication providers with different options.
+ * The module handles integration with database services and other dependencies like logging.
+ * It exports the database authentication provider for use by consuming applications.
  */
-const defaultOptions: DatabaseAuthModuleOptions = {
-  userTable: 'users',
-  usernameField: 'email',
-  passwordField: 'password',
-  caseInsensitiveMatch: true,
-  providerToken: 'DATABASE_AUTH_PROVIDER',
-};
-
-/**
- * Module that registers the database authentication providers for dependency injection.
- * 
- * This module provides factory functions to create and configure database authentication
- * providers with different options, handling integration with database services and other
- * dependencies like logging.
- */
-@Module({
-  imports: [
-    ConfigModule,
-    DatabaseModule,
-    LoggingModule,
-  ],
-})
+@Module({})
 export class DatabaseAuthModule {
   /**
-   * Registers the module with the provided options
-   * 
-   * @param options Configuration options for the database authentication provider
-   * @returns A dynamically configured module with the database authentication provider
+   * Register the DatabaseAuthModule with default configuration
    */
-  static register(options?: DatabaseAuthModuleOptions): DynamicModule {
-    const moduleOptions = { ...defaultOptions, ...options };
-    const providers: Provider[] = [
-      {
-        provide: moduleOptions.providerToken,
-        useFactory: (prismaService: PrismaService, loggerService: LoggerService, configService: ConfigService) => {
-          return new DatabaseAuthProvider(
-            prismaService,
-            loggerService,
-            {
-              userTable: moduleOptions.userTable,
-              usernameField: moduleOptions.usernameField,
-              passwordField: moduleOptions.passwordField,
-              caseInsensitiveMatch: moduleOptions.caseInsensitiveMatch,
-            },
-            configService,
-          );
-        },
-        inject: [PrismaService, LoggerService, ConfigService],
-      },
-    ];
-
+  static register(): DynamicModule {
     return {
       module: DatabaseAuthModule,
-      imports: [
-        ConfigModule,
-        DatabaseModule,
-        LoggingModule,
-      ],
-      providers,
-      exports: [moduleOptions.providerToken],
-    };
-  }
-
-  /**
-   * Registers the module with default options
-   * 
-   * @returns A dynamically configured module with the database authentication provider using default options
-   */
-  static registerDefault(): DynamicModule {
-    return this.register();
-  }
-
-  /**
-   * Registers the module with custom configuration from environment variables
-   * 
-   * @returns A dynamically configured module with the database authentication provider using environment variables
-   */
-  static registerAsync(): DynamicModule {
-    return {
-      module: DatabaseAuthModule,
-      imports: [
-        ConfigModule,
-        DatabaseModule,
-        LoggingModule,
-      ],
+      imports: [ConfigModule],
       providers: [
         {
-          provide: 'DATABASE_AUTH_PROVIDER',
-          useFactory: (prismaService: PrismaService, loggerService: LoggerService, configService: ConfigService) => {
-            return new DatabaseAuthProvider(
-              prismaService,
-              loggerService,
-              {
-                userTable: configService.get<string>('AUTH_USER_TABLE', 'users'),
-                usernameField: configService.get<string>('AUTH_USERNAME_FIELD', 'email'),
-                passwordField: configService.get<string>('AUTH_PASSWORD_FIELD', 'password'),
-                caseInsensitiveMatch: configService.get<boolean>('AUTH_CASE_INSENSITIVE_MATCH', true),
+          provide: DatabaseAuthProvider,
+          useFactory: (prisma: PrismaService, logger: LoggerService, config: ConfigService) => {
+            return new DatabaseAuthProvider(prisma, logger, {
+              userLookupField: 'email',
+              passwordField: 'password',
+              errorMessages: {
+                userNotFound: 'User not found',
+                invalidCredentials: 'Invalid credentials',
+                accountLocked: 'Account is locked',
               },
-              configService,
-            );
+            });
           },
           inject: [PrismaService, LoggerService, ConfigService],
         },
       ],
-      exports: ['DATABASE_AUTH_PROVIDER'],
+      exports: [DatabaseAuthProvider],
+    };
+  }
+
+  /**
+   * Register the DatabaseAuthModule with custom options
+   * @param options Configuration options for the module
+   */
+  static registerWithOptions(options: DatabaseAuthModuleOptions): DynamicModule {
+    const providers: Provider[] = [];
+    
+    // Determine which provider class to use
+    const providerClass = options.customProvider || DatabaseAuthProvider;
+    
+    // Create the provider
+    providers.push({
+      provide: DatabaseAuthProvider,
+      useFactory: (prisma: PrismaService, logger: LoggerService, config: ConfigService) => {
+        return new providerClass(prisma, logger, {
+          userLookupField: options.providerConfig?.userLookupField || 'email',
+          passwordField: options.providerConfig?.passwordField || 'password',
+          errorMessages: {
+            userNotFound: options.providerConfig?.errorMessages?.userNotFound || 'User not found',
+            invalidCredentials: options.providerConfig?.errorMessages?.invalidCredentials || 'Invalid credentials',
+            accountLocked: options.providerConfig?.errorMessages?.accountLocked || 'Account is locked',
+          },
+        });
+      },
+      inject: [PrismaService, LoggerService, ConfigService],
+    });
+    
+    // If using a custom provider, add it as a provider and export it
+    if (options.customProvider) {
+      providers.push({
+        provide: options.customProvider,
+        useExisting: DatabaseAuthProvider,
+      });
+    }
+    
+    return {
+      module: DatabaseAuthModule,
+      global: options.isGlobal || false,
+      imports: [ConfigModule],
+      providers,
+      exports: [DatabaseAuthProvider, ...(options.customProvider ? [options.customProvider] : [])],
+    };
+  }
+
+  /**
+   * Register the DatabaseAuthModule asynchronously with factory
+   * @param options Async options for configuring the module
+   */
+  static registerAsync(options: {
+    imports?: any[];
+    useFactory: (...args: any[]) => Promise<DatabaseAuthModuleOptions> | DatabaseAuthModuleOptions;
+    inject?: any[];
+    isGlobal?: boolean;
+  }): DynamicModule {
+    return {
+      module: DatabaseAuthModule,
+      global: options.isGlobal || false,
+      imports: [...(options.imports || []), ConfigModule],
+      providers: [
+        {
+          provide: 'DATABASE_AUTH_MODULE_OPTIONS',
+          useFactory: options.useFactory,
+          inject: options.inject || [],
+        },
+        {
+          provide: DatabaseAuthProvider,
+          useFactory: async (
+            prisma: PrismaService,
+            logger: LoggerService,
+            config: ConfigService,
+            moduleOptions: DatabaseAuthModuleOptions,
+          ) => {
+            const providerClass = moduleOptions.customProvider || DatabaseAuthProvider;
+            
+            return new providerClass(prisma, logger, {
+              userLookupField: moduleOptions.providerConfig?.userLookupField || 'email',
+              passwordField: moduleOptions.providerConfig?.passwordField || 'password',
+              errorMessages: {
+                userNotFound: moduleOptions.providerConfig?.errorMessages?.userNotFound || 'User not found',
+                invalidCredentials: moduleOptions.providerConfig?.errorMessages?.invalidCredentials || 'Invalid credentials',
+                accountLocked: moduleOptions.providerConfig?.errorMessages?.accountLocked || 'Account is locked',
+              },
+            });
+          },
+          inject: [PrismaService, LoggerService, ConfigService, 'DATABASE_AUTH_MODULE_OPTIONS'],
+        },
+      ],
+      exports: [DatabaseAuthProvider],
     };
   }
 }

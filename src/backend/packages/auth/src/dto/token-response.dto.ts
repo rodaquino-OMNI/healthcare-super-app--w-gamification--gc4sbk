@@ -1,59 +1,66 @@
 import { ApiProperty } from '@nestjs/swagger';
 
 /**
- * Data Transfer Object for JWT authentication responses.
- * Contains access and refresh tokens along with their expiration metadata.
- * Used to establish a consistent contract for token-based authentication responses
- * across all services that integrate with the authentication system.
+ * Data Transfer Object (DTO) for JWT authentication responses.
+ * 
+ * This class structures the response format for authentication operations that issue
+ * JWT tokens, ensuring a consistent contract across all services that integrate with
+ * the authentication system. It includes both access and refresh tokens along with
+ * their expiration metadata.
  */
 export class TokenResponseDto {
   /**
-   * JWT access token for API authorization.
-   * Used for authenticating requests to protected endpoints.
+   * JWT access token used for authenticating API requests.
+   * This token should be included in the Authorization header of subsequent requests.
+   * 
    * @example "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
    */
   @ApiProperty({
-    description: 'JWT access token for API authorization',
+    description: 'JWT access token for API authentication',
     example: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...',
   })
   accessToken: string;
 
   /**
-   * JWT refresh token used to obtain a new access token when expired.
-   * Should be stored securely and only used for token refresh operations.
+   * Expiration timestamp for the access token in ISO format.
+   * Clients can use this to preemptively refresh tokens before they expire.
+   * 
+   * @example "2023-04-15T16:30:45.123Z"
+   */
+  @ApiProperty({
+    description: 'Expiration timestamp for the access token in ISO format',
+    example: '2023-04-15T16:30:45.123Z',
+  })
+  accessTokenExpires: string;
+
+  /**
+   * JWT refresh token used to obtain a new access token when the current one expires.
+   * This token has a longer lifespan than the access token but should be stored securely.
+   * 
    * @example "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
    */
   @ApiProperty({
-    description: 'JWT refresh token used to obtain a new access token when expired',
+    description: 'JWT refresh token for obtaining new access tokens',
     example: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...',
   })
   refreshToken: string;
 
   /**
-   * ISO 8601 timestamp when the access token expires.
-   * Client applications should use this to determine when to refresh tokens.
-   * @example "2023-12-31T23:59:59.999Z"
+   * Expiration timestamp for the refresh token in ISO format.
+   * Clients should request the user to re-authenticate once this token expires.
+   * 
+   * @example "2023-05-15T16:30:45.123Z"
    */
   @ApiProperty({
-    description: 'ISO 8601 timestamp when the access token expires',
-    example: '2023-12-31T23:59:59.999Z',
+    description: 'Expiration timestamp for the refresh token in ISO format',
+    example: '2023-05-15T16:30:45.123Z',
   })
-  expiresAt: string;
-
-  /**
-   * Duration in seconds until the access token expires.
-   * Useful for countdown timers or progress indicators in client applications.
-   * @example 3600
-   */
-  @ApiProperty({
-    description: 'Duration in seconds until the access token expires',
-    example: 3600,
-  })
-  expiresIn: number;
+  refreshTokenExpires: string;
 
   /**
    * Token type, always "Bearer" for JWT authentication.
-   * Used in the Authorization header format: "Bearer {accessToken}"
+   * This indicates how the token should be used in the Authorization header.
+   * 
    * @example "Bearer"
    */
   @ApiProperty({
@@ -62,53 +69,4 @@ export class TokenResponseDto {
     default: 'Bearer',
   })
   tokenType: string = 'Bearer';
-
-  /**
-   * Creates a new TokenResponseDto instance.
-   * @param partial Partial TokenResponseDto properties to initialize the instance
-   */
-  constructor(partial?: Partial<TokenResponseDto>) {
-    if (partial) {
-      Object.assign(this, partial);
-    }
-  }
-
-  /**
-   * Creates a TokenResponseDto from raw token data.
-   * Converts numeric timestamp to ISO string format for expiresAt.
-   * 
-   * @param accessToken JWT access token
-   * @param refreshToken JWT refresh token
-   * @param expiresIn Expiration time in seconds
-   * @returns A new TokenResponseDto instance
-   */
-  static fromTokenData(
-    accessToken: string,
-    refreshToken: string,
-    expiresIn: number,
-  ): TokenResponseDto {
-    const expiresAtMs = Date.now() + expiresIn * 1000;
-    const expiresAt = new Date(expiresAtMs).toISOString();
-
-    return new TokenResponseDto({
-      accessToken,
-      refreshToken,
-      expiresAt,
-      expiresIn,
-    });
-  }
-
-  /**
-   * Converts the DTO to a format compatible with the AuthSession interface
-   * used in frontend applications.
-   * 
-   * @returns An object compatible with the AuthSession interface
-   */
-  toAuthSession(): { accessToken: string; refreshToken: string; expiresAt: number } {
-    return {
-      accessToken: this.accessToken,
-      refreshToken: this.refreshToken,
-      expiresAt: new Date(this.expiresAt).getTime(),
-    };
-  }
 }

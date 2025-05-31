@@ -2,418 +2,481 @@
  * Password Utilities
  * 
  * This module provides utility functions for secure password handling, including
- * hashing, verification, and strength validation. It implements industry-standard
- * cryptographic algorithms (bcrypt and argon2) for password hashing and follows
- * best practices for secure comparison and validation.
+ * hashing, verification, and strength validation. It uses industry-standard
+ * cryptographic algorithms (bcrypt and argon2) for password hashing and implements
+ * best practices for secure comparison.
+ * 
+ * @module password-utils
  */
 
 import * as bcrypt from 'bcrypt';
 import * as argon2 from 'argon2';
-import { randomBytes, timingSafeEqual } from 'crypto';
-import { AUTH_ERROR_CODES, CONFIG_KEYS } from '../../constants';
-import { PasswordPolicyConfig } from '../../types';
+import { timingSafeEqual } from 'crypto';
 
 /**
- * Default configuration for password hashing
+ * Default configuration for password hashing algorithms
  */
-const DEFAULT_CONFIG = {
+export const DEFAULT_CONFIG = {
   // bcrypt configuration
   bcrypt: {
-    rounds: 12, // ~300ms on a modern CPU
+    // Work factor for bcrypt (cost)
+    // Higher values increase security but also increase hashing time
+    // Recommended minimum: 12
+    rounds: 12,
   },
   // argon2 configuration
   argon2: {
-    type: argon2.argon2id, // Balanced between argon2d and argon2i for best security
-    timeCost: 3,          // Number of iterations
-    memoryCost: 65536,    // Memory usage in KiB (64 MB)
-    parallelism: 4,       // Number of threads
-    hashLength: 32,       // Output hash length
+    // Argon2 variant to use
+    // id: Recommended for most use cases (combines d and i)
+    // d: Maximizes resistance to GPU attacks but vulnerable to side-channel attacks
+    // i: Maximizes resistance to side-channel attacks but less resistant to GPU attacks
+    type: argon2.argon2id,
+    // Memory usage in KiB
+    // Higher values increase security but also increase memory usage
+    // Recommended minimum: 32768 (32 MB)
+    memoryCost: 32768,
+    // Number of iterations
+    // Higher values increase security but also increase hashing time
+    // Recommended minimum: 3
+    timeCost: 3,
+    // Degree of parallelism
+    // Higher values can increase performance on multi-core systems
+    // Recommended minimum: 4
+    parallelism: 4,
+    // Length of the generated hash
+    // Recommended minimum: 32
+    hashLength: 32,
   },
-  // Default algorithm to use
-  defaultAlgorithm: 'bcrypt' as 'bcrypt' | 'argon2',
+  // Password strength requirements
+  passwordStrength: {
+    minLength: 8,
+    requireUppercase: true,
+    requireLowercase: true,
+    requireNumbers: true,
+    requireSpecialChars: true,
+    maxConsecutiveChars: 3,
+  },
 };
 
 /**
- * Default password policy configuration
+ * Configuration options for password hashing
  */
-const DEFAULT_PASSWORD_POLICY: PasswordPolicyConfig = {
-  minLength: 8,
-  requireUppercase: true,
-  requireLowercase: true,
-  requireNumbers: true,
-  requireSpecialChars: true,
-  maxAgeDays: 90,
-  preventReuse: 3,
-};
+export interface PasswordHashOptions {
+  /**
+   * Algorithm to use for password hashing
+   * @default 'argon2'
+   */
+  algorithm?: 'bcrypt' | 'argon2';
+  /**
+   * Configuration for bcrypt
+   */
+  bcrypt?: {
+    /**
+     * Work factor for bcrypt (cost)
+     * @default 12
+     */
+    rounds?: number;
+  };
+  /**
+   * Configuration for argon2
+   */
+  argon2?: {
+    /**
+     * Argon2 variant to use
+     * @default argon2.argon2id
+     */
+    type?: 0 | 1 | 2; // argon2d, argon2i, argon2id
+    /**
+     * Memory usage in KiB
+     * @default 32768 (32 MB)
+     */
+    memoryCost?: number;
+    /**
+     * Number of iterations
+     * @default 3
+     */
+    timeCost?: number;
+    /**
+     * Degree of parallelism
+     * @default 4
+     */
+    parallelism?: number;
+    /**
+     * Length of the generated hash
+     * @default 32
+     */
+    hashLength?: number;
+  };
+}
 
 /**
- * Error messages for password validation
+ * Configuration options for password strength validation
  */
-export const PASSWORD_VALIDATION_ERRORS = {
-  TOO_SHORT: 'Password is too short',
-  MISSING_UPPERCASE: 'Password must contain at least one uppercase letter',
-  MISSING_LOWERCASE: 'Password must contain at least one lowercase letter',
-  MISSING_NUMBER: 'Password must contain at least one number',
-  MISSING_SPECIAL_CHAR: 'Password must contain at least one special character',
-  COMMON_PASSWORD: 'Password is too common or easily guessable',
-  CONTAINS_USERNAME: 'Password should not contain the username',
-  CONTAINS_EMAIL: 'Password should not contain the email address',
-  CONTAINS_PERSONAL_INFO: 'Password should not contain personal information',
-};
+export interface PasswordStrengthOptions {
+  /**
+   * Minimum password length
+   * @default 8
+   */
+  minLength?: number;
+  /**
+   * Require at least one uppercase letter
+   * @default true
+   */
+  requireUppercase?: boolean;
+  /**
+   * Require at least one lowercase letter
+   * @default true
+   */
+  requireLowercase?: boolean;
+  /**
+   * Require at least one number
+   * @default true
+   */
+  requireNumbers?: boolean;
+  /**
+   * Require at least one special character
+   * @default true
+   */
+  requireSpecialChars?: boolean;
+  /**
+   * Maximum number of consecutive identical characters
+   * @default 3
+   */
+  maxConsecutiveChars?: number;
+}
 
 /**
- * Generates a cryptographically secure random salt
- * 
- * @param length - Length of the salt in bytes (default: 16)
- * @returns Salt as a Buffer
+ * Result of password strength validation
  */
-export function generateSalt(length = 16): Buffer {
-  return randomBytes(length);
+export interface PasswordStrengthResult {
+  /**
+   * Whether the password meets all requirements
+   */
+  isValid: boolean;
+  /**
+   * List of validation errors
+   */
+  errors: string[];
+  /**
+   * Estimated password strength score (0-100)
+   */
+  score: number;
+}
+
+/**
+ * Error thrown when password hashing or verification fails
+ */
+export class PasswordError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'PasswordError';
+    Object.setPrototypeOf(this, PasswordError.prototype);
+  }
 }
 
 /**
  * Hashes a password using the specified algorithm
  * 
- * @param password - Plain text password to hash
- * @param options - Hashing options
- * @returns Promise resolving to the hashed password
+ * @param password - The plain text password to hash
+ * @param options - Configuration options for password hashing
+ * @returns A promise that resolves to the hashed password
+ * @throws {PasswordError} If hashing fails
+ * 
+ * @example
+ * // Hash a password with default options (argon2)
+ * const hash = await hashPassword('mySecurePassword');
+ * 
+ * @example
+ * // Hash a password with bcrypt
+ * const hash = await hashPassword('mySecurePassword', { algorithm: 'bcrypt' });
+ * 
+ * @example
+ * // Hash a password with custom argon2 options
+ * const hash = await hashPassword('mySecurePassword', {
+ *   algorithm: 'argon2',
+ *   argon2: {
+ *     memoryCost: 65536, // 64 MB
+ *     timeCost: 4,
+ *   }
+ * });
  */
 export async function hashPassword(
   password: string,
-  options?: {
-    algorithm?: 'bcrypt' | 'argon2';
-    bcryptRounds?: number;
-    argon2Options?: argon2.Options;
-    salt?: string | Buffer;
-  }
+  options: PasswordHashOptions = {}
 ): Promise<string> {
-  // Normalize options
-  const algorithm = options?.algorithm || DEFAULT_CONFIG.defaultAlgorithm;
-  
-  // Hash with the selected algorithm
-  if (algorithm === 'bcrypt') {
-    const rounds = options?.bcryptRounds || DEFAULT_CONFIG.bcrypt.rounds;
-    const salt = options?.salt ? options.salt : await bcrypt.genSalt(rounds);
-    return bcrypt.hash(password, salt);
-  } else if (algorithm === 'argon2') {
-    const argon2Options = {
-      ...DEFAULT_CONFIG.argon2,
-      ...options?.argon2Options,
-      salt: options?.salt as Buffer | undefined,
-    };
-    
-    // If no salt is provided, argon2 will generate one automatically
-    return argon2.hash(password, argon2Options);
+  const algorithm = options.algorithm || 'argon2';
+
+  try {
+    if (algorithm === 'bcrypt') {
+      const rounds = options.bcrypt?.rounds || DEFAULT_CONFIG.bcrypt.rounds;
+      return await bcrypt.hash(password, rounds);
+    } else {
+      // Use argon2
+      const argon2Options = {
+        type: options.argon2?.type ?? DEFAULT_CONFIG.argon2.type,
+        memoryCost: options.argon2?.memoryCost ?? DEFAULT_CONFIG.argon2.memoryCost,
+        timeCost: options.argon2?.timeCost ?? DEFAULT_CONFIG.argon2.timeCost,
+        parallelism: options.argon2?.parallelism ?? DEFAULT_CONFIG.argon2.parallelism,
+        hashLength: options.argon2?.hashLength ?? DEFAULT_CONFIG.argon2.hashLength,
+      };
+      return await argon2.hash(password, argon2Options);
+    }
+  } catch (error) {
+    throw new PasswordError(`Password hashing failed: ${(error as Error).message}`);
   }
-  
-  throw new Error(`Unsupported hashing algorithm: ${algorithm}`);
 }
 
 /**
- * Verifies a password against a hash using constant-time comparison
+ * Verifies a password against a hash
  * 
- * @param password - Plain text password to verify
- * @param hash - Stored password hash to compare against
- * @returns Promise resolving to true if the password matches, false otherwise
+ * @param hash - The hashed password to compare against
+ * @param password - The plain text password to verify
+ * @returns A promise that resolves to true if the password matches the hash, false otherwise
+ * @throws {PasswordError} If verification fails due to an error
+ * 
+ * @example
+ * // Verify a password against a hash
+ * const isMatch = await verifyPassword(storedHash, 'mySecurePassword');
+ * if (isMatch) {
+ *   // Password is correct
+ * } else {
+ *   // Password is incorrect
+ * }
  */
-export async function verifyPassword(password: string, hash: string): Promise<boolean> {
+export async function verifyPassword(
+  hash: string,
+  password: string
+): Promise<boolean> {
   try {
-    // Detect the hashing algorithm from the hash format
+    // Detect hash algorithm
     if (hash.startsWith('$2')) {
       // bcrypt hash
-      return bcrypt.compare(password, hash);
+      return await bcrypt.compare(password, hash);
     } else if (hash.startsWith('$argon2')) {
       // argon2 hash
-      return argon2.verify(hash, password);
+      return await argon2.verify(hash, password);
+    } else {
+      throw new PasswordError('Unknown hash format');
     }
-    
-    // Unknown hash format
-    throw new Error('Unknown password hash format');
   } catch (error) {
-    // Log the error but return false to prevent information leakage
-    console.error('Error verifying password:', error);
-    return false;
+    if (error instanceof PasswordError) {
+      throw error;
+    }
+    throw new PasswordError(`Password verification failed: ${(error as Error).message}`);
   }
 }
 
 /**
- * Performs a constant-time comparison of two strings or buffers
- * to prevent timing attacks
+ * Performs a constant-time comparison of two strings
+ * This helps prevent timing attacks when comparing sensitive data
  * 
- * @param a - First string or buffer to compare
- * @param b - Second string or buffer to compare
- * @returns True if the inputs are equal, false otherwise
+ * @param a - First string to compare
+ * @param b - Second string to compare
+ * @returns True if the strings are equal, false otherwise
  */
-export function secureCompare(a: string | Buffer, b: string | Buffer): boolean {
-  try {
-    // Convert strings to buffers if needed
-    const bufferA = Buffer.isBuffer(a) ? a : Buffer.from(String(a));
-    const bufferB = Buffer.isBuffer(b) ? b : Buffer.from(String(b));
-    
-    // If lengths are different, return false but still do the comparison
-    // to prevent timing attacks based on length differences
-    const equal = bufferA.length === bufferB.length;
-    
-    // Use Node.js built-in constant-time comparison
-    return equal && timingSafeEqual(bufferA, bufferB);
-  } catch (error) {
-    // Log the error but return false to prevent information leakage
-    console.error('Error in secure comparison:', error);
-    return false;
+export function constantTimeEqual(a: string, b: string): boolean {
+  // Convert strings to buffers for comparison
+  const bufferA = Buffer.from(a);
+  const bufferB = Buffer.from(b);
+
+  // If lengths are different, create a new buffer of the same length as bufferA
+  // This ensures the comparison takes the same amount of time regardless of length
+  if (bufferA.length !== bufferB.length) {
+    // Create a new buffer with the same length as bufferA
+    const newBufferB = Buffer.alloc(bufferA.length, 0);
+    // Copy bufferB into newBufferB (up to the length of bufferB)
+    bufferB.copy(newBufferB, 0, 0, Math.min(bufferB.length, bufferA.length));
+    // Compare bufferA with newBufferB in constant time
+    return timingSafeEqual(bufferA, newBufferB) && bufferA.length === bufferB.length;
   }
+
+  // If lengths are the same, compare directly
+  return timingSafeEqual(bufferA, bufferB);
 }
 
 /**
- * Validates a password against the specified policy
+ * Validates password strength against configurable requirements
  * 
- * @param password - Password to validate
- * @param policy - Password policy configuration
- * @param userData - Optional user data to check for personal information in password
- * @returns Object with validation result and error message if validation fails
+ * @param password - The password to validate
+ * @param options - Configuration options for password strength validation
+ * @returns A result object with validation status, errors, and strength score
+ * 
+ * @example
+ * // Validate password with default requirements
+ * const result = validatePasswordStrength('myPassword123!');
+ * if (result.isValid) {
+ *   // Password meets all requirements
+ * } else {
+ *   // Password does not meet requirements
+ *   console.log(result.errors);
+ * }
+ * 
+ * @example
+ * // Validate password with custom requirements
+ * const result = validatePasswordStrength('myPassword', {
+ *   minLength: 10,
+ *   requireSpecialChars: false
+ * });
  */
 export function validatePasswordStrength(
   password: string,
-  policy: Partial<PasswordPolicyConfig> = {},
-  userData?: { username?: string; email?: string; name?: string }
-): { valid: boolean; error?: string } {
-  // Merge with default policy
-  const mergedPolicy = { ...DEFAULT_PASSWORD_POLICY, ...policy };
-  
+  options: PasswordStrengthOptions = {}
+): PasswordStrengthResult {
+  const config = {
+    minLength: options.minLength ?? DEFAULT_CONFIG.passwordStrength.minLength,
+    requireUppercase: options.requireUppercase ?? DEFAULT_CONFIG.passwordStrength.requireUppercase,
+    requireLowercase: options.requireLowercase ?? DEFAULT_CONFIG.passwordStrength.requireLowercase,
+    requireNumbers: options.requireNumbers ?? DEFAULT_CONFIG.passwordStrength.requireNumbers,
+    requireSpecialChars: options.requireSpecialChars ?? DEFAULT_CONFIG.passwordStrength.requireSpecialChars,
+    maxConsecutiveChars: options.maxConsecutiveChars ?? DEFAULT_CONFIG.passwordStrength.maxConsecutiveChars,
+  };
+
+  const errors: string[] = [];
+
   // Check minimum length
-  if (password.length < mergedPolicy.minLength) {
-    return { 
-      valid: false, 
-      error: `${PASSWORD_VALIDATION_ERRORS.TOO_SHORT}. Minimum length is ${mergedPolicy.minLength} characters.` 
-    };
+  if (password.length < config.minLength) {
+    errors.push(`Password must be at least ${config.minLength} characters long`);
   }
-  
-  // Check for uppercase letters if required
-  if (mergedPolicy.requireUppercase && !/[A-Z]/.test(password)) {
-    return { valid: false, error: PASSWORD_VALIDATION_ERRORS.MISSING_UPPERCASE };
-  }
-  
-  // Check for lowercase letters if required
-  if (mergedPolicy.requireLowercase && !/[a-z]/.test(password)) {
-    return { valid: false, error: PASSWORD_VALIDATION_ERRORS.MISSING_LOWERCASE };
-  }
-  
-  // Check for numbers if required
-  if (mergedPolicy.requireNumbers && !/[0-9]/.test(password)) {
-    return { valid: false, error: PASSWORD_VALIDATION_ERRORS.MISSING_NUMBER };
-  }
-  
-  // Check for special characters if required
-  if (mergedPolicy.requireSpecialChars && !/[^A-Za-z0-9]/.test(password)) {
-    return { valid: false, error: PASSWORD_VALIDATION_ERRORS.MISSING_SPECIAL_CHAR };
-  }
-  
-  // Check if password contains personal information
-  if (userData) {
-    const lowercasePassword = password.toLowerCase();
-    
-    // Check if password contains username
-    if (userData.username && userData.username.length > 2 && 
-        lowercasePassword.includes(userData.username.toLowerCase())) {
-      return { valid: false, error: PASSWORD_VALIDATION_ERRORS.CONTAINS_USERNAME };
-    }
-    
-    // Check if password contains email
-    if (userData.email && userData.email.length > 2) {
-      const emailParts = userData.email.toLowerCase().split('@');
-      if (emailParts[0].length > 2 && lowercasePassword.includes(emailParts[0])) {
-        return { valid: false, error: PASSWORD_VALIDATION_ERRORS.CONTAINS_EMAIL };
-      }
-    }
-    
-    // Check if password contains name
-    if (userData.name && userData.name.length > 2) {
-      const nameParts = userData.name.toLowerCase().split(/\s+/);
-      for (const part of nameParts) {
-        if (part.length > 2 && lowercasePassword.includes(part)) {
-          return { valid: false, error: PASSWORD_VALIDATION_ERRORS.CONTAINS_PERSONAL_INFO };
-        }
-      }
-    }
-  }
-  
-  // All checks passed
-  return { valid: true };
-}
 
-/**
- * Calculates the entropy (strength) of a password in bits
- * 
- * @param password - Password to calculate entropy for
- * @returns Entropy value in bits
- */
-export function calculatePasswordEntropy(password: string): number {
-  if (!password || password.length === 0) {
-    return 0;
+  // Check for uppercase letters
+  if (config.requireUppercase && !/[A-Z]/.test(password)) {
+    errors.push('Password must contain at least one uppercase letter');
   }
-  
-  // Count character sets used in the password
-  const hasLowercase = /[a-z]/.test(password);
-  const hasUppercase = /[A-Z]/.test(password);
-  const hasDigits = /[0-9]/.test(password);
-  const hasSpecialChars = /[^A-Za-z0-9]/.test(password);
-  
-  // Calculate the size of the character pool
-  let poolSize = 0;
-  if (hasLowercase) poolSize += 26;
-  if (hasUppercase) poolSize += 26;
-  if (hasDigits) poolSize += 10;
-  if (hasSpecialChars) poolSize += 33; // Approximate number of special characters
-  
-  // Calculate entropy using the formula: log2(poolSize^length)
-  // Which simplifies to: length * log2(poolSize)
-  return Math.log2(poolSize) * password.length;
-}
 
-/**
- * Normalizes a password by removing extra whitespace and applying
- * consistent Unicode normalization
- * 
- * @param password - Password to normalize
- * @returns Normalized password
- */
-export function normalizePassword(password: string): string {
-  // Trim whitespace and apply Unicode normalization (NFC form)
-  return password.trim().normalize('NFC');
-}
+  // Check for lowercase letters
+  if (config.requireLowercase && !/[a-z]/.test(password)) {
+    errors.push('Password must contain at least one lowercase letter');
+  }
 
-/**
- * Generates a secure random string suitable for temporary passwords
- * or security tokens
- * 
- * @param length - Length of the string to generate
- * @param charset - Character set to use (default: alphanumeric + special chars)
- * @returns Secure random string
- */
-export function generateSecureRandomString(
-  length = 16,
-  charset = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*()'
-): string {
-  if (length <= 0) {
-    throw new Error('Length must be greater than 0');
+  // Check for numbers
+  if (config.requireNumbers && !/[0-9]/.test(password)) {
+    errors.push('Password must contain at least one number');
   }
-  
-  if (charset.length < 10) {
-    throw new Error('Charset must contain at least 10 characters');
-  }
-  
-  // Generate random bytes
-  const randomBytesBuffer = randomBytes(length * 2); // Get more bytes than needed to avoid bias
-  let result = '';
-  
-  // Convert random bytes to characters from the charset
-  for (let i = 0; i < randomBytesBuffer.length && result.length < length; i++) {
-    const randomIndex = randomBytesBuffer[i] % charset.length;
-    result += charset[randomIndex];
-  }
-  
-  return result;
-}
 
-/**
- * Determines if a password needs rehashing based on the current algorithm
- * and security parameters
- * 
- * @param hash - Current password hash
- * @param options - Current hashing options to compare against
- * @returns True if the password should be rehashed, false otherwise
- */
-export function passwordNeedsRehash(
-  hash: string,
-  options?: {
-    algorithm?: 'bcrypt' | 'argon2';
-    bcryptRounds?: number;
-    argon2Options?: Partial<argon2.Options>;
+  // Check for special characters
+  if (config.requireSpecialChars && !/[^A-Za-z0-9]/.test(password)) {
+    errors.push('Password must contain at least one special character');
   }
-): boolean {
-  try {
-    const algorithm = options?.algorithm || DEFAULT_CONFIG.defaultAlgorithm;
-    
-    // Check if the hash algorithm matches the current preferred algorithm
-    if (algorithm === 'bcrypt' && !hash.startsWith('$2')) {
-      return true;
-    }
-    
-    if (algorithm === 'argon2' && !hash.startsWith('$argon2')) {
-      return true;
-    }
-    
-    // Check bcrypt rounds
-    if (algorithm === 'bcrypt' && hash.startsWith('$2')) {
-      const rounds = options?.bcryptRounds || DEFAULT_CONFIG.bcrypt.rounds;
-      const hashRounds = parseInt(hash.split('$')[2], 10);
-      return hashRounds < rounds;
-    }
-    
-    // For argon2, we would need to parse the hash to check parameters
-    // This is a simplified check that could be expanded
-    if (algorithm === 'argon2' && hash.startsWith('$argon2')) {
-      // Argon2 parameter checking would go here
-      // For now, we'll assume it's fine unless explicitly told to rehash
-      return false;
-    }
-    
-    return false;
-  } catch (error) {
-    // If there's any error parsing the hash, assume we need to rehash
-    console.error('Error checking if password needs rehash:', error);
-    return true;
-  }
-}
 
-/**
- * Gets the current password policy configuration from environment variables
- * or uses default values
- * 
- * @returns Password policy configuration
- */
-export function getPasswordPolicy(): PasswordPolicyConfig {
-  // This would typically read from environment variables or configuration service
-  // For now, we'll use default values
+  // Check for consecutive identical characters
+  if (config.maxConsecutiveChars) {
+    const consecutiveRegex = new RegExp(`(.)\\1{${config.maxConsecutiveChars},}`);
+    if (consecutiveRegex.test(password)) {
+      errors.push(`Password must not contain more than ${config.maxConsecutiveChars} consecutive identical characters`);
+    }
+  }
+
+  // Calculate password strength score (0-100)
+  let score = 0;
+  
+  // Base score from length (up to 40 points)
+  score += Math.min(40, password.length * 4);
+  
+  // Additional points for character variety (up to 60 points)
+  if (/[A-Z]/.test(password)) score += 10; // Uppercase
+  if (/[a-z]/.test(password)) score += 10; // Lowercase
+  if (/[0-9]/.test(password)) score += 10; // Numbers
+  if (/[^A-Za-z0-9]/.test(password)) score += 15; // Special chars
+  
+  // Additional points for mixed character types (up to 15 points)
+  const charTypes = [
+    /[A-Z]/.test(password), // Uppercase
+    /[a-z]/.test(password), // Lowercase
+    /[0-9]/.test(password), // Numbers
+    /[^A-Za-z0-9]/.test(password), // Special chars
+  ].filter(Boolean).length;
+  score += (charTypes - 1) * 5;
+  
+  // Cap score at 100
+  score = Math.min(100, score);
+  
+  // Reduce score for consecutive characters
+  if (config.maxConsecutiveChars) {
+    const consecutiveRegex = new RegExp(`(.)\\1{${config.maxConsecutiveChars - 1},}`);
+    if (consecutiveRegex.test(password)) {
+      score = Math.max(0, score - 20);
+    }
+  }
+
   return {
-    minLength: getConfigNumber(CONFIG_KEYS.PASSWORD_MIN_LENGTH, DEFAULT_PASSWORD_POLICY.minLength),
-    requireUppercase: getConfigBoolean(CONFIG_KEYS.PASSWORD_REQUIRE_UPPERCASE, DEFAULT_PASSWORD_POLICY.requireUppercase),
-    requireLowercase: getConfigBoolean(CONFIG_KEYS.PASSWORD_REQUIRE_LOWERCASE, DEFAULT_PASSWORD_POLICY.requireLowercase),
-    requireNumbers: getConfigBoolean(CONFIG_KEYS.PASSWORD_REQUIRE_NUMBER, DEFAULT_PASSWORD_POLICY.requireNumbers),
-    requireSpecialChars: getConfigBoolean(CONFIG_KEYS.PASSWORD_REQUIRE_SPECIAL, DEFAULT_PASSWORD_POLICY.requireSpecialChars),
-    maxAgeDays: getConfigNumber(CONFIG_KEYS.PASSWORD_MAX_AGE, DEFAULT_PASSWORD_POLICY.maxAgeDays),
-    preventReuse: getConfigNumber(CONFIG_KEYS.PASSWORD_HISTORY, DEFAULT_PASSWORD_POLICY.preventReuse),
+    isValid: errors.length === 0,
+    errors,
+    score,
   };
 }
 
 /**
- * Helper function to get a number from environment variables
+ * Generates a cryptographically secure random password
  * 
- * @param key - Environment variable key
- * @param defaultValue - Default value if not found or invalid
- * @returns Number value
+ * @param length - Length of the generated password
+ * @param options - Configuration options for password generation
+ * @returns A randomly generated password that meets the specified requirements
+ * 
+ * @example
+ * // Generate a random password with default options
+ * const password = generateSecurePassword();
+ * 
+ * @example
+ * // Generate a longer password with custom requirements
+ * const password = generateSecurePassword(16, {
+ *   requireSpecialChars: true,
+ *   requireNumbers: true
+ * });
  */
-function getConfigNumber(key: string, defaultValue: number): number {
-  const value = process.env[key];
-  if (value === undefined) {
-    return defaultValue;
-  }
-  
-  const parsed = parseInt(value, 10);
-  return isNaN(parsed) ? defaultValue : parsed;
-}
+export function generateSecurePassword(
+  length: number = 16,
+  options: PasswordStrengthOptions = {}
+): string {
+  const config = {
+    requireUppercase: options.requireUppercase ?? DEFAULT_CONFIG.passwordStrength.requireUppercase,
+    requireLowercase: options.requireLowercase ?? DEFAULT_CONFIG.passwordStrength.requireLowercase,
+    requireNumbers: options.requireNumbers ?? DEFAULT_CONFIG.passwordStrength.requireNumbers,
+    requireSpecialChars: options.requireSpecialChars ?? DEFAULT_CONFIG.passwordStrength.requireSpecialChars,
+  };
 
-/**
- * Helper function to get a boolean from environment variables
- * 
- * @param key - Environment variable key
- * @param defaultValue - Default value if not found or invalid
- * @returns Boolean value
- */
-function getConfigBoolean(key: string, defaultValue: boolean): boolean {
-  const value = process.env[key]?.toLowerCase();
-  if (value === undefined) {
-    return defaultValue;
+  // Define character sets
+  const uppercaseChars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+  const lowercaseChars = 'abcdefghijklmnopqrstuvwxyz';
+  const numberChars = '0123456789';
+  const specialChars = '!@#$%^&*()-_=+[]{}|;:,.<>?';
+
+  // Create a pool of characters based on requirements
+  let charPool = '';
+  if (config.requireUppercase) charPool += uppercaseChars;
+  if (config.requireLowercase) charPool += lowercaseChars;
+  if (config.requireNumbers) charPool += numberChars;
+  if (config.requireSpecialChars) charPool += specialChars;
+
+  // If no requirements are specified, use all character sets
+  if (charPool === '') {
+    charPool = uppercaseChars + lowercaseChars + numberChars + specialChars;
   }
-  
-  return value === 'true' || value === '1' || value === 'yes';
+
+  // Generate a random password
+  let password = '';
+  const crypto = require('crypto');
+
+  // Ensure at least one character from each required set
+  if (config.requireUppercase) {
+    password += uppercaseChars.charAt(crypto.randomInt(0, uppercaseChars.length));
+  }
+  if (config.requireLowercase) {
+    password += lowercaseChars.charAt(crypto.randomInt(0, lowercaseChars.length));
+  }
+  if (config.requireNumbers) {
+    password += numberChars.charAt(crypto.randomInt(0, numberChars.length));
+  }
+  if (config.requireSpecialChars) {
+    password += specialChars.charAt(crypto.randomInt(0, specialChars.length));
+  }
+
+  // Fill the rest of the password with random characters
+  while (password.length < length) {
+    password += charPool.charAt(crypto.randomInt(0, charPool.length));
+  }
+
+  // Shuffle the password to avoid predictable patterns
+  password = password.split('').sort(() => 0.5 - crypto.randomInt(0, 1000) / 1000).join('');
+
+  return password;
 }

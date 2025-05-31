@@ -7,35 +7,27 @@
 /**
  * Splits an array into chunks of a specified size.
  * 
- * @param array - The array to split into chunks
+ * @param arr - The array to split into chunks
  * @param size - The size of each chunk (must be greater than 0)
- * @returns An array of chunks, where each chunk is an array of the original elements
- * @throws Error if size is less than or equal to 0
- * 
+ * @returns An array of chunks, each containing up to 'size' elements
+ * @throws Error if the input is not an array or if size is not a positive integer
  * @example
- * ```typescript
- * // Split an array into chunks of size 2
- * const result = chunk([1, 2, 3, 4, 5], 2);
- * // result: [[1, 2], [3, 4], [5]]
- * ```
+ * chunk([1, 2, 3, 4, 5], 2); // returns [[1, 2], [3, 4], [5]]
+ * chunk(['a', 'b', 'c', 'd'], 3); // returns [['a', 'b', 'c'], ['d']]
  */
-export const chunk = <T>(array: T[], size: number): T[][] => {
-  if (!Array.isArray(array)) {
+export const chunk = <T>(arr: T[], size: number): T[][] => {
+  if (!Array.isArray(arr)) {
     throw new Error('Input must be an array');
   }
-  
-  if (size <= 0) {
-    throw new Error('Chunk size must be greater than 0');
+
+  if (!Number.isInteger(size) || size <= 0) {
+    throw new Error('Chunk size must be a positive integer');
   }
-  
-  if (array.length === 0) {
-    return [];
-  }
-  
+
   const result: T[][] = [];
   
-  for (let i = 0; i < array.length; i += size) {
-    result.push(array.slice(i, i + size));
+  for (let i = 0; i < arr.length; i += size) {
+    result.push(arr.slice(i, i + size));
   }
   
   return result;
@@ -43,42 +35,45 @@ export const chunk = <T>(array: T[], size: number): T[][] => {
 
 /**
  * Splits an array into a specified number of chunks of approximately equal size.
+ * If the array cannot be divided equally, some chunks may have one more element than others.
  * 
- * @param array - The array to split into chunks
+ * @param arr - The array to split into chunks
  * @param numChunks - The number of chunks to create (must be greater than 0)
- * @returns An array of chunks, where each chunk is an array of the original elements
- * @throws Error if numChunks is less than or equal to 0
- * 
+ * @returns An array of chunks with approximately equal size
+ * @throws Error if the input is not an array or if numChunks is not a positive integer
  * @example
- * ```typescript
- * // Split an array into 3 chunks
- * const result = chunkBySize([1, 2, 3, 4, 5, 6, 7], 3);
- * // result: [[1, 2, 3], [4, 5], [6, 7]]
- * ```
+ * chunkBySize([1, 2, 3, 4, 5], 2); // returns [[1, 2, 3], [4, 5]]
+ * chunkBySize(['a', 'b', 'c', 'd', 'e', 'f'], 4); // returns [['a', 'b'], ['c', 'd'], ['e'], ['f']]
  */
-export const chunkBySize = <T>(array: T[], numChunks: number): T[][] => {
-  if (!Array.isArray(array)) {
+export const chunkBySize = <T>(arr: T[], numChunks: number): T[][] => {
+  if (!Array.isArray(arr)) {
     throw new Error('Input must be an array');
   }
-  
-  if (numChunks <= 0) {
-    throw new Error('Number of chunks must be greater than 0');
+
+  if (!Number.isInteger(numChunks) || numChunks <= 0) {
+    throw new Error('Number of chunks must be a positive integer');
+  }
+
+  // If array is empty or numChunks is 1, return the array as a single chunk
+  if (arr.length === 0) {
+    return [[]];
   }
   
-  if (array.length === 0) {
-    return [];
+  if (numChunks === 1) {
+    return [arr.slice()];
   }
-  
-  // Ensure numChunks doesn't exceed array length
-  const effectiveNumChunks = Math.min(numChunks, array.length);
-  
+
+  // If numChunks is greater than array length, each element gets its own chunk
+  if (numChunks >= arr.length) {
+    return arr.map(item => [item]);
+  }
+
   const result: T[][] = [];
-  const chunkSize = Math.ceil(array.length / effectiveNumChunks);
+  const chunkSize = Math.ceil(arr.length / numChunks);
   
-  for (let i = 0; i < effectiveNumChunks; i++) {
-    const start = i * chunkSize;
-    const end = Math.min(start + chunkSize, array.length);
-    result.push(array.slice(start, end));
+  // Create chunks of approximately equal size
+  for (let i = 0; i < arr.length; i += chunkSize) {
+    result.push(arr.slice(i, i + chunkSize));
   }
   
   return result;
@@ -86,169 +81,208 @@ export const chunkBySize = <T>(array: T[], numChunks: number): T[][] => {
 
 /**
  * Splits an array into chunks based on a predicate function.
- * Elements for which the predicate returns the same value will be grouped together.
+ * Elements for which the predicate returns the same value are grouped together.
  * 
- * @param array - The array to split into chunks
- * @param predicate - A function that determines the grouping key for each element
- * @returns An array of chunks, where each chunk contains elements with the same predicate result
- * 
+ * @param arr - The array to split into chunks
+ * @param predicate - A function that determines the chunk an element belongs to
+ * @returns An array of chunks grouped by predicate result
+ * @throws Error if the input is not an array or if predicate is not a function
  * @example
- * ```typescript
- * // Group numbers by their parity (even/odd)
- * const result = chunkByPredicate([1, 2, 3, 4, 5], n => n % 2 === 0);
- * // result: [[1, 3, 5], [2, 4]]
- * ```
+ * // Group numbers by even/odd
+ * chunkByPredicate([1, 2, 3, 4, 5], n => n % 2 === 0); // returns [[2, 4], [1, 3, 5]]
+ * 
+ * // Group strings by first letter
+ * chunkByPredicate(['apple', 'banana', 'apricot', 'cherry', 'blueberry'], s => s[0]);
+ * // returns [['apple', 'apricot'], ['banana', 'blueberry'], ['cherry']]
  */
-export const chunkByPredicate = <T>(array: T[], predicate: (item: T) => boolean): T[][] => {
-  if (!Array.isArray(array)) {
+export const chunkByPredicate = <T, K extends string | number | symbol>(
+  arr: T[],
+  predicate: (item: T) => K
+): T[][] => {
+  if (!Array.isArray(arr)) {
     throw new Error('Input must be an array');
   }
-  
+
   if (typeof predicate !== 'function') {
     throw new Error('Predicate must be a function');
   }
-  
-  if (array.length === 0) {
-    return [];
+
+  // Group items by predicate result
+  const groups = arr.reduce((result: Record<string, T[]>, item: T) => {
+    try {
+      const key = String(predicate(item));
+      
+      if (!result[key]) {
+        result[key] = [];
+      }
+      
+      result[key].push(item);
+    } catch (error) {
+      // If predicate throws an error, create a special group for errors
+      const errorKey = 'ERROR';
+      if (!result[errorKey]) {
+        result[errorKey] = [];
+      }
+      result[errorKey].push(item);
+      console.warn('Error in chunkByPredicate:', error);
+    }
+    
+    return result;
+  }, {});
+
+  // Convert the groups object to an array of arrays
+  return Object.values(groups);
+};
+
+/**
+ * Splits an array into chunks, ensuring that the total size of elements in each chunk
+ * does not exceed a specified maximum size based on a size calculation function.
+ * This is useful for batching API requests or database operations with size constraints.
+ * 
+ * @param arr - The array to split into chunks
+ * @param maxSize - The maximum total size for each chunk
+ * @param sizeCalculator - A function that calculates the size of an element
+ * @returns An array of chunks, each with a total size not exceeding maxSize
+ * @throws Error if the input is not an array, maxSize is not positive, or sizeCalculator is not a function
+ * @example
+ * // Chunk an array of objects by total payload size
+ * const data = [
+ *   { id: 1, payload: 'x'.repeat(500) },
+ *   { id: 2, payload: 'x'.repeat(300) },
+ *   { id: 3, payload: 'x'.repeat(200) },
+ *   { id: 4, payload: 'x'.repeat(800) }
+ * ];
+ * chunkByMaxSize(data, 1000, item => item.payload.length);
+ * // returns [
+ * //   [{ id: 1, payload: 'x'.repeat(500) }, { id: 2, payload: 'x'.repeat(300) }, { id: 3, payload: 'x'.repeat(200) }],
+ * //   [{ id: 4, payload: 'x'.repeat(800) }]
+ * // ]
+ */
+export const chunkByMaxSize = <T>(
+  arr: T[],
+  maxSize: number,
+  sizeCalculator: (item: T) => number
+): T[][] => {
+  if (!Array.isArray(arr)) {
+    throw new Error('Input must be an array');
   }
-  
-  const trueChunk: T[] = [];
-  const falseChunk: T[] = [];
-  
-  for (const item of array) {
-    if (predicate(item)) {
-      trueChunk.push(item);
-    } else {
-      falseChunk.push(item);
+
+  if (!Number.isFinite(maxSize) || maxSize <= 0) {
+    throw new Error('Maximum size must be a positive number');
+  }
+
+  if (typeof sizeCalculator !== 'function') {
+    throw new Error('Size calculator must be a function');
+  }
+
+  const result: T[][] = [];
+  let currentChunk: T[] = [];
+  let currentSize = 0;
+
+  for (const item of arr) {
+    try {
+      const itemSize = sizeCalculator(item);
+      
+      if (itemSize > maxSize) {
+        // If a single item exceeds maxSize, place it in its own chunk
+        if (currentChunk.length > 0) {
+          result.push(currentChunk);
+          currentChunk = [];
+          currentSize = 0;
+        }
+        result.push([item]);
+      } else if (currentSize + itemSize > maxSize) {
+        // If adding this item would exceed maxSize, start a new chunk
+        result.push(currentChunk);
+        currentChunk = [item];
+        currentSize = itemSize;
+      } else {
+        // Add item to the current chunk
+        currentChunk.push(item);
+        currentSize += itemSize;
+      }
+    } catch (error) {
+      // If sizeCalculator throws an error, place the item in its own chunk
+      if (currentChunk.length > 0) {
+        result.push(currentChunk);
+        currentChunk = [];
+        currentSize = 0;
+      }
+      result.push([item]);
+      console.warn('Error in chunkByMaxSize:', error);
     }
   }
-  
-  // Only return non-empty chunks
-  const result: T[][] = [];
-  if (falseChunk.length > 0) result.push(falseChunk);
-  if (trueChunk.length > 0) result.push(trueChunk);
-  
+
+  // Add the last chunk if it's not empty
+  if (currentChunk.length > 0) {
+    result.push(currentChunk);
+  }
+
   return result;
 };
 
 /**
- * Splits an array into chunks based on a key selector function.
- * Elements for which the key selector returns the same value will be grouped together.
+ * Splits an array into chunks based on a boundary condition.
+ * A new chunk is started whenever the boundary function returns true for adjacent elements.
  * 
- * @param array - The array to split into chunks
- * @param keySelector - A function that determines the grouping key for each element
- * @returns An array of chunks, where each chunk contains elements with the same key
- * 
+ * @param arr - The array to split into chunks
+ * @param isBoundary - A function that determines if a new chunk should start between two elements
+ * @returns An array of chunks separated by boundary conditions
+ * @throws Error if the input is not an array or if isBoundary is not a function
  * @example
- * ```typescript
- * // Group objects by a property
- * const users = [
- *   { id: 1, role: 'admin' },
- *   { id: 2, role: 'user' },
- *   { id: 3, role: 'admin' }
- * ];
- * const result = chunkByKey(users, user => user.role);
- * // result: [
- * //   [{ id: 1, role: 'admin' }, { id: 3, role: 'admin' }],
- * //   [{ id: 2, role: 'user' }]
- * // ]
- * ```
+ * // Split numbers at increasing values
+ * chunkByBoundary([1, 3, 5, 2, 4, 1, 7], (curr, next) => next < curr);
+ * // returns [[1, 3, 5], [2, 4], [1, 7]]
+ * 
+ * // Split dates by month boundaries
+ * const dates = ['2023-01-28', '2023-01-31', '2023-02-01', '2023-02-15', '2023-03-01'];
+ * chunkByBoundary(dates, (curr, next) => curr.substring(0, 7) !== next.substring(0, 7));
+ * // returns [['2023-01-28', '2023-01-31'], ['2023-02-01', '2023-02-15'], ['2023-03-01']]
  */
-export const chunkByKey = <T, K extends string | number | symbol>(
-  array: T[],
-  keySelector: (item: T) => K
+export const chunkByBoundary = <T>(
+  arr: T[],
+  isBoundary: (current: T, next: T, index: number) => boolean
 ): T[][] => {
-  if (!Array.isArray(array)) {
+  if (!Array.isArray(arr)) {
     throw new Error('Input must be an array');
   }
-  
-  if (typeof keySelector !== 'function') {
-    throw new Error('Key selector must be a function');
-  }
-  
-  if (array.length === 0) {
-    return [];
-  }
-  
-  const groups = new Map<K, T[]>();
-  
-  for (const item of array) {
-    const key = keySelector(item);
-    if (!groups.has(key)) {
-      groups.set(key, []);
-    }
-    groups.get(key)!.push(item);
-  }
-  
-  return Array.from(groups.values());
-};
 
-/**
- * Splits an array into chunks optimized for parallel processing.
- * This function attempts to create chunks with similar computational complexity
- * based on a weight selector function.
- * 
- * @param array - The array to split into chunks
- * @param numChunks - The number of chunks to create (must be greater than 0)
- * @param weightSelector - A function that determines the computational weight of each element
- * @returns An array of chunks, where each chunk has approximately equal total weight
- * @throws Error if numChunks is less than or equal to 0
- * 
- * @example
- * ```typescript
- * // Split tasks into chunks with balanced processing time
- * const tasks = [
- *   { id: 1, complexity: 5 },
- *   { id: 2, complexity: 2 },
- *   { id: 3, complexity: 7 },
- *   { id: 4, complexity: 3 }
- * ];
- * const result = chunkForParallel(tasks, 2, task => task.complexity);
- * // result will balance the chunks based on complexity
- * ```
- */
-export const chunkForParallel = <T>(
-  array: T[],
-  numChunks: number,
-  weightSelector: (item: T) => number = () => 1
-): T[][] => {
-  if (!Array.isArray(array)) {
-    throw new Error('Input must be an array');
+  if (typeof isBoundary !== 'function') {
+    throw new Error('Boundary function must be a function');
   }
-  
-  if (numChunks <= 0) {
-    throw new Error('Number of chunks must be greater than 0');
+
+  if (arr.length === 0) {
+    return [[]];
   }
-  
-  if (array.length === 0) {
-    return [];
-  }
-  
-  // Ensure numChunks doesn't exceed array length
-  const effectiveNumChunks = Math.min(numChunks, array.length);
-  
-  // Sort items by weight in descending order
-  const weightedItems = array
-    .map((item, index) => ({
-      item,
-      weight: weightSelector(item),
-      index // Preserve original order for stable sorting
-    }))
-    .sort((a, b) => b.weight - a.weight || a.index - b.index);
-  
-  // Initialize chunks with empty arrays and zero weights
-  const chunks: T[][] = Array.from({ length: effectiveNumChunks }, () => []);
-  const chunkWeights = Array(effectiveNumChunks).fill(0);
-  
-  // Distribute items using a greedy approach
-  for (const { item, weight } of weightedItems) {
-    // Find the chunk with the lowest current weight
-    const minWeightIndex = chunkWeights.indexOf(Math.min(...chunkWeights));
+
+  const result: T[][] = [];
+  let currentChunk: T[] = [arr[0]];
+
+  for (let i = 0; i < arr.length - 1; i++) {
+    const current = arr[i];
+    const next = arr[i + 1];
     
-    // Add the item to that chunk
-    chunks[minWeightIndex].push(item);
-    chunkWeights[minWeightIndex] += weight;
+    try {
+      if (isBoundary(current, next, i)) {
+        // Boundary detected, start a new chunk
+        result.push(currentChunk);
+        currentChunk = [next];
+      } else {
+        // Continue current chunk
+        currentChunk.push(next);
+      }
+    } catch (error) {
+      // If boundary function throws an error, treat it as a boundary
+      result.push(currentChunk);
+      currentChunk = [next];
+      console.warn('Error in chunkByBoundary:', error);
+    }
   }
-  
-  return chunks;
+
+  // Add the last chunk if it's not empty
+  if (currentChunk.length > 0) {
+    result.push(currentChunk);
+  }
+
+  return result;
 };

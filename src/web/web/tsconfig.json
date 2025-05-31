@@ -19,9 +19,13 @@
     "paths": {
       "@/*": ["src/*"],
       "@austa/design-system": ["../design-system/src"],
+      "@austa/design-system/*": ["../design-system/src/*"],
       "@design-system/primitives": ["../primitives/src"],
+      "@design-system/primitives/*": ["../primitives/src/*"],
       "@austa/interfaces": ["../interfaces"],
-      "@austa/journey-context": ["../journey-context/src"]
+      "@austa/interfaces/*": ["../interfaces/*"],
+      "@austa/journey-context": ["../journey-context/src"],
+      "@austa/journey-context/*": ["../journey-context/src/*"]
     },
     "noImplicitAny": true,
     "noImplicitReturns": true,

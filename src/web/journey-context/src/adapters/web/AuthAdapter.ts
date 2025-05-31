@@ -2,553 +2,691 @@
  * Web Authentication Adapter
  * 
  * This adapter implements web-specific authentication functionality including:
- * - localStorage-based token storage with appropriate security measures
+ * - localStorage-based token persistence
+ * - Cross-tab session synchronization
+ * - Next.js navigation integration
  * - Automatic token refresh mechanisms
- * - Session synchronization across browser tabs
- * - Secure logout functionality across all tabs
- * - Integration with Next.js navigation for authentication flows
+ * - Enhanced error handling
  * 
  * @packageDocumentation
+ * @module @austa/journey-context/adapters/web
  */
 
-import { AuthSession, isAuthSession } from '@austa/interfaces/auth/session.types';
-import { AuthState } from '@austa/interfaces/auth/state.types';
-import { WEB_AUTH_ROUTES } from '@austa/shared/constants/routes';
-
-// Storage key for authentication session
-const AUTH_STORAGE_KEY = 'austa_auth_session';
-
-// Event name for cross-tab authentication synchronization
-const AUTH_SYNC_EVENT = 'austa_auth_sync';
-
-// Storage event key for fallback synchronization (for browsers without BroadcastChannel)
-const AUTH_STORAGE_SYNC_KEY = 'austa_auth_sync_event';
-
-// Minimum time before token expiration to trigger refresh (in milliseconds)
-const TOKEN_REFRESH_THRESHOLD = 5 * 60 * 1000; // 5 minutes
-
-// Check if BroadcastChannel API is supported
-const isBroadcastChannelSupported = typeof BroadcastChannel !== 'undefined';
+import jwtDecode from 'jwt-decode';
+import { AuthSession, AuthState, JwtPayload, TokenValidationResult } from '@austa/interfaces/auth';
 
 /**
- * Web Authentication Adapter
- * 
- * Provides web-specific implementation for authentication operations
- * including localStorage persistence, cross-tab synchronization, and
- * integration with Next.js navigation.
+ * Storage key for persisting authentication session
  */
-export class WebAuthAdapter {
-  private refreshTimer: NodeJS.Timeout | null = null;
-  private _broadcastChannel: BroadcastChannel | null = null;
-  
-  /**
-   * Initializes the authentication adapter and sets up storage event listeners
-   * for cross-tab synchronization.
-   */
-  constructor() {
-    // Only set up event listeners in browser environment
-    if (typeof window !== 'undefined') {
-      // Listen for storage events to synchronize auth state across tabs
-      window.addEventListener('storage', this.handleStorageEvent);
-      
-      // Listen for custom auth sync events
-      window.addEventListener('austa_auth_sync', this.handleSyncEvent as EventListener);
-      
-      // Set up BroadcastChannel listener if supported
-      if (isBroadcastChannelSupported) {
-        this.setupBroadcastChannelListener();
-      }
-    }
-  }
-  
-  /**
-   * Sets up a BroadcastChannel listener for cross-tab communication
-   */
-  private setupBroadcastChannelListener(): void {
-    try {
-      const channel = new BroadcastChannel('austa_auth_channel');
-      
-      channel.onmessage = (event) => {
-        const { type, session } = event.data || {};
-        
-        if (type === 'SESSION_CHANGE') {
-          // Handle session change from another tab
-          this.handleSyncEvent(new CustomEvent(AUTH_SYNC_EVENT, { detail: { session } }));
-        } else if (type === 'LOGOUT') {
-          // Handle logout from another tab
-          this.clearSession();
-          
-          // Notify listeners about the auth state change
-          window.dispatchEvent(new CustomEvent('austa_auth_state_changed'));
-          
-          // Redirect to login page if we have access to router
-          // This will be handled by the AuthContext
-          window.dispatchEvent(new CustomEvent('austa_logout_redirect'));
-        }
-      };
-      
-      // Store the channel reference for cleanup
-      this._broadcastChannel = channel;
-    } catch (error) {
-      console.error('Failed to set up BroadcastChannel:', error);
-    }
-  }
-  
-  /**
-   * Cleans up event listeners and timers when the adapter is no longer needed
-   */
-  public dispose(): void {
-    if (typeof window !== 'undefined') {
-      window.removeEventListener('storage', this.handleStorageEvent);
-      window.removeEventListener('austa_auth_sync', this.handleSyncEvent as EventListener);
-      
-      // Close BroadcastChannel if it exists
-      if (this._broadcastChannel) {
-        this._broadcastChannel.close();
-        this._broadcastChannel = null;
-      }
-    }
-    
-    this.clearRefreshTimer();
-  }
-  
-  /**
-   * Retrieves the current authentication session from localStorage
-   * 
-   * @returns The current authentication session or null if not authenticated
-   */
-  public getSession(): AuthSession | null {
-    if (typeof window === 'undefined') {
-      return null; // Not in browser environment
-    }
-    
-    try {
-      const storedSession = localStorage.getItem(AUTH_STORAGE_KEY);
-      
-      if (!storedSession) {
-        return null;
-      }
-      
-      const parsedSession = JSON.parse(storedSession);
-      
-      // Validate the session structure
-      if (!isAuthSession(parsedSession)) {
-        console.error('Invalid session format in localStorage');
-        this.clearSession();
-        return null;
-      }
-      
-      // Check if the token is expired
-      if (parsedSession.expiresAt <= Date.now()) {
-        // Token is expired, but we'll return it anyway so the refresh mechanism can handle it
-        return parsedSession;
-      }
-      
-      return parsedSession;
-    } catch (error) {
-      console.error('Failed to parse stored session:', error);
-      this.clearSession();
-      return null;
-    }
-  }
-  
-  /**
-   * Saves the authentication session to localStorage and sets up token refresh
-   * 
-   * @param session - The authentication session to save
-   */
-  public setSession(session: AuthSession | null): void {
-    if (typeof window === 'undefined') {
-      return; // Not in browser environment
-    }
-    
-    this.clearRefreshTimer();
-    
-    if (session) {
-      try {
-        localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(session));
-        
-        // Set up automatic token refresh
-        this.setupTokenRefresh(session);
-        
-        // Notify other tabs about the session change
-        this.broadcastSessionChange(session);
-      } catch (error) {
-        console.error('Failed to store auth session:', error);
-        
-        // If localStorage is full or unavailable, try to clear some space
-        if (error instanceof DOMException && 
-            (error.name === 'QuotaExceededError' || 
-             error.name === 'NS_ERROR_DOM_QUOTA_REACHED')) {
-          this.handleStorageFullError();
-          
-          // Try again after clearing space
-          try {
-            localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(session));
-          } catch (retryError) {
-            console.error('Failed to store auth session after clearing space:', retryError);
-          }
-        }
-      }
-    } else {
-      this.clearSession();
-    }
-  }
-  
-  /**
-   * Clears the authentication session from localStorage and broadcasts the change
-   */
-  public clearSession(): void {
-    if (typeof window === 'undefined') {
-      return; // Not in browser environment
-    }
-    
-    this.clearRefreshTimer();
-    localStorage.removeItem(AUTH_STORAGE_KEY);
-    
-    // Notify other tabs about the session change
-    this.broadcastSessionChange(null);
-  }
-  
-  /**
-   * Handles user login by saving the session and setting up token refresh
-   * 
-   * @param session - The authentication session from successful login
-   * @returns The authentication session
-   */
-  public handleLogin(session: AuthSession): AuthSession {
-    this.setSession(session);
-    return session;
-  }
-  
-  /**
-   * Handles user logout by clearing the session and redirecting to login page
-   * 
-   * @param router - Next.js router instance for navigation
-   */
-  public handleLogout(router: any): void {
-    this.clearSession();
-    router.push(WEB_AUTH_ROUTES.LOGIN);
-  }
-  
-  /**
-   * Performs a global logout across all tabs
-   * 
-   * @param router - Next.js router instance for navigation
-   */
-  public handleGlobalLogout(router: any): void {
-    this.clearSession();
-    
-    // Broadcast logout event to all tabs
-    if (typeof window !== 'undefined') {
-      if (isBroadcastChannelSupported) {
-        try {
-          const bc = new BroadcastChannel('austa_auth_channel');
-          bc.postMessage({ type: 'LOGOUT' });
-          bc.close();
-        } catch (error) {
-          console.error('Failed to broadcast logout event:', error);
-          this.fallbackLogoutBroadcast();
-        }
-      } else {
-        // Use localStorage as fallback for browsers without BroadcastChannel support
-        this.fallbackLogoutBroadcast();
-      }
-    }
-    
-    router.push(WEB_AUTH_ROUTES.LOGIN);
-  }
-  
-  /**
-   * Fallback method to broadcast logout using localStorage
-   * This is used for browsers that don't support the BroadcastChannel API
-   */
-  private fallbackLogoutBroadcast(): void {
-    if (typeof window === 'undefined') {
-      return;
-    }
-    
-    try {
-      // Use a special key for logout events
-      const logoutData = {
-        type: 'LOGOUT',
-        timestamp: Date.now()
-      };
-      
-      localStorage.setItem('austa_auth_logout_event', JSON.stringify(logoutData));
-      
-      // Remove the item immediately to allow future events
-      setTimeout(() => {
-        localStorage.removeItem('austa_auth_logout_event');
-      }, 100);
-    } catch (error) {
-      console.error('Failed to use localStorage for logout broadcast:', error);
-    }
-  }
-  
-  /**
-   * Gets the current authentication state
-   * 
-   * @returns The current authentication state
-   */
-  public getAuthState(): AuthState {
-    const session = this.getSession();
-    
-    // If we have a session but it's expired, we're in a loading state
-    // while we attempt to refresh the token
-    if (session && session.expiresAt <= Date.now()) {
-      return {
-        session,
-        status: 'loading'
-      };
-    }
-    
-    return {
-      session,
-      status: session ? 'authenticated' : 'unauthenticated'
-    };
-  }
-  
-  /**
-   * Refreshes the authentication token if it's expired or about to expire
-   * 
-   * @param refreshCallback - Function to call to refresh the token
-   * @returns A promise that resolves with the refreshed session or null if refresh failed
-   */
-  public async refreshTokenIfNeeded(
-    refreshCallback: (refreshToken: string) => Promise<AuthSession>
-  ): Promise<AuthSession | null> {
-    const session = this.getSession();
-    
-    if (!session) {
-      return null;
-    }
-    
-    // Check if token is expired or about to expire
-    const now = Date.now();
-    const shouldRefresh = session.expiresAt - now < TOKEN_REFRESH_THRESHOLD;
-    
-    if (shouldRefresh) {
-      try {
-        const newSession = await refreshCallback(session.refreshToken);
-        this.setSession(newSession);
-        return newSession;
-      } catch (error) {
-        console.error('Token refresh failed:', error);
-        
-        // If refresh token is invalid, clear the session
-        if ((error as any)?.response?.status === 401) {
-          this.clearSession();
-        }
-        
-        return null;
-      }
-    }
-    
-    return session;
-  }
-  
-  /**
-   * Sets up automatic token refresh based on token expiration
-   * 
-   * @param session - The current authentication session
-   */
-  private setupTokenRefresh(session: AuthSession): void {
-    this.clearRefreshTimer();
-    
-    if (!session) {
-      return;
-    }
-    
-    const now = Date.now();
-    const timeUntilRefresh = Math.max(0, session.expiresAt - now - TOKEN_REFRESH_THRESHOLD);
-    
-    // Set up timer to check for token refresh
-    this.refreshTimer = setTimeout(() => {
-      // This will be handled by the AuthContext which will call refreshTokenIfNeeded
-      // We just need to trigger the event here
-      if (typeof window !== 'undefined') {
-        window.dispatchEvent(new CustomEvent('austa_token_refresh_needed'));
-      }
-    }, timeUntilRefresh);
-  }
-  
-  /**
-   * Clears the token refresh timer
-   */
-  private clearRefreshTimer(): void {
-    if (this.refreshTimer) {
-      clearTimeout(this.refreshTimer);
-      this.refreshTimer = null;
-    }
-  }
-  
-  /**
-   * Handles storage events for cross-tab synchronization
-   * 
-   * @param event - Storage event
-   */
-  private handleStorageEvent = (event: StorageEvent): void => {
-    if (event.key === AUTH_STORAGE_KEY) {
-      // Notify listeners about the auth state change
-      if (typeof window !== 'undefined') {
-        window.dispatchEvent(new CustomEvent('austa_auth_state_changed'));
-      }
-    } else if (event.key === 'austa_auth_logout_event' && event.newValue) {
-      // Handle logout event from another tab
-      this.clearSession();
-      
-      // Notify listeners about the auth state change
-      if (typeof window !== 'undefined') {
-        window.dispatchEvent(new CustomEvent('austa_auth_state_changed'));
-        window.dispatchEvent(new CustomEvent('austa_logout_redirect'));
-      }
-    } else if (event.key === AUTH_STORAGE_SYNC_KEY && event.newValue) {
-      // Handle fallback synchronization for browsers without BroadcastChannel
-      try {
-        const syncData = JSON.parse(event.newValue);
-        const { session } = syncData;
-        
-        // Only update if the session is different from current
-        const currentSession = this.getSession();
-        const currentJson = currentSession ? JSON.stringify(currentSession) : null;
-        const newJson = session ? JSON.stringify(session) : null;
-        
-        if (currentJson !== newJson) {
-          // Update local storage without triggering another broadcast
-          if (session) {
-            localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(session));
-            this.setupTokenRefresh(session);
-          } else {
-            localStorage.removeItem(AUTH_STORAGE_KEY);
-            this.clearRefreshTimer();
-          }
-          
-          // Notify listeners about the auth state change
-          window.dispatchEvent(new CustomEvent('austa_auth_state_changed'));
-        }
-      } catch (error) {
-        console.error('Failed to process storage sync event:', error);
-      }
-    }
-  };
-  
-  /**
-   * Handles custom sync events for cross-tab synchronization
-   * 
-   * @param event - Custom event with session data
-   */
-  private handleSyncEvent = (event: CustomEvent): void => {
-    const { session } = event.detail || {};
-    
-    // Only update if the session is different from current
-    const currentSession = this.getSession();
-    const currentJson = currentSession ? JSON.stringify(currentSession) : null;
-    const newJson = session ? JSON.stringify(session) : null;
-    
-    if (currentJson !== newJson) {
-      // Update local storage without triggering another broadcast
-      if (session) {
-        localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(session));
-        this.setupTokenRefresh(session);
-      } else {
-        localStorage.removeItem(AUTH_STORAGE_KEY);
-        this.clearRefreshTimer();
-      }
-      
-      // Notify listeners about the auth state change
-      if (typeof window !== 'undefined') {
-        window.dispatchEvent(new CustomEvent('austa_auth_state_changed'));
-      }
-    }
-  };
-  
-  /**
-   * Broadcasts session changes to other tabs
-   * 
-   * @param session - The updated session or null if logged out
-   */
-  private broadcastSessionChange(session: AuthSession | null): void {
-    if (typeof window === 'undefined') {
-      return;
-    }
-    
-    // Use BroadcastChannel API if available (more reliable than storage events)
-    if (isBroadcastChannelSupported) {
-      try {
-        const bc = new BroadcastChannel('austa_auth_channel');
-        bc.postMessage({ type: 'SESSION_CHANGE', session });
-        bc.close();
-      } catch (error) {
-        console.error('Failed to broadcast session change:', error);
-        this.fallbackBroadcast(session);
-      }
-    } else {
-      // Use localStorage as fallback for browsers without BroadcastChannel support
-      this.fallbackBroadcast(session);
-    }
-    
-    // Dispatch custom event for in-page communication
-    window.dispatchEvent(
-      new CustomEvent(AUTH_SYNC_EVENT, { detail: { session } })
-    );
-  }
-  
-  /**
-   * Fallback method to broadcast session changes using localStorage
-   * This is used for browsers that don't support the BroadcastChannel API
-   * 
-   * @param session - The updated session or null if logged out
-   */
-  private fallbackBroadcast(session: AuthSession | null): void {
-    if (typeof window === 'undefined') {
-      return;
-    }
-    
-    try {
-      // Use a timestamp to ensure the event is detected as a change
-      const syncData = {
-        session,
-        timestamp: Date.now()
-      };
-      
-      localStorage.setItem(AUTH_STORAGE_SYNC_KEY, JSON.stringify(syncData));
-      
-      // Remove the item immediately to allow future events with the same session
-      // This is necessary because storage events only fire when the value changes
-      setTimeout(() => {
-        localStorage.removeItem(AUTH_STORAGE_SYNC_KEY);
-      }, 100);
-    } catch (error) {
-      console.error('Failed to use localStorage for session broadcast:', error);
-    }
-  }
-  
-  /**
-   * Handles localStorage quota exceeded errors by clearing non-essential data
-   */
-  private handleStorageFullError(): void {
-    try {
-      // Try to clear some space by removing non-essential items
-      // This is a simple implementation - in a real app, you might want to
-      // prioritize which items to remove based on importance/age
-      const keysToKeep = [AUTH_STORAGE_KEY];
-      
-      for (let i = 0; i < localStorage.length; i++) {
-        const key = localStorage.key(i);
-        if (key && !keysToKeep.includes(key)) {
-          localStorage.removeItem(key);
-          // Break after removing one item to minimize disruption
-          break;
-        }
-      }
-    } catch (error) {
-      console.error('Failed to clear localStorage space:', error);
-    }
+const AUTH_STORAGE_KEY = 'AUSTA:auth_session';
+
+/**
+ * Storage event name for cross-tab synchronization
+ */
+const AUTH_STORAGE_EVENT = 'storage';
+
+/**
+ * Buffer time (in ms) before token expiration when we should refresh
+ * Refresh 5 minutes before expiration to ensure continuous service
+ */
+const REFRESH_BUFFER_TIME = 5 * 60 * 1000;
+
+/**
+ * Error types that can occur during authentication operations
+ */
+export enum AuthErrorType {
+  TOKEN_PERSISTENCE_FAILURE = 'TOKEN_PERSISTENCE_FAILURE',
+  TOKEN_RETRIEVAL_FAILURE = 'TOKEN_RETRIEVAL_FAILURE',
+  TOKEN_REFRESH_FAILURE = 'TOKEN_REFRESH_FAILURE',
+  NAVIGATION_FAILURE = 'NAVIGATION_FAILURE',
+  INVALID_CREDENTIALS = 'INVALID_CREDENTIALS',
+  NETWORK_FAILURE = 'NETWORK_FAILURE',
+  STORAGE_SYNC_FAILURE = 'STORAGE_SYNC_FAILURE',
+  UNKNOWN_ERROR = 'UNKNOWN_ERROR'
+}
+
+/**
+ * Custom error class for authentication operations
+ */
+export class AuthError extends Error {
+  type: AuthErrorType;
+  originalError?: Error;
+
+  constructor(type: AuthErrorType, message: string, originalError?: Error) {
+    super(message);
+    this.name = 'AuthError';
+    this.type = type;
+    this.originalError = originalError;
   }
 }
 
-// Export a singleton instance
-export const authAdapter = new WebAuthAdapter();
+/**
+ * Options for authentication operations
+ */
+export interface AuthAdapterOptions {
+  /** Whether to automatically refresh tokens before expiration */
+  autoRefreshTokens?: boolean;
+  /** Custom storage key for auth session */
+  storageKey?: string;
+  /** Maximum retry attempts for token operations */
+  maxRetries?: number;
+  /** Whether to persist authentication state */
+  persistAuthentication?: boolean;
+  /** Whether to enable cross-tab session synchronization */
+  enableCrossTabSync?: boolean;
+  /** Callback for handling navigation after authentication */
+  onAuthStateChanged?: (state: AuthState) => void;
+  /** Routes for authentication navigation */
+  routes?: {
+    /** Login page route */
+    login: string;
+    /** Post-login redirect route */
+    postLogin?: string;
+    /** Post-logout redirect route */
+    postLogout?: string;
+  };
+}
 
-export default authAdapter;
+/**
+ * Default authentication options
+ */
+const DEFAULT_OPTIONS: AuthAdapterOptions = {
+  autoRefreshTokens: true,
+  storageKey: AUTH_STORAGE_KEY,
+  maxRetries: 3,
+  persistAuthentication: true,
+  enableCrossTabSync: true,
+  routes: {
+    login: '/auth/login',
+    postLogin: '/dashboard',
+    postLogout: '/auth/login'
+  }
+};
+
+/**
+ * Authentication API interface for making auth requests
+ */
+interface AuthApi {
+  login: (email: string, password: string) => Promise<AuthSession>;
+  register: (userData: object) => Promise<AuthSession>;
+  verifyMfa: (code: string, tempToken: string) => Promise<AuthSession>;
+  refreshToken: (refreshToken: string) => Promise<AuthSession>;
+  socialLogin: (provider: string, tokenData: object) => Promise<AuthSession>;
+  logout: () => Promise<void>;
+}
+
+/**
+ * Web-specific authentication adapter that implements localStorage-based token persistence,
+ * cross-tab session synchronization, and Next.js navigation integration for authentication flows.
+ */
+export class AuthAdapter {
+  private options: AuthAdapterOptions;
+  private refreshTimerId: NodeJS.Timeout | null = null;
+  private authState: AuthState = { session: null, status: 'loading' };
+  private authApi: AuthApi;
+  private storageListener: ((event: StorageEvent) => void) | null = null;
+
+  /**
+   * Creates a new AuthAdapter instance
+   * @param authApi Authentication API implementation
+   * @param options Configuration options for the adapter
+   */
+  constructor(authApi: AuthApi, options: AuthAdapterOptions = {}) {
+    this.options = { ...DEFAULT_OPTIONS, ...options };
+    this.authApi = authApi;
+
+    // Set up cross-tab synchronization if enabled
+    if (this.options.enableCrossTabSync && typeof window !== 'undefined') {
+      this.setupStorageListener();
+    }
+  }
+
+  /**
+   * Sets up storage event listener for cross-tab synchronization
+   * @private
+   */
+  private setupStorageListener(): void {
+    if (typeof window === 'undefined') return;
+
+    this.storageListener = (event: StorageEvent) => {
+      const storageKey = this.options.storageKey || AUTH_STORAGE_KEY;
+      
+      // Only process events for our storage key
+      if (event.key === storageKey) {
+        try {
+          if (event.newValue) {
+            // Another tab has set a session
+            const session = JSON.parse(event.newValue) as AuthSession;
+            this.updateAuthState({ session, status: 'authenticated' });
+            
+            // Schedule token refresh if enabled
+            if (this.options.autoRefreshTokens) {
+              this.scheduleTokenRefresh(session.expiresAt);
+            }
+          } else {
+            // Another tab has cleared the session (logout)
+            this.clearLocalState();
+            this.updateAuthState({ session: null, status: 'unauthenticated' });
+          }
+        } catch (error) {
+          console.error('Error processing storage event:', error);
+        }
+      }
+    };
+
+    window.addEventListener(AUTH_STORAGE_EVENT, this.storageListener);
+  }
+
+  /**
+   * Removes storage event listener
+   * @private
+   */
+  private removeStorageListener(): void {
+    if (typeof window === 'undefined' || !this.storageListener) return;
+    
+    window.removeEventListener(AUTH_STORAGE_EVENT, this.storageListener);
+    this.storageListener = null;
+  }
+
+  /**
+   * Loads the persisted authentication session from localStorage
+   * @returns Promise that resolves with the loaded auth state
+   */
+  async loadPersistedSession(): Promise<AuthState> {
+    if (typeof window === 'undefined') {
+      this.updateAuthState({ session: null, status: 'unauthenticated' });
+      return this.authState;
+    }
+
+    try {
+      const storageKey = this.options.storageKey || AUTH_STORAGE_KEY;
+      const sessionData = localStorage.getItem(storageKey);
+      
+      if (sessionData) {
+        const session = JSON.parse(sessionData) as AuthSession;
+        
+        // Check if the session is expired
+        const isExpired = session.expiresAt < Date.now();
+        
+        if (isExpired) {
+          // Try to refresh the token if expired
+          try {
+            if (this.options.autoRefreshTokens) {
+              await this.refreshToken();
+              return this.authState;
+            } else {
+              // If auto-refresh is disabled, clear the session
+              await this.clearSession();
+              this.updateAuthState({ session: null, status: 'unauthenticated' });
+              return this.authState;
+            }
+          } catch (error) {
+            // If refresh fails, clear the session
+            await this.clearSession();
+            this.updateAuthState({ session: null, status: 'unauthenticated' });
+            return this.authState;
+          }
+        } else {
+          // Session is valid, set it
+          this.updateAuthState({ session, status: 'authenticated' });
+          
+          // Schedule token refresh if enabled
+          if (this.options.autoRefreshTokens) {
+            this.scheduleTokenRefresh(session.expiresAt);
+          }
+          
+          return this.authState;
+        }
+      } else {
+        // No session found
+        this.updateAuthState({ session: null, status: 'unauthenticated' });
+        return this.authState;
+      }
+    } catch (error) {
+      console.error('Error loading auth session:', error);
+      this.updateAuthState({ session: null, status: 'unauthenticated' });
+      
+      throw new AuthError(
+        AuthErrorType.TOKEN_RETRIEVAL_FAILURE,
+        'Failed to load authentication session from storage',
+        error as Error
+      );
+    }
+  }
+
+  /**
+   * Persists the authentication session to localStorage
+   * @param session Authentication session to persist
+   * @returns Promise that resolves when the operation completes
+   */
+  async persistSession(session: AuthSession | null): Promise<void> {
+    if (!this.options.persistAuthentication || typeof window === 'undefined') {
+      return;
+    }
+    
+    try {
+      const storageKey = this.options.storageKey || AUTH_STORAGE_KEY;
+      
+      if (session) {
+        localStorage.setItem(storageKey, JSON.stringify(session));
+      } else {
+        localStorage.removeItem(storageKey);
+      }
+    } catch (error) {
+      console.error('Error persisting auth session:', error);
+      
+      throw new AuthError(
+        AuthErrorType.TOKEN_PERSISTENCE_FAILURE,
+        'Failed to persist authentication session to storage',
+        error as Error
+      );
+    }
+  }
+
+  /**
+   * Clears the persisted authentication session from localStorage
+   * @returns Promise that resolves when the operation completes
+   */
+  async clearSession(): Promise<void> {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    try {
+      const storageKey = this.options.storageKey || AUTH_STORAGE_KEY;
+      localStorage.removeItem(storageKey);
+      this.clearLocalState();
+    } catch (error) {
+      console.error('Error clearing auth session:', error);
+      
+      throw new AuthError(
+        AuthErrorType.TOKEN_PERSISTENCE_FAILURE,
+        'Failed to clear authentication session from storage',
+        error as Error
+      );
+    }
+  }
+
+  /**
+   * Clears local state (timers, etc.)
+   * @private
+   */
+  private clearLocalState(): void {
+    // Clear any scheduled token refresh
+    if (this.refreshTimerId) {
+      clearTimeout(this.refreshTimerId);
+      this.refreshTimerId = null;
+    }
+  }
+
+  /**
+   * Schedules a token refresh before expiration
+   * @param expiresAt Timestamp when the token expires
+   */
+  private scheduleTokenRefresh(expiresAt: number): void {
+    // Clear any existing refresh timer
+    if (this.refreshTimerId) {
+      clearTimeout(this.refreshTimerId);
+      this.refreshTimerId = null;
+    }
+    
+    // Calculate when to refresh (5 minutes before expiration)
+    const timeUntilRefresh = expiresAt - Date.now() - REFRESH_BUFFER_TIME;
+    
+    // Only schedule if we need to refresh in the future
+    if (timeUntilRefresh > 0) {
+      this.refreshTimerId = setTimeout(async () => {
+        try {
+          await this.refreshToken();
+        } catch (error) {
+          console.error('Auto token refresh failed:', error);
+          // If refresh fails during auto-refresh, we'll keep the current session
+          // until it expires, at which point the user will be logged out
+        }
+      }, timeUntilRefresh);
+    }
+  }
+
+  /**
+   * Updates the authentication state and notifies listeners
+   * @param newState New authentication state
+   */
+  private updateAuthState(newState: AuthState): void {
+    this.authState = newState;
+    
+    // Notify listeners if callback is provided
+    if (this.options.onAuthStateChanged) {
+      this.options.onAuthStateChanged(newState);
+    }
+  }
+
+  /**
+   * Signs in with email and password
+   * @param email User email
+   * @param password User password
+   * @returns Promise that resolves with the authentication session
+   */
+  async signIn(email: string, password: string): Promise<AuthSession> {
+    try {
+      this.updateAuthState({ ...this.authState, status: 'loading' });
+      
+      const session = await this.authApi.login(email, password);
+      this.updateAuthState({ session, status: 'authenticated' });
+      
+      // Persist session if enabled
+      if (this.options.persistAuthentication) {
+        await this.persistSession(session);
+      }
+      
+      // Schedule token refresh if enabled
+      if (this.options.autoRefreshTokens) {
+        this.scheduleTokenRefresh(session.expiresAt);
+      }
+      
+      return session;
+    } catch (error) {
+      this.updateAuthState({ session: null, status: 'unauthenticated' });
+      
+      throw new AuthError(
+        AuthErrorType.INVALID_CREDENTIALS,
+        'Failed to sign in with the provided credentials',
+        error as Error
+      );
+    }
+  }
+
+  /**
+   * Registers a new user
+   * @param userData User registration data
+   * @returns Promise that resolves with the authentication session
+   */
+  async signUp(userData: object): Promise<AuthSession> {
+    try {
+      this.updateAuthState({ ...this.authState, status: 'loading' });
+      
+      const session = await this.authApi.register(userData);
+      this.updateAuthState({ session, status: 'authenticated' });
+      
+      // Persist session if enabled
+      if (this.options.persistAuthentication) {
+        await this.persistSession(session);
+      }
+      
+      // Schedule token refresh if enabled
+      if (this.options.autoRefreshTokens) {
+        this.scheduleTokenRefresh(session.expiresAt);
+      }
+      
+      return session;
+    } catch (error) {
+      this.updateAuthState({ session: null, status: 'unauthenticated' });
+      
+      throw new AuthError(
+        AuthErrorType.UNKNOWN_ERROR,
+        'Failed to register new user',
+        error as Error
+      );
+    }
+  }
+
+  /**
+   * Signs out the current user
+   * @param navigate Optional navigation function from Next.js
+   * @returns Promise that resolves when sign out is complete
+   */
+  async signOut(navigate?: (path: string) => void): Promise<void> {
+    try {
+      // Clear any scheduled token refresh
+      this.clearLocalState();
+      
+      // Call logout API if we have a session
+      if (this.authState.session) {
+        try {
+          await this.authApi.logout();
+        } catch (error) {
+          console.error('Logout API error:', error);
+          // Continue with local logout even if API call fails
+        }
+      }
+      
+      // Clear session from storage
+      await this.clearSession();
+      
+      // Update state
+      this.updateAuthState({ session: null, status: 'unauthenticated' });
+      
+      // Navigate to login page if navigation function is provided
+      if (navigate && this.options.routes?.postLogout) {
+        navigate(this.options.routes.postLogout);
+      }
+    } catch (error) {
+      console.error('Sign out error:', error);
+      
+      throw new AuthError(
+        AuthErrorType.UNKNOWN_ERROR,
+        'Failed to sign out',
+        error as Error
+      );
+    }
+  }
+
+  /**
+   * Handles MFA verification
+   * @param code MFA verification code
+   * @param tempToken Temporary token from initial authentication
+   * @returns Promise that resolves with the authentication session
+   */
+  async verifyMfa(code: string, tempToken: string): Promise<AuthSession> {
+    try {
+      this.updateAuthState({ ...this.authState, status: 'loading' });
+      
+      const session = await this.authApi.verifyMfa(code, tempToken);
+      this.updateAuthState({ session, status: 'authenticated' });
+      
+      // Persist session if enabled
+      if (this.options.persistAuthentication) {
+        await this.persistSession(session);
+      }
+      
+      // Schedule token refresh if enabled
+      if (this.options.autoRefreshTokens) {
+        this.scheduleTokenRefresh(session.expiresAt);
+      }
+      
+      return session;
+    } catch (error) {
+      this.updateAuthState({ session: null, status: 'unauthenticated' });
+      
+      throw new AuthError(
+        AuthErrorType.UNKNOWN_ERROR,
+        'Failed to verify MFA code',
+        error as Error
+      );
+    }
+  }
+
+  /**
+   * Handles social login (OAuth)
+   * @param provider Social provider (e.g., 'google', 'facebook')
+   * @param tokenData Token data from the OAuth provider
+   * @returns Promise that resolves with the authentication session
+   */
+  async socialLogin(provider: string, tokenData: object): Promise<AuthSession> {
+    try {
+      this.updateAuthState({ ...this.authState, status: 'loading' });
+      
+      const session = await this.authApi.socialLogin(provider, tokenData);
+      this.updateAuthState({ session, status: 'authenticated' });
+      
+      // Persist session if enabled
+      if (this.options.persistAuthentication) {
+        await this.persistSession(session);
+      }
+      
+      // Schedule token refresh if enabled
+      if (this.options.autoRefreshTokens) {
+        this.scheduleTokenRefresh(session.expiresAt);
+      }
+      
+      return session;
+    } catch (error) {
+      this.updateAuthState({ session: null, status: 'unauthenticated' });
+      
+      throw new AuthError(
+        AuthErrorType.UNKNOWN_ERROR,
+        'Failed to authenticate with social provider',
+        error as Error
+      );
+    }
+  }
+
+  /**
+   * Refreshes the authentication token
+   * @returns Promise that resolves with the refreshed authentication session
+   */
+  async refreshToken(): Promise<AuthSession> {
+    try {
+      // Only attempt refresh if we have a session
+      if (!this.authState.session) {
+        throw new Error('No session to refresh');
+      }
+      
+      const newSession = await this.authApi.refreshToken(this.authState.session.refreshToken);
+      this.updateAuthState({ session: newSession, status: 'authenticated' });
+      
+      // Persist session if enabled
+      if (this.options.persistAuthentication) {
+        await this.persistSession(newSession);
+      }
+      
+      // Schedule the next token refresh if enabled
+      if (this.options.autoRefreshTokens) {
+        this.scheduleTokenRefresh(newSession.expiresAt);
+      }
+      
+      return newSession;
+    } catch (error) {
+      // On refresh failure, user must re-authenticate
+      this.updateAuthState({ session: null, status: 'unauthenticated' });
+      
+      throw new AuthError(
+        AuthErrorType.TOKEN_REFRESH_FAILURE,
+        'Failed to refresh authentication token',
+        error as Error
+      );
+    }
+  }
+
+  /**
+   * Gets the current authentication state
+   * @returns Current authentication state
+   */
+  getAuthState(): AuthState {
+    return this.authState;
+  }
+
+  /**
+   * Gets user information from token
+   * @param token JWT token
+   * @returns Decoded token payload
+   */
+  getUserFromToken(token: string): JwtPayload | null {
+    try {
+      return jwtDecode<JwtPayload>(token);
+    } catch (error) {
+      console.error('Error decoding token:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Validates a token without verifying its signature
+   * @param token JWT token
+   * @returns Token validation result
+   */
+  validateToken(token: string): TokenValidationResult {
+    try {
+      const decoded = this.getUserFromToken(token);
+      
+      if (!decoded) {
+        return {
+          isValid: false,
+          error: 'Failed to decode token'
+        };
+      }
+      
+      const now = Math.floor(Date.now() / 1000);
+      const validationErrors: Record<string, string> = {};
+      
+      // Check expiration
+      if (decoded.exp && decoded.exp < now) {
+        validationErrors.expiration = 'Token has expired';
+      }
+      
+      // Check not before
+      if (decoded.nbf && decoded.nbf > now) {
+        validationErrors.notBefore = 'Token is not yet valid';
+      }
+      
+      return {
+        isValid: Object.keys(validationErrors).length === 0,
+        token: {
+          header: { alg: 'unknown', typ: 'JWT' }, // We don't have access to the header without a full JWT library
+          payload: decoded,
+          token,
+          signature: ''
+        },
+        validationErrors: Object.keys(validationErrors).length > 0 ? validationErrors : undefined,
+        error: Object.keys(validationErrors).length > 0 ? 'Token validation failed' : undefined
+      };
+    } catch (error) {
+      return {
+        isValid: false,
+        error: 'Token validation error: ' + (error as Error).message
+      };
+    }
+  }
+
+  /**
+   * Checks if the current session is valid
+   * @returns Whether the session is valid
+   */
+  isSessionValid(): boolean {
+    if (!this.authState.session) {
+      return false;
+    }
+    
+    return this.authState.session.expiresAt > Date.now();
+  }
+
+  /**
+   * Redirects to login page using Next.js navigation
+   * @param navigate Next.js navigation function
+   */
+  redirectToLogin(navigate: (path: string) => void): void {
+    if (this.options.routes?.login) {
+      navigate(this.options.routes.login);
+    }
+  }
+
+  /**
+   * Redirects to post-login page using Next.js navigation
+   * @param navigate Next.js navigation function
+   */
+  redirectAfterLogin(navigate: (path: string) => void): void {
+    if (this.options.routes?.postLogin) {
+      navigate(this.options.routes.postLogin);
+    }
+  }
+
+  /**
+   * Cleans up resources used by the adapter
+   */
+  cleanup(): void {
+    // Clear any scheduled token refresh
+    this.clearLocalState();
+    
+    // Remove storage event listener
+    this.removeStorageListener();
+  }
+}

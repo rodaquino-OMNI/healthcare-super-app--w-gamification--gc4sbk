@@ -1,85 +1,89 @@
-import type { Config } from '@jest/types';
-import { pathsToModuleNameMapper } from 'ts-jest';
-import { compilerOptions } from '../tsconfig.json';
-
 /**
- * Jest configuration for end-to-end testing of the auth package.
+ * Jest configuration for end-to-end testing of the auth package
+ * 
  * This configuration extends the base Jest configuration with settings
- * specific to E2E testing, including longer timeouts for API requests,
+ * specific to end-to-end testing, including longer timeouts for API requests,
  * test database connections, and HTTP server setup.
  */
+
+import type { Config } from '@jest/types';
+import { pathsToModuleNameMapper } from 'ts-jest';
+import { readFileSync } from 'fs';
+import { join } from 'path';
+
+// Read tsconfig to use its paths for module name mapping
+const tsconfig = JSON.parse(
+  readFileSync(join(__dirname, 'tsconfig.spec.json'), 'utf-8')
+);
+
+/**
+ * Jest configuration for end-to-end tests
+ * Extends the base configuration with E2E-specific settings
+ */
 const config: Config.InitialOptions = {
-  // Specify the test environment
+  preset: 'ts-jest',
   testEnvironment: 'node',
-  
-  // File extensions Jest will look for
-  moduleFileExtensions: ['js', 'json', 'ts'],
-  
-  // Root directory for tests
   rootDir: '..',
-  
-  // Pattern to detect E2E test files
-  testRegex: '.e2e-spec.ts$',
-  
-  // Transform TypeScript files using ts-jest
-  transform: {
-    '^.+\\.(t|j)s$': 'ts-jest',
-  },
-  
-  // Use longer timeout for E2E tests (30 seconds)
-  testTimeout: 30000,
-  
-  // Map module paths from tsconfig
-  moduleNameMapper: {
-    // Map paths from tsconfig.json
-    ...pathsToModuleNameMapper(compilerOptions.paths || {}, {
-      prefix: '<rootDir>/',
-    }),
-    // Map @austa namespace packages
-    '^@austa/(.*)$': '<rootDir>/../../../$1',
-    // Map journey-specific imports
-    '^@app/(.*)$': '<rootDir>/../../$1',
-  },
-  
-  // Coverage configuration
-  collectCoverageFrom: [
-    'src/**/*.ts',
-    '!src/**/*.d.ts',
-    '!src/**/*.interface.ts',
-    '!src/**/*.module.ts',
-    '!src/**/index.ts',
-    '!src/**/*.dto.ts',
-    '!src/main.ts',
+  testMatch: [
+    '<rootDir>/test/e2e/**/*.e2e-spec.ts',
+    '<rootDir>/test/integration/**/*.integration-spec.ts'
   ],
-  coverageDirectory: './coverage',
-  
-  // Setup and teardown files
-  globalSetup: '<rootDir>/test/setup-tests.ts',
+  moduleFileExtensions: ['js', 'json', 'ts'],
+  transform: {
+    '^.+\.(t|j)s$': 'ts-jest'
+  },
+  collectCoverageFrom: [
+    '<rootDir>/src/**/*.ts',
+    '!<rootDir>/src/**/*.module.ts',
+    '!<rootDir>/src/**/index.ts',
+    '!<rootDir>/src/**/*.interface.ts',
+    '!<rootDir>/src/**/*.dto.ts',
+    '!<rootDir>/src/**/*.entity.ts',
+    '!<rootDir>/src/**/*.constants.ts',
+    '!<rootDir>/src/**/*.types.ts',
+    '!<rootDir>/src/**/main.ts',
+    '!<rootDir>/dist/**',
+    '!**/node_modules/**'
+  ],
+  coverageDirectory: '<rootDir>/coverage/e2e',
+  moduleNameMapper: pathsToModuleNameMapper(tsconfig.compilerOptions.paths, {
+    prefix: '<rootDir>/../..'
+  }),
+  // Longer timeouts for E2E tests that involve real HTTP requests and database operations
+  testTimeout: 60000,
+  // Setup files for the E2E test environment
+  setupFilesAfterEnv: ['<rootDir>/test/setup-tests.ts'],
+  // Global teardown script to clean up resources after all tests
   globalTeardown: '<rootDir>/test/global-teardown.js',
-  
-  // Display detailed test results
+  // Verbose output for better debugging of E2E tests
   verbose: true,
-  
-  // Automatically clear mock calls and instances between every test
-  clearMocks: true,
-  
-  // Reset modules between tests
-  resetModules: true,
-  
-  // Force using a new instance of Jest for each test file
-  maxWorkers: '50%',
-  
-  // Use setup-tests.ts for environment setup as well
-  // If a separate setup-env.ts is needed in the future, it can be added here
-  
-  // Disable type checking for faster test execution
-  // Enable only when needed for debugging type issues
+  // Limit parallel execution for E2E tests to avoid resource contention
+  maxWorkers: 4,
+  // Additional globals for E2E testing
   globals: {
     'ts-jest': {
-      isolatedModules: true,
-      diagnostics: false,
+      tsconfig: '<rootDir>/test/tsconfig.spec.json',
+      isolatedModules: true
     },
+    // Environment variables for E2E tests
+    __E2E_TEST__: true
   },
+  // Specific transformIgnorePatterns for E2E tests
+  transformIgnorePatterns: [
+    '/node_modules/(?!(@austa|@nestjs)/)'
+  ],
+  // Additional options for E2E testing
+  bail: true, // Stop running tests after the first failure
+  forceExit: true, // Force Jest to exit after all tests complete
+  detectOpenHandles: true, // Detect open handles (like database connections) that weren't closed
+  // Custom reporters for E2E test results
+  reporters: [
+    'default',
+    ['jest-junit', {
+      outputDirectory: '<rootDir>/reports',
+      outputName: 'e2e-junit.xml'
+    }]
+  ]
 };
 
 export default config;

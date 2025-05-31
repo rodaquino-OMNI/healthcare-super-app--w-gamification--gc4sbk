@@ -1,31 +1,21 @@
 import React from 'react';
-import { useTheme } from 'styled-components';
-import { useJourney } from '@austa/journey-context';
-import { ProgressBar } from '../../components/ProgressBar/ProgressBar';
-import { XPCounter } from '../XPCounter/XPCounter';
-import { AchievementBadge } from '../AchievementBadge/AchievementBadge';
-import { LevelIndicatorProps } from '@austa/interfaces/gamification';
-import { Journey } from '@austa/interfaces/common';
+// Import types from shared interfaces
+import type { Achievement } from '@austa/interfaces/gamification';
+import type { LevelIndicatorProps } from '@austa/interfaces/components/gamification.types';
+// Import styled components from separate styles file
 import {
   LevelContainer,
   LevelText,
+  LevelProgress,
   LevelBadge,
   LevelInfo,
-  LevelTitle,
-  LevelProgress,
+  LevelTitle
 } from './LevelIndicator.styles';
-
-/**
- * Helper function to get level title based on level number
- */
-const getLevelTitle = (level: number): string => {
-  if (level < 5) return 'Iniciante';
-  if (level < 10) return 'Aventureiro';
-  if (level < 15) return 'Explorador';
-  if (level < 20) return 'Especialista';
-  if (level < 25) return 'Mestre';
-  return 'Lendário';
-};
+// Import components
+import { XPCounter } from '../XPCounter/XPCounter';
+import { AchievementBadge } from '../AchievementBadge/AchievementBadge';
+// Import journey context hook
+import { useJourney } from '@austa/journey-context';
 
 /**
  * A component that displays the user's current level and progress towards the next level,
@@ -35,45 +25,88 @@ const getLevelTitle = (level: number): string => {
  * ```tsx
  * <LevelIndicator
  *   level={5}
- *   currentXp={1500}
- *   nextLevelXp={2000}
+ *   currentXP={1500}
+ *   nextLevelXP={2000}
  *   journey="health"
+ *   showXPValues={true}
+ *   animate={true}
+ *   size="md"
  *   recentAchievement={{
  *     id: 'daily-goal',
  *     title: 'Meta Diária Completa',
  *     description: 'Complete sua meta diária',
  *     icon: 'trophy',
- *     progress: 1,
- *     total: 1,
+ *     category: 'health',
+ *     points: 100,
+ *     rarity: 'common',
+ *     imageUrl: '/images/achievements/daily-goal.png',
+ *     badgeUrl: '/images/badges/daily-goal.png',
+ *     tier: 1,
+ *     progress: {
+ *       current: 1,
+ *       required: 1,
+ *       percentage: 100,
+ *       lastUpdated: new Date()
+ *     },
  *     unlocked: true,
+ *     unlockedAt: new Date(),
  *     journey: 'health'
  *   }}
  * />
  * ```
  */
-export const LevelIndicator: React.FC<LevelIndicatorProps> = ({
+export const LevelIndicator: React.FC<LevelIndicatorProps & { recentAchievement?: Achievement }> = ({
   level,
-  currentXp,
-  nextLevelXp,
+  currentXP,
+  nextLevelXP,
   journey,
+  showXPValues = true,
+  animate = true,
+  onPress,
+  showLevelUpAnimation = false,
+  levelLabel,
   recentAchievement,
+  className,
+  testID,
+  size = 'md',
+  animationState = 'idle',
 }) => {
-  // Get the current journey context if not explicitly provided
-  const { currentJourney } = useJourney();
-  const activeJourney = journey || currentJourney as Journey;
+  // Use journey context to get theme information
+  const { getJourneyTheme } = useJourney();
+  
+  // Get level title based on level
+  const getLevelTitle = (level: number): string => {
+    if (levelLabel) return levelLabel;
+    if (level < 5) return 'Iniciante';
+    if (level < 10) return 'Aventureiro';
+    if (level < 15) return 'Explorador';
+    if (level < 20) return 'Especialista';
+    if (level < 25) return 'Mestre';
+    return 'Lendário';
+  };
   
   const levelTitle = getLevelTitle(level);
   
   // Calculate XP needed for next level, ensuring it's not negative
-  const xpNeeded = Math.max(0, nextLevelXp - currentXp);
+  const xpNeeded = Math.max(0, nextLevelXP - currentXP);
+  
+  // Handle click/press event
+  const handlePress = () => {
+    if (onPress) {
+      onPress();
+    }
+  };
   
   return (
     <LevelContainer 
-      journey={activeJourney}
-      aria-label={`Nível ${level} - ${levelTitle}. ${currentXp} de experiência atual. ${xpNeeded} pontos para o próximo nível.`}
+      journey={journey}
+      onClick={handlePress}
+      className={className}
+      data-testid={testID}
+      aria-label={`Nível ${level} - ${levelTitle}. ${currentXP} pontos de experiência atual. ${xpNeeded} pontos necessários para o próximo nível.`}
     >
-      <LevelText journey={activeJourney}>
-        <LevelBadge journey={activeJourney}>{level}</LevelBadge>
+      <LevelText journey={journey}>
+        <LevelBadge journey={journey}>{level}</LevelBadge>
         <LevelInfo>
           <LevelTitle>Nível</LevelTitle>
           {levelTitle}
@@ -82,18 +115,25 @@ export const LevelIndicator: React.FC<LevelIndicatorProps> = ({
       
       <LevelProgress>
         <XPCounter
-          currentXP={currentXp}
-          nextLevelXP={nextLevelXp}
-          levelXP={0} // Assuming the start of the current level is 0 XP
-          journey={activeJourney}
+          currentXP={currentXP}
+          nextLevelXP={nextLevelXP}
+          journey={journey}
+          showProgressBar={true}
+          animate={animate}
+          size={size}
         />
       </LevelProgress>
       
-      {recentAchievement && (
-        <div role="status" aria-live="polite">
+      {recentAchievement && showLevelUpAnimation && (
+        <div 
+          aria-live="polite" 
+          role="status"
+          className={`achievement-notification ${animationState === 'active' ? 'animate' : ''}`}
+        >
           <AchievementBadge
             achievement={recentAchievement}
             size="sm"
+            showNotification={true}
           />
           <span>
             Nova conquista: {recentAchievement.title}

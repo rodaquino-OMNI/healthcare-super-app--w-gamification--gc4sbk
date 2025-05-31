@@ -1,9 +1,10 @@
 /**
- * Authentication API Response Interfaces
+ * Authentication Response Types for the AUSTA SuperApp
  * 
- * This file defines TypeScript interfaces for all authentication-related API responses
- * in the AUSTA SuperApp, ensuring consistency between backend responses and frontend
- * expectations for both web and mobile platforms.
+ * This file defines TypeScript interfaces for all authentication-related API responses,
+ * ensuring consistency between backend responses and frontend expectations.
+ * These interfaces enable type-safe API interactions for authentication operations
+ * across both web and mobile platforms.
  */
 
 import { AuthSession } from './session.types';
@@ -24,19 +25,34 @@ export interface AuthErrorResponse {
   message: string;
   
   /**
-   * Optional field-specific validation errors
+   * Optional additional details about the error
    */
-  validationErrors?: Record<string, string[]>;
+  details?: Record<string, any>;
 }
 
 /**
- * Response returned after successful user registration
+ * Base interface for all authentication responses
  */
-export interface RegisterResponse {
+export interface BaseAuthResponse {
   /**
-   * Indicates successful registration
+   * Indicates if the operation was successful
    */
-  success: true;
+  success: boolean;
+  
+  /**
+   * Error information if success is false
+   */
+  error?: AuthErrorResponse;
+}
+
+/**
+ * Response for successful login operations
+ */
+export interface LoginResponse extends BaseAuthResponse {
+  /**
+   * Authentication session with tokens and expiration
+   */
+  session: AuthSession;
   
   /**
    * User profile information
@@ -44,155 +60,132 @@ export interface RegisterResponse {
   user: UserProfile;
   
   /**
-   * Authentication session with tokens
+   * Indicates if multi-factor authentication is required
+   */
+  requiresMfa?: boolean;
+  
+  /**
+   * Temporary token for completing MFA if required
+   */
+  mfaToken?: string;
+}
+
+/**
+ * Response for successful registration operations
+ */
+export interface RegisterResponse extends BaseAuthResponse {
+  /**
+   * Authentication session with tokens and expiration
    */
   session: AuthSession;
   
   /**
-   * Whether email verification is required
+   * User profile information
+   */
+  user: UserProfile;
+  
+  /**
+   * Indicates if email verification is required
    */
   requiresEmailVerification?: boolean;
 }
 
 /**
- * Response returned after successful user login
+ * Response for token refresh operations
  */
-export interface LoginResponse {
+export interface RefreshTokenResponse extends BaseAuthResponse {
   /**
-   * Indicates successful login
-   */
-  success: true;
-  
-  /**
-   * User profile information
-   */
-  user: UserProfile;
-  
-  /**
-   * Authentication session with tokens
-   */
-  session: AuthSession;
-  
-  /**
-   * Whether multi-factor authentication is required
-   */
-  requiresMfa?: boolean;
-  
-  /**
-   * MFA verification ID if MFA is required
-   */
-  mfaVerificationId?: string;
-}
-
-/**
- * Response returned after successful token refresh
- */
-export interface RefreshTokenResponse {
-  /**
-   * Indicates successful token refresh
-   */
-  success: true;
-  
-  /**
-   * New authentication session with updated tokens
+   * New authentication session with updated tokens and expiration
    */
   session: AuthSession;
 }
 
 /**
- * Response returned after initiating password reset
+ * Response for password reset request operations
  */
-export interface RequestPasswordResetResponse {
+export interface PasswordResetRequestResponse extends BaseAuthResponse {
   /**
-   * Indicates successful password reset request
-   */
-  success: true;
-  
-  /**
-   * Email address to which the reset link was sent
+   * Email address to which the reset instructions were sent
    */
   email: string;
+  
+  /**
+   * Expiration time of the reset token in milliseconds since epoch
+   */
+  expiresAt: number;
 }
 
 /**
- * Response returned after completing password reset
+ * Response for password reset confirmation operations
  */
-export interface CompletePasswordResetResponse {
+export interface PasswordResetConfirmResponse extends BaseAuthResponse {
   /**
-   * Indicates successful password reset
+   * Indicates if the user should be redirected to login
    */
-  success: true;
+  redirectToLogin: boolean;
   
   /**
-   * Whether the user is automatically logged in after reset
-   */
-  autoLogin: boolean;
-  
-  /**
-   * Authentication session if auto-login is enabled
+   * Optional session if auto-login is enabled after password reset
    */
   session?: AuthSession;
 }
 
 /**
- * Response returned after verifying email address
+ * Response for email verification operations
  */
-export interface VerifyEmailResponse {
+export interface EmailVerificationResponse extends BaseAuthResponse {
   /**
-   * Indicates successful email verification
+   * Indicates if the email was successfully verified
    */
-  success: true;
+  verified: boolean;
   
   /**
-   * Email address that was verified
+   * Optional session if auto-login is enabled after verification
    */
-  email: string;
+  session?: AuthSession;
 }
 
 /**
- * Response returned after completing multi-factor authentication
+ * Response for multi-factor authentication verification
  */
-export interface CompleteMfaResponse {
+export interface MfaVerificationResponse extends BaseAuthResponse {
   /**
-   * Indicates successful MFA verification
+   * Authentication session with tokens and expiration
    */
-  success: true;
+  session: AuthSession;
   
   /**
    * User profile information
    */
   user: UserProfile;
+}
+
+/**
+ * Response for logout operations
+ */
+export interface LogoutResponse extends BaseAuthResponse {
+  /**
+   * Timestamp of when the logout occurred
+   */
+  loggedOutAt: number;
+}
+
+/**
+ * Response for checking authentication status
+ */
+export interface AuthStatusResponse extends BaseAuthResponse {
+  /**
+   * Current authentication status
+   */
+  status: 'authenticated' | 'unauthenticated';
   
   /**
-   * Authentication session with tokens
+   * User profile if authenticated
    */
-  session: AuthSession;
-}
-
-/**
- * Response returned after successful logout
- */
-export interface LogoutResponse {
+  user?: UserProfile;
+  
   /**
-   * Indicates successful logout
+   * Session information if authenticated
    */
-  success: true;
+  session?: AuthSession;
 }
-
-/**
- * Union type of all successful authentication responses
- */
-export type AuthSuccessResponse =
-  | RegisterResponse
-  | LoginResponse
-  | RefreshTokenResponse
-  | RequestPasswordResetResponse
-  | CompletePasswordResetResponse
-  | VerifyEmailResponse
-  | CompleteMfaResponse
-  | LogoutResponse;
-
-/**
- * Union type of all authentication responses (success or error)
- */
-export type AuthResponse = AuthSuccessResponse | AuthErrorResponse;

@@ -4,7 +4,7 @@
  */
 
 /**
- * Base user interface representing core user properties
+ * Base user interface representing the core user entity
  */
 export interface IUser {
   /**
@@ -18,14 +18,14 @@ export interface IUser {
   name: string;
 
   /**
-   * User's email address (used for authentication)
+   * User's email address (unique)
    */
   email: string;
 
   /**
-   * User's hashed password (should never be exposed in responses)
+   * User's hashed password (only used internally)
    */
-  password: string;
+  password?: string;
 
   /**
    * User's phone number
@@ -33,7 +33,7 @@ export interface IUser {
   phone?: string;
 
   /**
-   * User's CPF (Brazilian tax ID)
+   * User's CPF (Brazilian individual taxpayer registry) number
    */
   cpf?: string;
 
@@ -49,13 +49,13 @@ export interface IUser {
 }
 
 /**
- * Role interface for user authorization
+ * Interface for role entity associated with users
  */
 export interface IRole {
   /**
    * Unique identifier for the role
    */
-  id: number;
+  id: number | string;
 
   /**
    * Name of the role (e.g., 'Admin', 'User')
@@ -63,7 +63,7 @@ export interface IRole {
   name: string;
 
   /**
-   * Description of the role's purpose and permissions
+   * Description of the role's purpose and capabilities
    */
   description?: string;
 
@@ -73,49 +73,34 @@ export interface IRole {
   isDefault?: boolean;
 
   /**
-   * Timestamp when the role was created
+   * Permissions associated with this role
    */
-  createdAt?: Date;
-
-  /**
-   * Timestamp when the role was last updated
-   */
-  updatedAt?: Date;
+  permissions?: IPermission[];
 }
 
 /**
- * Permission interface for fine-grained access control
+ * Interface for permission entity
  */
 export interface IPermission {
   /**
    * Unique identifier for the permission
    */
-  id: number;
+  id: number | string;
 
   /**
-   * Name of the permission (e.g., 'health:metrics:read')
+   * Resource the permission applies to (e.g., 'health:metrics', 'care:appointment')
    */
-  name: string;
+  resource: string;
 
   /**
-   * Description of what the permission allows
+   * Action allowed on the resource (e.g., 'read', 'create', 'update', 'delete')
+   */
+  action: string;
+
+  /**
+   * Description of what this permission allows
    */
   description?: string;
-
-  /**
-   * The journey this permission belongs to (health, care, plan)
-   */
-  journey?: string;
-
-  /**
-   * Timestamp when the permission was created
-   */
-  createdAt?: Date;
-
-  /**
-   * Timestamp when the permission was last updated
-   */
-  updatedAt?: Date;
 }
 
 /**
@@ -130,72 +115,19 @@ export interface IUserWithRoles extends Omit<IUser, 'password'> {
 }
 
 /**
- * User interface with populated permissions
- * Used when detailed permission information is needed
- */
-export interface IUserWithPermissions extends Omit<IUser, 'password'> {
-  /**
-   * Permissions assigned to the user (directly or via roles)
-   */
-  permissions: IPermission[];
-}
-
-/**
- * User interface with both roles and permissions
- * Used for comprehensive access control checks
- */
-export interface IUserWithRolesAndPermissions extends Omit<IUser, 'password'> {
-  /**
-   * Roles assigned to the user
-   */
-  roles: IRole[];
-
-  /**
-   * Permissions assigned to the user (directly or via roles)
-   */
-  permissions: IPermission[];
-}
-
-/**
  * User response interface for client-facing data
  * Excludes sensitive information like passwords
  */
 export interface IUserResponse extends Omit<IUser, 'password'> {
   /**
-   * Roles assigned to the user (optional, included based on request context)
+   * Optional roles information when included in the response
    */
   roles?: IRole[];
-
-  /**
-   * Permissions assigned to the user (optional, included based on request context)
-   */
-  permissions?: IPermission[];
 }
 
 /**
- * Minimal user information for public display
- * Used in contexts where only basic user information is needed
- */
-export interface IUserPublic {
-  /**
-   * Unique identifier for the user
-   */
-  id: string;
-
-  /**
-   * User's full name
-   */
-  name: string;
-
-  /**
-   * User's email address
-   */
-  email: string;
-}
-
-/**
- * User creation payload interface
- * Used when creating a new user
+ * User creation data interface
+ * Used when registering a new user
  */
 export interface ICreateUser {
   /**
@@ -204,12 +136,12 @@ export interface ICreateUser {
   name: string;
 
   /**
-   * User's email address
+   * User's email address (unique)
    */
   email: string;
 
   /**
-   * User's plain text password (will be hashed before storage)
+   * User's password (plain text, will be hashed)
    */
   password: string;
 
@@ -219,13 +151,13 @@ export interface ICreateUser {
   phone?: string;
 
   /**
-   * User's CPF (Brazilian tax ID)
+   * User's CPF (Brazilian individual taxpayer registry) number
    */
   cpf?: string;
 }
 
 /**
- * User update payload interface
+ * User update data interface
  * Used when updating an existing user
  */
 export interface IUpdateUser {
@@ -240,7 +172,7 @@ export interface IUpdateUser {
   email?: string;
 
   /**
-   * User's plain text password (will be hashed before storage)
+   * User's password (plain text, will be hashed)
    */
   password?: string;
 
@@ -250,7 +182,22 @@ export interface IUpdateUser {
   phone?: string;
 
   /**
-   * User's CPF (Brazilian tax ID)
+   * User's CPF number
    */
   cpf?: string;
+}
+
+/**
+ * User credentials interface for authentication
+ */
+export interface IUserCredentials {
+  /**
+   * User's email address
+   */
+  email: string;
+
+  /**
+   * User's password (plain text)
+   */
+  password: string;
 }

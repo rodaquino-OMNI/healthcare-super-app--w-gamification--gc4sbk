@@ -1,577 +1,471 @@
-/**
- * Unit tests for authentication validation utilities
- * 
- * These tests verify the functionality of validation utilities including token format validation,
- * authorization header parsing, OAuth state validation, and CPF number validation. The tests ensure
- * that these critical input validation functions protect authentication endpoints from malformed
- * or malicious data.
- */
-
 import {
   isValidCPF,
+  validateCPF,
   isValidTokenFormat,
-  extractTokenFromHeader,
+  validateTokenFormat,
+  extractBearerToken,
+  validateAuthorizationHeader,
   isValidOAuthState,
-  generateOAuthState,
-  isTokenExpired,
-  isValidIssuer,
-  isValidAudience
+  validateOAuthState,
+  isValidAccessToken,
+  isValidRefreshToken,
+  isValidEmail,
+  isValidPassword,
+  isValidPhoneNumber,
+  isValidMfaCode,
+  createValidationError
 } from '../../../src/utils/validation.util';
-
-// Mock crypto for secure random generation
-jest.mock('crypto', () => ({
-  randomBytes: jest.fn(() => Buffer.from('0123456789abcdef0123456789abcdef'))
-}));
-
-// Mock window.crypto for browser environment
-const originalWindow = global.window;
-beforeAll(() => {
-  // @ts-ignore - partial implementation for testing
-  global.window = {
-    crypto: {
-      getRandomValues: jest.fn((array) => {
-        for (let i = 0; i < array.length; i++) {
-          array[i] = i % 256; // Simple deterministic values for testing
-        }
-        return array;
-      })
-    }
-  };
-});
-
-afterAll(() => {
-  global.window = originalWindow;
-});
+import { ERROR_CODES } from '../../../src/constants';
 
 describe('Authentication Validation Utilities', () => {
-  // Reset mocks before each test
-  beforeEach(() => {
-    jest.clearAllMocks();
-  });
-
-  describe('isValidCPF', () => {
-    it('should return true for valid CPF with formatting', () => {
-      // Valid CPF with dots and dash
-      const result = isValidCPF('529.982.247-25');
-      expect(result).toBe(true);
+  describe('createValidationError', () => {
+    it('should create a validation error with code and message', () => {
+      const error = createValidationError('TEST_CODE', 'Test message');
+      expect(error).toEqual({
+        code: 'TEST_CODE',
+        message: 'Test message'
+      });
     });
 
-    it('should return true for valid CPF without formatting', () => {
-      // Valid CPF without formatting
-      const result = isValidCPF('52998224725');
-      expect(result).toBe(true);
-    });
-
-    it('should return false for CPF with invalid check digits', () => {
-      // CPF with invalid check digits
-      const result = isValidCPF('529.982.247-26');
-      expect(result).toBe(false);
-    });
-
-    it('should return false for CPF with repeated digits', () => {
-      // CPF with all digits the same (invalid)
-      const result = isValidCPF('111.111.111-11');
-      expect(result).toBe(false);
-    });
-
-    it('should return false for CPF with incorrect length', () => {
-      // CPF with too few digits
-      const result1 = isValidCPF('529.982.247');
-      expect(result1).toBe(false);
-
-      // CPF with too many digits
-      const result2 = isValidCPF('529.982.247-2555');
-      expect(result2).toBe(false);
-    });
-
-    it('should return false for empty or null input', () => {
-      // Empty string
-      const result1 = isValidCPF('');
-      expect(result1).toBe(false);
-
-      // Null
-      const result2 = isValidCPF(null as unknown as string);
-      expect(result2).toBe(false);
-
-      // Undefined
-      const result3 = isValidCPF(undefined as unknown as string);
-      expect(result3).toBe(false);
-    });
-
-    it('should return false for non-numeric input', () => {
-      // Letters instead of numbers
-      const result = isValidCPF('abc.def.ghi-jk');
-      expect(result).toBe(false);
+    it('should create a validation error with code, message, and field', () => {
+      const error = createValidationError('TEST_CODE', 'Test message', 'testField');
+      expect(error).toEqual({
+        code: 'TEST_CODE',
+        message: 'Test message',
+        field: 'testField'
+      });
     });
   });
 
-  describe('isValidTokenFormat', () => {
-    it('should return true for valid JWT token format', () => {
-      // Valid JWT format with three parts separated by dots
-      const token = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c';
-      const result = isValidTokenFormat(token);
-      expect(result).toBe(true);
+  describe('CPF Validation', () => {
+    describe('isValidCPF', () => {
+      it('should return true for valid CPF numbers', () => {
+        // Valid CPF numbers
+        expect(isValidCPF('529.982.247-25')).toBe(true);
+        expect(isValidCPF('52998224725')).toBe(true);
+        expect(isValidCPF('111.444.777-35')).toBe(true);
+      });
+
+      it('should return false for null or empty CPF', () => {
+        expect(isValidCPF(null)).toBe(false);
+        expect(isValidCPF(undefined)).toBe(false);
+        expect(isValidCPF('')).toBe(false);
+      });
+
+      it('should return false for CPF with incorrect length', () => {
+        expect(isValidCPF('1234567890')).toBe(false); // 10 digits
+        expect(isValidCPF('123456789012')).toBe(false); // 12 digits
+      });
+
+      it('should return false for CPF with all same digits', () => {
+        expect(isValidCPF('111.111.111-11')).toBe(false);
+        expect(isValidCPF('22222222222')).toBe(false);
+        expect(isValidCPF('999.999.999-99')).toBe(false);
+      });
+
+      it('should return false for CPF with invalid verification digits', () => {
+        expect(isValidCPF('529.982.247-26')).toBe(false); // Last digit changed
+        expect(isValidCPF('529.982.247-15')).toBe(false); // Last two digits changed
+        expect(isValidCPF('111.444.777-36')).toBe(false); // Last digit changed
+      });
     });
 
-    it('should return false for token with incorrect number of parts', () => {
-      // Only two parts
-      const token1 = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ';
-      const result1 = isValidTokenFormat(token1);
-      expect(result1).toBe(false);
+    describe('validateCPF', () => {
+      it('should return null for valid CPF numbers', () => {
+        expect(validateCPF('529.982.247-25')).toBeNull();
+        expect(validateCPF('52998224725')).toBeNull();
+      });
 
-      // Four parts
-      const token2 = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c.extra';
-      const result2 = isValidTokenFormat(token2);
-      expect(result2).toBe(false);
-    });
+      it('should return validation error for null or empty CPF', () => {
+        const error = validateCPF('');
+        expect(error).toEqual({
+          code: ERROR_CODES.INVALID_CREDENTIALS,
+          message: 'CPF is required',
+          field: 'cpf'
+        });
+      });
 
-    it('should return false for token with invalid characters', () => {
-      // Contains invalid characters (spaces)
-      const token = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV adQssw5c';
-      const result = isValidTokenFormat(token);
-      expect(result).toBe(false);
-    });
+      it('should return validation error for CPF with incorrect length', () => {
+        const error = validateCPF('1234567890');
+        expect(error).toEqual({
+          code: ERROR_CODES.INVALID_CREDENTIALS,
+          message: 'CPF must have 11 digits',
+          field: 'cpf'
+        });
+      });
 
-    it('should return false for empty or null input', () => {
-      // Empty string
-      const result1 = isValidTokenFormat('');
-      expect(result1).toBe(false);
-
-      // Null
-      const result2 = isValidTokenFormat(null as unknown as string);
-      expect(result2).toBe(false);
-
-      // Undefined
-      const result3 = isValidTokenFormat(undefined as unknown as string);
-      expect(result3).toBe(false);
-    });
-  });
-
-  describe('extractTokenFromHeader', () => {
-    it('should extract token from valid Authorization header', () => {
-      const validToken = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c';
-      const authHeader = `Bearer ${validToken}`;
-      const result = extractTokenFromHeader(authHeader);
-      expect(result).toBe(validToken);
-    });
-
-    it('should return null for header without Bearer prefix', () => {
-      const validToken = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c';
-      const authHeader = `Token ${validToken}`; // Wrong prefix
-      const result = extractTokenFromHeader(authHeader);
-      expect(result).toBeNull();
-    });
-
-    it('should return null for header with incorrect format', () => {
-      // No space after Bearer
-      const result1 = extractTokenFromHeader('Bearertoken123');
-      expect(result1).toBeNull();
-
-      // Too many parts
-      const result2 = extractTokenFromHeader('Bearer token extra parts');
-      expect(result2).toBeNull();
-    });
-
-    it('should return null for header with invalid token format', () => {
-      // Invalid token format
-      const result = extractTokenFromHeader('Bearer invalid.token');
-      expect(result).toBeNull();
-    });
-
-    it('should return null for empty or null input', () => {
-      // Empty string
-      const result1 = extractTokenFromHeader('');
-      expect(result1).toBeNull();
-
-      // Null
-      const result2 = extractTokenFromHeader(null as unknown as string);
-      expect(result2).toBeNull();
-
-      // Undefined
-      const result3 = extractTokenFromHeader(undefined as unknown as string);
-      expect(result3).toBeNull();
+      it('should return validation error for invalid CPF', () => {
+        const error = validateCPF('111.111.111-11');
+        expect(error).toEqual({
+          code: ERROR_CODES.INVALID_CREDENTIALS,
+          message: 'Invalid CPF',
+          field: 'cpf'
+        });
+      });
     });
   });
 
-  describe('isValidOAuthState', () => {
-    it('should return true when stored and received states match', () => {
-      const state = 'random-state-value-123';
-      const result = isValidOAuthState(state, state);
-      expect(result).toBe(true);
+  describe('Token Format Validation', () => {
+    describe('isValidTokenFormat', () => {
+      it('should return true for valid JWT token format', () => {
+        // Valid JWT token format (header.payload.signature)
+        const validToken = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c';
+        expect(isValidTokenFormat(validToken)).toBe(true);
+      });
+
+      it('should return false for null or empty token', () => {
+        expect(isValidTokenFormat(null)).toBe(false);
+        expect(isValidTokenFormat(undefined)).toBe(false);
+        expect(isValidTokenFormat('')).toBe(false);
+      });
+
+      it('should return false for tokens with incorrect number of parts', () => {
+        expect(isValidTokenFormat('header.payload')).toBe(false); // 2 parts
+        expect(isValidTokenFormat('header')).toBe(false); // 1 part
+        expect(isValidTokenFormat('header.payload.signature.extra')).toBe(false); // 4 parts
+      });
+
+      it('should return false for tokens with empty parts', () => {
+        expect(isValidTokenFormat('..signature')).toBe(false);
+        expect(isValidTokenFormat('header..')).toBe(false);
+        expect(isValidTokenFormat('.payload.')).toBe(false);
+      });
+
+      it('should return false for tokens with invalid characters', () => {
+        expect(isValidTokenFormat('header!.payload.signature')).toBe(false);
+        expect(isValidTokenFormat('header.pay@load.signature')).toBe(false);
+        expect(isValidTokenFormat('header.payload.sign#ture')).toBe(false);
+      });
     });
 
-    it('should return false when states do not match', () => {
-      const storedState = 'original-state-value';
-      const receivedState = 'different-state-value';
-      const result = isValidOAuthState(storedState, receivedState);
-      expect(result).toBe(false);
-    });
+    describe('validateTokenFormat', () => {
+      it('should return null for valid token format', () => {
+        const validToken = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c';
+        expect(validateTokenFormat(validToken)).toBeNull();
+      });
 
-    it('should return false when either state is empty', () => {
-      // Empty stored state
-      const result1 = isValidOAuthState('', 'received-state');
-      expect(result1).toBe(false);
+      it('should return validation error for null or empty token', () => {
+        const error = validateTokenFormat('');
+        expect(error).toEqual({
+          code: ERROR_CODES.INVALID_TOKEN,
+          message: 'Token is required',
+          field: 'token'
+        });
+      });
 
-      // Empty received state
-      const result2 = isValidOAuthState('stored-state', '');
-      expect(result2).toBe(false);
+      it('should return validation error for invalid token format', () => {
+        const error = validateTokenFormat('invalid-token');
+        expect(error).toEqual({
+          code: ERROR_CODES.INVALID_TOKEN,
+          message: 'Invalid token format',
+          field: 'token'
+        });
+      });
 
-      // Both empty
-      const result3 = isValidOAuthState('', '');
-      expect(result3).toBe(false);
-    });
+      it('should use custom token type in error messages', () => {
+        const error = validateTokenFormat('', 'refreshToken');
+        expect(error).toEqual({
+          code: ERROR_CODES.INVALID_TOKEN,
+          message: 'RefreshToken is required',
+          field: 'refreshToken'
+        });
 
-    it('should return false when either state is null or undefined', () => {
-      // Null stored state
-      const result1 = isValidOAuthState(null as unknown as string, 'received-state');
-      expect(result1).toBe(false);
-
-      // Null received state
-      const result2 = isValidOAuthState('stored-state', null as unknown as string);
-      expect(result2).toBe(false);
-
-      // Undefined stored state
-      const result3 = isValidOAuthState(undefined as unknown as string, 'received-state');
-      expect(result3).toBe(false);
-
-      // Undefined received state
-      const result4 = isValidOAuthState('stored-state', undefined as unknown as string);
-      expect(result4).toBe(false);
-    });
-  });
-
-  describe('generateOAuthState', () => {
-    it('should generate a state parameter with default length', () => {
-      const state = generateOAuthState();
-      expect(state).toBeDefined();
-      expect(state.length).toBe(32); // Default length
-    });
-
-    it('should generate a state parameter with custom length', () => {
-      const customLength = 64;
-      const state = generateOAuthState(customLength);
-      expect(state.length).toBe(customLength);
-    });
-
-    it('should use window.crypto in browser environment', () => {
-      // Save original window object
-      const originalRequire = global.require;
-      // @ts-ignore - Remove require to simulate browser environment
-      global.require = undefined;
-
-      const state = generateOAuthState();
-      expect(state).toBeDefined();
-      expect(state.length).toBe(32);
-      expect(window.crypto.getRandomValues).toHaveBeenCalled();
-
-      // Restore original require
-      global.require = originalRequire;
-    });
-
-    it('should use crypto module in Node.js environment', () => {
-      // Save original window object
-      const originalWindow = global.window;
-      // @ts-ignore - Remove window to simulate Node.js environment
-      global.window = undefined;
-
-      const crypto = require('crypto');
-      const state = generateOAuthState();
-      expect(state).toBeDefined();
-      expect(state.length).toBe(32);
-      expect(crypto.randomBytes).toHaveBeenCalled();
-
-      // Restore original window
-      global.window = originalWindow;
-    });
-
-    it('should throw error when no secure random generator is available', () => {
-      // Save original objects
-      const originalWindow = global.window;
-      const originalRequire = global.require;
-
-      // @ts-ignore - Remove both window and require
-      global.window = undefined;
-      // @ts-ignore
-      global.require = () => { throw new Error('Cannot find module'); };
-
-      expect(() => generateOAuthState()).toThrow('No secure random number generator available');
-
-      // Restore original objects
-      global.window = originalWindow;
-      global.require = originalRequire;
+        const formatError = validateTokenFormat('invalid-token', 'accessToken');
+        expect(formatError).toEqual({
+          code: ERROR_CODES.INVALID_TOKEN,
+          message: 'Invalid accessToken format',
+          field: 'accessToken'
+        });
+      });
     });
   });
 
-  describe('isTokenExpired', () => {
-    // Helper to create a token with a specific expiration time
-    const createTokenWithExp = (exp: number): string => {
-      const header = Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).toString('base64url');
-      const payload = Buffer.from(JSON.stringify({ exp })).toString('base64url');
-      const signature = 'SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c'; // Dummy signature
-      return `${header}.${payload}.${signature}`;
-    };
+  describe('Authorization Header Validation', () => {
+    describe('extractBearerToken', () => {
+      it('should extract token from valid Bearer authorization header', () => {
+        const validToken = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c';
+        const header = `Bearer ${validToken}`;
+        expect(extractBearerToken(header)).toBe(validToken);
+      });
 
-    it('should return false for a token that has not expired', () => {
-      // Create a token that expires 1 hour from now
-      const futureTime = Math.floor(Date.now() / 1000) + 3600;
-      const token = createTokenWithExp(futureTime);
-      const result = isTokenExpired(token);
-      expect(result).toBe(false);
+      it('should handle case-insensitive Bearer prefix', () => {
+        const validToken = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c';
+        expect(extractBearerToken(`bearer ${validToken}`)).toBe(validToken);
+        expect(extractBearerToken(`BEARER ${validToken}`)).toBe(validToken);
+        expect(extractBearerToken(`BeArEr ${validToken}`)).toBe(validToken);
+      });
+
+      it('should return null for null or empty header', () => {
+        expect(extractBearerToken(null)).toBeNull();
+        expect(extractBearerToken(undefined)).toBeNull();
+        expect(extractBearerToken('')).toBeNull();
+      });
+
+      it('should return null for header without Bearer prefix', () => {
+        const validToken = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c';
+        expect(extractBearerToken(`Token ${validToken}`)).toBeNull();
+        expect(extractBearerToken(`JWT ${validToken}`)).toBeNull();
+        expect(extractBearerToken(validToken)).toBeNull();
+      });
+
+      it('should return null for header with incorrect format', () => {
+        expect(extractBearerToken('Bearer')).toBeNull();
+        expect(extractBearerToken('Bearer ')).toBeNull();
+        expect(extractBearerToken('Bearer  ')).toBeNull();
+      });
     });
 
-    it('should return true for a token that has expired', () => {
-      // Create a token that expired 1 hour ago
-      const pastTime = Math.floor(Date.now() / 1000) - 3600;
-      const token = createTokenWithExp(pastTime);
-      const result = isTokenExpired(token);
-      expect(result).toBe(true);
+    describe('validateAuthorizationHeader', () => {
+      it('should return token and null error for valid authorization header', () => {
+        const validToken = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c';
+        const header = `Bearer ${validToken}`;
+        const result = validateAuthorizationHeader(header);
+        expect(result).toEqual({
+          token: validToken,
+          error: null
+        });
+      });
+
+      it('should return error for null or empty header', () => {
+        const result = validateAuthorizationHeader('');
+        expect(result).toEqual({
+          token: null,
+          error: {
+            code: ERROR_CODES.INVALID_TOKEN,
+            message: 'Authorization header is required',
+            field: 'authorization'
+          }
+        });
+      });
+
+      it('should return error for header without Bearer prefix', () => {
+        const validToken = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c';
+        const result = validateAuthorizationHeader(`Token ${validToken}`);
+        expect(result).toEqual({
+          token: null,
+          error: {
+            code: ERROR_CODES.INVALID_TOKEN,
+            message: 'Invalid Authorization header format. Expected: Bearer <token>',
+            field: 'authorization'
+          }
+        });
+      });
+
+      it('should return error for header with invalid token format', () => {
+        const result = validateAuthorizationHeader('Bearer invalid-token');
+        expect(result).toEqual({
+          token: null,
+          error: {
+            code: ERROR_CODES.INVALID_TOKEN,
+            message: 'Invalid token format in Authorization header',
+            field: 'authorization'
+          }
+        });
+      });
+    });
+  });
+
+  describe('OAuth State Validation', () => {
+    describe('isValidOAuthState', () => {
+      it('should return true for valid OAuth state', () => {
+        // Valid state with sufficient length and valid characters
+        const validState = 'abcdefghijklmnopqrstuvwxyz1234567890';
+        expect(isValidOAuthState(validState)).toBe(true);
+      });
+
+      it('should return true for state with URL-safe special characters', () => {
+        const validState = 'abcdefghijklmnopqrstuvwxyz1234567890-_';
+        expect(isValidOAuthState(validState)).toBe(true);
+      });
+
+      it('should return false for null or empty state', () => {
+        expect(isValidOAuthState(null)).toBe(false);
+        expect(isValidOAuthState(undefined)).toBe(false);
+        expect(isValidOAuthState('')).toBe(false);
+      });
+
+      it('should return false for state with insufficient length', () => {
+        expect(isValidOAuthState('short')).toBe(false); // Less than default 32 chars
+        expect(isValidOAuthState('abcdefghijklmnopqrstuvwxyz12345', 32)).toBe(false); // 31 chars
+      });
+
+      it('should return false for state with invalid characters', () => {
+        expect(isValidOAuthState('abcdefghijklmnopqrstuvwxyz1234567890!')).toBe(false); // Contains !
+        expect(isValidOAuthState('abcdefghijklmnopqrstuvwxyz1234567890@')).toBe(false); // Contains @
+        expect(isValidOAuthState('abcdefghijklmnopqrstuvwxyz1234567890#')).toBe(false); // Contains #
+      });
+
+      it('should respect custom minimum length', () => {
+        const shortState = 'abcdefghijklmnop'; // 16 chars
+        expect(isValidOAuthState(shortState, 16)).toBe(true);
+        expect(isValidOAuthState(shortState, 20)).toBe(false);
+      });
     });
 
-    it('should account for allowed time skew', () => {
-      // Create a token that expired 20 seconds ago (within 30s default skew)
-      const slightlyPastTime = Math.floor(Date.now() / 1000) - 20;
-      const token = createTokenWithExp(slightlyPastTime);
-      const result = isTokenExpired(token); // Default skew is 30s
-      expect(result).toBe(false);
+    describe('validateOAuthState', () => {
+      it('should return null for valid OAuth state', () => {
+        const validState = 'abcdefghijklmnopqrstuvwxyz1234567890';
+        expect(validateOAuthState(validState)).toBeNull();
+      });
 
-      // With a smaller skew of 10s, the token should be considered expired
-      const resultWithSmallerSkew = isTokenExpired(token, 10);
-      expect(resultWithSmallerSkew).toBe(true);
+      it('should return validation error for null or empty state', () => {
+        const error = validateOAuthState('');
+        expect(error).toEqual({
+          code: ERROR_CODES.OAUTH_PROVIDER_ERROR,
+          message: 'OAuth state parameter is required',
+          field: 'state'
+        });
+      });
+
+      it('should return validation error for state with insufficient length', () => {
+        const error = validateOAuthState('short');
+        expect(error).toEqual({
+          code: ERROR_CODES.OAUTH_PROVIDER_ERROR,
+          message: 'OAuth state parameter must be at least 32 characters long',
+          field: 'state'
+        });
+      });
+
+      it('should return validation error for state with invalid characters', () => {
+        const error = validateOAuthState('abcdefghijklmnopqrstuvwxyz1234567890!');
+        expect(error).toEqual({
+          code: ERROR_CODES.OAUTH_PROVIDER_ERROR,
+          message: 'OAuth state parameter contains invalid characters',
+          field: 'state'
+        });
+      });
+
+      it('should respect custom minimum length', () => {
+        const shortState = 'abcdefghijklmnop'; // 16 chars
+        expect(validateOAuthState(shortState, 16)).toBeNull();
+        
+        const error = validateOAuthState(shortState, 20);
+        expect(error).toEqual({
+          code: ERROR_CODES.OAUTH_PROVIDER_ERROR,
+          message: 'OAuth state parameter must be at least 20 characters long',
+          field: 'state'
+        });
+      });
+    });
+  });
+
+  describe('Token Type Validation', () => {
+    describe('isValidAccessToken', () => {
+      it('should return true for valid access token format', () => {
+        const validToken = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c';
+        expect(isValidAccessToken(validToken)).toBe(true);
+      });
+
+      it('should return false for invalid token format', () => {
+        expect(isValidAccessToken('invalid-token')).toBe(false);
+        expect(isValidAccessToken('')).toBe(false);
+        expect(isValidAccessToken(null)).toBe(false);
+      });
     });
 
-    it('should return false for a token without an expiration claim', () => {
-      // Create a token without an exp claim
-      const header = Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).toString('base64url');
-      const payload = Buffer.from(JSON.stringify({ sub: '123' })).toString('base64url');
-      const signature = 'SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c'; // Dummy signature
-      const token = `${header}.${payload}.${signature}`;
+    describe('isValidRefreshToken', () => {
+      it('should return true for valid refresh token format', () => {
+        const validToken = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c';
+        expect(isValidRefreshToken(validToken)).toBe(true);
+      });
+
+      it('should return false for invalid token format', () => {
+        expect(isValidRefreshToken('invalid-token')).toBe(false);
+        expect(isValidRefreshToken('')).toBe(false);
+        expect(isValidRefreshToken(null)).toBe(false);
+      });
+    });
+  });
+
+  describe('Email Validation', () => {
+    it('should return true for valid email addresses', () => {
+      expect(isValidEmail('user@example.com')).toBe(true);
+      expect(isValidEmail('user.name@example.co.uk')).toBe(true);
+      expect(isValidEmail('user+tag@example.com')).toBe(true);
+      expect(isValidEmail('user-name@example.org')).toBe(true);
+      expect(isValidEmail('123@example.com')).toBe(true);
+    });
+
+    it('should return false for invalid email addresses', () => {
+      expect(isValidEmail('')).toBe(false);
+      expect(isValidEmail(null)).toBe(false);
+      expect(isValidEmail('user@')).toBe(false);
+      expect(isValidEmail('@example.com')).toBe(false);
+      expect(isValidEmail('user@example')).toBe(false);
+      expect(isValidEmail('user@.com')).toBe(false);
+      expect(isValidEmail('user@example..com')).toBe(false);
+    });
+  });
+
+  describe('Password Validation', () => {
+    it('should return true for valid passwords meeting all requirements', () => {
+      expect(isValidPassword('Password123!')).toBe(true);
+      expect(isValidPassword('Secure@Password2023')).toBe(true);
+      expect(isValidPassword('P@ssw0rd')).toBe(true);
+    });
+
+    it('should return false for passwords that are too short', () => {
+      expect(isValidPassword('Pass1!')).toBe(false); // Less than 8 characters
+      expect(isValidPassword('Pw1!', 4)).toBe(true); // Custom minimum length
+      expect(isValidPassword('Pw1!', 5)).toBe(false); // Custom minimum length
+    });
+
+    it('should validate based on character type requirements', () => {
+      // Missing uppercase
+      expect(isValidPassword('password123!')).toBe(false);
+      expect(isValidPassword('password123!', 8, false)).toBe(true); // Uppercase not required
       
-      const result = isTokenExpired(token);
-      expect(result).toBe(false);
-    });
-
-    it('should return true for invalid token format', () => {
-      // Invalid token format (only two parts)
-      const token = 'header.payload';
-      const result = isTokenExpired(token);
-      expect(result).toBe(true);
-    });
-
-    it('should return true for empty or null input', () => {
-      // Empty string
-      const result1 = isTokenExpired('');
-      expect(result1).toBe(true);
-
-      // Null
-      const result2 = isTokenExpired(null as unknown as string);
-      expect(result2).toBe(true);
-
-      // Undefined
-      const result3 = isTokenExpired(undefined as unknown as string);
-      expect(result3).toBe(true);
-    });
-
-    it('should return true if token payload cannot be parsed', () => {
-      // Create a token with invalid payload (not valid JSON when decoded)
-      const header = Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).toString('base64url');
-      const payload = 'invalid-payload-not-base64';
-      const signature = 'SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c'; // Dummy signature
-      const token = `${header}.${payload}.${signature}`;
+      // Missing lowercase
+      expect(isValidPassword('PASSWORD123!')).toBe(false);
+      expect(isValidPassword('PASSWORD123!', 8, true, false)).toBe(true); // Lowercase not required
       
-      const result = isTokenExpired(token);
-      expect(result).toBe(true);
+      // Missing number
+      expect(isValidPassword('Password!')).toBe(false);
+      expect(isValidPassword('Password!', 8, true, true, false)).toBe(true); // Numbers not required
+      
+      // Missing special character
+      expect(isValidPassword('Password123')).toBe(false);
+      expect(isValidPassword('Password123', 8, true, true, true, false)).toBe(true); // Special chars not required
     });
   });
 
-  describe('isValidIssuer', () => {
-    // Helper to create a token with a specific issuer
-    const createTokenWithIssuer = (iss: string): string => {
-      const header = Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).toString('base64url');
-      const payload = Buffer.from(JSON.stringify({ iss })).toString('base64url');
-      const signature = 'SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c'; // Dummy signature
-      return `${header}.${payload}.${signature}`;
-    };
-
-    it('should return true when token issuer matches expected string issuer', () => {
-      const issuer = 'https://auth.austa.com';
-      const token = createTokenWithIssuer(issuer);
-      const result = isValidIssuer(token, issuer);
-      expect(result).toBe(true);
+  describe('Phone Number Validation', () => {
+    it('should return true for valid phone numbers', () => {
+      expect(isValidPhoneNumber('1234567890')).toBe(true); // 10 digits
+      expect(isValidPhoneNumber('123-456-7890')).toBe(true); // With hyphens
+      expect(isValidPhoneNumber('(123) 456-7890')).toBe(true); // With parentheses and space
+      expect(isValidPhoneNumber('+11234567890')).toBe(true); // With country code
     });
 
-    it('should return true when token issuer is in the expected array of issuers', () => {
-      const issuer = 'https://auth.austa.com';
-      const token = createTokenWithIssuer(issuer);
-      const expectedIssuers = ['https://login.austa.com', 'https://auth.austa.com', 'https://sso.austa.com'];
-      const result = isValidIssuer(token, expectedIssuers);
-      expect(result).toBe(true);
+    it('should return false for invalid phone numbers', () => {
+      expect(isValidPhoneNumber('')).toBe(false); // Empty
+      expect(isValidPhoneNumber(null)).toBe(false); // Null
+      expect(isValidPhoneNumber('123')).toBe(false); // Too short
+      expect(isValidPhoneNumber('123456789012345678901')).toBe(false); // Too long
+      expect(isValidPhoneNumber('abcdefghij')).toBe(false); // Non-numeric
     });
 
-    it('should return false when token issuer does not match expected issuer', () => {
-      const issuer = 'https://auth.austa.com';
-      const token = createTokenWithIssuer(issuer);
-      const expectedIssuer = 'https://login.austa.com';
-      const result = isValidIssuer(token, expectedIssuer);
-      expect(result).toBe(false);
-    });
-
-    it('should return false when token issuer is not in the expected array of issuers', () => {
-      const issuer = 'https://auth.austa.com';
-      const token = createTokenWithIssuer(issuer);
-      const expectedIssuers = ['https://login.austa.com', 'https://sso.austa.com'];
-      const result = isValidIssuer(token, expectedIssuers);
-      expect(result).toBe(false);
-    });
-
-    it('should return false when token has no issuer claim', () => {
-      // Create a token without an iss claim
-      const header = Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).toString('base64url');
-      const payload = Buffer.from(JSON.stringify({ sub: '123' })).toString('base64url');
-      const signature = 'SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c'; // Dummy signature
-      const token = `${header}.${payload}.${signature}`;
-      
-      const result = isValidIssuer(token, 'https://auth.austa.com');
-      expect(result).toBe(false);
-    });
-
-    it('should return false for invalid token format', () => {
-      // Invalid token format (only two parts)
-      const token = 'header.payload';
-      const result = isValidIssuer(token, 'https://auth.austa.com');
-      expect(result).toBe(false);
-    });
-
-    it('should return false for empty or null input', () => {
-      // Empty token
-      const result1 = isValidIssuer('', 'https://auth.austa.com');
-      expect(result1).toBe(false);
-
-      // Null token
-      const result2 = isValidIssuer(null as unknown as string, 'https://auth.austa.com');
-      expect(result2).toBe(false);
-
-      // Undefined token
-      const result3 = isValidIssuer(undefined as unknown as string, 'https://auth.austa.com');
-      expect(result3).toBe(false);
-    });
-
-    it('should return false if token payload cannot be parsed', () => {
-      // Create a token with invalid payload (not valid JSON when decoded)
-      const header = Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).toString('base64url');
-      const payload = 'invalid-payload-not-base64';
-      const signature = 'SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c'; // Dummy signature
-      const token = `${header}.${payload}.${signature}`;
-      
-      const result = isValidIssuer(token, 'https://auth.austa.com');
-      expect(result).toBe(false);
+    it('should handle international format based on allowInternational parameter', () => {
+      expect(isValidPhoneNumber('+11234567890')).toBe(true); // Default: international allowed
+      expect(isValidPhoneNumber('+11234567890', false)).toBe(false); // International not allowed
     });
   });
 
-  describe('isValidAudience', () => {
-    // Helper to create a token with a specific audience (string or array)
-    const createTokenWithAudience = (aud: string | string[]): string => {
-      const header = Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).toString('base64url');
-      const payload = Buffer.from(JSON.stringify({ aud })).toString('base64url');
-      const signature = 'SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c'; // Dummy signature
-      return `${header}.${payload}.${signature}`;
-    };
-
-    it('should return true when token audience matches expected string audience', () => {
-      const audience = 'austa-mobile-app';
-      const token = createTokenWithAudience(audience);
-      const result = isValidAudience(token, audience);
-      expect(result).toBe(true);
+  describe('MFA Code Validation', () => {
+    it('should return true for valid MFA codes', () => {
+      expect(isValidMfaCode('123456')).toBe(true); // 6 digits (default)
+      expect(isValidMfaCode('1234', 4)).toBe(true); // 4 digits (custom length)
+      expect(isValidMfaCode('12345678', 8)).toBe(true); // 8 digits (custom length)
     });
 
-    it('should return true when token audience is in the expected array of audiences', () => {
-      const audience = 'austa-mobile-app';
-      const token = createTokenWithAudience(audience);
-      const expectedAudiences = ['austa-web-app', 'austa-mobile-app', 'austa-admin-panel'];
-      const result = isValidAudience(token, expectedAudiences);
-      expect(result).toBe(true);
-    });
-
-    it('should return true when token audience array includes the expected audience', () => {
-      const audiences = ['austa-web-app', 'austa-mobile-app', 'austa-admin-panel'];
-      const token = createTokenWithAudience(audiences);
-      const expectedAudience = 'austa-mobile-app';
-      const result = isValidAudience(token, expectedAudience);
-      expect(result).toBe(true);
-    });
-
-    it('should return true when any token audience array item is in the expected audience array', () => {
-      const tokenAudiences = ['austa-web-app', 'austa-mobile-app'];
-      const expectedAudiences = ['austa-mobile-app', 'austa-admin-panel'];
-      const token = createTokenWithAudience(tokenAudiences);
-      const result = isValidAudience(token, expectedAudiences);
-      expect(result).toBe(true);
-    });
-
-    it('should return false when token audience does not match expected audience', () => {
-      const audience = 'austa-mobile-app';
-      const token = createTokenWithAudience(audience);
-      const expectedAudience = 'austa-web-app';
-      const result = isValidAudience(token, expectedAudience);
-      expect(result).toBe(false);
-    });
-
-    it('should return false when token audience is not in the expected array of audiences', () => {
-      const audience = 'austa-mobile-app';
-      const token = createTokenWithAudience(audience);
-      const expectedAudiences = ['austa-web-app', 'austa-admin-panel'];
-      const result = isValidAudience(token, expectedAudiences);
-      expect(result).toBe(false);
-    });
-
-    it('should return false when no token audience array items are in the expected audience array', () => {
-      const tokenAudiences = ['austa-mobile-app', 'austa-partner-api'];
-      const expectedAudiences = ['austa-web-app', 'austa-admin-panel'];
-      const token = createTokenWithAudience(tokenAudiences);
-      const result = isValidAudience(token, expectedAudiences);
-      expect(result).toBe(false);
-    });
-
-    it('should return false when token has no audience claim', () => {
-      // Create a token without an aud claim
-      const header = Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).toString('base64url');
-      const payload = Buffer.from(JSON.stringify({ sub: '123' })).toString('base64url');
-      const signature = 'SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c'; // Dummy signature
-      const token = `${header}.${payload}.${signature}`;
-      
-      const result = isValidAudience(token, 'austa-mobile-app');
-      expect(result).toBe(false);
-    });
-
-    it('should return false for invalid token format', () => {
-      // Invalid token format (only two parts)
-      const token = 'header.payload';
-      const result = isValidAudience(token, 'austa-mobile-app');
-      expect(result).toBe(false);
-    });
-
-    it('should return false for empty or null input', () => {
-      // Empty token
-      const result1 = isValidAudience('', 'austa-mobile-app');
-      expect(result1).toBe(false);
-
-      // Null token
-      const result2 = isValidAudience(null as unknown as string, 'austa-mobile-app');
-      expect(result2).toBe(false);
-
-      // Undefined token
-      const result3 = isValidAudience(undefined as unknown as string, 'austa-mobile-app');
-      expect(result3).toBe(false);
-    });
-
-    it('should return false if token payload cannot be parsed', () => {
-      // Create a token with invalid payload (not valid JSON when decoded)
-      const header = Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).toString('base64url');
-      const payload = 'invalid-payload-not-base64';
-      const signature = 'SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c'; // Dummy signature
-      const token = `${header}.${payload}.${signature}`;
-      
-      const result = isValidAudience(token, 'austa-mobile-app');
-      expect(result).toBe(false);
+    it('should return false for invalid MFA codes', () => {
+      expect(isValidMfaCode('')).toBe(false); // Empty
+      expect(isValidMfaCode(null)).toBe(false); // Null
+      expect(isValidMfaCode('12345')).toBe(false); // Too short for default
+      expect(isValidMfaCode('1234567')).toBe(false); // Too long for default
+      expect(isValidMfaCode('abcdef')).toBe(false); // Non-numeric
+      expect(isValidMfaCode('12345', 6)).toBe(false); // Too short for custom length
+      expect(isValidMfaCode('1234567', 6)).toBe(false); // Too long for custom length
     });
   });
 });

@@ -1,399 +1,180 @@
 /**
- * @file plans.types.ts
+ * @file Plan Types
  * @description Defines TypeScript interfaces for insurance plans within the Plan journey.
  * These types establish the core data model for the Plan journey, defining relationships
  * between plans, coverages, benefits, and claims.
  */
 
-import { BaseEntity, UserOwned } from '@austa/interfaces/common/model';
-import { Benefit } from '@austa/interfaces/plan/benefits.types';
-import { Claim } from '@austa/interfaces/plan/claims.types';
-import { Coverage } from '@austa/interfaces/plan/coverage.types';
+import { Benefit } from './benefits.types';
+import { Claim } from './claims.types';
+import { Coverage, CoverageType } from './coverage.types';
 
 /**
  * Represents the type of an insurance plan.
  * Different plan types have different network restrictions, cost structures, and coverage models.
+ * 
+ * @example
+ * // Using PlanType in a component
+ * const planType: PlanType = PlanType.PPO;
  */
 export enum PlanType {
-  /** Health Maintenance Organization - Restricted network, primary care physician required */
+  /** Health Maintenance Organization - Requires referrals from primary care physician */
   HMO = 'HMO',
-  
-  /** Preferred Provider Organization - Flexible network, higher premiums */
+  /** Preferred Provider Organization - More flexibility with out-of-network care */
   PPO = 'PPO',
-  
-  /** Exclusive Provider Organization - In-network only except emergencies, no PCP required */
+  /** Exclusive Provider Organization - No out-of-network coverage except emergencies */
   EPO = 'EPO',
-  
-  /** Point of Service - PCP required, some out-of-network coverage */
+  /** Point of Service - Hybrid of HMO and PPO */
   POS = 'POS',
-  
-  /** Indemnity Plan - Maximum flexibility, higher out-of-pocket costs */
+  /** Indemnity Plan - Traditional fee-for-service plan */
   INDEMNITY = 'indemnity'
 }
 
 /**
- * Represents the status of an insurance plan.
- */
-export enum PlanStatus {
-  /** Plan is active and coverage is in effect */
-  ACTIVE = 'active',
-  
-  /** Plan is pending activation (e.g., waiting for payment or approval) */
-  PENDING = 'pending',
-  
-  /** Plan has expired or been terminated */
-  EXPIRED = 'expired',
-  
-  /** Plan is temporarily suspended */
-  SUSPENDED = 'suspended',
-  
-  /** Plan is in renewal process */
-  RENEWING = 'renewing'
-}
-
-/**
- * Represents the network type for a plan.
- */
-export enum NetworkType {
-  /** In-network providers only */
-  IN_NETWORK_ONLY = 'in_network_only',
-  
-  /** Both in-network and out-of-network with different coverage levels */
-  MIXED = 'mixed',
-  
-  /** Any provider (rare) */
-  ANY = 'any'
-}
-
-/**
- * Represents detailed coverage information for a specific plan.
- * This extends beyond the basic Coverage interface to include plan-specific details.
+ * Represents detailed coverage information for a specific insurance plan.
+ * This provides structured access to coverage details beyond the basic Coverage interface.
  */
 export interface PlanCoverageDetails {
-  /** Annual deductible amount in currency units */
-  annualDeductible: number;
+  /** Annual deductible amount before insurance begins to pay */
+  deductible: number;
   
-  /** Out-of-pocket maximum in currency units */
+  /** Maximum out-of-pocket expenses for the year */
   outOfPocketMax: number;
   
-  /** Lifetime maximum coverage (if applicable) */
+  /** Percentage of costs covered by insurance after deductible */
+  coinsurance: number;
+  
+  /** Whether the plan covers out-of-network providers */
+  outOfNetworkCoverage: boolean;
+  
+  /** Lifetime maximum benefit amount, if applicable */
   lifetimeMaximum?: number;
   
-  /** Whether the plan includes prescription drug coverage */
-  includesPrescriptionDrugs: boolean;
-  
-  /** Whether the plan includes dental coverage */
-  includesDental: boolean;
-  
-  /** Whether the plan includes vision coverage */
-  includesVision: boolean;
-  
-  /** Whether the plan includes mental health coverage */
-  includesMentalHealth: boolean;
-  
-  /** Network type for this plan */
-  networkType: NetworkType;
-  
-  /** Additional coverage details as key-value pairs */
-  additionalDetails?: Record<string, any>;
+  /** Coverage details specific to each coverage type */
+  coverageByType: Record<CoverageType, {
+    /** Whether this type of service is covered */
+    covered: boolean;
+    
+    /** Co-payment amount for this service type */
+    copay?: number;
+    
+    /** Coinsurance percentage for this service type */
+    coinsurance?: number;
+    
+    /** Any specific limitations for this service type */
+    limitations?: string;
+  }>;
 }
 
 /**
  * Represents an insurance plan.
  * 
- * An insurance plan is the core entity in the Plan journey, representing the user's
- * health insurance policy. It contains information about coverage, benefits, and claims,
- * as well as plan-specific details like validity dates and plan numbers.
+ * An insurance plan is the core entity in the Plan journey, containing information about
+ * the user's insurance coverage, benefits, and claims. It defines the relationship between
+ * these entities and provides access to all plan-related data.
+ * 
+ * @example
+ * // Creating a Plan object
+ * const plan: Plan = {
+ *   id: '123',
+ *   userId: 'user-456',
+ *   planNumber: 'PLN-789',
+ *   type: PlanType.PPO,
+ *   name: 'Premium Health Plan',
+ *   provider: 'AUSTA Insurance',
+ *   validityStart: new Date('2023-01-01'),
+ *   validityEnd: new Date('2023-12-31'),
+ *   coverageDetails: { ... },
+ *   coverages: [],
+ *   benefits: [],
+ *   claims: []
+ * };
  */
-export interface Plan extends UserOwned {
-  /**
-   * Unique identifier for the plan
-   */
+export interface Plan {
+  /** Unique identifier for the plan */
   id: string;
   
-  /**
-   * Reference to the user who owns this plan
-   */
+  /** Reference to the user who owns this plan */
   userId: string;
   
-  /**
-   * Plan number assigned by the insurance provider
-   */
+  /** Plan number as assigned by the insurance provider */
   planNumber: string;
   
-  /**
-   * Type of insurance plan (HMO, PPO, etc.)
-   */
+  /** Type of insurance plan */
   type: PlanType;
   
-  /**
-   * Current status of the plan
-   */
-  status: PlanStatus;
-  
-  /**
-   * Human-readable name of the plan
-   */
+  /** Human-readable name of the plan */
   name: string;
   
-  /**
-   * Insurance provider name
-   */
-  providerName: string;
+  /** Name of the insurance provider */
+  provider: string;
   
-  /**
-   * ISO 8601 date when the plan coverage begins
-   */
-  validityStart: string;
+  /** Start date of plan validity */
+  validityStart: Date | string;
   
-  /**
-   * ISO 8601 date when the plan coverage ends
-   */
-  validityEnd: string;
+  /** End date of plan validity */
+  validityEnd: Date | string;
   
-  /**
-   * Detailed coverage information specific to this plan
-   */
+  /** Detailed coverage information */
   coverageDetails: PlanCoverageDetails;
   
-  /**
-   * Array of specific coverages included in this plan
-   */
+  /** List of specific coverages included in the plan */
   coverages: Coverage[];
   
-  /**
-   * Array of benefits available under this plan
-   */
+  /** List of additional benefits provided by the plan */
   benefits: Benefit[];
   
-  /**
-   * Array of claims submitted under this plan
-   */
+  /** List of claims filed under this plan */
   claims: Claim[];
   
-  /**
-   * Monthly premium amount in currency units
-   */
-  monthlyPremium?: number;
-  
-  /**
-   * Group number if this is a group plan
-   */
+  /** Group number for employer-provided plans */
   groupNumber?: string;
   
-  /**
-   * Member ID for the primary plan holder
-   */
-  memberId?: string;
+  /** Network of healthcare providers */
+  network?: string;
   
-  /**
-   * Array of dependent members covered by this plan
-   */
-  dependents?: PlanMember[];
+  /** Plan tier or level (e.g., 'bronze', 'silver', 'gold', 'platinum') */
+  tier?: string;
   
-  /**
-   * Additional plan metadata as key-value pairs
-   */
-  metadata?: Record<string, any>;
+  /** Monthly premium amount */
+  premium?: number;
+  
+  /** Whether the plan is currently active */
+  isActive?: boolean;
+  
+  /** Date when the plan was created or enrolled */
+  enrollmentDate?: Date | string;
 }
 
 /**
- * Represents a member (dependent) covered under an insurance plan.
+ * Represents a request to retrieve plan details.
  */
-export interface PlanMember {
-  /**
-   * Unique identifier for the plan member
-   */
-  id: string;
-  
-  /**
-   * Reference to the plan this member is covered under
-   */
+export interface PlanDetailsRequest {
+  /** The unique identifier of the plan to retrieve */
   planId: string;
-  
-  /**
-   * Full name of the member
-   */
-  name: string;
-  
-  /**
-   * Date of birth in ISO 8601 format
-   */
-  dateOfBirth: string;
-  
-  /**
-   * Relationship to the primary plan holder
-   */
-  relationship: 'self' | 'spouse' | 'child' | 'other';
-  
-  /**
-   * Member ID assigned by the insurance provider
-   */
-  memberId: string;
-  
-  /**
-   * Whether this is the primary plan holder
-   */
-  isPrimary: boolean;
 }
 
 /**
- * Represents a request to create a new insurance plan.
+ * Represents a response containing detailed plan information.
  */
-export interface CreatePlanRequest {
-  /**
-   * Plan number assigned by the insurance provider
-   */
-  planNumber: string;
+export interface PlanDetailsResponse {
+  /** The plan details */
+  plan: Plan;
   
-  /**
-   * Type of insurance plan
-   */
-  type: PlanType;
-  
-  /**
-   * Human-readable name of the plan
-   */
-  name: string;
-  
-  /**
-   * Insurance provider name
-   */
-  providerName: string;
-  
-  /**
-   * ISO 8601 date when the plan coverage begins
-   */
-  validityStart: string;
-  
-  /**
-   * ISO 8601 date when the plan coverage ends
-   */
-  validityEnd: string;
-  
-  /**
-   * Detailed coverage information specific to this plan
-   */
-  coverageDetails: PlanCoverageDetails;
-  
-  /**
-   * Monthly premium amount in currency units
-   */
-  monthlyPremium?: number;
-  
-  /**
-   * Group number if this is a group plan
-   */
-  groupNumber?: string;
-  
-  /**
-   * Member ID for the primary plan holder
-   */
-  memberId?: string;
-}
-
-/**
- * Represents a request to update an existing insurance plan.
- */
-export interface UpdatePlanRequest {
-  /**
-   * Type of insurance plan
-   */
-  type?: PlanType;
-  
-  /**
-   * Current status of the plan
-   */
-  status?: PlanStatus;
-  
-  /**
-   * Human-readable name of the plan
-   */
-  name?: string;
-  
-  /**
-   * Insurance provider name
-   */
-  providerName?: string;
-  
-  /**
-   * ISO 8601 date when the plan coverage begins
-   */
-  validityStart?: string;
-  
-  /**
-   * ISO 8601 date when the plan coverage ends
-   */
-  validityEnd?: string;
-  
-  /**
-   * Detailed coverage information specific to this plan
-   */
-  coverageDetails?: Partial<PlanCoverageDetails>;
-  
-  /**
-   * Monthly premium amount in currency units
-   */
-  monthlyPremium?: number;
-  
-  /**
-   * Group number if this is a group plan
-   */
-  groupNumber?: string;
-  
-  /**
-   * Member ID for the primary plan holder
-   */
-  memberId?: string;
-}
-
-/**
- * Represents a summary of an insurance plan with essential information.
- * Used for list views and dashboard displays.
- */
-export interface PlanSummary {
-  /**
-   * Unique identifier for the plan
-   */
-  id: string;
-  
-  /**
-   * Human-readable name of the plan
-   */
-  name: string;
-  
-  /**
-   * Type of insurance plan
-   */
-  type: PlanType;
-  
-  /**
-   * Current status of the plan
-   */
-  status: PlanStatus;
-  
-  /**
-   * Insurance provider name
-   */
-  providerName: string;
-  
-  /**
-   * ISO 8601 date when the plan coverage begins
-   */
-  validityStart: string;
-  
-  /**
-   * ISO 8601 date when the plan coverage ends
-   */
-  validityEnd: string;
-  
-  /**
-   * Monthly premium amount in currency units
-   */
-  monthlyPremium?: number;
-  
-  /**
-   * Count of active claims under this plan
-   */
-  activeClaims: number;
+  /** Additional plan-related information */
+  additionalInfo?: {
+    /** Contact information for customer service */
+    customerService?: {
+      phone: string;
+      email: string;
+      hours: string;
+    };
+    
+    /** URLs to important plan documents */
+    documents?: Array<{
+      title: string;
+      url: string;
+      type: string;
+    }>;
+  };
 }

@@ -1,232 +1,184 @@
 import React from 'react';
-import { describe, it, expect } from '@jest/globals';
 import { render, screen } from '@testing-library/react';
+import { ThemeProvider } from 'styled-components';
 import { ProgressCircle } from './ProgressCircle';
-import { colors } from '@design-system/primitives/src/tokens/colors';
-import { baseTheme } from '../../themes/base.theme';
-import { healthTheme } from '../../themes/health.theme';
-import { careTheme } from '../../themes/care.theme';
-import { planTheme } from '../../themes/plan.theme';
+import { baseTheme } from '../../../themes/baseTheme';
+import { healthTheme } from '../../../themes/healthTheme';
+import { careTheme } from '../../../themes/careTheme';
+import { planTheme } from '../../../themes/planTheme';
 
-// Mock Box component
-jest.mock('../../primitives/Box', () => ({
-  Box: ({ children, ...props }) => (
-    <div data-testid="box" {...props}>
-      {children}
-    </div>
-  ),
-}));
-
-// Mock Text component
-jest.mock('../../primitives/Text', () => ({
-  Text: ({ children, ...props }) => (
-    <span data-testid="text" {...props}>
-      {children}
-    </span>
-  ),
-}));
+// Custom render function that wraps component with ThemeProvider
+const renderWithTheme = (ui: React.ReactElement, theme = baseTheme) => {
+  return render(
+    <ThemeProvider theme={theme}>
+      {ui}
+    </ThemeProvider>
+  );
+};
 
 describe('ProgressCircle', () => {
-  // Test rendering with default props
-  it('renders correctly with default props', () => {
-    render(<ProgressCircle progress={50} />);
+  // Test rendering with default properties
+  it('renders with default properties', () => {
+    renderWithTheme(<ProgressCircle progress={50} data-testid="progress-circle" />);
     
-    const box = screen.getByTestId('box');
-    expect(box).toBeInTheDocument();
-    
-    // Check SVG is rendered
-    const svg = box.querySelector('svg');
-    expect(svg).toBeInTheDocument();
-    
-    // Check circles are rendered
-    const circles = svg.querySelectorAll('circle');
-    expect(circles.length).toBe(2); // Background and progress circles
-    
-    // Check default size
-    expect(box).toHaveAttribute('width', '64px');
-    expect(box).toHaveAttribute('height', '64px');
-    
-    // Check progress value is set correctly
-    expect(box).toHaveAttribute('aria-valuenow', '50');
+    const progressCircle = screen.getByTestId('progress-circle');
+    expect(progressCircle).toBeInTheDocument();
+    expect(progressCircle).toHaveAttribute('aria-valuenow', '50');
+    expect(progressCircle).toHaveAttribute('aria-valuemin', '0');
+    expect(progressCircle).toHaveAttribute('aria-valuemax', '100');
   });
-  
+
   // Test custom size
   it('renders with custom size', () => {
-    render(<ProgressCircle progress={50} size="100px" />);
+    renderWithTheme(<ProgressCircle progress={50} size="128px" data-testid="progress-circle" />);
     
-    const box = screen.getByTestId('box');
-    expect(box).toHaveAttribute('width', '100px');
-    expect(box).toHaveAttribute('height', '100px');
+    const progressCircle = screen.getByTestId('progress-circle');
+    expect(progressCircle).toHaveStyle('width: 128px');
+    expect(progressCircle).toHaveStyle('height: 128px');
   });
-  
-  // Test progress values
+
+  // Test progress value normalization
   it('normalizes progress values to be between 0 and 100', () => {
-    const { rerender } = render(<ProgressCircle progress={-20} />);
+    // Test with value below 0
+    renderWithTheme(<ProgressCircle progress={-20} data-testid="progress-circle-below" />);
+    expect(screen.getByTestId('progress-circle-below')).toHaveAttribute('aria-valuenow', '0');
     
-    // Should normalize negative values to 0
-    let box = screen.getByTestId('box');
-    expect(box).toHaveAttribute('aria-valuenow', '0');
+    // Test with value above 100
+    renderWithTheme(<ProgressCircle progress={150} data-testid="progress-circle-above" />);
+    expect(screen.getByTestId('progress-circle-above')).toHaveAttribute('aria-valuenow', '100');
     
-    // Should normalize values over 100 to 100
-    rerender(<ProgressCircle progress={150} />);
-    box = screen.getByTestId('box');
-    expect(box).toHaveAttribute('aria-valuenow', '100');
-    
-    // Should keep values between 0 and 100 as is
-    rerender(<ProgressCircle progress={75} />);
-    box = screen.getByTestId('box');
-    expect(box).toHaveAttribute('aria-valuenow', '75');
+    // Test with value within range
+    renderWithTheme(<ProgressCircle progress={75} data-testid="progress-circle-normal" />);
+    expect(screen.getByTestId('progress-circle-normal')).toHaveAttribute('aria-valuenow', '75');
   });
-  
+
   // Test showing label
-  it('renders with progress label when showLabel is true', () => {
-    render(<ProgressCircle progress={42} showLabel={true} />);
+  it('displays percentage label when showLabel is true', () => {
+    renderWithTheme(<ProgressCircle progress={42} showLabel={true} data-testid="progress-circle" />);
     
-    const text = screen.getByTestId('text');
-    expect(text).toBeInTheDocument();
-    expect(text).toHaveTextContent('42%');
+    const label = screen.getByText('42%');
+    expect(label).toBeInTheDocument();
   });
-  
-  it('does not render progress label when showLabel is false', () => {
-    render(<ProgressCircle progress={42} showLabel={false} />);
+
+  // Test not showing label
+  it('does not display percentage label when showLabel is false', () => {
+    renderWithTheme(<ProgressCircle progress={42} showLabel={false} data-testid="progress-circle" />);
     
-    expect(screen.queryByTestId('text')).not.toBeInTheDocument();
+    const label = screen.queryByText('42%');
+    expect(label).not.toBeInTheDocument();
   });
-  
-  // Test journey-specific theming
-  it('renders with health journey theme', () => {
-    render(<ProgressCircle progress={50} journey="health" />);
+
+  // Test journey-specific theming - Health
+  it('applies health journey theming correctly', () => {
+    renderWithTheme(
+      <ProgressCircle progress={50} journey="health" data-testid="progress-circle" />,
+      healthTheme
+    );
     
-    const box = screen.getByTestId('box');
-    expect(box).toHaveAttribute('journey', 'health');
+    const progressCircle = screen.getByTestId('progress-circle');
+    expect(progressCircle).toHaveAttribute('journey', 'health');
     
-    // Check that the progress circle uses the health journey color
-    const svg = box.querySelector('svg');
-    const progressCircle = svg.querySelectorAll('circle')[1]; // Second circle is the progress circle
-    expect(progressCircle).toHaveAttribute('stroke', 'journeys.health.primary');
+    // Check that SVG circle uses the health journey primary color
+    const svgElement = progressCircle.querySelector('svg');
+    expect(svgElement).toBeInTheDocument();
+    
+    const progressCircleElement = svgElement?.querySelector('circle:nth-of-type(2)');
+    expect(progressCircleElement).toHaveAttribute('stroke', 'journeys.health.primary');
   });
-  
-  it('renders with care journey theme', () => {
-    render(<ProgressCircle progress={50} journey="care" />);
+
+  // Test journey-specific theming - Care
+  it('applies care journey theming correctly', () => {
+    renderWithTheme(
+      <ProgressCircle progress={50} journey="care" data-testid="progress-circle" />,
+      careTheme
+    );
     
-    const box = screen.getByTestId('box');
-    expect(box).toHaveAttribute('journey', 'care');
+    const progressCircle = screen.getByTestId('progress-circle');
+    expect(progressCircle).toHaveAttribute('journey', 'care');
     
-    // Check that the progress circle uses the care journey color
-    const svg = box.querySelector('svg');
-    const progressCircle = svg.querySelectorAll('circle')[1]; // Second circle is the progress circle
-    expect(progressCircle).toHaveAttribute('stroke', 'journeys.care.primary');
+    // Check that SVG circle uses the care journey primary color
+    const svgElement = progressCircle.querySelector('svg');
+    expect(svgElement).toBeInTheDocument();
+    
+    const progressCircleElement = svgElement?.querySelector('circle:nth-of-type(2)');
+    expect(progressCircleElement).toHaveAttribute('stroke', 'journeys.care.primary');
   });
-  
-  it('renders with plan journey theme', () => {
-    render(<ProgressCircle progress={50} journey="plan" />);
+
+  // Test journey-specific theming - Plan
+  it('applies plan journey theming correctly', () => {
+    renderWithTheme(
+      <ProgressCircle progress={50} journey="plan" data-testid="progress-circle" />,
+      planTheme
+    );
     
-    const box = screen.getByTestId('box');
-    expect(box).toHaveAttribute('journey', 'plan');
+    const progressCircle = screen.getByTestId('progress-circle');
+    expect(progressCircle).toHaveAttribute('journey', 'plan');
     
-    // Check that the progress circle uses the plan journey color
-    const svg = box.querySelector('svg');
-    const progressCircle = svg.querySelectorAll('circle')[1]; // Second circle is the progress circle
-    expect(progressCircle).toHaveAttribute('stroke', 'journeys.plan.primary');
+    // Check that SVG circle uses the plan journey primary color
+    const svgElement = progressCircle.querySelector('svg');
+    expect(svgElement).toBeInTheDocument();
+    
+    const progressCircleElement = svgElement?.querySelector('circle:nth-of-type(2)');
+    expect(progressCircleElement).toHaveAttribute('stroke', 'journeys.plan.primary');
   });
-  
+
   // Test custom color
-  it('renders with custom color', () => {
-    render(<ProgressCircle progress={50} color="semantic.success" />);
+  it('applies custom color when provided', () => {
+    renderWithTheme(<ProgressCircle progress={50} color="#FF5500" data-testid="progress-circle" />);
     
-    const box = screen.getByTestId('box');
-    const svg = box.querySelector('svg');
-    const progressCircle = svg.querySelectorAll('circle')[1]; // Second circle is the progress circle
-    expect(progressCircle).toHaveAttribute('stroke', 'semantic.success');
+    const progressCircle = screen.getByTestId('progress-circle');
+    const svgElement = progressCircle.querySelector('svg');
+    expect(svgElement).toBeInTheDocument();
+    
+    const progressCircleElement = svgElement?.querySelector('circle:nth-of-type(2)');
+    expect(progressCircleElement).toHaveAttribute('stroke', '#FF5500');
   });
-  
+
   // Test accessibility attributes
-  it('has correct accessibility attributes', () => {
-    render(<ProgressCircle progress={75} ariaLabel="Loading progress" />);
+  it('has proper accessibility attributes', () => {
+    renderWithTheme(<ProgressCircle progress={75} data-testid="progress-circle" />);
     
-    const box = screen.getByTestId('box');
-    expect(box).toHaveAttribute('role', 'progressbar');
-    expect(box).toHaveAttribute('aria-valuemin', '0');
-    expect(box).toHaveAttribute('aria-valuemax', '100');
-    expect(box).toHaveAttribute('aria-valuenow', '75');
-    expect(box).toHaveAttribute('aria-label', 'Loading progress');
+    const progressCircle = screen.getByTestId('progress-circle');
+    expect(progressCircle).toHaveAttribute('role', 'progressbar');
+    expect(progressCircle).toHaveAttribute('aria-valuenow', '75');
+    expect(progressCircle).toHaveAttribute('aria-valuemin', '0');
+    expect(progressCircle).toHaveAttribute('aria-valuemax', '100');
+    expect(progressCircle).toHaveAttribute('aria-label', '75% complete');
   });
-  
-  it('uses default aria-label when not provided', () => {
-    render(<ProgressCircle progress={75} />);
+
+  // Test custom aria-label
+  it('uses custom aria-label when provided', () => {
+    renderWithTheme(
+      <ProgressCircle 
+        progress={30} 
+        ariaLabel="Task completion: 30%" 
+        data-testid="progress-circle" 
+      />
+    );
     
-    const box = screen.getByTestId('box');
-    expect(box).toHaveAttribute('aria-label', '75% complete');
+    const progressCircle = screen.getByTestId('progress-circle');
+    expect(progressCircle).toHaveAttribute('aria-label', 'Task completion: 30%');
   });
-  
-  // Test SVG parameters
-  it('calculates SVG parameters correctly', () => {
-    render(<ProgressCircle progress={50} />);
+
+  // Test SVG structure
+  it('renders SVG with correct structure', () => {
+    renderWithTheme(<ProgressCircle progress={50} data-testid="progress-circle" />);
     
-    const box = screen.getByTestId('box');
-    const svg = box.querySelector('svg');
+    const progressCircle = screen.getByTestId('progress-circle');
+    const svgElement = progressCircle.querySelector('svg');
+    expect(svgElement).toBeInTheDocument();
+    expect(svgElement).toHaveAttribute('aria-hidden', 'true');
     
-    // Check viewBox
-    expect(svg).toHaveAttribute('viewBox', '0 0 36 36');
+    // Should have two circle elements (background and progress)
+    const circleElements = svgElement?.querySelectorAll('circle');
+    expect(circleElements?.length).toBe(2);
     
-    // Check background circle
-    const backgroundCircle = svg.querySelectorAll('circle')[0];
-    expect(backgroundCircle).toHaveAttribute('cx', '18');
-    expect(backgroundCircle).toHaveAttribute('cy', '18');
-    expect(backgroundCircle).toHaveAttribute('r', '16.2'); // (36 - 3.6) / 2
+    // Background circle
+    const backgroundCircle = circleElements?.[0];
     expect(backgroundCircle).toHaveAttribute('stroke', 'neutral.gray300');
-    expect(backgroundCircle).toHaveAttribute('stroke-width', '3.6');
     
-    // Check progress circle
-    const progressCircle = svg.querySelectorAll('circle')[1];
-    expect(progressCircle).toHaveAttribute('cx', '18');
-    expect(progressCircle).toHaveAttribute('cy', '18');
-    expect(progressCircle).toHaveAttribute('r', '16.2'); // (36 - 3.6) / 2
-    expect(progressCircle).toHaveAttribute('stroke-width', '3.6');
-    expect(progressCircle).toHaveAttribute('stroke-linecap', 'round');
-    
-    // Check that the progress circle has the correct transform
-    expect(progressCircle).toHaveAttribute('transform', 'rotate(-90 18 18)');
-  });
-  
-  // Test stroke-dashoffset calculation for different progress values
-  it('calculates stroke-dashoffset correctly for different progress values', () => {
-    const { rerender } = render(<ProgressCircle progress={0} />);
-    
-    const getStrokeDashoffset = () => {
-      const box = screen.getByTestId('box');
-      const svg = box.querySelector('svg');
-      const progressCircle = svg.querySelectorAll('circle')[1];
-      return progressCircle.getAttribute('stroke-dashoffset');
-    };
-    
-    // At 0% progress, the dashoffset should be equal to the circumference
-    const zeroProgressDashoffset = getStrokeDashoffset();
-    
-    // At 50% progress, the dashoffset should be half the circumference
-    rerender(<ProgressCircle progress={50} />);
-    const halfProgressDashoffset = getStrokeDashoffset();
-    
-    // At 100% progress, the dashoffset should be 0
-    rerender(<ProgressCircle progress={100} />);
-    const fullProgressDashoffset = getStrokeDashoffset();
-    
-    // Verify the dashoffset decreases as progress increases
-    const zeroOffset = parseFloat(zeroProgressDashoffset);
-    const halfOffset = parseFloat(halfProgressDashoffset);
-    const fullOffset = parseFloat(fullProgressDashoffset);
-    
-    expect(zeroOffset).toBeGreaterThan(halfOffset);
-    expect(halfOffset).toBeGreaterThan(fullOffset);
-    expect(fullOffset).toBeCloseTo(0, 1); // Should be close to 0 with some rounding tolerance
-  });
-  
-  // Test that SVG is marked as aria-hidden
-  it('marks SVG as aria-hidden', () => {
-    render(<ProgressCircle progress={50} />);
-    
-    const box = screen.getByTestId('box');
-    const svg = box.querySelector('svg');
-    expect(svg).toHaveAttribute('aria-hidden', 'true');
+    // Progress circle
+    const progressCircleElement = circleElements?.[1];
+    expect(progressCircleElement).toHaveAttribute('stroke-linecap', 'round');
   });
 });

@@ -5,25 +5,23 @@
     "esModuleInterop": true,
     "sourceMap": true,
     "inlineSources": true,
-    "module": "commonjs",
+    "sourceRoot": "/",
     "outDir": "../dist/test",
     "baseUrl": "./",
     "paths": {
       "@austa/utils/*": ["../src/*"],
-      "@austa/utils": ["../src"],
-      "@austa/*": ["../../*/src"],
-      "test/*": ["./"]
+      "@austa/utils/test/*": ["./"]
     }
   },
   "include": [
     "**/*.spec.ts",
     "**/*.test.ts",
-    "**/*.e2e-spec.ts",
     "**/*.d.ts",
-    "./setup-tests.ts"
-  ],
-  "exclude": [
-    "node_modules",
-    "../dist"
+    "helpers/**/*.ts",
+    "fixtures/**/*.ts",
+    "mocks/**/*.ts",
+    "unit/**/*.ts",
+    "integration/**/*.ts",
+    "e2e/**/*.ts"
   ]
 }

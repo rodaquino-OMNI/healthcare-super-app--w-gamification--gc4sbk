@@ -1,60 +1,127 @@
-/**
- * End-to-end tests for validation utilities
- * 
- * These tests verify that validators work correctly in complete application contexts,
- * using real application data structures and workflows.
- */
-
 import { Test, TestingModule } from '@nestjs/testing';
 import { INestApplication } from '@nestjs/common';
-import { IsEmail, IsNotEmpty, IsString, MinLength, validate } from 'class-validator';
-import { plainToInstance } from 'class-transformer';
+import * as request from 'supertest';
 import { z } from 'zod';
+import { IsEmail, IsNotEmpty, MinLength, validate } from 'class-validator';
+import { plainToInstance } from 'class-transformer';
 
-// String validators
+// Import validation utilities
 import {
+  isValidCPF,
   validateCPF,
-  validateEmail,
-  validateUrl,
-  validateStringLength,
-  validatePattern,
-  StringValidationPatterns
+  isValidEmail,
+  isValidUrl,
+  isValidLength,
+  matchesPattern
 } from '../../src/validation/string.validator';
 
-// Date validators
 import {
   isValidDate,
   isDateInRange,
+  isFutureDate,
+  isPastDate,
   isBusinessDay,
   isValidJourneyDate,
-  isValidJourneyDateRange,
-  isValidDateInTimezone,
-  isBrazilianHoliday
+  isValidDateWithTimezone,
+  isValidAppointmentDate,
+  isValidHealthMetricDate,
+  isValidClaimDate
 } from '../../src/validation/date.validator';
 
-// Object validators
 import {
-  validateProperties,
-  validateObjectSchema,
-  validateArrayProperty,
+  isObjectWithShape,
+  validateObjectStructure,
+  hasRequiredProperties,
   hasNestedProperty,
-  hasValidNestedProperty,
-  PropertyDefinition
+  validateNestedProperty,
+  isOfType,
+  validateArrayProperty,
+  areObjectsEqual
 } from '../../src/validation/object.validator';
 
-// Schema validators
 import {
+  createSchema,
   validateWithZod,
   validateWithClassValidator,
-  createZodSchema,
+  createZodSchemaFromClass,
+  healthSchema,
+  careSchema,
+  planSchema,
   healthSchemas,
   careSchemas,
-  planSchemas,
-  assertValid
+  planSchemas
 } from '../../src/validation/schema.validator';
 
-describe('Validation Utilities (E2E)', () => {
+// Test module setup
+describe('Validation Utilities (e2e)', () => {
   let app: INestApplication;
+
+  // Sample data for testing
+  const validCPF = '529.982.247-25';
+  const invalidCPF = '111.111.111-11';
+  const validEmail = 'usuario@empresa.com.br';
+  const invalidEmail = 'usuario@invalid';
+  const validUrl = 'https://austa.com.br/app';
+  const invalidUrl = 'http://localhost:3000';
+  
+  // Sample dates for testing
+  const today = new Date();
+  const tomorrow = new Date(today);
+  tomorrow.setDate(today.getDate() + 1);
+  const yesterday = new Date(today);
+  yesterday.setDate(today.getDate() - 1);
+  const nextMonth = new Date(today);
+  nextMonth.setMonth(today.getMonth() + 1);
+  const lastMonth = new Date(today);
+  lastMonth.setMonth(today.getMonth() - 1);
+
+  // Sample objects for testing
+  const healthMetric = {
+    userId: 'user-123',
+    type: 'blood_pressure',
+    value: 120,
+    unit: 'mmHg',
+    timestamp: new Date(),
+    source: 'manual',
+    metadata: {
+      systolic: 120,
+      diastolic: 80
+    }
+  };
+
+  const appointment = {
+    userId: 'user-123',
+    providerId: 'provider-456',
+    specialtyId: 'specialty-789',
+    dateTime: tomorrow,
+    duration: 30,
+    type: 'in-person',
+    status: 'scheduled',
+    notes: 'Regular check-up'
+  };
+
+  const insuranceClaim = {
+    userId: 'user-123',
+    serviceDate: yesterday,
+    providerId: 'provider-456',
+    procedureCode: 'PROC123',
+    amount: 150.75,
+    status: 'submitted',
+    documents: ['doc1.pdf', 'doc2.pdf']
+  };
+
+  // Class for class-validator testing
+  class UserDto {
+    @IsNotEmpty()
+    id: string;
+
+    @IsNotEmpty()
+    @MinLength(3)
+    name: string;
+
+    @IsEmail()
+    email: string;
+  }
 
   beforeAll(async () => {
     const moduleFixture: TestingModule = await Test.createTestingModule({
@@ -73,1121 +140,712 @@ describe('Validation Utilities (E2E)', () => {
 
   describe('String Validators', () => {
     describe('CPF Validation', () => {
-      it('should validate valid CPF numbers in different formats', () => {
-        // Valid CPF with formatting
-        expect(validateCPF('123.456.789-09').isValid).toBe(true);
-        
-        // Valid CPF without formatting
-        expect(validateCPF('12345678909').isValid).toBe(true);
+      it('should validate a correctly formatted CPF', () => {
+        expect(isValidCPF(validCPF)).toBe(true);
       });
 
-      it('should reject invalid CPF numbers', () => {
-        // Invalid CPF - wrong checksum
-        const result = validateCPF('123.456.789-10');
-        expect(result.isValid).toBe(false);
-        expect(result.error).toBe('Invalid CPF format or checksum');
-        
-        // Invalid CPF - all same digits
-        expect(validateCPF('111.111.111-11').isValid).toBe(false);
-        
-        // Invalid CPF - wrong length
-        expect(validateCPF('123.456.789').isValid).toBe(false);
+      it('should reject an invalid CPF', () => {
+        expect(isValidCPF(invalidCPF)).toBe(false);
       });
 
-      it('should provide detailed error information for invalid CPFs', () => {
-        const result = validateCPF('123.456.789-00');
-        expect(result.isValid).toBe(false);
-        expect(result.details).toBeDefined();
-        expect(result.details?.reason).toBe('checksum');
+      it('should provide detailed validation results', () => {
+        const result = validateCPF(validCPF);
+        expect(result.valid).toBe(true);
+
+        const invalidResult = validateCPF(invalidCPF);
+        expect(invalidResult.valid).toBe(false);
+        expect(invalidResult.message).toContain('CPF with repeated digits is invalid');
       });
 
-      it('should validate CPF in a user registration scenario', () => {
-        // Simulate user registration data
-        const userData = {
-          name: 'João Silva',
-          email: 'joao@example.com.br',
-          cpf: '529.982.247-25', // Valid CPF
-          birthdate: '1985-03-15'
-        };
-
-        // Validate CPF as part of user registration
-        const cpfValidation = validateCPF(userData.cpf);
-        expect(cpfValidation.isValid).toBe(true);
+      it('should validate CPF in different formats', () => {
+        // Without formatting
+        expect(isValidCPF('52998224725')).toBe(true);
+        // With formatting
+        expect(isValidCPF('529.982.247-25')).toBe(true);
       });
     });
 
     describe('Email Validation', () => {
-      it('should validate standard email formats', () => {
-        expect(validateEmail('user@example.com').isValid).toBe(true);
-        expect(validateEmail('user.name+tag@example.co.uk').isValid).toBe(true);
+      it('should validate a correct email address', () => {
+        expect(isValidEmail(validEmail)).toBe(true);
       });
 
-      it('should validate Brazilian email domains when required', () => {
-        // Brazilian email validation
-        expect(validateEmail('user@empresa.com.br', { allowBrazilianOnly: true }).isValid).toBe(true);
-        expect(validateEmail('user@gov.br', { allowBrazilianOnly: true }).isValid).toBe(true);
-        
-        // Non-Brazilian email with Brazilian-only option
-        expect(validateEmail('user@example.com', { allowBrazilianOnly: true, allowInternational: false }).isValid).toBe(false);
+      it('should reject an invalid email address', () => {
+        expect(isValidEmail(invalidEmail)).toBe(false);
       });
 
-      it('should reject invalid email formats', () => {
-        expect(validateEmail('user@').isValid).toBe(false);
-        expect(validateEmail('user@domain').isValid).toBe(false);
-        expect(validateEmail('user@.com').isValid).toBe(false);
+      it('should validate Brazilian email domains when specified', () => {
+        expect(isValidEmail('user@empresa.com.br', { validateBrazilianDomains: true })).toBe(true);
+        expect(isValidEmail('user@example.com', { validateBrazilianDomains: true })).toBe(false);
       });
 
-      it('should validate email in a healthcare provider registration scenario', () => {
-        // Simulate healthcare provider registration
-        const providerData = {
-          name: 'Dr. Ana Souza',
-          specialty: 'Cardiologia',
-          email: 'dra.ana@hospital.med.br',
-          license: 'CRM-12345'
-        };
-
-        // Validate email as part of provider registration
-        const emailValidation = validateEmail(providerData.email, { allowBrazilianOnly: true });
-        expect(emailValidation.isValid).toBe(true);
+      it('should apply strict validation when specified', () => {
+        expect(isValidEmail('user+tag@empresa.com.br', { strict: true })).toBe(true);
+        expect(isValidEmail('user@localhost', { strict: true })).toBe(false);
       });
     });
 
     describe('URL Validation', () => {
-      it('should validate standard URLs', () => {
-        expect(validateUrl('https://www.example.com').isValid).toBe(true);
-        expect(validateUrl('http://example.com/path?query=value').isValid).toBe(true);
+      it('should validate a correct URL', () => {
+        expect(isValidUrl(validUrl)).toBe(true);
+      });
+
+      it('should reject an invalid URL', () => {
+        expect(isValidUrl('not-a-url')).toBe(false);
       });
 
       it('should enforce HTTPS when required', () => {
-        // Require HTTPS
-        expect(validateUrl('http://example.com', { requireHttps: true }).isValid).toBe(false);
-        expect(validateUrl('https://example.com', { requireHttps: true }).isValid).toBe(true);
+        expect(isValidUrl('http://austa.com.br', { requireHttps: true })).toBe(false);
+        expect(isValidUrl('https://austa.com.br', { requireHttps: true })).toBe(true);
       });
 
-      it('should detect and block private IPs for SSRF protection', () => {
-        // SSRF protection - block private IPs
-        const result = validateUrl('http://192.168.1.1');
-        expect(result.isValid).toBe(false);
-        expect(result.error).toBe('URL blocked due to SSRF protection');
+      it('should check for SSRF vulnerabilities when specified', () => {
+        expect(isValidUrl(invalidUrl, { checkSsrf: true })).toBe(false);
+        expect(isValidUrl(validUrl, { checkSsrf: true })).toBe(true);
+      });
+
+      it('should validate against allowed domains', () => {
+        expect(isValidUrl('https://austa.com.br', { 
+          allowedDomains: ['austa.com.br', 'api.austa.com.br'] 
+        })).toBe(true);
         
-        // Allow private IPs when explicitly permitted
-        expect(validateUrl('http://192.168.1.1', { allowPrivateIps: true }).isValid).toBe(true);
-      });
-
-      it('should validate URL in a medical integration scenario', () => {
-        // Simulate external medical system integration
-        const integrationConfig = {
-          name: 'FHIR API Integration',
-          baseUrl: 'https://api.healthcare-system.com/fhir',
-          authType: 'oauth2',
-          version: 'R4'
-        };
-
-        // Validate URL as part of integration configuration
-        const urlValidation = validateUrl(integrationConfig.baseUrl, { requireHttps: true });
-        expect(urlValidation.isValid).toBe(true);
+        expect(isValidUrl('https://example.com', { 
+          allowedDomains: ['austa.com.br', 'api.austa.com.br'] 
+        })).toBe(false);
       });
     });
 
-    describe('String Length and Pattern Validation', () => {
-      it('should validate string length constraints', () => {
-        // Valid length
-        expect(validateStringLength('password123', { min: 8, max: 20 }).isValid).toBe(true);
-        
-        // Too short
-        expect(validateStringLength('pass', { min: 8 }).isValid).toBe(false);
-        
-        // Too long
-        expect(validateStringLength('verylongpasswordthatexceedsmaximum', { max: 20 }).isValid).toBe(false);
+    describe('String Pattern and Length Validation', () => {
+      it('should validate string length', () => {
+        expect(isValidLength('test', { min: 3, max: 10 })).toBe(true);
+        expect(isValidLength('test', { min: 5 })).toBe(false);
+        expect(isValidLength('test', { max: 3 })).toBe(false);
+        expect(isValidLength('test', { exact: 4 })).toBe(true);
       });
 
       it('should validate against regex patterns', () => {
-        // Valid pattern match
-        expect(validatePattern('ABC123', { 
-          pattern: StringValidationPatterns.ALPHANUMERIC 
-        }).isValid).toBe(true);
-        
-        // Invalid pattern match
-        expect(validatePattern('ABC-123', { 
-          pattern: StringValidationPatterns.ALPHANUMERIC 
-        }).isValid).toBe(false);
+        expect(matchesPattern('ABC123', { pattern: /^[A-Z0-9]+$/ })).toBe(true);
+        expect(matchesPattern('abc123', { pattern: /^[A-Z0-9]+$/ })).toBe(false);
+        expect(matchesPattern('abc123', { pattern: /^[A-Z0-9]+$/, ignoreCase: true })).toBe(true);
       });
 
-      it('should validate password strength in a user account scenario', () => {
-        // Password strength pattern (at least 8 chars, 1 uppercase, 1 lowercase, 1 number)
-        const passwordPattern = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)[a-zA-Z\d]{8,}$/;
-        
-        // Simulate password change
-        const passwordData = {
-          currentPassword: 'oldPassword123',
-          newPassword: 'StrongPwd123',
-          confirmPassword: 'StrongPwd123'
-        };
-
-        // Validate password strength
-        const lengthValidation = validateStringLength(passwordData.newPassword, { min: 8 });
-        const patternValidation = validatePattern(passwordData.newPassword, { 
-          pattern: passwordPattern,
-          errorMessage: 'Password must contain at least 8 characters, including uppercase, lowercase, and numbers'
-        });
-
-        expect(lengthValidation.isValid).toBe(true);
-        expect(patternValidation.isValid).toBe(true);
+      it('should support inverted pattern matching', () => {
+        expect(matchesPattern('test', { pattern: /^\d+$/, invertMatch: true })).toBe(true);
+        expect(matchesPattern('123', { pattern: /^\d+$/, invertMatch: true })).toBe(false);
       });
     });
   });
 
   describe('Date Validators', () => {
     describe('Basic Date Validation', () => {
-      it('should validate various date formats', () => {
-        // Date object
+      it('should validate date objects', () => {
         expect(isValidDate(new Date())).toBe(true);
-        
-        // ISO string
-        expect(isValidDate('2023-05-15T10:30:00Z')).toBe(true);
-        
-        // Timestamp
-        expect(isValidDate(1684144200000)).toBe(true);
-        
-        // Invalid date
         expect(isValidDate('not-a-date')).toBe(false);
       });
 
-      it('should validate date ranges', () => {
-        const startDate = new Date('2023-01-01');
-        const middleDate = new Date('2023-01-15');
-        const endDate = new Date('2023-01-31');
-        
-        // Date within range (inclusive)
-        expect(isDateInRange(middleDate, startDate, endDate)).toBe(true);
-        
-        // Date at range boundary
-        expect(isDateInRange(startDate, startDate, endDate, { inclusive: true })).toBe(true);
-        
-        // Date outside range
-        expect(isDateInRange(new Date('2022-12-31'), startDate, endDate)).toBe(false);
-        
-        // Non-inclusive range
-        expect(isDateInRange(startDate, startDate, endDate, { inclusive: false })).toBe(false);
+      it('should validate date strings', () => {
+        expect(isValidDate('2023-01-15')).toBe(true);
+        expect(isValidDate('15/01/2023')).toBe(true); // Brazilian format
       });
 
-      it('should validate dates in a medical record scenario', () => {
-        // Simulate medical record data
-        const medicalRecord = {
-          patientId: '12345',
-          recordDate: '2023-03-15T14:30:00Z',
-          symptoms: 'Fever, cough',
-          diagnosis: 'Common cold'
-        };
-
-        // Validate record date is valid
-        expect(isValidDate(medicalRecord.recordDate)).toBe(true);
-        
-        // Validate record date is not in the future
-        const recordDate = new Date(medicalRecord.recordDate);
-        const now = new Date();
-        expect(recordDate <= now).toBe(true);
+      it('should validate date ranges', () => {
+        expect(isDateInRange(today, yesterday, tomorrow)).toBe(true);
+        expect(isDateInRange(nextMonth, yesterday, tomorrow)).toBe(false);
       });
     });
 
-    describe('Business Day and Holiday Validation', () => {
+    describe('Future and Past Date Validation', () => {
+      it('should validate future dates', () => {
+        expect(isFutureDate(tomorrow)).toBe(true);
+        expect(isFutureDate(yesterday)).toBe(false);
+      });
+
+      it('should validate past dates', () => {
+        expect(isPastDate(yesterday)).toBe(true);
+        expect(isPastDate(tomorrow)).toBe(false);
+      });
+
+      it('should respect minimum days in future constraint', () => {
+        const twoDaysFromNow = new Date(today);
+        twoDaysFromNow.setDate(today.getDate() + 2);
+        
+        expect(isFutureDate(tomorrow, { minDaysInFuture: 2 })).toBe(false);
+        expect(isFutureDate(twoDaysFromNow, { minDaysInFuture: 2 })).toBe(true);
+      });
+
+      it('should respect maximum days in past constraint', () => {
+        const thirtyOneDaysAgo = new Date(today);
+        thirtyOneDaysAgo.setDate(today.getDate() - 31);
+        
+        expect(isPastDate(yesterday, { maxDaysInPast: 30 })).toBe(true);
+        expect(isPastDate(thirtyOneDaysAgo, { maxDaysInPast: 30 })).toBe(false);
+      });
+    });
+
+    describe('Business Day Validation', () => {
+      it('should identify weekends', () => {
+        // Create a known weekend date (Sunday)
+        const sunday = new Date('2023-01-15'); // This was a Sunday
+        expect(isBusinessDay(sunday)).toBe(false);
+        
+        // Create a known weekday (Monday)
+        const monday = new Date('2023-01-16'); // This was a Monday
+        expect(isBusinessDay(monday)).toBe(true);
+      });
+
       it('should identify Brazilian holidays', () => {
         // New Year's Day 2023
-        expect(isBrazilianHoliday(new Date('2023-01-01'))).toBe(true);
-        
-        // Carnival Tuesday 2023
-        expect(isBrazilianHoliday(new Date('2023-02-21'))).toBe(true);
+        const newYearsDay = new Date('2023-01-01');
+        expect(isBusinessDay(newYearsDay)).toBe(false);
         
         // Regular day
-        expect(isBrazilianHoliday(new Date('2023-03-10'))).toBe(false);
+        const regularDay = new Date('2023-01-03');
+        expect(isBusinessDay(regularDay)).toBe(true);
       });
 
-      it('should validate business days', () => {
-        // Weekend (Sunday)
-        expect(isBusinessDay(new Date('2023-03-12'))).toBe(false);
+      it('should support custom holidays', () => {
+        const customHoliday = new Date('2023-03-15');
         
-        // Holiday (Tiradentes Day)
-        expect(isBusinessDay(new Date('2023-04-21'))).toBe(false);
+        // Without custom holiday
+        expect(isBusinessDay(customHoliday)).toBe(true);
         
-        // Business day
-        expect(isBusinessDay(new Date('2023-03-15'))).toBe(true);
-      });
-
-      it('should validate appointment scheduling in a care journey scenario', () => {
-        // Simulate appointment scheduling
-        const appointmentRequest = {
-          doctorId: 'dr-123',
-          patientId: 'patient-456',
-          appointmentDate: '2023-03-15T14:00:00',
-          appointmentType: 'consultation'
-        };
-
-        const appointmentDate = new Date(appointmentRequest.appointmentDate);
-        
-        // Validate appointment is on a business day
-        expect(isBusinessDay(appointmentDate, { countryCode: 'BR' })).toBe(true);
-        
-        // Validate appointment is within business hours
-        const hours = appointmentDate.getHours();
-        expect(hours >= 9 && hours < 18).toBe(true);
+        // With custom holiday
+        expect(isBusinessDay(customHoliday, { 
+          customHolidays: [new Date('2023-03-15')] 
+        })).toBe(false);
       });
     });
 
     describe('Journey-Specific Date Validation', () => {
       it('should validate dates for health journey', () => {
-        const healthMetricDate = new Date('2023-03-15T08:30:00');
+        // Health journey allows past dates for metrics
+        expect(isValidJourneyDate(yesterday, 'health')).toBe(true);
+        expect(isValidJourneyDate(tomorrow, 'health')).toBe(true);
         
-        // Health journey allows past dates for records
-        expect(isValidJourneyDate(healthMetricDate, 'health', {
-          maxFutureDays: 0 // Don't allow future dates for health metrics
-        })).toBe(true);
-        
-        // Future date beyond allowed range
-        const futureDate = new Date();
-        futureDate.setDate(futureDate.getDate() + 10);
-        expect(isValidJourneyDate(futureDate, 'health', {
-          maxFutureDays: 7 // Allow up to 7 days in future
-        })).toBe(false);
+        // Health journey allows weekends
+        const sunday = new Date('2023-01-15'); // This was a Sunday
+        expect(isValidJourneyDate(sunday, 'health')).toBe(true);
       });
 
       it('should validate dates for care journey', () => {
-        // Care journey requires business days for appointments
-        const appointmentDate = new Date('2023-03-15T14:00:00'); // A Wednesday
+        // Care journey requires future dates for appointments
+        expect(isValidJourneyDate(yesterday, 'care')).toBe(false);
+        expect(isValidJourneyDate(tomorrow, 'care')).toBe(true);
         
-        expect(isValidJourneyDate(appointmentDate, 'care', {
-          businessDaysOnly: true,
-          maxFutureDays: 30 // Allow booking up to 30 days ahead
-        })).toBe(true);
-        
-        // Weekend appointment should be invalid
-        const weekendDate = new Date('2023-03-18T14:00:00'); // A Saturday
-        expect(isValidJourneyDate(weekendDate, 'care', {
-          businessDaysOnly: true
-        })).toBe(false);
+        // Care journey doesn't allow weekends by default
+        const sunday = new Date('2023-01-15'); // This was a Sunday
+        expect(isValidJourneyDate(sunday, 'care')).toBe(false);
       });
 
       it('should validate dates for plan journey', () => {
-        // Plan journey allows past dates for claims but limits how far back
-        const claimDate = new Date('2023-02-15');
-        const now = new Date();
-        const daysDiff = Math.floor((now.getTime() - claimDate.getTime()) / (1000 * 60 * 60 * 24));
-        
-        expect(isValidJourneyDate(claimDate, 'plan', {
-          maxPastDays: daysDiff + 10 // Allow claims up to this many days in the past
-        })).toBe(true);
-        
-        // Very old claim date should be invalid
-        const veryOldDate = new Date('2022-01-01');
-        expect(isValidJourneyDate(veryOldDate, 'plan', {
-          maxPastDays: 90 // Only allow claims from last 90 days
-        })).toBe(false);
+        // Plan journey typically requires past dates for claims
+        expect(isValidJourneyDate(yesterday, 'plan')).toBe(true);
+        expect(isValidJourneyDate(tomorrow, 'plan')).toBe(false);
       });
 
-      it('should validate date ranges for journey-specific scenarios', () => {
-        // Health journey - validate date range for health report
-        const startDate = new Date('2023-01-01');
-        const endDate = new Date('2023-01-31');
+      it('should validate appointment dates', () => {
+        // Business hours check (9 AM)
+        const appointmentTime = new Date(tomorrow);
+        appointmentTime.setHours(9, 0, 0, 0);
+        expect(isValidAppointmentDate(appointmentTime)).toBe(true);
         
-        expect(isValidJourneyDateRange(startDate, endDate, 'health', {
-          maxRangeDays: 90 // Allow up to 90 days range for health reports
-        })).toBe(true);
+        // Outside business hours (7 AM)
+        const earlyAppointment = new Date(tomorrow);
+        earlyAppointment.setHours(7, 0, 0, 0);
+        expect(isValidAppointmentDate(earlyAppointment)).toBe(false);
         
-        // Too large range
-        const farEndDate = new Date('2023-06-01');
-        expect(isValidJourneyDateRange(startDate, farEndDate, 'health', {
-          maxRangeDays: 90
-        })).toBe(false);
+        // Time slot alignment (9:30 AM - aligned with 30-minute slots)
+        const alignedAppointment = new Date(tomorrow);
+        alignedAppointment.setHours(9, 30, 0, 0);
+        expect(isValidAppointmentDate(alignedAppointment)).toBe(true);
+        
+        // Time slot misalignment (9:15 AM - not aligned with 30-minute slots)
+        const misalignedAppointment = new Date(tomorrow);
+        misalignedAppointment.setHours(9, 15, 0, 0);
+        expect(isValidAppointmentDate(misalignedAppointment)).toBe(false);
+      });
+
+      it('should validate health metric dates', () => {
+        // Recent past date (valid for health metrics)
+        expect(isValidHealthMetricDate(yesterday)).toBe(true);
+        
+        // Future date (invalid for health metrics by default)
+        expect(isValidHealthMetricDate(tomorrow)).toBe(false);
+        
+        // Future date with allowFutureDates option
+        expect(isValidHealthMetricDate(tomorrow, { allowFutureDates: true })).toBe(true);
+        
+        // Date too far in the past
+        const sixtyDaysAgo = new Date(today);
+        sixtyDaysAgo.setDate(today.getDate() - 60);
+        expect(isValidHealthMetricDate(sixtyDaysAgo, { maxDaysInPast: 30 })).toBe(false);
+      });
+
+      it('should validate insurance claim dates', () => {
+        // Recent past date (valid for claims)
+        expect(isValidClaimDate(yesterday)).toBe(true);
+        
+        // Future date (invalid for claims by default)
+        expect(isValidClaimDate(tomorrow)).toBe(false);
+        
+        // Date too far in the past
+        const oneYearAgo = new Date(today);
+        oneYearAgo.setFullYear(today.getFullYear() - 1);
+        expect(isValidClaimDate(oneYearAgo, { maxDaysInPast: 90 })).toBe(false);
       });
     });
 
     describe('Timezone-Aware Date Validation', () => {
-      it('should validate dates in specific timezones', () => {
-        // Create a date in UTC
-        const utcDate = new Date('2023-03-15T14:00:00Z');
+      it('should validate dates with timezone consideration', () => {
+        // Create a date at 3 PM São Paulo time
+        const dateInSaoPaulo = new Date();
+        dateInSaoPaulo.setHours(15, 0, 0, 0);
         
-        // Validate in São Paulo timezone (UTC-3)
-        expect(isValidDateInTimezone(utcDate, 'America/Sao_Paulo')).toBe(true);
-        
-        // Check if it's a business day in that timezone
-        expect(isValidDateInTimezone(utcDate, 'America/Sao_Paulo', {
-          businessDay: true
+        expect(isValidDateWithTimezone(dateInSaoPaulo, { 
+          timezone: 'America/Sao_Paulo',
+          businessHoursOnly: true
         })).toBe(true);
+        
+        // This same time might be outside business hours in another timezone
+        expect(isValidDateWithTimezone(dateInSaoPaulo, { 
+          timezone: 'Asia/Tokyo',
+          businessHoursOnly: true
+        })).toBe(false);
       });
 
-      it('should validate appointment times across timezones', () => {
-        // Simulate telemedicine appointment scheduling across timezones
-        const appointmentData = {
-          doctorTimezone: 'America/Sao_Paulo', // Doctor in São Paulo
-          patientTimezone: 'America/New_York', // Patient in New York
-          proposedTime: '2023-03-15T14:00:00Z' // UTC time
-        };
-
-        // Validate the appointment time is during business hours in doctor's timezone
-        expect(isValidDateInTimezone(appointmentData.proposedTime, appointmentData.doctorTimezone, {
-          businessDay: true
+      it('should handle business days across timezones', () => {
+        // Create a date that's Monday in São Paulo but might be Sunday elsewhere
+        const mondayMorningInSaoPaulo = new Date('2023-01-16T08:00:00-03:00');
+        
+        expect(isValidDateWithTimezone(mondayMorningInSaoPaulo, { 
+          timezone: 'America/Sao_Paulo',
+          allowWeekends: false
         })).toBe(true);
         
-        // Also check it's a reasonable hour in patient's timezone
-        const patientLocalTime = new Date(appointmentData.proposedTime);
-        expect(isValidDateInTimezone(patientLocalTime, appointmentData.patientTimezone)).toBe(true);
+        // This same time is still Sunday in Los Angeles
+        expect(isValidDateWithTimezone(mondayMorningInSaoPaulo, { 
+          timezone: 'America/Los_Angeles',
+          allowWeekends: false
+        })).toBe(false);
       });
     });
   });
 
   describe('Object Validators', () => {
-    describe('Property Validation', () => {
+    describe('Basic Object Validation', () => {
       it('should validate required properties', () => {
-        const user = {
-          id: '123',
-          name: 'João Silva',
-          email: 'joao@example.com'
-        };
-        
-        const result = validateProperties(user, ['id', 'name', 'email']);
-        expect(result.success).toBe(true);
-        
-        // Missing required property
-        const incompleteUser = {
-          id: '123',
-          name: 'João Silva'
-        };
-        
-        const incompleteResult = validateProperties(incompleteUser, ['id', 'name', 'email']);
-        expect(incompleteResult.success).toBe(false);
-        expect(incompleteResult.errors).toBeDefined();
-        expect(incompleteResult.errors![0].field).toBe('email');
+        expect(hasRequiredProperties(healthMetric, ['userId', 'type', 'value'])).toBe(true);
+        expect(hasRequiredProperties(healthMetric, ['userId', 'nonExistentProp'])).toBe(false);
       });
 
-      it('should validate optional properties', () => {
-        const user = {
-          id: '123',
-          name: 'João Silva',
-          email: 'joao@example.com',
-          phone: '5511999999999'
-        };
-        
-        // Validate with required and optional properties
-        const result = validateProperties(
-          user,
-          ['id', 'name', 'email'], // required
-          ['phone', 'address']     // optional
-        );
-        
-        expect(result.success).toBe(true);
-      });
-
-      it('should detect additional properties when not allowed', () => {
-        const user = {
-          id: '123',
-          name: 'João Silva',
-          email: 'joao@example.com',
-          extraField: 'should not be here'
-        };
-        
-        // Don't allow additional properties
-        const result = validateProperties(
-          user,
-          ['id', 'name', 'email'],
-          [],
-          { allowAdditionalProperties: false }
-        );
-        
-        expect(result.success).toBe(false);
-        expect(result.errors).toBeDefined();
-        expect(result.errors![0].field).toBe('extraField');
-      });
-
-      it('should validate properties in a patient registration scenario', () => {
-        // Simulate patient registration data
-        const patientData = {
-          id: 'PT12345',
-          name: 'Maria Santos',
-          cpf: '529.982.247-25',
-          birthdate: '1978-06-23',
-          gender: 'female',
-          contactInfo: {
-            email: 'maria@example.com',
-            phone: '5511999999999',
-            address: 'Rua das Flores, 123'
-          },
-          insuranceInfo: {
-            provider: 'AUSTA Saúde',
-            planId: 'PREMIUM-2023',
-            memberId: 'MS78901'
-          }
-        };
-
-        // Validate required patient properties
-        const result = validateProperties(
-          patientData,
-          ['id', 'name', 'cpf', 'birthdate', 'gender', 'contactInfo'],
-          ['insuranceInfo']
-        );
-        
-        expect(result.success).toBe(true);
-        
-        // Validate nested contact info properties
-        const contactResult = validateProperties(
-          patientData.contactInfo,
-          ['email', 'phone'],
-          ['address']
-        );
-        
-        expect(contactResult.success).toBe(true);
-      });
-    });
-
-    describe('Nested Property Validation', () => {
       it('should validate nested properties', () => {
-        const user = {
-          id: '123',
-          name: 'João Silva',
-          profile: {
-            bio: 'Software developer',
-            preferences: {
-              theme: 'dark',
-              notifications: true
-            }
-          }
-        };
-        
-        // Check if nested property exists
-        expect(hasNestedProperty(user, 'profile.preferences.theme')).toBe(true);
-        expect(hasNestedProperty(user, 'profile.preferences.language')).toBe(false);
+        expect(hasNestedProperty(healthMetric, 'metadata.systolic')).toBe(true);
+        expect(hasNestedProperty(healthMetric, 'metadata.nonExistent')).toBe(false);
       });
 
-      it('should validate nested property values', () => {
-        const user = {
-          id: '123',
-          name: 'João Silva',
-          profile: {
-            bio: 'Software developer',
-            preferences: {
-              theme: 'dark',
-              notifications: true
-            }
-          }
-        };
-        
-        // Validate nested property value
-        expect(hasValidNestedProperty(
-          user,
-          'profile.preferences.theme',
-          value => ['light', 'dark', 'system'].includes(value)
-        )).toBe(true);
-        
-        // Invalid nested property value
-        expect(hasValidNestedProperty(
-          user,
-          'profile.preferences.theme',
-          value => value === 'blue'
-        )).toBe(false);
-      });
-
-      it('should validate nested properties in a health record scenario', () => {
-        // Simulate health record with nested measurements
-        const healthRecord = {
-          patientId: 'PT12345',
-          recordDate: '2023-03-15T10:30:00Z',
-          measurements: {
-            bloodPressure: {
-              systolic: 120,
-              diastolic: 80,
-              unit: 'mmHg'
-            },
-            heartRate: {
-              value: 72,
-              unit: 'bpm'
-            },
-            bloodGlucose: {
-              value: 95,
-              unit: 'mg/dL',
-              measurementType: 'fasting'
-            }
-          },
-          notes: 'Regular checkup'
-        };
-
-        // Validate blood pressure measurements
-        expect(hasNestedProperty(healthRecord, 'measurements.bloodPressure.systolic')).toBe(true);
-        expect(hasNestedProperty(healthRecord, 'measurements.bloodPressure.diastolic')).toBe(true);
-        
-        // Validate systolic blood pressure is in normal range
-        expect(hasValidNestedProperty(
-          healthRecord,
-          'measurements.bloodPressure.systolic',
-          value => typeof value === 'number' && value >= 90 && value <= 140
-        )).toBe(true);
-        
-        // Validate blood glucose is in normal fasting range
-        expect(hasValidNestedProperty(
-          healthRecord,
-          'measurements.bloodGlucose.value',
-          value => {
-            if (healthRecord.measurements.bloodGlucose.measurementType === 'fasting') {
-              return value >= 70 && value <= 100; // Normal fasting range (mg/dL)
-            }
-            return true; // Not validating non-fasting
-          }
-        )).toBe(true);
+      it('should validate property types', () => {
+        expect(isOfType(healthMetric.value, 'number')).toBe(true);
+        expect(isOfType(healthMetric.type, 'number')).toBe(false);
+        expect(isOfType(healthMetric.metadata, 'object')).toBe(true);
+        expect(isOfType(healthMetric.timestamp, 'date')).toBe(true);
       });
     });
 
-    describe('Object Schema Validation', () => {
-      it('should validate objects against a schema', () => {
-        // Define schema
-        const userSchema: PropertyDefinition[] = [
-          { name: 'id', required: true },
-          { name: 'name', required: true, validator: value => typeof value === 'string' && value.length > 0 },
-          { name: 'email', required: true, validator: value => typeof value === 'string' && value.includes('@') },
-          { name: 'age', required: false, validator: value => typeof value === 'number' && value >= 18 }
-        ];
-        
-        // Valid user
-        const user = {
-          id: '123',
-          name: 'João Silva',
-          email: 'joao@example.com',
-          age: 30
+    describe('Complex Object Validation', () => {
+      it('should validate object shape', () => {
+        const schema = {
+          userId: { type: 'string', required: true },
+          type: { type: 'string', required: true },
+          value: { type: 'number', required: true },
+          unit: { type: 'string', required: true },
+          timestamp: { type: 'date', required: true },
+          source: { type: 'string' },
+          metadata: { type: 'object' }
         };
         
-        const result = validateObjectSchema(user, userSchema);
-        expect(result.success).toBe(true);
+        expect(isObjectWithShape(healthMetric, schema)).toBe(true);
         
-        // Invalid user (underage)
-        const underageUser = {
-          id: '124',
-          name: 'Young User',
-          email: 'young@example.com',
-          age: 16
+        // Invalid object (wrong type)
+        const invalidMetric = { ...healthMetric, value: 'not-a-number' };
+        expect(isObjectWithShape(invalidMetric, schema)).toBe(false);
+      });
+
+      it('should validate nested object structures', () => {
+        const schema = {
+          userId: { type: 'string', required: true },
+          metadata: { 
+            type: 'object', 
+            properties: {
+              systolic: { type: 'number', required: true },
+              diastolic: { type: 'number', required: true }
+            }
+          }
         };
         
-        const underageResult = validateObjectSchema(underageUser, userSchema);
-        expect(underageResult.success).toBe(false);
-        expect(underageResult.errors).toBeDefined();
-        expect(underageResult.errors![0].field).toBe('age');
+        expect(isObjectWithShape(healthMetric, schema, { validateNested: true })).toBe(true);
+        
+        // Invalid nested object
+        const invalidNestedMetric = { 
+          ...healthMetric, 
+          metadata: { 
+            systolic: 'not-a-number', 
+            diastolic: 80 
+          }
+        };
+        expect(isObjectWithShape(invalidNestedMetric, schema, { validateNested: true })).toBe(false);
       });
 
       it('should validate array properties', () => {
-        const post = {
-          id: 'post-123',
-          title: 'Health Tips',
-          content: 'Stay hydrated...',
-          tags: ['health', 'wellness', 'hydration']
+        expect(validateArrayProperty(insuranceClaim, 'documents', 
+          item => typeof item === 'string' && item.endsWith('.pdf')
+        )).toBe(true);
+        
+        // Invalid array items
+        const invalidClaim = { 
+          ...insuranceClaim, 
+          documents: ['doc1.pdf', 'doc2.txt'] 
         };
-        
-        // Validate that all tags are non-empty strings
-        const result = validateArrayProperty(
-          post,
-          'tags',
-          tag => typeof tag === 'string' && tag.trim().length > 0
-        );
-        
-        expect(result.success).toBe(true);
-        
-        // Invalid array element
-        const invalidPost = {
-          id: 'post-124',
-          title: 'Health Tips',
-          content: 'Stay hydrated...',
-          tags: ['health', '', 'hydration'] // Empty tag
-        };
-        
-        const invalidResult = validateArrayProperty(
-          invalidPost,
-          'tags',
-          tag => typeof tag === 'string' && tag.trim().length > 0
-        );
-        
-        expect(invalidResult.success).toBe(false);
-        expect(invalidResult.errors).toBeDefined();
-        expect(invalidResult.errors![0].field).toBe('tags[1]');
+        expect(validateArrayProperty(invalidClaim, 'documents', 
+          item => typeof item === 'string' && item.endsWith('.pdf')
+        )).toBe(false);
       });
 
-      it('should validate objects in a medical prescription scenario', () => {
-        // Define prescription schema
-        const prescriptionSchema: PropertyDefinition[] = [
-          { name: 'id', required: true },
-          { name: 'patientId', required: true },
-          { name: 'doctorId', required: true },
-          { name: 'date', required: true, validator: value => isValidDate(value) },
-          { name: 'medications', required: true, validator: value => Array.isArray(value) && value.length > 0 },
-          { name: 'notes', required: false }
-        ];
-        
-        // Simulate prescription data
-        const prescription = {
-          id: 'RX12345',
-          patientId: 'PT12345',
-          doctorId: 'DR98765',
-          date: '2023-03-15T14:30:00Z',
-          medications: [
-            {
-              name: 'Amoxicillin',
-              dosage: '500mg',
-              frequency: '8h',
-              duration: '7 days'
-            },
-            {
-              name: 'Ibuprofen',
-              dosage: '400mg',
-              frequency: '12h',
-              duration: '3 days',
-              instructions: 'Take with food'
+      it('should provide detailed validation results', () => {
+        const schema = {
+          userId: { type: 'string', required: true },
+          value: { type: 'number', required: true },
+          metadata: { 
+            type: 'object', 
+            properties: {
+              systolic: { type: 'number', required: true },
+              diastolic: { type: 'number', required: true }
             }
-          ],
-          notes: 'Follow up in 10 days if symptoms persist'
+          }
         };
+        
+        const invalidObject = {
+          userId: 123, // Wrong type
+          // Missing required 'value'
+          metadata: {
+            systolic: 'invalid', // Wrong type
+            // Missing required 'diastolic'
+          }
+        };
+        
+        const result = validateObjectStructure(invalidObject, schema, { validateNested: true });
+        
+        expect(result.valid).toBe(false);
+        expect(result.invalidProperties).toBeDefined();
+        expect(Object.keys(result.invalidProperties!).length).toBeGreaterThan(0);
+        expect(result.missingProperties).toContain('value');
+      });
 
-        // Validate prescription against schema
-        const result = validateObjectSchema(prescription, prescriptionSchema);
-        expect(result.success).toBe(true);
+      it('should compare objects for equality', () => {
+        const obj1 = { a: 1, b: { c: 2 } };
+        const obj2 = { a: 1, b: { c: 2 } };
+        const obj3 = { a: 1, b: { c: 3 } };
         
-        // Validate each medication in the array
-        const medicationSchema: PropertyDefinition[] = [
-          { name: 'name', required: true },
-          { name: 'dosage', required: true },
-          { name: 'frequency', required: true },
-          { name: 'duration', required: true },
-          { name: 'instructions', required: false }
-        ];
+        expect(areObjectsEqual(obj1, obj2)).toBe(true);
+        expect(areObjectsEqual(obj1, obj3)).toBe(false);
         
-        prescription.medications.forEach((medication, index) => {
-          const medResult = validateObjectSchema(medication, medicationSchema);
-          expect(medResult.success).toBe(true);
-        });
+        // With ignored properties
+        expect(areObjectsEqual(
+          { a: 1, b: 2, c: 3 },
+          { a: 1, b: 5, c: 3 },
+          { ignoreProperties: ['b'] }
+        )).toBe(true);
+      });
+    });
+
+    describe('Cross-Journey Object Validation', () => {
+      it('should validate health journey objects', () => {
+        const healthMetricSchema = {
+          userId: { type: 'string', required: true },
+          type: { type: 'string', required: true },
+          value: { type: 'number', required: true },
+          unit: { type: 'string', required: true },
+          timestamp: { type: 'date', required: true },
+          source: { type: 'string', required: true }
+        };
+        
+        expect(isObjectWithShape(healthMetric, healthMetricSchema)).toBe(true);
+      });
+
+      it('should validate care journey objects', () => {
+        const appointmentSchema = {
+          userId: { type: 'string', required: true },
+          providerId: { type: 'string', required: true },
+          dateTime: { type: 'date', required: true },
+          duration: { type: 'number', required: true },
+          type: { type: 'string', required: true },
+          status: { type: 'string', required: true }
+        };
+        
+        expect(isObjectWithShape(appointment, appointmentSchema)).toBe(true);
+      });
+
+      it('should validate plan journey objects', () => {
+        const claimSchema = {
+          userId: { type: 'string', required: true },
+          serviceDate: { type: 'date', required: true },
+          providerId: { type: 'string', required: true },
+          procedureCode: { type: 'string', required: true },
+          amount: { type: 'number', required: true },
+          status: { type: 'string', required: true },
+          documents: { type: 'array', required: true }
+        };
+        
+        expect(isObjectWithShape(insuranceClaim, claimSchema)).toBe(true);
       });
     });
   });
 
   describe('Schema Validators', () => {
     describe('Zod Schema Validation', () => {
-      it('should validate data against Zod schemas', async () => {
-        // Define Zod schema
+      it('should validate with Zod schemas', () => {
         const userSchema = z.object({
           id: z.string(),
-          name: z.string().min(1),
-          email: z.string().email(),
-          age: z.number().min(18).optional()
+          name: z.string().min(3),
+          email: z.string().email()
         });
         
-        // Valid user
-        const user = {
-          id: '123',
-          name: 'João Silva',
-          email: 'joao@example.com',
-          age: 30
-        };
+        const validUser = { id: 'user-123', name: 'John Doe', email: 'john@example.com' };
+        const invalidUser = { id: 'user-123', name: 'Jo', email: 'invalid-email' };
         
-        const result = await validateWithZod(userSchema, user);
-        expect(result.success).toBe(true);
-        expect(result.data).toEqual(user);
+        const validResult = validateWithZod(userSchema, validUser);
+        expect(validResult.success).toBe(true);
+        expect(validResult.data).toEqual(validUser);
         
-        // Invalid user
-        const invalidUser = {
-          id: '124',
-          name: '',  // Empty name
-          email: 'invalid-email', // Invalid email
-          age: 16    // Underage
-        };
-        
-        const invalidResult = await validateWithZod(userSchema, invalidUser);
+        const invalidResult = validateWithZod(userSchema, invalidUser);
         expect(invalidResult.success).toBe(false);
         expect(invalidResult.errors).toBeDefined();
-        expect(invalidResult.errors!.length).toBe(2); // Name and email errors
       });
 
-      it('should use journey-specific error messages', async () => {
-        // Create a health journey schema
-        const healthMetricSchema = createZodSchema(
-          z.object({
-            patientId: z.string(),
-            metricType: z.string(),
-            value: z.number().min(0),
-            unit: z.string(),
-            date: z.string().refine(val => isValidDate(val), { message: 'Invalid date' })
-          }),
-          'health' // Journey ID
-        );
+      it('should create schemas with custom error messages', () => {
+        const schema = createSchema(z.object({
+          name: z.string().min(3),
+          email: z.string().email()
+        }));
         
-        // Invalid health metric
-        const invalidMetric = {
-          patientId: 'PT12345',
-          metricType: 'bloodGlucose',
-          value: -10, // Negative value
-          unit: 'mg/dL',
-          date: '2023-03-15T10:30:00Z'
-        };
-        
-        const result = await validateWithZod(healthMetricSchema, invalidMetric);
+        const result = validateWithZod(schema, { name: 'Jo', email: 'invalid' });
         expect(result.success).toBe(false);
-        expect(result.errors).toBeDefined();
-        expect(result.errors![0].message).toContain('Health metric is below minimum value');
+        expect(result.errors?.name[0]).toContain('pelo menos 3 caracteres');
+        expect(result.errors?.email[0]).toContain('Email inválido');
       });
 
-      it('should validate data in a health metrics scenario', async () => {
-        // Use pre-configured health schemas
-        const bloodPressureSchema = z.object({
-          systolic: healthSchemas.number({ min: 70, max: 200 }),
-          diastolic: healthSchemas.number({ min: 40, max: 120 }),
-          pulse: healthSchemas.number({ min: 40, max: 200, required: false }),
-          measurementDate: healthSchemas.date()
+      it('should use journey-specific schemas', () => {
+        // Health journey schema
+        const metricSchema = healthSchema.object({
+          value: healthSchema.number({ required: true }),
+          unit: healthSchema.string({ required: true }),
+          timestamp: healthSchema.date({ required: true })
         });
         
-        // Valid blood pressure reading
-        const bloodPressureReading = {
-          systolic: 120,
-          diastolic: 80,
-          pulse: 72,
-          measurementDate: new Date('2023-03-15T10:30:00Z')
+        const validMetric = { value: 120, unit: 'mmHg', timestamp: new Date() };
+        const invalidMetric = { value: 'invalid', unit: 'mmHg' };
+        
+        const validResult = validateWithZod(metricSchema, validMetric);
+        expect(validResult.success).toBe(true);
+        
+        const invalidResult = validateWithZod(metricSchema, invalidMetric);
+        expect(invalidResult.success).toBe(false);
+        expect(invalidResult.errors?.value[0]).toContain('[Saúde]');
+        expect(invalidResult.errors?.timestamp).toBeDefined();
+      });
+
+      it('should validate with pre-defined journey schemas', () => {
+        // Using pre-defined health metric schema
+        const validMetric = { 
+          value: 120, 
+          unit: 'mmHg', 
+          timestamp: new Date(),
+          source: 'manual'
         };
         
-        const result = await validateWithZod(bloodPressureSchema, bloodPressureReading);
+        const result = validateWithZod(healthSchemas.metric, validMetric);
         expect(result.success).toBe(true);
         
-        // Invalid blood pressure reading
-        const invalidReading = {
-          systolic: 220, // Too high
-          diastolic: 85,
-          measurementDate: new Date('2023-03-15T10:30:00Z')
+        // Using pre-defined care appointment schema
+        const validAppointment = {
+          providerId: 'provider-123',
+          specialtyId: 'specialty-456',
+          date: tomorrow,
+          duration: 30,
+          type: 'in-person',
+          status: 'scheduled'
         };
         
-        const invalidResult = await validateWithZod(bloodPressureSchema, invalidReading);
-        expect(invalidResult.success).toBe(false);
-        expect(invalidResult.errors).toBeDefined();
-        expect(invalidResult.errors![0].message).toContain('Health metric exceeds maximum value');
+        const appointmentResult = validateWithZod(careSchemas.appointment, validAppointment);
+        expect(appointmentResult.success).toBe(true);
+        
+        // Using pre-defined plan claim schema
+        const validClaim = {
+          serviceDate: yesterday,
+          providerId: 'provider-123',
+          procedureCode: 'PROC123',
+          amount: 150.75,
+          status: 'submitted',
+          documents: ['doc1.pdf']
+        };
+        
+        const claimResult = validateWithZod(planSchemas.claim, validClaim);
+        expect(claimResult.success).toBe(true);
       });
     });
 
     describe('Class Validator Integration', () => {
-      // Define a class with class-validator decorators
-      class AppointmentDto {
-        @IsNotEmpty()
-        @IsString()
-        doctorId: string;
+      it('should validate with class-validator', () => {
+        const validUser = { id: 'user-123', name: 'John Doe', email: 'john@example.com' };
+        const invalidUser = { id: 'user-123', name: 'Jo', email: 'invalid-email' };
         
-        @IsNotEmpty()
-        @IsString()
-        patientId: string;
+        const validResult = validateWithClassValidator(UserDto, validUser);
+        expect(validResult.success).toBe(true);
         
-        @IsNotEmpty()
-        appointmentDate: Date;
-        
-        @IsString()
-        @MinLength(3)
-        appointmentType: string;
-        
-        @IsEmail()
-        notificationEmail?: string;
-      }
-
-      it('should validate classes with class-validator', async () => {
-        // Valid appointment
-        const appointmentData = {
-          doctorId: 'DR98765',
-          patientId: 'PT12345',
-          appointmentDate: new Date('2023-03-20T14:00:00Z'),
-          appointmentType: 'consultation',
-          notificationEmail: 'patient@example.com'
-        };
-        
-        const result = await validateWithClassValidator(AppointmentDto, appointmentData);
-        expect(result.success).toBe(true);
-        expect(result.data).toBeInstanceOf(AppointmentDto);
-        
-        // Invalid appointment
-        const invalidAppointment = {
-          doctorId: 'DR98765',
-          // Missing patientId
-          appointmentDate: new Date('2023-03-20T14:00:00Z'),
-          appointmentType: 'x', // Too short
-          notificationEmail: 'invalid-email' // Invalid email
-        };
-        
-        const invalidResult = await validateWithClassValidator(AppointmentDto, invalidAppointment);
+        const invalidResult = validateWithClassValidator(UserDto, invalidUser);
         expect(invalidResult.success).toBe(false);
         expect(invalidResult.errors).toBeDefined();
-        expect(invalidResult.errors!.length).toBe(3); // Missing patientId, short type, invalid email
+        expect(invalidResult.errors?.name).toBeDefined();
+        expect(invalidResult.errors?.email).toBeDefined();
       });
 
-      it('should validate DTO in a care journey appointment scenario', async () => {
-        // Simulate appointment creation in care journey
-        const appointmentRequest = {
-          doctorId: 'DR98765',
-          patientId: 'PT12345',
-          appointmentDate: new Date('2023-03-20T14:00:00Z'),
-          appointmentType: 'follow-up',
-          notificationEmail: 'patient@example.com'
-        };
+      it('should create Zod schemas from class-validator classes', () => {
+        const userSchema = createZodSchemaFromClass(UserDto);
         
-        // Validate appointment request
-        const validationResult = await validateWithClassValidator(AppointmentDto, appointmentRequest);
+        const validUser = { id: 'user-123', name: 'John Doe', email: 'john@example.com' };
+        const invalidUser = { id: 'user-123', name: 'Jo', email: 'invalid-email' };
         
-        if (validationResult.success) {
-          // In a real application, we would proceed with appointment creation
-          const appointment = validationResult.data!;
-          
-          // Additional business rule validation
-          const isBusinessDay = isValidJourneyDate(appointment.appointmentDate, 'care', {
-            businessDaysOnly: true
-          });
-          
-          expect(isBusinessDay).toBe(true);
-        } else {
-          fail('Appointment validation should succeed');
-        }
+        const validResult = validateWithZod(userSchema, validUser);
+        expect(validResult.success).toBe(true);
+        
+        const invalidResult = validateWithZod(userSchema, invalidUser);
+        expect(invalidResult.success).toBe(false);
       });
     });
 
-    describe('Runtime Type Checking', () => {
-      it('should perform runtime type checking for critical operations', () => {
-        // Define schema for critical operation
-        const transferSchema = z.object({
-          sourceAccountId: z.string(),
-          destinationAccountId: z.string(),
-          amount: z.number().positive(),
-          currency: z.string().length(3),
-          description: z.string().optional()
+    describe('Real-world Validation Scenarios', () => {
+      it('should validate a complete health metric submission', () => {
+        // Create a schema that combines multiple validators
+        const healthMetricSchema = healthSchema.object({
+          userId: healthSchema.string({ required: true }),
+          type: healthSchema.string({ required: true }),
+          value: healthSchema.number({ required: true }),
+          unit: healthSchema.string({ required: true }),
+          timestamp: healthSchema.date({ required: true }),
+          source: healthSchema.string({ required: true }),
+          metadata: healthSchema.object({
+            systolic: healthSchema.number({ required: true }),
+            diastolic: healthSchema.number({ required: true })
+          })
         });
         
-        // Valid transfer data
-        const transferData = {
-          sourceAccountId: 'ACC-001',
-          destinationAccountId: 'ACC-002',
-          amount: 1000.50,
-          currency: 'BRL',
-          description: 'Monthly payment'
+        // Valid submission
+        const validSubmission = {
+          userId: 'user-123',
+          type: 'blood_pressure',
+          value: 120,
+          unit: 'mmHg',
+          timestamp: new Date(),
+          source: 'manual',
+          metadata: {
+            systolic: 120,
+            diastolic: 80
+          }
         };
         
-        // Use assertValid for runtime type checking
-        const validatedData = assertValid(transferData, transferSchema);
-        expect(validatedData).toEqual(transferData);
+        const validResult = validateWithZod(healthMetricSchema, validSubmission);
+        expect(validResult.success).toBe(true);
         
-        // Invalid data should throw an error
-        const invalidData = {
-          sourceAccountId: 'ACC-001',
-          destinationAccountId: 'ACC-002',
-          amount: -100, // Negative amount
-          currency: 'BRL'
-        };
-        
-        expect(() => assertValid(invalidData, transferSchema)).toThrow();
-      });
-
-      it('should validate critical data in a medication administration scenario', () => {
-        // Define schema for medication administration
-        const medicationSchema = z.object({
-          patientId: z.string(),
-          medicationId: z.string(),
-          dosage: z.number().positive(),
-          unit: z.string(),
-          route: z.enum(['oral', 'intravenous', 'intramuscular', 'subcutaneous']),
-          administeredBy: z.string(),
-          administeredAt: z.date()
-        });
-        
-        // Simulate medication administration data
-        const medicationData = {
-          patientId: 'PT12345',
-          medicationId: 'MED-789',
-          dosage: 10,
-          unit: 'mg',
-          route: 'oral',
-          administeredBy: 'NURSE-456',
-          administeredAt: new Date()
-        };
-        
-        // Critical operation - validate before recording administration
-        try {
-          const validatedData = assertValid(medicationData, medicationSchema);
-          
-          // In a real application, we would proceed with recording the administration
-          expect(validatedData).toEqual(medicationData);
-        } catch (error) {
-          fail('Medication data validation should not throw: ' + error);
-        }
-        
-        // Invalid medication data (wrong route)
-        const invalidData = {
-          ...medicationData,
-          route: 'topical' // Not in enum
-        };
-        
-        expect(() => assertValid(invalidData, medicationSchema)).toThrow();
-      });
-    });
-
-    describe('Cross-Journey Validation', () => {
-      it('should validate data that spans multiple journeys', async () => {
-        // Define schemas for different journeys
-        const healthProfileSchema = healthSchemas.model('HealthProfile', z.object({
-          patientId: z.string(),
-          height: z.number().positive(),
-          weight: z.number().positive(),
-          bloodType: z.enum(['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-']),
-          allergies: z.array(z.string()).optional()
-        }));
-        
-        const careProfileSchema = careSchemas.model('CareProfile', z.object({
-          patientId: z.string(),
-          primaryPhysician: z.string(),
-          emergencyContact: z.string(),
-          preferredHospital: z.string().optional()
-        }));
-        
-        const planProfileSchema = planSchemas.model('PlanProfile', z.object({
-          patientId: z.string(),
-          planId: z.string(),
-          memberId: z.string(),
-          coverageStartDate: z.date(),
-          coverageEndDate: z.date().optional()
-        }));
-        
-        // Simulate user with data across all journeys
-        const userData = {
-          userId: 'USER-123',
-          name: 'Ana Silva',
-          email: 'ana@example.com',
-          journeyData: {
-            health: {
-              patientId: 'PT-ANA-001',
-              height: 165,
-              weight: 60,
-              bloodType: 'O+',
-              allergies: ['Penicillin']
-            },
-            care: {
-              patientId: 'PT-ANA-001',
-              primaryPhysician: 'DR-CARDIO-001',
-              emergencyContact: '5511999999999',
-              preferredHospital: 'AUSTA Hospital'
-            },
-            plan: {
-              patientId: 'PT-ANA-001',
-              planId: 'PREMIUM-2023',
-              memberId: 'MEM-12345',
-              coverageStartDate: new Date('2023-01-01'),
-              coverageEndDate: new Date('2023-12-31')
+        // Also check with object validator
+        const objectSchema = {
+          userId: { type: 'string', required: true },
+          type: { type: 'string', required: true },
+          value: { type: 'number', required: true },
+          unit: { type: 'string', required: true },
+          timestamp: { type: 'date', required: true },
+          source: { type: 'string', required: true },
+          metadata: { 
+            type: 'object', 
+            properties: {
+              systolic: { type: 'number', required: true },
+              diastolic: { type: 'number', required: true }
             }
           }
         };
-
-        // Validate each journey's data
-        const healthResult = await validateWithZod(healthProfileSchema, userData.journeyData.health);
-        const careResult = await validateWithZod(careProfileSchema, userData.journeyData.care);
-        const planResult = await validateWithZod(planProfileSchema, userData.journeyData.plan);
         
-        expect(healthResult.success).toBe(true);
-        expect(careResult.success).toBe(true);
-        expect(planResult.success).toBe(true);
+        expect(isObjectWithShape(validSubmission, objectSchema, { validateNested: true })).toBe(true);
         
-        // Validate cross-journey consistency
-        const healthPatientId = userData.journeyData.health.patientId;
-        const carePatientId = userData.journeyData.care.patientId;
-        const planPatientId = userData.journeyData.plan.patientId;
-        
-        // Patient IDs should be consistent across journeys
-        expect(healthPatientId).toBe(carePatientId);
-        expect(carePatientId).toBe(planPatientId);
+        // Also validate the timestamp is valid for health metrics
+        expect(isValidHealthMetricDate(validSubmission.timestamp)).toBe(true);
       });
 
-      it('should validate gamification events from different journeys', async () => {
-        // Define base event schema
-        const baseEventSchema = z.object({
-          eventId: z.string().uuid(),
-          userId: z.string(),
-          timestamp: z.date(),
-          journeyId: z.enum(['health', 'care', 'plan']),
-          eventType: z.string(),
-          points: z.number().int().nonnegative()
+      it('should validate a complete appointment booking', () => {
+        // Create a schema that combines multiple validators
+        const appointmentSchema = careSchema.object({
+          userId: careSchema.string({ required: true }),
+          providerId: careSchema.string({ required: true }),
+          specialtyId: careSchema.string({ required: true }),
+          dateTime: careSchema.date({ required: true }),
+          duration: careSchema.number({ required: true, integer: true }),
+          type: z.enum(['in-person', 'telemedicine']),
+          status: z.enum(['scheduled', 'confirmed', 'completed', 'cancelled']),
+          notes: careSchema.string()
         });
         
-        // Journey-specific event schemas
-        const healthEventSchema = baseEventSchema.extend({
-          journeyId: z.literal('health'),
-          eventType: z.enum([
-            'HEALTH_METRIC_RECORDED',
-            'HEALTH_GOAL_ACHIEVED',
-            'HEALTH_CHALLENGE_COMPLETED'
-          ]),
-          metadata: z.object({
-            metricType: z.string().optional(),
-            goalId: z.string().optional(),
-            challengeId: z.string().optional(),
-            value: z.number().optional()
-          })
-        });
+        // Valid booking
+        const appointmentTime = new Date(tomorrow);
+        appointmentTime.setHours(9, 0, 0, 0);
         
-        const careEventSchema = baseEventSchema.extend({
-          journeyId: z.literal('care'),
-          eventType: z.enum([
-            'APPOINTMENT_COMPLETED',
-            'MEDICATION_ADHERENCE',
-            'TELEMEDICINE_SESSION'
-          ]),
-          metadata: z.object({
-            appointmentId: z.string().optional(),
-            medicationId: z.string().optional(),
-            sessionId: z.string().optional(),
-            duration: z.number().optional()
-          })
-        });
-        
-        // Simulate events from different journeys
-        const healthEvent = {
-          eventId: '123e4567-e89b-12d3-a456-426614174000',
-          userId: 'USER-123',
-          timestamp: new Date(),
-          journeyId: 'health',
-          eventType: 'HEALTH_METRIC_RECORDED',
-          points: 10,
-          metadata: {
-            metricType: 'bloodPressure',
-            value: 120
-          }
+        const validBooking = {
+          userId: 'user-123',
+          providerId: 'provider-456',
+          specialtyId: 'specialty-789',
+          dateTime: appointmentTime,
+          duration: 30,
+          type: 'in-person',
+          status: 'scheduled',
+          notes: 'Regular check-up'
         };
         
-        const careEvent = {
-          eventId: '123e4567-e89b-12d3-a456-426614174001',
-          userId: 'USER-123',
-          timestamp: new Date(),
-          journeyId: 'care',
-          eventType: 'APPOINTMENT_COMPLETED',
-          points: 20,
-          metadata: {
-            appointmentId: 'APT-12345',
-            duration: 30
-          }
-        };
+        const validResult = validateWithZod(appointmentSchema, validBooking);
+        expect(validResult.success).toBe(true);
+        
+        // Also validate the appointment date is valid
+        expect(isValidAppointmentDate(validBooking.dateTime)).toBe(true);
+      });
 
-        // Validate events
-        const healthEventResult = await validateWithZod(
-          healthEventSchema,
-          healthEvent
-        );
+      it('should validate a complete insurance claim submission', () => {
+        // Create a schema that combines multiple validators
+        const claimSchema = planSchema.object({
+          userId: planSchema.string({ required: true }),
+          serviceDate: planSchema.date({ required: true }),
+          providerId: planSchema.string({ required: true }),
+          procedureCode: planSchema.string({ required: true }),
+          amount: planSchema.number({ required: true }),
+          status: z.enum(['submitted', 'in-review', 'approved', 'denied']),
+          documents: planSchema.array(z.string())
+        });
         
-        const careEventResult = await validateWithZod(
-          careEventSchema,
-          careEvent
-        );
-        
-        expect(healthEventResult.success).toBe(true);
-        expect(careEventResult.success).toBe(true);
-        
-        // Invalid event (wrong metadata for event type)
-        const invalidHealthEvent = {
-          ...healthEvent,
-          eventType: 'HEALTH_GOAL_ACHIEVED',
-          // Missing goalId in metadata
+        // Valid claim
+        const validClaim = {
+          userId: 'user-123',
+          serviceDate: yesterday,
+          providerId: 'provider-456',
+          procedureCode: 'PROC123',
+          amount: 150.75,
+          status: 'submitted',
+          documents: ['doc1.pdf', 'doc2.pdf']
         };
         
-        // This should still be valid as goalId is optional
-        const invalidResult = await validateWithZod(
-          healthEventSchema,
-          invalidHealthEvent
-        );
+        const validResult = validateWithZod(claimSchema, validClaim);
+        expect(validResult.success).toBe(true);
         
-        expect(invalidResult.success).toBe(true);
+        // Also validate the service date is valid for claims
+        expect(isValidClaimDate(validClaim.serviceDate)).toBe(true);
+        
+        // Validate documents are PDFs
+        expect(validateArrayProperty(validClaim, 'documents', 
+          item => typeof item === 'string' && item.endsWith('.pdf')
+        )).toBe(true);
       });
     });
   });

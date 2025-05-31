@@ -1,257 +1,280 @@
-import { LoggerService } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import { OAuthProfile, OAuthToken } from '../../src/providers/oauth/interfaces';
-import { OAuthProviderMock } from './oauth-provider.mock';
+/**
+ * @file Apple OAuth Provider Mock
+ * @description Mock implementation of the Apple OAuth provider that extends the base OAuth provider mock.
+ * This mock simulates Apple-specific authentication behavior with predefined test profiles and token responses.
+ * It enables testing of Sign in with Apple flows without requiring actual Apple Developer credentials or network connectivity.
+ */
+
+import { BaseOAuthProviderMock } from './oauth-provider.mock';
+import { AppleOAuthConfig, AppleProfile, OAuthToken } from '../../src/providers/oauth/interfaces';
 
 /**
- * Mock implementation of the Apple OAuth provider for testing.
- * Extends the base OAuth provider mock with Apple-specific functionality.
+ * Mock implementation of the Apple OAuth provider
+ * Simulates Apple-specific authentication behavior for testing
  */
-export class AppleProviderMock extends OAuthProviderMock {
+export class AppleOAuthProviderMock extends BaseOAuthProviderMock {
   /**
-   * Predefined Apple user profiles for testing different scenarios.
+   * Provider name
    */
-  private readonly predefinedProfiles = {
-    /**
-     * Standard user with all information provided.
-     */
-    standard: {
-      id: 'apple.123456789',
-      email: 'user@example.com',
-      firstName: 'John',
-      lastName: 'Doe',
-      displayName: 'John Doe',
-      provider: 'apple',
-      emailVerified: true,
-      isPrivateEmail: false,
-      raw: {
-        sub: 'apple.123456789',
-        email: 'user@example.com',
-        email_verified: 'true',
-        is_private_email: 'false',
-      },
-    },
+  readonly providerName = 'apple';
 
-    /**
-     * User with private email relay.
-     */
-    privateEmail: {
-      id: 'apple.987654321',
-      email: 'private@privaterelay.appleid.com',
-      firstName: 'Jane',
-      lastName: 'Smith',
-      displayName: 'Jane Smith',
+  /**
+   * Apple-specific configuration
+   */
+  protected config: AppleOAuthConfig;
+
+  /**
+   * Creates an instance of AppleOAuthProviderMock
+   * @param config - Mock configuration for the Apple provider
+   */
+  constructor(config?: Partial<AppleOAuthConfig>) {
+    // Create default Apple OAuth configuration for testing
+    const defaultConfig: AppleOAuthConfig = {
+      clientID: 'test.apple.client.id',
+      clientSecret: 'test_apple_client_secret',
+      callbackURL: 'https://austa.app/auth/apple/callback',
+      teamID: 'TEST_TEAM_ID',
+      keyID: 'TEST_KEY_ID',
+      privateKeyLocation: '/path/to/mock/private/key.p8',
+      scope: ['name', 'email'],
+    };
+
+    super({ ...defaultConfig, ...config });
+    this.config = { ...defaultConfig, ...config } as AppleOAuthConfig;
+  }
+
+  /**
+   * Initializes test data for Apple authentication scenarios
+   */
+  protected initializeTestData(): void {
+    // Standard user with all profile information
+    this.testProfiles['standard'] = {
+      id: 'apple_user_123456',
       provider: 'apple',
+      email: 'user@example.com',
+      emailVerified: true,
+      firstName: 'John',
+      lastName: 'Appleseed',
+      displayName: 'John Appleseed',
+      name: {
+        firstName: 'John',
+        lastName: 'Appleseed',
+      },
+      _raw: {
+        sub: 'apple_user_123456',
+        email: 'user@example.com',
+        email_verified: true,
+        name: {
+          firstName: 'John',
+          lastName: 'Appleseed',
+        },
+      },
+      _json: {
+        sub: 'apple_user_123456',
+        email: 'user@example.com',
+        email_verified: true,
+        name: {
+          firstName: 'John',
+          lastName: 'Appleseed',
+        },
+      },
+    };
+
+    // User with private email relay
+    this.testProfiles['private_email'] = {
+      id: 'apple_user_789012',
+      provider: 'apple',
+      email: 'private_relay_token@privaterelay.appleid.com',
       emailVerified: true,
       isPrivateEmail: true,
-      raw: {
-        sub: 'apple.987654321',
-        email: 'private@privaterelay.appleid.com',
-        email_verified: 'true',
-        is_private_email: 'true',
+      firstName: 'Jane',
+      lastName: 'Doe',
+      displayName: 'Jane Doe',
+      name: {
+        firstName: 'Jane',
+        lastName: 'Doe',
       },
-    },
+      _raw: {
+        sub: 'apple_user_789012',
+        email: 'private_relay_token@privaterelay.appleid.com',
+        email_verified: true,
+        name: {
+          firstName: 'Jane',
+          lastName: 'Doe',
+        },
+      },
+      _json: {
+        sub: 'apple_user_789012',
+        email: 'private_relay_token@privaterelay.appleid.com',
+        email_verified: true,
+        name: {
+          firstName: 'Jane',
+          lastName: 'Doe',
+        },
+      },
+    };
 
-    /**
-     * User without name information (Apple allows users to hide their name).
-     */
-    noName: {
-      id: 'apple.555555555',
-      email: 'noname@example.com',
-      firstName: null,
-      lastName: null,
-      displayName: null,
+    // User without name information (subsequent sign-ins)
+    this.testProfiles['no_name'] = {
+      id: 'apple_user_345678',
       provider: 'apple',
+      email: 'no_name@example.com',
       emailVerified: true,
-      isPrivateEmail: false,
-      raw: {
-        sub: 'apple.555555555',
-        email: 'noname@example.com',
-        email_verified: 'true',
-        is_private_email: 'false',
+      _raw: {
+        sub: 'apple_user_345678',
+        email: 'no_name@example.com',
+        email_verified: true,
       },
-    },
-
-    /**
-     * User with unverified email (rare case but possible in testing).
-     */
-    unverifiedEmail: {
-      id: 'apple.111111111',
-      email: 'unverified@example.com',
-      firstName: 'Unverified',
-      lastName: 'User',
-      displayName: 'Unverified User',
-      provider: 'apple',
-      emailVerified: false,
-      isPrivateEmail: false,
-      raw: {
-        sub: 'apple.111111111',
-        email: 'unverified@example.com',
-        email_verified: 'false',
-        is_private_email: 'false',
+      _json: {
+        sub: 'apple_user_345678',
+        email: 'no_name@example.com',
+        email_verified: true,
       },
-    },
-  };
+    };
 
-  /**
-   * Constructor for the Apple provider mock.
-   * @param logger Mock logger service
-   * @param configService Mock config service
-   */
-  constructor(
-    protected readonly logger: LoggerService,
-    protected readonly configService: ConfigService,
-  ) {
-    super(logger, configService);
-    this.initializeMockData();
+    // Create test tokens for each profile
+    this.createTestTokensForProfiles();
   }
 
   /**
-   * Initializes mock data with predefined profiles and tokens.
+   * Creates test tokens for each predefined profile
    */
-  private initializeMockData(): void {
-    // Add predefined profiles to mock profiles
-    Object.entries(this.predefinedProfiles).forEach(([key, profile]) => {
-      this.addMockProfile(`apple_token_${key}`, profile as OAuthProfile);
-      
-      // Create corresponding mock tokens for each profile
-      this.addMockToken(`apple_code_${key}`, {
-        accessToken: `apple_access_token_${key}`,
-        refreshToken: `apple_refresh_token_${key}`,
-        idToken: this.generateMockJwt(profile as OAuthProfile),
-        expiresIn: 3600,
+  private createTestTokensForProfiles(): void {
+    // Create tokens for each profile
+    Object.keys(this.testProfiles).forEach(profileId => {
+      const tokenId = `apple_${profileId}`;
+      this.testTokens[tokenId] = {
+        accessToken: `apple_access_token_${profileId}`,
+        refreshToken: `apple_refresh_token_${profileId}`,
+        idToken: this.createMockIdToken(profileId),
         tokenType: 'Bearer',
-      });
+        expiresIn: 3600,
+        scope: 'name email',
+      };
     });
+
+    // Add a special expired token
+    this.testTokens['expired'] = {
+      accessToken: 'apple_expired_token',
+      refreshToken: 'apple_expired_refresh_token',
+      idToken: 'apple_expired_id_token',
+      tokenType: 'Bearer',
+      expiresIn: -3600, // Negative value to indicate expiration
+      scope: 'name email',
+    };
   }
 
   /**
-   * Generates a mock JWT token for Apple authentication.
-   * @param profile The user profile to encode in the token
-   * @returns A mock JWT token string
+   * Creates a mock Apple ID token for testing
+   * @param profileId - The profile ID to use for the token
+   * @returns A mock ID token string
    */
-  private generateMockJwt(profile: OAuthProfile): string {
-    // Create JWT header
-    const header = {
-      alg: 'RS256',
-      kid: 'APPLE_KEY_ID_123',
-      typ: 'JWT',
-    };
-
-    // Create JWT payload
-    const now = Math.floor(Date.now() / 1000);
-    const payload = {
-      iss: 'https://appleid.apple.com',
-      aud: 'com.austa.superapp',
-      exp: now + 600, // Expires in 10 minutes (Apple standard)
-      iat: now,
-      sub: profile.id,
-      c_hash: 'MOCK_HASH_VALUE',
-      email: profile.email,
-      email_verified: profile.emailVerified ? 'true' : 'false',
-      is_private_email: profile.isPrivateEmail ? 'true' : 'false',
-      auth_time: now,
-    };
-
-    // Encode header and payload (simplified for mock purposes)
-    const encodedHeader = Buffer.from(JSON.stringify(header)).toString('base64')
-      .replace(/=/g, '')
-      .replace(/\+/g, '-')
-      .replace(/\//g, '_');
-    
-    const encodedPayload = Buffer.from(JSON.stringify(payload)).toString('base64')
-      .replace(/=/g, '')
-      .replace(/\+/g, '-')
-      .replace(/\//g, '_');
-
-    // Mock signature (not a real signature, just for testing)
-    const mockSignature = 'MOCK_SIGNATURE_FOR_TESTING_PURPOSES_ONLY';
-
-    // Combine to form JWT
-    return `${encodedHeader}.${encodedPayload}.${mockSignature}`;
+  private createMockIdToken(profileId: string): string {
+    // In a real implementation, this would create a proper JWT
+    // For the mock, we just return a predictable string
+    return `apple_id_token_${profileId}`;
   }
 
   /**
-   * Validates an Apple JWT token and returns the decoded payload.
-   * This is a mock implementation for testing purposes.
-   * @param token The JWT token to validate
-   * @returns The decoded payload or null if validation fails
+   * Simulates validating an Apple ID token
+   * @param token - The ID token to validate
+   * @returns The validated user profile
+   * @throws Error if token validation fails
    */
-  async validateAppleJwt(token: string): Promise<Record<string, any> | null> {
-    this.logger.debug(`[AppleProviderMock] Validating Apple JWT: ${token}`);
-    
-    if (this.shouldFailValidation) {
-      this.logger.debug('[AppleProviderMock] JWT validation failed (simulated)');
-      return null;
+  async validateToken(token: string): Promise<AppleProfile> {
+    // Special case for expired token
+    if (token === this.testTokens['expired']?.idToken) {
+      const error = new Error('Token expired') as Error & { name: string };
+      error.name = 'TokenExpiredError';
+      throw error;
     }
 
-    // In a real implementation, this would verify the signature
-    // For testing, we just decode the payload part
-    try {
-      const parts = token.split('.');
-      if (parts.length !== 3) {
-        this.logger.debug('[AppleProviderMock] Invalid JWT format');
-        return null;
+    // Use the base implementation for other tokens
+    return super.validateToken(token) as Promise<AppleProfile>;
+  }
+
+  /**
+   * Simulates exchanging an authorization code for Apple tokens
+   * @param code - The authorization code to exchange
+   * @returns The OAuth tokens from Apple
+   * @throws Error if code exchange fails
+   */
+  async exchangeCodeForToken(code: string): Promise<OAuthToken> {
+    // Check if this is a special test code
+    if (code === 'invalid_code') {
+      throw new Error('Invalid authorization code');
+    }
+
+    if (code === 'server_error') {
+      throw new Error('Apple server error');
+    }
+
+    // Map profile codes to tokens
+    if (code.startsWith('profile_')) {
+      const profileId = code.replace('profile_', '');
+      const tokenId = `apple_${profileId}`;
+      if (this.testTokens[tokenId]) {
+        return this.testTokens[tokenId];
       }
-
-      const payload = JSON.parse(
-        Buffer.from(parts[1], 'base64').toString('utf-8')
-      );
-
-      // Check if token is expired
-      const now = Math.floor(Date.now() / 1000);
-      if (payload.exp && payload.exp < now) {
-        this.logger.debug('[AppleProviderMock] JWT token expired');
-        return null;
-      }
-
-      this.logger.debug('[AppleProviderMock] JWT validated successfully');
-      return payload;
-    } catch (error) {
-      this.logger.error(`[AppleProviderMock] JWT validation error: ${error.message}`);
-      return null;
-    }
-  }
-
-  /**
-   * Gets a predefined profile by key.
-   * @param key The key of the predefined profile
-   * @returns The profile or undefined if not found
-   */
-  getPredefinedProfile(key: keyof typeof this.predefinedProfiles): OAuthProfile | undefined {
-    return this.predefinedProfiles[key] as OAuthProfile;
-  }
-
-  /**
-   * Gets a mock token for a predefined profile by key.
-   * @param key The key of the predefined profile
-   * @returns The token or null if not found
-   */
-  getMockTokenForPredefinedProfile(key: keyof typeof this.predefinedProfiles): OAuthToken | null {
-    return this.mockTokens[`apple_code_${key}`] || null;
-  }
-
-  /**
-   * Simulates the Sign in with Apple flow for a predefined profile.
-   * @param key The key of the predefined profile to use
-   * @returns An object containing the authorization code and identity token
-   */
-  simulateSignInWithApple(key: keyof typeof this.predefinedProfiles): {
-    authorizationCode: string;
-    identityToken: string;
-    user: string;
-  } | null {
-    const profile = this.getPredefinedProfile(key);
-    const token = this.getMockTokenForPredefinedProfile(key);
-    
-    if (!profile || !token) {
-      return null;
     }
 
-    return {
-      authorizationCode: `apple_code_${key}`,
-      identityToken: token.idToken,
-      user: profile.id,
-    };
+    // Use the base implementation for other codes
+    return super.exchangeCodeForToken(code);
+  }
+
+  /**
+   * Simulates refreshing an Apple access token
+   * @param refreshToken - The refresh token to use
+   * @returns The new OAuth tokens from Apple
+   * @throws Error if token refresh fails
+   */
+  async refreshToken(refreshToken: string): Promise<OAuthToken> {
+    // Check if this is a special test refresh token
+    if (refreshToken === 'invalid_refresh') {
+      throw new Error('Invalid refresh token');
+    }
+
+    if (refreshToken === 'server_error_refresh') {
+      throw new Error('Apple server error during refresh');
+    }
+
+    // Use the base implementation for other refresh tokens
+    return super.refreshToken(refreshToken);
+  }
+
+  /**
+   * Simulates generating a client secret for Apple authentication
+   * @returns A mock client secret
+   */
+  generateClientSecret(): string {
+    return 'mock_apple_client_secret_jwt';
+  }
+
+  /**
+   * Gets a test profile by scenario name
+   * @param scenario - The scenario name ('standard', 'private_email', 'no_name')
+   * @returns The test profile for the scenario
+   */
+  getProfileByScenario(scenario: 'standard' | 'private_email' | 'no_name'): AppleProfile {
+    return this.testProfiles[scenario] as AppleProfile;
+  }
+
+  /**
+   * Gets a test token by scenario name
+   * @param scenario - The scenario name ('standard', 'private_email', 'no_name', 'expired')
+   * @returns The test token for the scenario
+   */
+  getTokenByScenario(scenario: 'standard' | 'private_email' | 'no_name' | 'expired'): OAuthToken {
+    const tokenId = scenario === 'expired' ? 'expired' : `apple_${scenario}`;
+    return this.testTokens[tokenId];
+  }
+
+  /**
+   * Creates a test authorization code for a specific profile scenario
+   * @param scenario - The profile scenario to create a code for
+   * @returns A test authorization code
+   */
+  createAuthorizationCode(scenario: 'standard' | 'private_email' | 'no_name'): string {
+    return `profile_${scenario}`;
   }
 }

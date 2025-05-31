@@ -1,89 +1,89 @@
 /**
  * Jest configuration for @design-system/primitives package
  *
- * This configuration sets up the testing environment for the primitives package,
- * including proper handling of TypeScript, styled-components, and module resolution.
+ * This configuration sets up the testing environment with JSDOM,
+ * transforms for TypeScript and styled-components, module name mappings,
+ * and coverage reporting for the primitives package.
  */
 
 module.exports = {
-  // Use JSDOM as the test environment for browser-like testing
+  // Test environment setup
   testEnvironment: 'jsdom',
+  setupFilesAfterEnv: ['@testing-library/jest-dom', 'jest-styled-components'],
   
-  // Setup files to run before each test
-  setupFilesAfterEnv: [
-    '@testing-library/jest-dom',
-    'jest-styled-components'
-  ],
+  // File patterns to test
+  testMatch: ['**/__tests__/**/*.test.(ts|tsx)'],
+  testPathIgnorePatterns: ['/node_modules/', '/dist/'],
   
-  // Transform files with TypeScript and Babel
+  // Transform files
   transform: {
-    '^.+\\.(ts|tsx)$': ['ts-jest', {
-      tsconfig: '<rootDir>/tsconfig.json',
-    }],
-    '^.+\\.(js|jsx)$': 'babel-jest',
+    '^.+\.(ts|tsx)$': ['babel-jest', {
+      presets: [
+        '@babel/preset-env',
+        '@babel/preset-react',
+        '@babel/preset-typescript'
+      ],
+      plugins: [
+        'babel-plugin-styled-components',
+        '@babel/plugin-transform-runtime'
+      ]
+    }]
   },
   
-  // File extensions to look for when importing
-  moduleFileExtensions: ['ts', 'tsx', 'js', 'jsx', 'json'],
-  
-  // Module name mapping for path aliases
+  // Module name mapping for imports
   moduleNameMapper: {
     '^@design-system/primitives/(.*)$': '<rootDir>/src/$1',
     '^@design-system/primitives$': '<rootDir>/src',
-    '^@/tokens/(.*)$': '<rootDir>/src/tokens/$1',
-    '^@/components/(.*)$': '<rootDir>/src/components/$1',
+    '\.(css|less|scss|sass)$': 'identity-obj-proxy'
   },
-  
-  // Test file patterns
-  testMatch: [
-    '**/__tests__/**/*.+(ts|tsx|js|jsx)',
-    '**/?(*.)+(spec|test).+(ts|tsx|js|jsx)'
-  ],
   
   // Coverage configuration
   collectCoverageFrom: [
     'src/**/*.{ts,tsx}',
     '!src/**/*.stories.{ts,tsx}',
     '!src/**/*.d.ts',
-    '!src/**/index.{ts,tsx}',
+    '!src/**/index.{ts,tsx}'
   ],
   coverageThreshold: {
     global: {
       branches: 80,
       functions: 80,
       lines: 80,
-      statements: 80,
-    },
+      statements: 80
+    }
   },
-  coverageReporters: ['json', 'lcov', 'text', 'clover'],
   
-  // Automatically clear mock calls and instances between every test
+  // Other configuration
   clearMocks: true,
-  
-  // Indicates whether the coverage information should be collected while executing the test
-  collectCoverage: true,
-  
-  // The directory where Jest should output its coverage files
-  coverageDirectory: 'coverage',
-  
-  // Indicates whether each individual test should be reported during the run
+  resetMocks: true,
+  restoreMocks: true,
   verbose: true,
   
-  // Prevents tests from printing messages through the console
-  silent: false,
+  // Handle non-JS files
+  moduleFileExtensions: ['ts', 'tsx', 'js', 'jsx', 'json'],
   
-  // The maximum amount of workers used to run your tests
-  maxWorkers: '50%',
-  
-  // An array of regexp pattern strings that are matched against all test paths before executing the test
-  testPathIgnorePatterns: [
-    '/node_modules/',
-    '/dist/'
+  // Watch plugin configuration
+  watchPlugins: [
+    'jest-watch-typeahead/filename',
+    'jest-watch-typeahead/testname'
   ],
   
-  // An array of regexp pattern strings that are matched against all source file paths before re-running tests
-  watchPathIgnorePatterns: [
-    '/node_modules/',
-    '/dist/'
+  // Display test results with proper formatting
+  reporters: [
+    'default',
+    ['jest-junit', {
+      outputDirectory: './coverage/junit',
+      outputName: 'jest-junit.xml',
+      classNameTemplate: '{classname}',
+      titleTemplate: '{title}',
+      ancestorSeparator: ' › ',
+      usePathForSuiteName: 'true'
+    }]
   ],
+  
+  // Cache configuration
+  cacheDirectory: '<rootDir>/.jest-cache',
+  
+  // Prevent tests from timing out too quickly
+  testTimeout: 10000
 };

@@ -1,56 +1,54 @@
 /**
- * Core Type Definitions for Care Journey
- * 
- * This file defines the fundamental enum types used throughout the Care journey
- * in the AUSTA SuperApp. These enums provide type safety and standardization
- * for appointment management and care-related features.
- * 
- * @module care
+ * @file types.ts
+ * @description Core enum types for the Care journey in the AUSTA SuperApp.
+ * This file defines the fundamental type definitions used throughout the Care journey
+ * for appointment management and scheduling.
  */
 
 /**
- * Defines the possible types of healthcare appointments in the system.
+ * Enum defining the possible types of appointments in the Care journey.
  * Used to categorize appointments based on their delivery method.
  */
 export enum AppointmentType {
   /**
-   * In-person appointment that occurs at a physical healthcare facility.
-   * Requires the patient to travel to the provider's location.
-   * Associated with location information including address and room number.
+   * Represents a traditional in-person appointment that occurs at a physical
+   * healthcare facility or provider's office. The patient must be physically
+   * present at the specified location for the appointment.
    */
   IN_PERSON = 'in-person',
   
   /**
-   * Virtual appointment conducted via video conferencing technology.
-   * Allows patients to consult with healthcare providers remotely.
-   * Associated with a telemedicine session ID for connecting to the virtual meeting.
+   * Represents a virtual appointment conducted via video conferencing technology.
+   * The patient connects remotely with the healthcare provider without the need
+   * for physical travel to a facility. This type of appointment is conducted
+   * through the app's telemedicine interface.
    */
   TELEMEDICINE = 'telemedicine'
 }
 
 /**
- * Defines the possible statuses of healthcare appointments in the system.
- * Used to track the lifecycle of an appointment from creation to completion.
+ * Enum defining the possible statuses of appointments in the Care journey.
+ * Used to track the lifecycle state of an appointment.
  */
 export enum AppointmentStatus {
   /**
-   * Appointment has been booked and confirmed but has not yet occurred.
-   * The default status when an appointment is first created.
-   * Appointments in this status can be cancelled or rescheduled.
+   * Indicates that an appointment has been successfully booked and confirmed,
+   * but has not yet occurred. This is the initial status of a newly created
+   * appointment.
    */
   SCHEDULED = 'scheduled',
   
   /**
-   * Appointment has successfully taken place.
-   * Indicates that the patient and provider have met and the consultation is finished.
-   * Appointments in this status cannot be modified or cancelled.
+   * Indicates that an appointment has occurred and been marked as complete
+   * by the healthcare provider. This status is applied after the appointment
+   * time has passed and the provider has submitted any required documentation.
    */
   COMPLETED = 'completed',
   
   /**
-   * Appointment has been cancelled and will not take place as scheduled.
-   * Can be cancelled by either the patient, provider, or system.
-   * Cancelled appointments may include a reason for cancellation.
+   * Indicates that an appointment has been cancelled and will not occur.
+   * This status can be applied either by the patient or the provider, and
+   * may trigger notification workflows depending on cancellation timing.
    */
   CANCELLED = 'cancelled'
 }

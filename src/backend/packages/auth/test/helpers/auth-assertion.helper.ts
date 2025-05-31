@@ -1,966 +1,707 @@
 /**
- * @file auth-assertion.helper.ts
- * @description Provides assertion utilities for verifying authentication and authorization states in tests.
- * This helper centralizes auth-specific test assertions like verifying a user is authenticated, has specific
- * permissions, belongs to certain roles, or is authorized for particular actions.
+ * Authentication Assertion Helper
+ * 
+ * Provides utilities for verifying authentication and authorization states in tests.
+ * This helper centralizes auth-specific test assertions like verifying a user is authenticated,
+ * has specific permissions, belongs to certain roles, or is authorized for particular actions.
  */
 
-import { ErrorType, AppException } from '../../../shared/src/exceptions/exceptions.types';
-import { IUserResponse, IUserWithRolesAndPermissions } from '../../src/interfaces/user.interface';
-import { ITokenPayload } from '../../src/interfaces/token.interface';
-import { JourneyType, IPermission, IRole } from '../../src/interfaces/role.interface';
+import { ErrorType, AppException } from '@backend/shared/src/exceptions/exceptions.types';
+import { JOURNEY_IDS } from '@backend/shared/src/constants/journey.constants';
+import { IUser, IRole, IPermission, ITokenPayload } from '../../src/interfaces';
+import { TEST_PERMISSIONS, TEST_ROLES } from './test-constants.helper';
 
 /**
- * Interface for HTTP response objects in tests
+ * Interface for objects that contain authentication data
  */
-interface TestResponse {
-  statusCode?: number;
-  body?: any;
-  headers?: Record<string, any>;
+export interface IAuthTestResponse {
+  user?: IUser | Partial<IUser> | null;
+  token?: string | null;
+  payload?: ITokenPayload | null;
+  roles?: IRole[] | string[] | null;
+  permissions?: IPermission[] | string[] | null;
   [key: string]: any;
 }
 
 /**
- * Options for authentication assertions
+ * Authentication assertion error
  */
-interface AuthAssertionOptions {
-  /**
-   * Whether to throw an error on assertion failure (default: true)
-   */
-  throwOnFailure?: boolean;
-
-  /**
-   * Custom error message prefix for assertion failures
-   */
-  errorMessagePrefix?: string;
+export class AuthAssertionError extends AppException {
+  constructor(message: string, details?: any) {
+    super(
+      message,
+      ErrorType.VALIDATION,
+      'AUTH_ASSERTION_ERROR',
+      details,
+      undefined
+    );
+  }
 }
 
 /**
- * Class providing assertion utilities for authentication and authorization testing
+ * Helper class for making assertions about authentication and authorization
  */
 export class AuthAssertions {
+  private response: IAuthTestResponse;
+  
   /**
-   * Default options for assertions
+   * Creates a new AuthAssertions instance
+   * 
+   * @param response The response object to make assertions against
    */
-  private defaultOptions: AuthAssertionOptions = {
-    throwOnFailure: true,
-    errorMessagePrefix: 'Auth assertion failed:'
-  };
+  constructor(response: IAuthTestResponse) {
+    this.response = response;
+  }
 
   /**
    * Creates a new AuthAssertions instance
    * 
-   * @param options - Global options for all assertions made with this instance
+   * @param response The response object to make assertions against
+   * @returns A new AuthAssertions instance
    */
-  constructor(private options: AuthAssertionOptions = {}) {
-    this.options = { ...this.defaultOptions, ...options };
+  static for(response: IAuthTestResponse): AuthAssertions {
+    return new AuthAssertions(response);
   }
 
   /**
-   * Asserts that a response indicates the user is authenticated
+   * Asserts that the response indicates the user is authenticated
    * 
-   * @param response - The HTTP response object to check
-   * @param options - Options for this specific assertion
-   * @returns true if assertion passes, false otherwise
-   * @throws AppException if assertion fails and throwOnFailure is true
+   * @returns This instance for chaining
+   * @throws AuthAssertionError if the user is not authenticated
    */
-  public assertAuthenticated(response: TestResponse, options?: AuthAssertionOptions): boolean {
-    const opts = this.mergeOptions(options);
-    
-    // Check for successful status code (2xx)
-    const isSuccess = response.statusCode && response.statusCode >= 200 && response.statusCode < 300;
-    
-    // Check for absence of authentication errors in response body
-    const hasNoAuthErrors = !this.hasAuthenticationError(response);
-    
-    const isAuthenticated = isSuccess && hasNoAuthErrors;
-    
-    if (!isAuthenticated && opts.throwOnFailure) {
-      throw new AppException(
-        `${opts.errorMessagePrefix} Expected response to indicate authenticated user, but found unauthenticated state`,
-        ErrorType.VALIDATION,
-        'AUTH_ASSERT_001',
-        { response: this.sanitizeResponse(response) }
+  isAuthenticated(): AuthAssertions {
+    if (!this.response.user) {
+      throw new AuthAssertionError(
+        'Expected response to contain an authenticated user, but no user was found',
+        { response: this.response }
       );
     }
-    
-    return isAuthenticated;
-  }
 
-  /**
-   * Asserts that a response indicates the user is not authenticated
-   * 
-   * @param response - The HTTP response object to check
-   * @param options - Options for this specific assertion
-   * @returns true if assertion passes, false otherwise
-   * @throws AppException if assertion fails and throwOnFailure is true
-   */
-  public assertUnauthenticated(response: TestResponse, options?: AuthAssertionOptions): boolean {
-    const opts = this.mergeOptions(options);
-    
-    // Check for unauthorized status code (401)
-    const hasUnauthorizedStatus = response.statusCode === 401;
-    
-    // Check for authentication errors in response body
-    const hasAuthErrors = this.hasAuthenticationError(response);
-    
-    const isUnauthenticated = hasUnauthorizedStatus || hasAuthErrors;
-    
-    if (!isUnauthenticated && opts.throwOnFailure) {
-      throw new AppException(
-        `${opts.errorMessagePrefix} Expected response to indicate unauthenticated state, but found authenticated user`,
-        ErrorType.VALIDATION,
-        'AUTH_ASSERT_002',
-        { response: this.sanitizeResponse(response) }
+    if (this.response.token === null || this.response.token === undefined) {
+      throw new AuthAssertionError(
+        'Expected response to contain an authentication token, but no token was found',
+        { response: this.response }
       );
     }
-    
-    return isUnauthenticated;
+
+    return this;
   }
 
   /**
-   * Asserts that a user has a specific permission
+   * Asserts that the response indicates the user is not authenticated
    * 
-   * @param user - The user object to check
-   * @param permissionName - The permission name to check for
-   * @param journeyContext - Optional journey context for the permission check
-   * @param options - Options for this specific assertion
-   * @returns true if assertion passes, false otherwise
-   * @throws AppException if assertion fails and throwOnFailure is true
+   * @returns This instance for chaining
+   * @throws AuthAssertionError if the user is authenticated
    */
-  public assertHasPermission(
-    user: IUserWithRolesAndPermissions | IUserResponse | ITokenPayload,
-    permissionName: string,
-    journeyContext?: JourneyType,
-    options?: AuthAssertionOptions
-  ): boolean {
-    const opts = this.mergeOptions(options);
-    
-    // Extract permissions from user object
-    const permissions = this.extractPermissions(user);
-    
-    // Check if the permission exists
-    const hasPermission = this.checkPermission(permissions, permissionName, journeyContext);
-    
-    if (!hasPermission && opts.throwOnFailure) {
-      throw new AppException(
-        `${opts.errorMessagePrefix} Expected user to have permission '${permissionName}'${journeyContext ? ` in journey '${journeyContext}'` : ''}, but permission was not found`,
-        ErrorType.VALIDATION,
-        'AUTH_ASSERT_003',
+  isNotAuthenticated(): AuthAssertions {
+    if (this.response.user) {
+      throw new AuthAssertionError(
+        'Expected response to indicate user is not authenticated, but a user was found',
+        { user: this.response.user }
+      );
+    }
+
+    if (this.response.token) {
+      throw new AuthAssertionError(
+        'Expected response to indicate user is not authenticated, but a token was found',
+        { token: this.response.token }
+      );
+    }
+
+    return this;
+  }
+
+  /**
+   * Asserts that the response contains a user with the specified ID
+   * 
+   * @param userId The expected user ID
+   * @returns This instance for chaining
+   * @throws AuthAssertionError if the user ID doesn't match
+   */
+  hasUserId(userId: string): AuthAssertions {
+    if (!this.response.user) {
+      throw new AuthAssertionError(
+        'Expected response to contain a user, but no user was found',
+        { response: this.response }
+      );
+    }
+
+    if (this.response.user.id !== userId) {
+      throw new AuthAssertionError(
+        `Expected user ID to be "${userId}", but got "${this.response.user.id}"`,
+        { user: this.response.user }
+      );
+    }
+
+    return this;
+  }
+
+  /**
+   * Asserts that the response contains a user with the specified email
+   * 
+   * @param email The expected user email
+   * @returns This instance for chaining
+   * @throws AuthAssertionError if the user email doesn't match
+   */
+  hasEmail(email: string): AuthAssertions {
+    if (!this.response.user) {
+      throw new AuthAssertionError(
+        'Expected response to contain a user, but no user was found',
+        { response: this.response }
+      );
+    }
+
+    if (this.response.user.email !== email) {
+      throw new AuthAssertionError(
+        `Expected user email to be "${email}", but got "${this.response.user.email}"`,
+        { user: this.response.user }
+      );
+    }
+
+    return this;
+  }
+
+  /**
+   * Asserts that the response contains a token payload with the specified subject (user ID)
+   * 
+   * @param subject The expected subject (user ID)
+   * @returns This instance for chaining
+   * @throws AuthAssertionError if the token payload doesn't contain the expected subject
+   */
+  hasTokenSubject(subject: string): AuthAssertions {
+    if (!this.response.payload) {
+      throw new AuthAssertionError(
+        'Expected response to contain a token payload, but no payload was found',
+        { response: this.response }
+      );
+    }
+
+    if (this.response.payload.sub !== subject) {
+      throw new AuthAssertionError(
+        `Expected token subject to be "${subject}", but got "${this.response.payload.sub}"`,
+        { payload: this.response.payload }
+      );
+    }
+
+    return this;
+  }
+
+  /**
+   * Asserts that the response contains a valid token that has not expired
+   * 
+   * @returns This instance for chaining
+   * @throws AuthAssertionError if the token is expired or invalid
+   */
+  hasValidToken(): AuthAssertions {
+    if (!this.response.payload) {
+      throw new AuthAssertionError(
+        'Expected response to contain a token payload, but no payload was found',
+        { response: this.response }
+      );
+    }
+
+    const now = Math.floor(Date.now() / 1000);
+    if (this.response.payload.exp <= now) {
+      throw new AuthAssertionError(
+        'Expected token to be valid, but it has expired',
         { 
-          user: this.sanitizeUser(user),
-          permissionName,
-          journeyContext,
-          availablePermissions: permissions
+          payload: this.response.payload,
+          currentTime: now,
+          expirationTime: this.response.payload.exp,
+          expiredAgo: `${now - this.response.payload.exp} seconds ago`
         }
       );
     }
-    
-    return hasPermission;
+
+    return this;
   }
 
   /**
-   * Asserts that a user does not have a specific permission
+   * Asserts that the response contains a token that has expired
    * 
-   * @param user - The user object to check
-   * @param permissionName - The permission name to check for
-   * @param journeyContext - Optional journey context for the permission check
-   * @param options - Options for this specific assertion
-   * @returns true if assertion passes, false otherwise
-   * @throws AppException if assertion fails and throwOnFailure is true
+   * @returns This instance for chaining
+   * @throws AuthAssertionError if the token is not expired
    */
-  public assertLacksPermission(
-    user: IUserWithRolesAndPermissions | IUserResponse | ITokenPayload,
-    permissionName: string,
-    journeyContext?: JourneyType,
-    options?: AuthAssertionOptions
-  ): boolean {
-    const opts = this.mergeOptions(options);
-    
-    // Extract permissions from user object
-    const permissions = this.extractPermissions(user);
-    
-    // Check if the permission exists
-    const hasPermission = this.checkPermission(permissions, permissionName, journeyContext);
-    
-    if (hasPermission && opts.throwOnFailure) {
-      throw new AppException(
-        `${opts.errorMessagePrefix} Expected user to lack permission '${permissionName}'${journeyContext ? ` in journey '${journeyContext}'` : ''}, but permission was found`,
-        ErrorType.VALIDATION,
-        'AUTH_ASSERT_004',
+  hasExpiredToken(): AuthAssertions {
+    if (!this.response.payload) {
+      throw new AuthAssertionError(
+        'Expected response to contain a token payload, but no payload was found',
+        { response: this.response }
+      );
+    }
+
+    const now = Math.floor(Date.now() / 1000);
+    if (this.response.payload.exp > now) {
+      throw new AuthAssertionError(
+        'Expected token to be expired, but it is still valid',
         { 
-          user: this.sanitizeUser(user),
-          permissionName,
-          journeyContext,
-          availablePermissions: permissions
+          payload: this.response.payload,
+          currentTime: now,
+          expirationTime: this.response.payload.exp,
+          expiresIn: `${this.response.payload.exp - now} seconds`
         }
       );
     }
-    
-    return !hasPermission;
+
+    return this;
   }
 
   /**
-   * Asserts that a user has all of the specified permissions
+   * Asserts that the user has the specified permission
    * 
-   * @param user - The user object to check
-   * @param permissionNames - Array of permission names to check for
-   * @param journeyContext - Optional journey context for the permission check
-   * @param options - Options for this specific assertion
-   * @returns true if assertion passes, false otherwise
-   * @throws AppException if assertion fails and throwOnFailure is true
+   * @param permissionId The permission ID to check for
+   * @returns This instance for chaining
+   * @throws AuthAssertionError if the user doesn't have the permission
    */
-  public assertHasAllPermissions(
-    user: IUserWithRolesAndPermissions | IUserResponse | ITokenPayload,
-    permissionNames: string[],
-    journeyContext?: JourneyType,
-    options?: AuthAssertionOptions
-  ): boolean {
-    const opts = this.mergeOptions(options);
-    
-    // Extract permissions from user object
-    const permissions = this.extractPermissions(user);
-    
-    // Check if all permissions exist
-    const missingPermissions = permissionNames.filter(
-      perm => !this.checkPermission(permissions, perm, journeyContext)
+  hasPermission(permissionId: string): AuthAssertions {
+    // Check in payload permissions array
+    if (this.response.payload?.permissions) {
+      if (!this.response.payload.permissions.includes(permissionId)) {
+        throw new AuthAssertionError(
+          `Expected user to have permission "${permissionId}", but it was not found in token payload`,
+          { permissions: this.response.payload.permissions }
+        );
+      }
+      return this;
+    }
+
+    // Check in response permissions array if it's an array of strings
+    if (Array.isArray(this.response.permissions)) {
+      if (typeof this.response.permissions[0] === 'string') {
+        if (!this.response.permissions.includes(permissionId)) {
+          throw new AuthAssertionError(
+            `Expected user to have permission "${permissionId}", but it was not found in permissions array`,
+            { permissions: this.response.permissions }
+          );
+        }
+        return this;
+      }
+
+      // Check in response permissions array if it's an array of IPermission objects
+      const permissionIds = (this.response.permissions as IPermission[]).map(p => p.id);
+      if (!permissionIds.includes(permissionId)) {
+        throw new AuthAssertionError(
+          `Expected user to have permission "${permissionId}", but it was not found in permissions array`,
+          { permissions: this.response.permissions }
+        );
+      }
+      return this;
+    }
+
+    // Check in user roles if available
+    if (this.response.user?.roles) {
+      const allPermissions = (this.response.user.roles as IRole[]).flatMap(role => 
+        role.permissions?.map(p => p.id) || []
+      );
+      
+      if (!allPermissions.includes(permissionId)) {
+        throw new AuthAssertionError(
+          `Expected user to have permission "${permissionId}", but it was not found in user roles`,
+          { roles: this.response.user.roles }
+        );
+      }
+      return this;
+    }
+
+    throw new AuthAssertionError(
+      `Cannot verify permission "${permissionId}" because no permission data was found in the response`,
+      { response: this.response }
     );
-    
-    const hasAllPermissions = missingPermissions.length === 0;
-    
-    if (!hasAllPermissions && opts.throwOnFailure) {
-      throw new AppException(
-        `${opts.errorMessagePrefix} Expected user to have all permissions ${JSON.stringify(permissionNames)}${journeyContext ? ` in journey '${journeyContext}'` : ''}, but missing: ${JSON.stringify(missingPermissions)}`,
-        ErrorType.VALIDATION,
-        'AUTH_ASSERT_005',
-        { 
-          user: this.sanitizeUser(user),
-          permissionNames,
-          journeyContext,
-          missingPermissions,
-          availablePermissions: permissions
-        }
-      );
-    }
-    
-    return hasAllPermissions;
   }
 
   /**
-   * Asserts that a user has at least one of the specified permissions
+   * Asserts that the user does not have the specified permission
    * 
-   * @param user - The user object to check
-   * @param permissionNames - Array of permission names to check for
-   * @param journeyContext - Optional journey context for the permission check
-   * @param options - Options for this specific assertion
-   * @returns true if assertion passes, false otherwise
-   * @throws AppException if assertion fails and throwOnFailure is true
+   * @param permissionId The permission ID to check for
+   * @returns This instance for chaining
+   * @throws AuthAssertionError if the user has the permission
    */
-  public assertHasAnyPermission(
-    user: IUserWithRolesAndPermissions | IUserResponse | ITokenPayload,
-    permissionNames: string[],
-    journeyContext?: JourneyType,
-    options?: AuthAssertionOptions
-  ): boolean {
-    const opts = this.mergeOptions(options);
-    
-    // Extract permissions from user object
-    const permissions = this.extractPermissions(user);
-    
-    // Check if any permission exists
-    const hasAnyPermission = permissionNames.some(
-      perm => this.checkPermission(permissions, perm, journeyContext)
-    );
-    
-    if (!hasAnyPermission && opts.throwOnFailure) {
-      throw new AppException(
-        `${opts.errorMessagePrefix} Expected user to have at least one of permissions ${JSON.stringify(permissionNames)}${journeyContext ? ` in journey '${journeyContext}'` : ''}, but none were found`,
-        ErrorType.VALIDATION,
-        'AUTH_ASSERT_006',
-        { 
-          user: this.sanitizeUser(user),
-          permissionNames,
-          journeyContext,
-          availablePermissions: permissions
-        }
-      );
-    }
-    
-    return hasAnyPermission;
-  }
-
-  /**
-   * Asserts that a user has a specific role
-   * 
-   * @param user - The user object to check
-   * @param roleName - The role name to check for
-   * @param journeyContext - Optional journey context for the role check
-   * @param options - Options for this specific assertion
-   * @returns true if assertion passes, false otherwise
-   * @throws AppException if assertion fails and throwOnFailure is true
-   */
-  public assertHasRole(
-    user: IUserWithRolesAndPermissions | IUserResponse,
-    roleName: string,
-    journeyContext?: JourneyType,
-    options?: AuthAssertionOptions
-  ): boolean {
-    const opts = this.mergeOptions(options);
-    
-    // Extract roles from user object
-    const roles = this.extractRoles(user);
-    
-    // Check if the role exists
-    const hasRole = this.checkRole(roles, roleName, journeyContext);
-    
-    if (!hasRole && opts.throwOnFailure) {
-      throw new AppException(
-        `${opts.errorMessagePrefix} Expected user to have role '${roleName}'${journeyContext ? ` in journey '${journeyContext}'` : ''}, but role was not found`,
-        ErrorType.VALIDATION,
-        'AUTH_ASSERT_007',
-        { 
-          user: this.sanitizeUser(user),
-          roleName,
-          journeyContext,
-          availableRoles: roles
-        }
-      );
-    }
-    
-    return hasRole;
-  }
-
-  /**
-   * Asserts that a user does not have a specific role
-   * 
-   * @param user - The user object to check
-   * @param roleName - The role name to check for
-   * @param journeyContext - Optional journey context for the role check
-   * @param options - Options for this specific assertion
-   * @returns true if assertion passes, false otherwise
-   * @throws AppException if assertion fails and throwOnFailure is true
-   */
-  public assertLacksRole(
-    user: IUserWithRolesAndPermissions | IUserResponse,
-    roleName: string,
-    journeyContext?: JourneyType,
-    options?: AuthAssertionOptions
-  ): boolean {
-    const opts = this.mergeOptions(options);
-    
-    // Extract roles from user object
-    const roles = this.extractRoles(user);
-    
-    // Check if the role exists
-    const hasRole = this.checkRole(roles, roleName, journeyContext);
-    
-    if (hasRole && opts.throwOnFailure) {
-      throw new AppException(
-        `${opts.errorMessagePrefix} Expected user to lack role '${roleName}'${journeyContext ? ` in journey '${journeyContext}'` : ''}, but role was found`,
-        ErrorType.VALIDATION,
-        'AUTH_ASSERT_008',
-        { 
-          user: this.sanitizeUser(user),
-          roleName,
-          journeyContext,
-          availableRoles: roles
-        }
-      );
-    }
-    
-    return !hasRole;
-  }
-
-  /**
-   * Asserts that a response contains a valid JWT token
-   * 
-   * @param response - The HTTP response object to check
-   * @param tokenProperty - The property name in the response body that contains the token (default: 'accessToken')
-   * @param options - Options for this specific assertion
-   * @returns true if assertion passes, false otherwise
-   * @throws AppException if assertion fails and throwOnFailure is true
-   */
-  public assertHasValidToken(
-    response: TestResponse,
-    tokenProperty: string = 'accessToken',
-    options?: AuthAssertionOptions
-  ): boolean {
-    const opts = this.mergeOptions(options);
-    
-    // Check if response has a body
-    if (!response.body) {
-      if (opts.throwOnFailure) {
-        throw new AppException(
-          `${opts.errorMessagePrefix} Expected response to contain a body with token, but body is missing`,
-          ErrorType.VALIDATION,
-          'AUTH_ASSERT_009',
-          { response: this.sanitizeResponse(response) }
-        );
-      }
-      return false;
-    }
-    
-    // Check if token exists in response
-    const token = response.body[tokenProperty];
-    if (!token) {
-      if (opts.throwOnFailure) {
-        throw new AppException(
-          `${opts.errorMessagePrefix} Expected response to contain token in '${tokenProperty}' property, but property is missing or empty`,
-          ErrorType.VALIDATION,
-          'AUTH_ASSERT_010',
-          { 
-            response: this.sanitizeResponse(response),
-            tokenProperty
-          }
-        );
-      }
-      return false;
-    }
-    
-    // Check if token has valid JWT format (simplified check)
-    const hasValidFormat = typeof token === 'string' && token.split('.').length === 3;
-    if (!hasValidFormat && opts.throwOnFailure) {
-      throw new AppException(
-        `${opts.errorMessagePrefix} Expected token to have valid JWT format, but found invalid format`,
-        ErrorType.VALIDATION,
-        'AUTH_ASSERT_011',
-        { 
-          tokenProperty,
-          token: typeof token === 'string' ? `${token.substring(0, 10)}...` : token
-        }
-      );
-    }
-    
-    return hasValidFormat;
-  }
-
-  /**
-   * Asserts that a response contains a token with specific claims
-   * 
-   * @param response - The HTTP response object to check
-   * @param expectedClaims - Object with expected claims that should be in the token payload
-   * @param tokenProperty - The property name in the response body that contains the token (default: 'accessToken')
-   * @param options - Options for this specific assertion
-   * @returns true if assertion passes, false otherwise
-   * @throws AppException if assertion fails and throwOnFailure is true
-   */
-  public assertTokenHasClaims(
-    response: TestResponse,
-    expectedClaims: Record<string, any>,
-    tokenProperty: string = 'accessToken',
-    options?: AuthAssertionOptions
-  ): boolean {
-    const opts = this.mergeOptions(options);
-    
-    // First check if token exists and is valid
-    if (!this.assertHasValidToken(response, tokenProperty, { ...opts, throwOnFailure: false })) {
-      if (opts.throwOnFailure) {
-        throw new AppException(
-          `${opts.errorMessagePrefix} Cannot check token claims because token is invalid or missing`,
-          ErrorType.VALIDATION,
-          'AUTH_ASSERT_012',
-          { response: this.sanitizeResponse(response) }
-        );
-      }
-      return false;
-    }
-    
-    // Get token from response
-    const token = response.body[tokenProperty];
-    
-    // Decode token payload (without verification)
-    let payload: Record<string, any>;
+  doesNotHavePermission(permissionId: string): AuthAssertions {
     try {
-      const base64Payload = token.split('.')[1];
-      const payloadJson = Buffer.from(base64Payload, 'base64').toString('utf8');
-      payload = JSON.parse(payloadJson);
+      this.hasPermission(permissionId);
+      // If we get here, the user has the permission, which is not what we want
+      throw new AuthAssertionError(
+        `Expected user not to have permission "${permissionId}", but the permission was found`,
+        { response: this.response }
+      );
     } catch (error) {
-      if (opts.throwOnFailure) {
-        throw new AppException(
-          `${opts.errorMessagePrefix} Failed to decode token payload`,
-          ErrorType.VALIDATION,
-          'AUTH_ASSERT_013',
+      // If the error is not an AuthAssertionError, or it's a different assertion error, rethrow it
+      if (!(error instanceof AuthAssertionError) || 
+          !error.message.includes(`Expected user to have permission "${permissionId}"`)) {
+        throw error;
+      }
+      // Otherwise, the assertion that the user has the permission failed, which is what we want
+      return this;
+    }
+  }
+
+  /**
+   * Asserts that the user has all of the specified permissions
+   * 
+   * @param permissionIds Array of permission IDs to check for
+   * @returns This instance for chaining
+   * @throws AuthAssertionError if the user doesn't have all the permissions
+   */
+  hasPermissions(permissionIds: string[]): AuthAssertions {
+    for (const permissionId of permissionIds) {
+      this.hasPermission(permissionId);
+    }
+    return this;
+  }
+
+  /**
+   * Asserts that the user has the specified role
+   * 
+   * @param roleId The role ID to check for
+   * @returns This instance for chaining
+   * @throws AuthAssertionError if the user doesn't have the role
+   */
+  hasRole(roleId: string): AuthAssertions {
+    // Check in payload roles array
+    if (this.response.payload?.roles) {
+      if (!this.response.payload.roles.includes(roleId)) {
+        throw new AuthAssertionError(
+          `Expected user to have role "${roleId}", but it was not found in token payload`,
+          { roles: this.response.payload.roles }
+        );
+      }
+      return this;
+    }
+
+    // Check in response roles array if it's an array of strings
+    if (Array.isArray(this.response.roles)) {
+      if (typeof this.response.roles[0] === 'string') {
+        if (!this.response.roles.includes(roleId)) {
+          throw new AuthAssertionError(
+            `Expected user to have role "${roleId}", but it was not found in roles array`,
+            { roles: this.response.roles }
+          );
+        }
+        return this;
+      }
+
+      // Check in response roles array if it's an array of IRole objects
+      const roleIds = (this.response.roles as IRole[]).map(r => r.id);
+      if (!roleIds.includes(roleId)) {
+        throw new AuthAssertionError(
+          `Expected user to have role "${roleId}", but it was not found in roles array`,
+          { roles: this.response.roles }
+        );
+      }
+      return this;
+    }
+
+    // Check in user roles if available
+    if (this.response.user?.roles) {
+      const roleIds = (this.response.user.roles as IRole[]).map(r => r.id);
+      if (!roleIds.includes(roleId)) {
+        throw new AuthAssertionError(
+          `Expected user to have role "${roleId}", but it was not found in user roles`,
+          { roles: this.response.user.roles }
+        );
+      }
+      return this;
+    }
+
+    throw new AuthAssertionError(
+      `Cannot verify role "${roleId}" because no role data was found in the response`,
+      { response: this.response }
+    );
+  }
+
+  /**
+   * Asserts that the user does not have the specified role
+   * 
+   * @param roleId The role ID to check for
+   * @returns This instance for chaining
+   * @throws AuthAssertionError if the user has the role
+   */
+  doesNotHaveRole(roleId: string): AuthAssertions {
+    try {
+      this.hasRole(roleId);
+      // If we get here, the user has the role, which is not what we want
+      throw new AuthAssertionError(
+        `Expected user not to have role "${roleId}", but the role was found`,
+        { response: this.response }
+      );
+    } catch (error) {
+      // If the error is not an AuthAssertionError, or it's a different assertion error, rethrow it
+      if (!(error instanceof AuthAssertionError) || 
+          !error.message.includes(`Expected user to have role "${roleId}"`)) {
+        throw error;
+      }
+      // Otherwise, the assertion that the user has the role failed, which is what we want
+      return this;
+    }
+  }
+
+  /**
+   * Asserts that the user has all of the specified roles
+   * 
+   * @param roleIds Array of role IDs to check for
+   * @returns This instance for chaining
+   * @throws AuthAssertionError if the user doesn't have all the roles
+   */
+  hasRoles(roleIds: string[]): AuthAssertions {
+    for (const roleId of roleIds) {
+      this.hasRole(roleId);
+    }
+    return this;
+  }
+
+  /**
+   * Asserts that the user has access to the specified journey
+   * 
+   * @param journeyId The journey ID to check for
+   * @returns This instance for chaining
+   * @throws AuthAssertionError if the user doesn't have access to the journey
+   */
+  hasJourneyAccess(journeyId: string): AuthAssertions {
+    // Check in payload journey field
+    if (this.response.payload?.journey === journeyId) {
+      return this;
+    }
+
+    // Check for journey-specific roles
+    const journeyRoles: Record<string, string[]> = {
+      [JOURNEY_IDS.HEALTH]: ['health-user', 'health-admin'],
+      [JOURNEY_IDS.CARE]: ['care-user', 'care-admin'],
+      [JOURNEY_IDS.PLAN]: ['plan-user', 'plan-admin'],
+    };
+
+    // Check if user has any of the journey-specific roles
+    const requiredRoles = journeyRoles[journeyId] || [];
+    if (requiredRoles.length > 0) {
+      try {
+        for (const roleId of requiredRoles) {
+          try {
+            this.hasRole(roleId);
+            // If we find one matching role, the user has access to the journey
+            return this;
+          } catch (error) {
+            // Continue checking other roles
+          }
+        }
+        // If we get here, none of the journey roles were found
+        throw new AuthAssertionError(
+          `Expected user to have access to journey "${journeyId}", but no journey-specific roles were found`,
           { 
-            token: typeof token === 'string' ? `${token.substring(0, 10)}...` : token,
-            error
+            response: this.response,
+            requiredRoles: requiredRoles 
           }
         );
-      }
-      return false;
-    }
-    
-    // Check if all expected claims exist with correct values
-    const missingClaims: string[] = [];
-    const incorrectClaims: Record<string, { expected: any, actual: any }> = {};
-    
-    Object.entries(expectedClaims).forEach(([claimName, expectedValue]) => {
-      if (!(claimName in payload)) {
-        missingClaims.push(claimName);
-      } else if (!this.deepEquals(payload[claimName], expectedValue)) {
-        incorrectClaims[claimName] = {
-          expected: expectedValue,
-          actual: payload[claimName]
-        };
-      }
-    });
-    
-    const hasAllClaims = missingClaims.length === 0 && Object.keys(incorrectClaims).length === 0;
-    
-    if (!hasAllClaims && opts.throwOnFailure) {
-      let message = `${opts.errorMessagePrefix} Token does not contain expected claims`;
-      
-      if (missingClaims.length > 0) {
-        message += `\nMissing claims: ${JSON.stringify(missingClaims)}`;
-      }
-      
-      if (Object.keys(incorrectClaims).length > 0) {
-        message += `\nIncorrect claim values: ${JSON.stringify(incorrectClaims)}`;
-      }
-      
-      throw new AppException(
-        message,
-        ErrorType.VALIDATION,
-        'AUTH_ASSERT_014',
-        { 
-          missingClaims,
-          incorrectClaims,
-          expectedClaims,
-          actualPayload: payload
-        }
-      );
-    }
-    
-    return hasAllClaims;
-  }
-
-  /**
-   * Asserts that a response indicates the user is authorized for a specific journey
-   * 
-   * @param response - The HTTP response object to check
-   * @param journeyType - The journey type to check authorization for
-   * @param options - Options for this specific assertion
-   * @returns true if assertion passes, false otherwise
-   * @throws AppException if assertion fails and throwOnFailure is true
-   */
-  public assertAuthorizedForJourney(
-    response: TestResponse,
-    journeyType: JourneyType,
-    options?: AuthAssertionOptions
-  ): boolean {
-    const opts = this.mergeOptions(options);
-    
-    // First check if user is authenticated
-    if (!this.assertAuthenticated(response, { ...opts, throwOnFailure: false })) {
-      if (opts.throwOnFailure) {
-        throw new AppException(
-          `${opts.errorMessagePrefix} Cannot check journey authorization because user is not authenticated`,
-          ErrorType.VALIDATION,
-          'AUTH_ASSERT_015',
-          { response: this.sanitizeResponse(response) }
-        );
-      }
-      return false;
-    }
-    
-    // Check for journey-specific authorization errors
-    const hasJourneyAuthError = this.hasJourneyAuthorizationError(response, journeyType);
-    
-    if (hasJourneyAuthError && opts.throwOnFailure) {
-      throw new AppException(
-        `${opts.errorMessagePrefix} Expected user to be authorized for journey '${journeyType}', but found journey authorization error`,
-        ErrorType.VALIDATION,
-        'AUTH_ASSERT_016',
-        { 
-          response: this.sanitizeResponse(response),
-          journeyType
-        }
-      );
-    }
-    
-    return !hasJourneyAuthError;
-  }
-
-  /**
-   * Asserts that a response indicates the user is not authorized for a specific journey
-   * 
-   * @param response - The HTTP response object to check
-   * @param journeyType - The journey type to check authorization for
-   * @param options - Options for this specific assertion
-   * @returns true if assertion passes, false otherwise
-   * @throws AppException if assertion fails and throwOnFailure is true
-   */
-  public assertUnauthorizedForJourney(
-    response: TestResponse,
-    journeyType: JourneyType,
-    options?: AuthAssertionOptions
-  ): boolean {
-    const opts = this.mergeOptions(options);
-    
-    // Check for journey-specific authorization errors or forbidden status
-    const hasJourneyAuthError = this.hasJourneyAuthorizationError(response, journeyType);
-    const hasForbiddenStatus = response.statusCode === 403;
-    
-    const isUnauthorized = hasJourneyAuthError || hasForbiddenStatus;
-    
-    if (!isUnauthorized && opts.throwOnFailure) {
-      throw new AppException(
-        `${opts.errorMessagePrefix} Expected user to be unauthorized for journey '${journeyType}', but no journey authorization error was found`,
-        ErrorType.VALIDATION,
-        'AUTH_ASSERT_017',
-        { 
-          response: this.sanitizeResponse(response),
-          journeyType
-        }
-      );
-    }
-    
-    return isUnauthorized;
-  }
-
-  /**
-   * Asserts that a response contains a specific error code
-   * 
-   * @param response - The HTTP response object to check
-   * @param errorCode - The error code to check for
-   * @param options - Options for this specific assertion
-   * @returns true if assertion passes, false otherwise
-   * @throws AppException if assertion fails and throwOnFailure is true
-   */
-  public assertHasErrorCode(
-    response: TestResponse,
-    errorCode: string,
-    options?: AuthAssertionOptions
-  ): boolean {
-    const opts = this.mergeOptions(options);
-    
-    // Check if response has a body with error
-    if (!response.body || !response.body.error) {
-      if (opts.throwOnFailure) {
-        throw new AppException(
-          `${opts.errorMessagePrefix} Expected response to contain error with code '${errorCode}', but no error object was found`,
-          ErrorType.VALIDATION,
-          'AUTH_ASSERT_018',
-          { response: this.sanitizeResponse(response) }
-        );
-      }
-      return false;
-    }
-    
-    // Check if error code matches
-    const actualErrorCode = response.body.error.code;
-    const hasErrorCode = actualErrorCode === errorCode;
-    
-    if (!hasErrorCode && opts.throwOnFailure) {
-      throw new AppException(
-        `${opts.errorMessagePrefix} Expected error code '${errorCode}', but found '${actualErrorCode}'`,
-        ErrorType.VALIDATION,
-        'AUTH_ASSERT_019',
-        { 
-          expectedErrorCode: errorCode,
-          actualErrorCode,
-          error: response.body.error
-        }
-      );
-    }
-    
-    return hasErrorCode;
-  }
-
-  /**
-   * Asserts that a response contains a specific error type
-   * 
-   * @param response - The HTTP response object to check
-   * @param errorType - The error type to check for
-   * @param options - Options for this specific assertion
-   * @returns true if assertion passes, false otherwise
-   * @throws AppException if assertion fails and throwOnFailure is true
-   */
-  public assertHasErrorType(
-    response: TestResponse,
-    errorType: ErrorType,
-    options?: AuthAssertionOptions
-  ): boolean {
-    const opts = this.mergeOptions(options);
-    
-    // Check if response has a body with error
-    if (!response.body || !response.body.error) {
-      if (opts.throwOnFailure) {
-        throw new AppException(
-          `${opts.errorMessagePrefix} Expected response to contain error with type '${errorType}', but no error object was found`,
-          ErrorType.VALIDATION,
-          'AUTH_ASSERT_020',
-          { response: this.sanitizeResponse(response) }
-        );
-      }
-      return false;
-    }
-    
-    // Check if error type matches
-    const actualErrorType = response.body.error.type;
-    const hasErrorType = actualErrorType === errorType;
-    
-    if (!hasErrorType && opts.throwOnFailure) {
-      throw new AppException(
-        `${opts.errorMessagePrefix} Expected error type '${errorType}', but found '${actualErrorType}'`,
-        ErrorType.VALIDATION,
-        'AUTH_ASSERT_021',
-        { 
-          expectedErrorType: errorType,
-          actualErrorType,
-          error: response.body.error
-        }
-      );
-    }
-    
-    return hasErrorType;
-  }
-
-  // Private helper methods
-
-  /**
-   * Merges global options with specific assertion options
-   * @private
-   */
-  private mergeOptions(options?: AuthAssertionOptions): AuthAssertionOptions {
-    return { ...this.options, ...options };
-  }
-
-  /**
-   * Checks if a response contains authentication errors
-   * @private
-   */
-  private hasAuthenticationError(response: TestResponse): boolean {
-    // Check for 401 status code
-    if (response.statusCode === 401) {
-      return true;
-    }
-    
-    // Check for error object with authentication-related codes
-    if (response.body && response.body.error) {
-      const errorCode = response.body.error.code;
-      const authErrorCodes = ['AUTH_001', 'AUTH_002', 'AUTH_003', 'AUTH_004', 'TOKEN_001', 'TOKEN_002', 'TOKEN_003'];
-      return authErrorCodes.includes(errorCode);
-    }
-    
-    return false;
-  }
-
-  /**
-   * Checks if a response contains journey-specific authorization errors
-   * @private
-   */
-  private hasJourneyAuthorizationError(response: TestResponse, journeyType: JourneyType): boolean {
-    // Check for 403 status code
-    if (response.statusCode === 403) {
-      return true;
-    }
-    
-    // Check for error object with journey-specific authorization codes
-    if (response.body && response.body.error) {
-      const errorCode = response.body.error.code;
-      const journeyAuthErrorCodes = ['AUTH_005', 'AUTH_006', 'JOURNEY_001', 'JOURNEY_002'];
-      
-      if (journeyAuthErrorCodes.includes(errorCode)) {
-        // If error details contain journey information, check if it matches
-        if (response.body.error.details && response.body.error.details.journey) {
-          return response.body.error.details.journey === journeyType;
-        }
-        return true;
-      }
-    }
-    
-    return false;
-  }
-
-  /**
-   * Extracts permissions from a user object
-   * @private
-   */
-  private extractPermissions(user: IUserWithRolesAndPermissions | IUserResponse | ITokenPayload): string[] {
-    if ('permissions' in user) {
-      // Handle ITokenPayload or user with permissions array
-      if (Array.isArray(user.permissions)) {
-        if (typeof user.permissions[0] === 'string') {
-          return user.permissions as string[];
+      } catch (error) {
+        // If the error is an AuthAssertionError about not finding role data, we need to try permissions
+        if (error instanceof AuthAssertionError && 
+            error.message.includes('because no role data was found')) {
+          // Fall through to permission check
         } else {
-          // Handle IPermission objects
-          return (user.permissions as IPermission[]).map(p => p.name);
+          throw error;
         }
       }
     }
-    
-    // Handle user with roles that contain permissions
-    if ('roles' in user && Array.isArray(user.roles)) {
-      const permissionNames: string[] = [];
-      
-      user.roles.forEach(role => {
-        if (typeof role === 'object' && role !== null && 'permissions' in role && Array.isArray(role.permissions)) {
-          (role.permissions as IPermission[]).forEach(permission => {
-            if (typeof permission === 'object' && permission !== null && 'name' in permission) {
-              permissionNames.push(permission.name);
-            }
-          });
-        }
-      });
-      
-      return permissionNames;
-    }
-    
-    return [];
-  }
 
-  /**
-   * Extracts roles from a user object
-   * @private
-   */
-  private extractRoles(user: IUserWithRolesAndPermissions | IUserResponse): IRole[] {
-    if ('roles' in user && Array.isArray(user.roles)) {
-      return user.roles as IRole[];
-    }
-    
-    return [];
-  }
-
-  /**
-   * Checks if a list of permissions contains a specific permission
-   * @private
-   */
-  private checkPermission(permissions: string[], permissionName: string, journeyContext?: JourneyType): boolean {
-    // If journey context is provided, check for journey-specific permission
-    if (journeyContext) {
-      // Check for exact permission in the specified journey
-      if (permissionName.startsWith(`${journeyContext}:`)) {
-        return permissions.includes(permissionName);
-      }
-      
-      // Check for permission with journey prefix
-      return permissions.includes(`${journeyContext}:${permissionName}`);
-    }
-    
-    // Without journey context, check for the exact permission name
-    return permissions.includes(permissionName);
-  }
-
-  /**
-   * Checks if a list of roles contains a specific role
-   * @private
-   */
-  private checkRole(roles: IRole[], roleName: string, journeyContext?: JourneyType): boolean {
-    return roles.some(role => {
-      // Check if role name matches
-      const nameMatches = role.name === roleName;
-      
-      // If journey context is provided, check if role belongs to that journey
-      if (journeyContext) {
-        return nameMatches && role.journey === journeyContext;
-      }
-      
-      return nameMatches;
-    });
-  }
-
-  /**
-   * Sanitizes a response object for error messages
-   * @private
-   */
-  private sanitizeResponse(response: TestResponse): any {
-    // Create a simplified version of the response for error messages
-    return {
-      statusCode: response.statusCode,
-      body: response.body,
-      headers: response.headers ? {
-        ...response.headers,
-        // Truncate authorization header if present
-        authorization: response.headers.authorization ? 
-          `${response.headers.authorization.substring(0, 15)}...` : 
-          undefined
-      } : undefined
+    // Check for journey-specific permissions
+    const journeyPermissions: Record<string, string[]> = {
+      [JOURNEY_IDS.HEALTH]: TEST_PERMISSIONS.HEALTH.map(p => p.id),
+      [JOURNEY_IDS.CARE]: TEST_PERMISSIONS.CARE.map(p => p.id),
+      [JOURNEY_IDS.PLAN]: TEST_PERMISSIONS.PLAN.map(p => p.id),
     };
-  }
 
-  /**
-   * Sanitizes a user object for error messages
-   * @private
-   */
-  private sanitizeUser(user: IUserWithRolesAndPermissions | IUserResponse | ITokenPayload): any {
-    // Create a simplified version of the user for error messages
-    const sanitized: Record<string, any> = {};
-    
-    // Include basic user properties
-    if ('id' in user) sanitized.id = user.id;
-    if ('email' in user) sanitized.email = user.email;
-    if ('name' in user) sanitized.name = user.name;
-    
-    // Include roles if present
-    if ('roles' in user && Array.isArray(user.roles)) {
-      if (typeof user.roles[0] === 'object') {
-        sanitized.roles = (user.roles as IRole[]).map(r => ({ id: r.id, name: r.name, journey: r.journey }));
-      } else {
-        sanitized.roles = user.roles;
+    // Check if user has any of the journey-specific permissions
+    const requiredPermissions = journeyPermissions[journeyId] || [];
+    if (requiredPermissions.length > 0) {
+      try {
+        for (const permissionId of requiredPermissions) {
+          try {
+            this.hasPermission(permissionId);
+            // If we find one matching permission, the user has access to the journey
+            return this;
+          } catch (error) {
+            // Continue checking other permissions
+          }
+        }
+        // If we get here, none of the journey permissions were found
+        throw new AuthAssertionError(
+          `Expected user to have access to journey "${journeyId}", but no journey-specific permissions were found`,
+          { 
+            response: this.response,
+            requiredPermissions: requiredPermissions 
+          }
+        );
+      } catch (error) {
+        // If the error is an AuthAssertionError about not finding permission data, we need to try super admin
+        if (error instanceof AuthAssertionError && 
+            error.message.includes('because no permission data was found')) {
+          // Fall through to super admin check
+        } else {
+          throw error;
+        }
       }
     }
-    
-    // Include permissions if present
-    if ('permissions' in user && Array.isArray(user.permissions)) {
-      if (typeof user.permissions[0] === 'object') {
-        sanitized.permissions = (user.permissions as IPermission[]).map(p => p.name);
-      } else {
-        sanitized.permissions = user.permissions;
-      }
-    }
-    
-    return sanitized;
-  }
 
-  /**
-   * Deep equality check for objects
-   * @private
-   */
-  private deepEquals(a: any, b: any): boolean {
-    // Handle primitive types
-    if (a === b) return true;
-    
-    // Handle null/undefined
-    if (a == null || b == null) return a === b;
-    
-    // Handle different types
-    if (typeof a !== typeof b) return false;
-    
-    // Handle arrays
-    if (Array.isArray(a) && Array.isArray(b)) {
-      if (a.length !== b.length) return false;
-      return a.every((item, index) => this.deepEquals(item, b[index]));
-    }
-    
-    // Handle objects
-    if (typeof a === 'object' && typeof b === 'object') {
-      const keysA = Object.keys(a);
-      const keysB = Object.keys(b);
-      
-      if (keysA.length !== keysB.length) return false;
-      
-      return keysA.every(key => 
-        Object.prototype.hasOwnProperty.call(b, key) && 
-        this.deepEquals(a[key], b[key])
+    // Check for super admin role as a last resort
+    try {
+      this.hasRole('super-admin');
+      // Super admins have access to all journeys
+      return this;
+    } catch (error) {
+      // If not a super admin, and we've exhausted all other checks, the user doesn't have access
+      throw new AuthAssertionError(
+        `Expected user to have access to journey "${journeyId}", but no journey access was found`,
+        { response: this.response }
       );
     }
+  }
+
+  /**
+   * Asserts that the user is active
+   * 
+   * @returns This instance for chaining
+   * @throws AuthAssertionError if the user is not active
+   */
+  isActive(): AuthAssertions {
+    if (!this.response.user) {
+      throw new AuthAssertionError(
+        'Expected response to contain a user, but no user was found',
+        { response: this.response }
+      );
+    }
+
+    if (this.response.user.isActive !== true) {
+      throw new AuthAssertionError(
+        'Expected user to be active, but user is inactive',
+        { user: this.response.user }
+      );
+    }
+
+    return this;
+  }
+
+  /**
+   * Asserts that the user is verified
+   * 
+   * @returns This instance for chaining
+   * @throws AuthAssertionError if the user is not verified
+   */
+  isVerified(): AuthAssertions {
+    if (!this.response.user) {
+      throw new AuthAssertionError(
+        'Expected response to contain a user, but no user was found',
+        { response: this.response }
+      );
+    }
+
+    if (this.response.user.isVerified !== true) {
+      throw new AuthAssertionError(
+        'Expected user to be verified, but user is not verified',
+        { user: this.response.user }
+      );
+    }
+
+    return this;
+  }
+
+  /**
+   * Asserts that the response contains a specific error code
+   * 
+   * @param errorCode The expected error code
+   * @returns This instance for chaining
+   * @throws AuthAssertionError if the response doesn't contain the error code
+   */
+  hasErrorCode(errorCode: string): AuthAssertions {
+    if (!this.response.error) {
+      throw new AuthAssertionError(
+        `Expected response to contain error code "${errorCode}", but no error was found`,
+        { response: this.response }
+      );
+    }
+
+    if (typeof this.response.error === 'string') {
+      if (this.response.error !== errorCode) {
+        throw new AuthAssertionError(
+          `Expected error code to be "${errorCode}", but got "${this.response.error}"`,
+          { error: this.response.error }
+        );
+      }
+    } else if (this.response.error.code !== errorCode) {
+      throw new AuthAssertionError(
+        `Expected error code to be "${errorCode}", but got "${this.response.error.code}"`,
+        { error: this.response.error }
+      );
+    }
+
+    return this;
+  }
+
+  /**
+   * Asserts that the response contains a specific error type
+   * 
+   * @param errorType The expected error type
+   * @returns This instance for chaining
+   * @throws AuthAssertionError if the response doesn't contain the error type
+   */
+  hasErrorType(errorType: ErrorType): AuthAssertions {
+    if (!this.response.error) {
+      throw new AuthAssertionError(
+        `Expected response to contain error type "${errorType}", but no error was found`,
+        { response: this.response }
+      );
+    }
+
+    if (typeof this.response.error === 'object' && this.response.error.type !== errorType) {
+      throw new AuthAssertionError(
+        `Expected error type to be "${errorType}", but got "${this.response.error.type}"`,
+        { error: this.response.error }
+      );
+    }
+
+    return this;
+  }
+
+  /**
+   * Asserts that the response contains an error message that includes the specified text
+   * 
+   * @param text The text to look for in the error message
+   * @returns This instance for chaining
+   * @throws AuthAssertionError if the response doesn't contain an error message with the text
+   */
+  hasErrorMessageContaining(text: string): AuthAssertions {
+    if (!this.response.error) {
+      throw new AuthAssertionError(
+        `Expected response to contain an error message with "${text}", but no error was found`,
+        { response: this.response }
+      );
+    }
+
+    let errorMessage: string | undefined;
     
-    return false;
+    if (typeof this.response.error === 'object') {
+      errorMessage = this.response.error.message;
+    } else if (this.response.message) {
+      errorMessage = this.response.message;
+    }
+
+    if (!errorMessage || !errorMessage.includes(text)) {
+      throw new AuthAssertionError(
+        `Expected error message to contain "${text}", but it doesn't`,
+        { 
+          error: this.response.error,
+          message: errorMessage 
+        }
+      );
+    }
+
+    return this;
   }
 }
 
 /**
- * Creates a new AuthAssertions instance with default options
- * @returns A new AuthAssertions instance
+ * Creates an AuthAssertions instance for the given response
+ * 
+ * @param response The response object to make assertions against
+ * @returns An AuthAssertions instance
  */
-export function createAuthAssertions(options?: AuthAssertionOptions): AuthAssertions {
-  return new AuthAssertions(options);
-}
-
-/**
- * Default export for easier importing
- */
-export default {
-  AuthAssertions,
-  createAuthAssertions
+export const assertAuth = (response: IAuthTestResponse): AuthAssertions => {
+  return AuthAssertions.for(response);
 };

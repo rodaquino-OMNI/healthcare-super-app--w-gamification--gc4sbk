@@ -1,223 +1,132 @@
 /**
- * @file benefits.types.ts
+ * @file Benefits Types
  * @description Defines TypeScript interfaces for insurance benefits within the Plan journey.
- * These types establish the data contract for benefit display components and benefit-related logic.
+ * These interfaces establish the data contract for benefit display components and benefit-related logic.
  */
-
-import { BaseEntity } from '../common/model';
 
 /**
- * Represents the type of benefit available under an insurance plan.
- * Examples include wellness programs, dental coverage, vision care, etc.
+ * Represents the type of a benefit available under an insurance plan.
+ * This categorizes benefits for filtering and display purposes.
  */
 export type BenefitType = 
-  | 'wellness_program'
-  | 'dental'
-  | 'vision'
-  | 'mental_health'
-  | 'alternative_medicine'
+  | 'wellness'
   | 'fitness'
   | 'nutrition'
-  | 'travel_insurance'
+  | 'mental_health'
   | 'telehealth'
-  | 'maternity'
-  | 'preventive_care'
+  | 'dental'
+  | 'vision'
+  | 'pharmacy'
+  | 'travel'
   | 'other';
 
 /**
- * Represents the status of a benefit's availability.
- */
-export type BenefitStatus = 'active' | 'inactive' | 'pending' | 'expired';
-
-/**
- * Represents usage metrics for a benefit.
+ * Represents the usage metrics for a benefit.
+ * Tracks how much of the benefit has been used and what remains available.
  */
 export interface BenefitUsage {
-  /**
-   * The total number of times this benefit can be used
-   */
-  limit: number;
-  
-  /**
-   * The number of times this benefit has been used
-   */
+  /** The amount or number of times the benefit has been used */
   used: number;
-  
-  /**
-   * The remaining number of times this benefit can be used
-   */
-  remaining: number;
-  
-  /**
-   * The date when the benefit usage resets, if applicable
-   */
+  /** The total amount or number of times the benefit is available */
+  total: number;
+  /** The unit of measurement (e.g., 'visits', 'dollars', 'sessions') */
+  unit: string;
+  /** The date when the benefit was last used */
+  lastUsedDate?: string;
+  /** The date when the benefit usage resets */
   resetDate?: string;
 }
 
 /**
- * Represents a benefit available under an insurance plan.
- * Benefits are additional services or perks provided to the insured beyond standard coverage.
+ * Represents limitations or restrictions on a benefit.
+ * Provides detailed information about how and when the benefit can be used.
  */
-export interface Benefit extends BaseEntity {
-  /**
-   * Unique identifier for the benefit
-   */
+export interface BenefitLimitations {
+  /** Maximum monetary value of the benefit */
+  maxValue?: number;
+  /** Maximum number of uses allowed */
+  maxUses?: number;
+  /** Waiting period before the benefit can be used */
+  waitingPeriod?: string;
+  /** Geographic restrictions on benefit usage */
+  geographicRestrictions?: string[];
+  /** Network restrictions (in-network, out-of-network) */
+  networkRestrictions?: string[];
+  /** Additional notes about limitations */
+  notes?: string;
+}
+
+/**
+ * Represents a benefit available under an insurance plan.
+ * Benefits are additional services or perks provided by the insurance plan
+ * beyond standard medical coverage.
+ */
+export interface Benefit {
+  /** Unique identifier for the benefit */
   id: string;
   
-  /**
-   * Reference to the plan this benefit belongs to
-   */
+  /** Reference to the associated insurance plan */
   planId: string;
   
-  /**
-   * The type of benefit
-   */
+  /** The category of the benefit */
   type: BenefitType;
   
-  /**
-   * Human-readable name of the benefit
-   */
+  /** Human-readable name of the benefit */
   name: string;
   
-  /**
-   * Detailed description of what the benefit provides
-   */
+  /** Detailed description of what the benefit provides */
   description: string;
   
-  /**
-   * Current status of the benefit
-   */
-  status: BenefitStatus;
+  /** Detailed limitations and restrictions on the benefit usage */
+  limitations?: BenefitLimitations;
   
-  /**
-   * Any limitations or restrictions on the benefit
-   * Examples: "Limited to 3 visits per year", "Available only at in-network providers"
-   */
-  limitations?: string;
-  
-  /**
-   * Detailed usage metrics for the benefit, if applicable
-   * Tracks how many times the benefit has been used and how many uses remain
-   */
+  /** Current usage metrics for the benefit */
   usage?: BenefitUsage;
   
-  /**
-   * The monetary value of the benefit, if applicable
-   */
-  monetaryValue?: number;
+  /** Whether the benefit requires pre-authorization */
+  requiresPreAuth?: boolean;
   
-  /**
-   * The date when the benefit becomes available
-   */
+  /** How to access or activate the benefit */
+  accessInstructions?: string;
+  
+  /** URL to additional information about the benefit */
+  infoUrl?: string;
+  
+  /** Date when the benefit becomes available */
   availableFrom?: string;
   
-  /**
-   * The date when the benefit expires
-   */
-  availableUntil?: string;
+  /** Date when the benefit expires */
+  availableTo?: string;
   
-  /**
-   * Instructions on how to use or claim the benefit
-   */
-  instructions?: string;
-  
-  /**
-   * Any additional metadata associated with the benefit
-   */
-  metadata?: Record<string, any>;
+  /** Tags for categorizing and filtering benefits */
+  tags?: string[];
 }
 
 /**
- * Represents a request to add a new benefit to a plan.
+ * Represents a request to view detailed information about a specific benefit.
  */
-export interface CreateBenefitRequest {
-  /**
-   * The plan to add the benefit to
-   */
+export interface BenefitDetailsRequest {
+  /** The unique identifier of the benefit to retrieve */
+  benefitId: string;
+  
+  /** The associated plan ID */
   planId: string;
-  
-  /**
-   * The type of benefit
-   */
-  type: BenefitType;
-  
-  /**
-   * Human-readable name of the benefit
-   */
-  name: string;
-  
-  /**
-   * Detailed description of what the benefit provides
-   */
-  description: string;
-  
-  /**
-   * Any limitations or restrictions on the benefit
-   */
-  limitations?: string;
-  
-  /**
-   * The monetary value of the benefit, if applicable
-   */
-  monetaryValue?: number;
-  
-  /**
-   * The date when the benefit becomes available
-   */
-  availableFrom?: string;
-  
-  /**
-   * The date when the benefit expires
-   */
-  availableUntil?: string;
-  
-  /**
-   * Instructions on how to use or claim the benefit
-   */
-  instructions?: string;
 }
 
 /**
- * Represents a request to update an existing benefit.
+ * Represents a response containing detailed benefit information.
  */
-export interface UpdateBenefitRequest {
-  /**
-   * Human-readable name of the benefit
-   */
-  name?: string;
+export interface BenefitDetailsResponse {
+  /** The benefit details */
+  benefit: Benefit;
   
-  /**
-   * Detailed description of what the benefit provides
-   */
-  description?: string;
+  /** Related benefits that might be of interest */
+  relatedBenefits?: Benefit[];
   
-  /**
-   * Current status of the benefit
-   */
-  status?: BenefitStatus;
-  
-  /**
-   * Any limitations or restrictions on the benefit
-   */
-  limitations?: string;
-  
-  /**
-   * The monetary value of the benefit, if applicable
-   */
-  monetaryValue?: number;
-  
-  /**
-   * The date when the benefit becomes available
-   */
-  availableFrom?: string;
-  
-  /**
-   * The date when the benefit expires
-   */
-  availableUntil?: string;
-  
-  /**
-   * Instructions on how to use or claim the benefit
-   */
-  instructions?: string;
+  /** Usage history of the benefit */
+  usageHistory?: Array<{
+    date: string;
+    amount: number;
+    description: string;
+  }>;
 }

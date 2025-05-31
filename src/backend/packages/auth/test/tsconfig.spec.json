@@ -2,24 +2,29 @@
   "extends": "../tsconfig.json",
   "compilerOptions": {
     "outDir": "../dist/test",
-    "module": "commonjs",
-    "target": "ES2021",
-    "sourceMap": true,
     "types": ["jest", "node"],
     "esModuleInterop": true,
+    "sourceMap": true,
+    "baseUrl": ".",
     "paths": {
-      "@austa/auth": ["../src"],
-      "@austa/auth/*": ["../src/*"],
-      "@austa/interfaces": ["../../interfaces"],
-      "@austa/interfaces/*": ["../../interfaces/*"]
+      "@austa/*": ["../../*/src"],
+      "@app/auth": ["../src"],
+      "@app/auth/*": ["../src/*"],
+      "@app/shared": ["../../shared/src"],
+      "@app/shared/*": ["../../shared/src/*"],
+      "@shared/*": ["../../shared/src/*"],
+      "@test/*": ["./helpers/*"]
     }
   },
   "include": [
     "**/*.ts",
-    "**/*.spec.ts"
+    "**/*.spec.ts",
+    "**/*.test.ts",
+    "**/*.d.ts",
+    "../src/**/*.ts"
   ],
   "exclude": [
     "node_modules",
-    "dist"
+    "../dist"
   ]
 }

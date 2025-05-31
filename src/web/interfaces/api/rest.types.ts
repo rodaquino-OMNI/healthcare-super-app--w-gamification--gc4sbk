@@ -1,15 +1,10 @@
 /**
  * REST API TypeScript interfaces for the AUSTA SuperApp
- * 
- * This file defines REST-specific interfaces for endpoint configurations,
- * request options, file uploads, and response parsing. These interfaces
- * ensure type safety for REST operations across all journeys.
- * 
- * Part of the @austa/interfaces package that centralizes cross-journey
- * TypeScript interfaces for data models consumed by both frontend and backend.
- * 
- * @package @austa/interfaces
- * @module api/rest
+ *
+ * This file defines REST-specific TypeScript interfaces for the AUSTA SuperApp,
+ * covering endpoint configurations, request options, file uploads, and response parsing.
+ * These interfaces are used primarily for file uploads and specialized API calls that
+ * aren't handled by GraphQL.
  */
 
 /**
@@ -37,76 +32,43 @@ export interface RestRequestOptions {
 }
 
 /**
- * GET request options
+ * HTTP method-specific request options
  */
 export interface GetRequestOptions extends RestRequestOptions {
   params?: Record<string, string | number | boolean | null | undefined>;
   cache?: RequestCache;
 }
 
-/**
- * POST request options with body
- */
-export interface PostRequestOptions<T = unknown> extends RestRequestOptions {
-  body?: T;
-  params?: Record<string, string | number | boolean | null | undefined>;
+export interface PostRequestOptions extends RestRequestOptions {
+  body?: any;
+  contentType?: 'application/json' | 'multipart/form-data' | 'application/x-www-form-urlencoded' | string;
 }
 
-/**
- * PUT request options with body
- */
-export interface PutRequestOptions<T = unknown> extends RestRequestOptions {
-  body: T;
-  params?: Record<string, string | number | boolean | null | undefined>;
-}
+export interface PutRequestOptions extends PostRequestOptions {}
 
-/**
- * DELETE request options
- */
+export interface PatchRequestOptions extends PostRequestOptions {}
+
 export interface DeleteRequestOptions extends RestRequestOptions {
-  params?: Record<string, string | number | boolean | null | undefined>;
+  body?: any;
 }
 
 /**
- * PATCH request options with body
+ * File upload specific types
  */
-export interface PatchRequestOptions<T = unknown> extends RestRequestOptions {
-  body: T;
-  params?: Record<string, string | number | boolean | null | undefined>;
-}
-
-/**
- * File upload request options
- */
-export interface FileUploadOptions extends RestRequestOptions {
+export interface FileUploadOptions extends PostRequestOptions {
   onProgress?: (progress: number) => void;
   maxFileSize?: number; // in bytes
-  allowedFileTypes?: string[];
+  allowedFileTypes?: string[]; // e.g. ['image/jpeg', 'image/png']
 }
 
-/**
- * File upload request data
- */
-export interface FileUploadRequest {
-  file: File | Blob;
-  fileName?: string;
-  contentType?: string;
-  metadata?: Record<string, string | number | boolean>;
-  journeyContext?: 'health' | 'care' | 'plan';
-}
-
-/**
- * File upload response
- */
 export interface FileUploadResponse {
+  fileUrl: string;
   fileId: string;
   fileName: string;
-  fileUrl: string;
   fileSize: number;
-  contentType: string;
+  mimeType: string;
   uploadedAt: string;
-  expiresAt?: string;
-  metadata?: Record<string, string | number | boolean>;
+  journeyContext?: string; // Optional journey context for the file
 }
 
 /**
@@ -114,14 +76,21 @@ export interface FileUploadResponse {
  */
 export interface RestEndpointConfig {
   baseUrl: string;
-  path: string;
-  method: HttpMethod;
+  endpoints: Record<string, string>;
   defaultHeaders?: Record<string, string>;
   timeout?: number;
-  withCredentials?: boolean;
-  responseType?: 'json' | 'text' | 'blob' | 'arraybuffer';
-  journeyContext?: 'health' | 'care' | 'plan' | 'all';
-  requiresAuth?: boolean;
+}
+
+/**
+ * Journey-specific REST endpoint configurations
+ */
+export interface JourneyRestEndpoints {
+  health: RestEndpointConfig;
+  care: RestEndpointConfig;
+  plan: RestEndpointConfig;
+  auth: RestEndpointConfig;
+  gamification: RestEndpointConfig;
+  notification: RestEndpointConfig;
 }
 
 /**
@@ -131,26 +100,14 @@ export interface RestClientConfig {
   baseUrl: string;
   defaultHeaders?: Record<string, string>;
   defaultTimeout?: number;
-  withCredentials?: boolean;
+  retryConfig?: RetryConfig;
   interceptors?: RestClientInterceptors;
-  errorHandler?: (error: Error) => Promise<never>;
-  retryConfig?: RestRetryConfig;
-  journeyContext?: 'health' | 'care' | 'plan' | 'all';
 }
 
 /**
- * REST client interceptors
+ * Retry configuration for failed requests
  */
-export interface RestClientInterceptors {
-  request?: Array<(config: RestRequestOptions) => RestRequestOptions | Promise<RestRequestOptions>>;
-  response?: Array<(response: Response) => Response | Promise<Response>>;
-  error?: Array<(error: Error) => Promise<any> | Error | Response>;
-}
-
-/**
- * REST retry configuration
- */
-export interface RestRetryConfig {
+export interface RetryConfig {
   maxRetries: number;
   retryDelay: number; // in milliseconds
   retryStatusCodes: number[];
@@ -159,7 +116,16 @@ export interface RestRetryConfig {
 }
 
 /**
- * REST error response
+ * REST client interceptors for request/response processing
+ */
+export interface RestClientInterceptors {
+  request?: Array<(config: any) => any | Promise<any>>;
+  response?: Array<(response: any) => any | Promise<any>>;
+  error?: Array<(error: any) => any | Promise<any>>;
+}
+
+/**
+ * REST API error response
  */
 export interface RestErrorResponse {
   status: number;
@@ -169,66 +135,63 @@ export interface RestErrorResponse {
   code?: string;
   timestamp?: string;
   path?: string;
-  requestId?: string;
-  journeyContext?: 'health' | 'care' | 'plan';
+  journeyContext?: string;
 }
 
 /**
- * REST pagination parameters
+ * REST API response with pagination
  */
-export interface RestPaginationParams {
-  page: number;
-  size: number;
-  sort?: string;
-  order?: 'asc' | 'desc';
-}
-
-/**
- * REST paginated response
- */
-export interface RestPaginatedResponse<T> {
-  content: T[];
-  page: number;
-  size: number;
-  totalElements: number;
-  totalPages: number;
-  first: boolean;
-  last: boolean;
-  empty: boolean;
-  sort?: {
-    sorted: boolean;
-    unsorted: boolean;
-    empty: boolean;
-  };
-}
-
-/**
- * REST batch operation request
- */
-export interface RestBatchOperationRequest<T> {
-  operations: Array<{
-    id: string;
-    method: HttpMethod;
-    path: string;
-    body?: T;
-    headers?: Record<string, string>;
-    journeyContext?: 'health' | 'care' | 'plan';
-  }>;
-}
-
-/**
- * REST batch operation response
- */
-export interface RestBatchOperationResponse {
-  results: Array<{
-    id: string;
-    status: number;
-    body?: unknown;
-    error?: RestErrorResponse;
-  }>;
-  summary: {
+export interface PaginatedResponse<T> {
+  data: T[];
+  pagination: {
     total: number;
-    successful: number;
-    failed: number;
+    page: number;
+    pageSize: number;
+    totalPages: number;
   };
+}
+
+/**
+ * Health check response
+ */
+export interface HealthCheckResponse {
+  status: 'ok' | 'error' | 'degraded';
+  version: string;
+  timestamp: string;
+  services: Record<string, {
+    status: 'ok' | 'error' | 'degraded';
+    message?: string;
+    latency?: number;
+  }>;
+}
+
+/**
+ * File download options
+ */
+export interface FileDownloadOptions extends GetRequestOptions {
+  fileName?: string; // Override the default file name
+  onProgress?: (progress: number) => void;
+}
+
+/**
+ * Multipart form data helper types
+ */
+export interface MultipartFormField {
+  name: string;
+  value: string | Blob;
+  fileName?: string; // Only applicable for Blob values
+}
+
+/**
+ * REST client interface for journey-specific implementations
+ */
+export interface JourneyRestClient {
+  get<T>(endpoint: string, options?: GetRequestOptions): Promise<T>;
+  post<T>(endpoint: string, options?: PostRequestOptions): Promise<T>;
+  put<T>(endpoint: string, options?: PutRequestOptions): Promise<T>;
+  patch<T>(endpoint: string, options?: PatchRequestOptions): Promise<T>;
+  delete<T>(endpoint: string, options?: DeleteRequestOptions): Promise<T>;
+  uploadFile(endpoint: string, file: File | Blob, options?: FileUploadOptions): Promise<FileUploadResponse>;
+  uploadFiles(endpoint: string, files: File[] | Blob[], options?: FileUploadOptions): Promise<FileUploadResponse[]>;
+  downloadFile(endpoint: string, options?: FileDownloadOptions): Promise<Blob>;
 }

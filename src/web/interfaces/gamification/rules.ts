@@ -2,158 +2,160 @@
  * @file rules.ts
  * @description Defines TypeScript interfaces for gamification rules that determine when
  * achievements are unlocked and rewards are granted. These interfaces standardize the
- * definition of gamification logic across all journeys.
+ * definition of gamification logic across all journeys (Health, Care, Plan).
  */
-
-import { Achievement } from '../achievements';
-import { Reward } from '../rewards';
-import { Quest } from '../quests';
 
 /**
- * Defines the possible journey types in the application.
- * Used to categorize rules by the journey they belong to.
+ * Enum defining the types of rules in the gamification system.
  */
-export enum JourneyType {
-  HEALTH = 'health',
-  CARE = 'care',
-  PLAN = 'plan',
-  GLOBAL = 'global' // For rules that apply across all journeys
+export enum RuleType {
+  /** Rules that trigger based on a single event */
+  SIMPLE = 'SIMPLE',
+  /** Rules that require multiple conditions to be met */
+  COMPOUND = 'COMPOUND',
+  /** Rules that trigger based on a sequence of events */
+  SEQUENTIAL = 'SEQUENTIAL',
+  /** Rules that trigger based on a streak of consecutive actions */
+  STREAK = 'STREAK',
+  /** Rules that trigger based on a time period */
+  TIMED = 'TIMED',
 }
 
 /**
- * Defines the context in which a rule is evaluated.
- * Contains all necessary data for rule condition evaluation.
+ * Enum defining the operators used in rule conditions.
+ */
+export enum ConditionOperator {
+  /** Equal to comparison */
+  EQUALS = 'EQUALS',
+  /** Not equal to comparison */
+  NOT_EQUALS = 'NOT_EQUALS',
+  /** Greater than comparison */
+  GREATER_THAN = 'GREATER_THAN',
+  /** Less than comparison */
+  LESS_THAN = 'LESS_THAN',
+  /** Greater than or equal to comparison */
+  GREATER_THAN_OR_EQUALS = 'GREATER_THAN_OR_EQUALS',
+  /** Less than or equal to comparison */
+  LESS_THAN_OR_EQUALS = 'LESS_THAN_OR_EQUALS',
+  /** Contains value in array or string */
+  CONTAINS = 'CONTAINS',
+  /** Does not contain value in array or string */
+  NOT_CONTAINS = 'NOT_CONTAINS',
+  /** Matches a regular expression pattern */
+  MATCHES = 'MATCHES',
+  /** Logical AND between conditions */
+  AND = 'AND',
+  /** Logical OR between conditions */
+  OR = 'OR',
+}
+
+/**
+ * Enum defining the types of actions that can be triggered by rules.
+ */
+export enum ActionType {
+  /** Grant an achievement to the user */
+  GRANT_ACHIEVEMENT = 'GRANT_ACHIEVEMENT',
+  /** Update progress toward an achievement */
+  UPDATE_ACHIEVEMENT_PROGRESS = 'UPDATE_ACHIEVEMENT_PROGRESS',
+  /** Grant a reward to the user */
+  GRANT_REWARD = 'GRANT_REWARD',
+  /** Grant experience points to the user */
+  GRANT_XP = 'GRANT_XP',
+  /** Unlock a quest for the user */
+  UNLOCK_QUEST = 'UNLOCK_QUEST',
+  /** Update progress toward a quest */
+  UPDATE_QUEST_PROGRESS = 'UPDATE_QUEST_PROGRESS',
+  /** Send a notification to the user */
+  SEND_NOTIFICATION = 'SEND_NOTIFICATION',
+  /** Apply a multiplier to XP earned */
+  APPLY_XP_MULTIPLIER = 'APPLY_XP_MULTIPLIER',
+}
+
+/**
+ * Enum defining the journeys in the AUSTA SuperApp.
+ */
+export enum Journey {
+  /** Health journey ("Minha Saúde") */
+  HEALTH = 'HEALTH',
+  /** Care journey ("Cuidar-me Agora") */
+  CARE = 'CARE',
+  /** Plan journey ("Meu Plano & Benefícios") */
+  PLAN = 'PLAN',
+  /** Cross-journey (applies to multiple journeys) */
+  CROSS_JOURNEY = 'CROSS_JOURNEY',
+}
+
+/**
+ * Interface for a condition that must be met for a rule to trigger.
+ * Conditions evaluate properties of events or user state against expected values.
+ */
+export interface RuleCondition {
+  /** Unique identifier for the condition */
+  id: string;
+  /** The property path to evaluate (e.g., 'event.type', 'user.level') */
+  property: string;
+  /** The operator to use for comparison */
+  operator: ConditionOperator;
+  /** The value to compare against */
+  value: any;
+  /** Optional description of the condition for readability */
+  description?: string;
+  /** For compound conditions (AND/OR), the nested conditions to evaluate */
+  conditions?: RuleCondition[];
+}
+
+/**
+ * Interface for an action that is triggered when a rule's conditions are met.
+ * Actions define the consequences of rule activation.
+ */
+export interface RuleAction {
+  /** Unique identifier for the action */
+  id: string;
+  /** The type of action to perform */
+  type: ActionType;
+  /** Parameters specific to the action type */
+  parameters: Record<string, any>;
+  /** Optional delay before executing the action (in milliseconds) */
+  delay?: number;
+  /** Optional conditions that must be met for this specific action to execute */
+  conditions?: RuleCondition[];
+  /** Optional description of the action for readability */
+  description?: string;
+}
+
+/**
+ * Interface for the context in which a rule is evaluated.
+ * Provides access to the current event, user state, and other relevant data.
  */
 export interface RuleContext {
-  /** The user ID for whom the rule is being evaluated */
-  userId: string;
-  /** The journey in which the rule is being evaluated */
-  journey: JourneyType;
-  /** Timestamp when the rule evaluation started */
-  timestamp: Date;
-  /** Additional data specific to the event that triggered the rule evaluation */
-  eventData: Record<string, any>;
-  /** Optional metadata that can be used for rule evaluation */
+  /** The event that triggered the rule evaluation */
+  event: Record<string, any>;
+  /** The user's current state in the gamification system */
+  user: {
+    /** User's unique identifier */
+    id: string;
+    /** User's current level */
+    level: number;
+    /** User's current XP */
+    xp: number;
+    /** User's achievements */
+    achievements: Record<string, any>[];
+    /** User's quests */
+    quests: Record<string, any>[];
+    /** User's journey-specific data */
+    journeyData: Record<string, any>;
+  };
+  /** Timestamp when the rule is being evaluated */
+  timestamp: number;
+  /** The journey context in which the rule is being evaluated */
+  journey: Journey;
+  /** Additional metadata relevant to rule evaluation */
   metadata?: Record<string, any>;
 }
 
 /**
- * Defines the result of a rule condition evaluation.
- * Includes whether the condition was met and optional metadata.
- */
-export interface RuleConditionResult {
-  /** Whether the condition was met */
-  isMet: boolean;
-  /** Optional metadata about the condition evaluation */
-  metadata?: Record<string, any>;
-}
-
-/**
- * Defines a condition function that determines if a rule should be triggered.
- * @param context The context in which the rule is evaluated
- * @returns A RuleConditionResult indicating if the condition was met
- */
-export type RuleCondition = (context: RuleContext) => RuleConditionResult | Promise<RuleConditionResult>;
-
-/**
- * Defines the possible actions that can be taken when a rule is triggered.
- */
-export enum RuleActionType {
-  UNLOCK_ACHIEVEMENT = 'unlock_achievement',
-  GRANT_REWARD = 'grant_reward',
-  PROGRESS_QUEST = 'progress_quest',
-  GRANT_XP = 'grant_xp',
-  CUSTOM = 'custom'
-}
-
-/**
- * Defines the base interface for all rule action payloads.
- */
-export interface BaseRuleActionPayload {
-  /** The type of action to perform */
-  type: RuleActionType;
-}
-
-/**
- * Payload for unlocking an achievement.
- */
-export interface UnlockAchievementPayload extends BaseRuleActionPayload {
-  type: RuleActionType.UNLOCK_ACHIEVEMENT;
-  /** The ID of the achievement to unlock */
-  achievementId: string;
-  /** Optional metadata to include with the achievement */
-  metadata?: Record<string, any>;
-}
-
-/**
- * Payload for granting a reward.
- */
-export interface GrantRewardPayload extends BaseRuleActionPayload {
-  type: RuleActionType.GRANT_REWARD;
-  /** The ID of the reward to grant */
-  rewardId: string;
-  /** Optional metadata to include with the reward */
-  metadata?: Record<string, any>;
-}
-
-/**
- * Payload for progressing a quest.
- */
-export interface ProgressQuestPayload extends BaseRuleActionPayload {
-  type: RuleActionType.PROGRESS_QUEST;
-  /** The ID of the quest to progress */
-  questId: string;
-  /** The amount of progress to add */
-  progressAmount: number;
-  /** Optional metadata to include with the quest progress */
-  metadata?: Record<string, any>;
-}
-
-/**
- * Payload for granting XP.
- */
-export interface GrantXPPayload extends BaseRuleActionPayload {
-  type: RuleActionType.GRANT_XP;
-  /** The amount of XP to grant */
-  xpAmount: number;
-  /** Optional source of the XP */
-  source?: string;
-  /** Optional metadata to include with the XP grant */
-  metadata?: Record<string, any>;
-}
-
-/**
- * Payload for custom actions.
- */
-export interface CustomActionPayload extends BaseRuleActionPayload {
-  type: RuleActionType.CUSTOM;
-  /** The name of the custom action */
-  actionName: string;
-  /** Custom data for the action */
-  data: Record<string, any>;
-}
-
-/**
- * Union type of all possible rule action payloads.
- */
-export type RuleActionPayload =
-  | UnlockAchievementPayload
-  | GrantRewardPayload
-  | ProgressQuestPayload
-  | GrantXPPayload
-  | CustomActionPayload;
-
-/**
- * Defines an action function that executes when a rule condition is met.
- * @param context The context in which the rule is evaluated
- * @param conditionResult The result of the condition evaluation
- * @returns A promise that resolves when the action is complete
- */
-export type RuleAction = (context: RuleContext, conditionResult: RuleConditionResult) => Promise<RuleActionPayload[]>;
-
-/**
- * Defines a rule in the gamification system.
- * Rules determine when achievements are unlocked and rewards are granted.
+ * Interface for a rule in the gamification system.
+ * Rules define when achievements are unlocked and rewards are granted.
  */
 export interface Rule {
   /** Unique identifier for the rule */
@@ -162,85 +164,128 @@ export interface Rule {
   name: string;
   /** Detailed description of what the rule represents */
   description: string;
-  /** Which journey this rule belongs to */
-  journey: JourneyType;
-  /** Priority of the rule (higher values are evaluated first) */
-  priority: number;
+  /** The type of rule */
+  type: RuleType;
+  /** The journey this rule belongs to */
+  journey: Journey;
+  /** The conditions that must be met for the rule to trigger */
+  conditions: RuleCondition[];
+  /** The actions to perform when the rule is triggered */
+  actions: RuleAction[];
   /** Whether the rule is currently active */
   isActive: boolean;
-  /** The condition that determines if the rule should be triggered */
-  condition: RuleCondition;
-  /** The action to take when the condition is met */
-  action: RuleAction;
+  /** Priority of the rule (higher numbers are evaluated first) */
+  priority: number;
+  /** Optional start date for when the rule becomes active */
+  startDate?: string;
+  /** Optional end date for when the rule becomes inactive */
+  endDate?: string;
+  /** Optional cooldown period between rule triggers (in milliseconds) */
+  cooldown?: number;
+  /** Optional maximum number of times the rule can be triggered */
+  maxTriggers?: number;
   /** Optional tags for categorizing and filtering rules */
   tags?: string[];
-  /** Optional metadata for additional rule properties */
-  metadata?: Record<string, any>;
+  /** Version of the rule for tracking changes */
+  version: string;
 }
 
 /**
- * Interface for health journey specific rules.
+ * Interface for health journey-specific rules.
  * Extends the base Rule interface with health-specific properties.
  */
 export interface HealthRule extends Rule {
-  journey: JourneyType.HEALTH;
-  /** Health-specific metadata */
+  /** The journey must be HEALTH for this rule type */
+  journey: Journey.HEALTH;
+  /** Health-specific metadata for the rule */
   healthMetadata?: {
-    /** The type of health metric this rule is related to */
-    metricType?: string;
-    /** The threshold value for the health metric */
-    threshold?: number;
-    /** The comparison operator for the threshold */
-    operator?: 'gt' | 'lt' | 'eq' | 'gte' | 'lte';
+    /** Related health metrics (e.g., 'steps', 'heart_rate') */
+    relatedMetrics?: string[];
+    /** Health goals this rule contributes to */
+    contributesToGoals?: string[];
+    /** Devices this rule is applicable to */
+    applicableDevices?: string[];
   };
 }
 
 /**
- * Interface for care journey specific rules.
+ * Interface for care journey-specific rules.
  * Extends the base Rule interface with care-specific properties.
  */
 export interface CareRule extends Rule {
-  journey: JourneyType.CARE;
-  /** Care-specific metadata */
+  /** The journey must be CARE for this rule type */
+  journey: Journey.CARE;
+  /** Care-specific metadata for the rule */
   careMetadata?: {
-    /** The type of care activity this rule is related to */
-    activityType?: 'appointment' | 'medication' | 'telemedicine' | 'checkup';
-    /** The frequency requirement for the activity */
-    frequency?: 'daily' | 'weekly' | 'monthly' | 'once';
+    /** Related appointment types */
+    appointmentTypes?: string[];
+    /** Related medication adherence */
+    medicationAdherence?: boolean;
+    /** Related telemedicine sessions */
+    telemedicineSessions?: boolean;
   };
 }
 
 /**
- * Interface for plan journey specific rules.
+ * Interface for plan journey-specific rules.
  * Extends the base Rule interface with plan-specific properties.
  */
 export interface PlanRule extends Rule {
-  journey: JourneyType.PLAN;
-  /** Plan-specific metadata */
+  /** The journey must be PLAN for this rule type */
+  journey: Journey.PLAN;
+  /** Plan-specific metadata for the rule */
   planMetadata?: {
-    /** The type of plan activity this rule is related to */
-    activityType?: 'claim' | 'benefit' | 'coverage' | 'payment';
-    /** The benefit category this rule is related to */
-    benefitCategory?: string;
+    /** Related benefit types */
+    benefitTypes?: string[];
+    /** Related claim types */
+    claimTypes?: string[];
+    /** Related plan selection activities */
+    planSelection?: boolean;
   };
 }
 
 /**
- * Interface for global rules that apply across all journeys.
+ * Interface for cross-journey rules that span multiple journeys.
  * Extends the base Rule interface with cross-journey properties.
  */
-export interface GlobalRule extends Rule {
-  journey: JourneyType.GLOBAL;
-  /** Global rule metadata */
-  globalMetadata?: {
-    /** The journeys this global rule applies to */
-    applicableJourneys?: JourneyType[];
-    /** Whether this rule requires completion of all applicable journeys */
-    requireAllJourneys?: boolean;
+export interface CrossJourneyRule extends Rule {
+  /** The journey must be CROSS_JOURNEY for this rule type */
+  journey: Journey.CROSS_JOURNEY;
+  /** The journeys this rule applies to */
+  applicableJourneys: Journey[];
+  /** Cross-journey-specific metadata */
+  crossJourneyMetadata?: {
+    /** Whether this rule requires activities across multiple journeys */
+    requiresMultipleJourneys: boolean;
+    /** Journey-specific requirements */
+    journeyRequirements?: Record<Journey, RuleCondition[]>;
   };
 }
 
 /**
- * Union type of all journey-specific rule types.
+ * Interface for a rule evaluation result.
+ * Contains information about whether the rule was triggered and any resulting actions.
  */
-export type JourneyRule = HealthRule | CareRule | PlanRule | GlobalRule;
+export interface RuleEvaluationResult {
+  /** The ID of the rule that was evaluated */
+  ruleId: string;
+  /** Whether the rule was triggered */
+  triggered: boolean;
+  /** The actions that were executed as a result of the rule being triggered */
+  actions: RuleAction[];
+  /** Any error that occurred during rule evaluation */
+  error?: string;
+  /** Timestamp when the rule was evaluated */
+  timestamp: number;
+  /** Additional context about the rule evaluation */
+  context?: Record<string, any>;
+}
+
+/**
+ * Type for a function that evaluates a rule against a context.
+ * Returns a promise that resolves to a RuleEvaluationResult.
+ */
+export type RuleEvaluator = (
+  rule: Rule,
+  context: RuleContext
+) => Promise<RuleEvaluationResult>;

@@ -3,214 +3,203 @@
  * 
  * This file defines journey-specific notification data interfaces that determine
  * the payload structure for different notification types in the AUSTA SuperApp.
+ * 
  * These interfaces ensure consistent data structures for notification content
- * across all journey contexts.
+ * across all journey contexts (Health, Care, Plan) and the gamification system.
  */
 
-// Import types from other journeys for cross-referencing
-import { Achievement, AchievementCategory } from '../gamification/achievements';
-import { ExperienceLevel } from '../gamification/xp';
-import { AppointmentType } from '../care/types';
-import { ClaimStatus, ClaimType } from '../plan/claims.types';
+// Import types from journey-specific interfaces
+import { Achievement } from '../gamification/achievements';
+import { Appointment } from '../care/appointment';
+import { Claim, ClaimStatus } from '../plan/claims.types';
+import { HealthMetric } from '../health/metric';
+
+/**
+ * Base interface for all notification data payloads
+ * Provides common properties that all notification data should include
+ */
+export interface BaseNotificationData {
+  /** Unique identifier for the notification data */
+  id: string;
+  
+  /** Timestamp when the notification data was created */
+  timestamp: string;
+  
+  /** Optional metadata for additional context */
+  metadata?: Record<string, unknown>;
+}
 
 /**
  * Achievement Notification Data
  * 
- * Contains data specific to achievement unlock notifications from the gamification system.
- * This interface is used when a user unlocks a new achievement and should receive
- * a notification about it.
+ * Contains data specific to achievement unlocked notifications from the
+ * gamification system. Used to display achievement badges, descriptions,
+ * and XP rewards in notification components.
  */
-export interface AchievementNotificationData {
-  /** Unique identifier of the unlocked achievement */
-  achievementId: string;
+export interface AchievementNotificationData extends BaseNotificationData {
+  /** The achievement that was unlocked */
+  achievement: Achievement;
   
-  /** Title of the unlocked achievement */
-  achievementTitle: string;
+  /** XP points earned for this achievement */
+  xpEarned: number;
   
-  /** Description of the unlocked achievement */
-  achievementDescription: string;
-  
-  /** Category of the achievement (health, care, plan, etc.) */
-  category: AchievementCategory;
+  /** Optional journey context where the achievement was earned */
+  journeyContext?: 'health' | 'care' | 'plan';
   
   /** URL to the achievement badge image */
   badgeImageUrl: string;
   
-  /** Experience points earned from this achievement */
-  xpEarned: number;
+  /** Whether this is a special or rare achievement */
+  isSpecialAchievement?: boolean;
   
-  /** Optional rewards associated with this achievement */
-  rewards?: {
-    /** Reward identifier */
+  /** Optional related achievements that could be unlocked next */
+  relatedAchievements?: Array<{
     id: string;
-    /** Reward title */
-    title: string;
-    /** Reward description */
+    name: string;
     description: string;
-  }[];
+  }>;
   
-  /** Timestamp when the achievement was unlocked */
-  unlockedAt: string;
-  
-  /** 
-   * Validation hash to ensure notification data integrity
-   * Used to verify the achievement was legitimately unlocked
-   */
-  validationHash: string;
+  /** Validation flag to ensure the achievement is actually unlocked */
+  isUnlocked: boolean;
 }
 
 /**
  * Level Up Notification Data
  * 
- * Contains data specific to user level progression notifications from the gamification system.
- * This interface is used when a user gains enough XP to reach a new level.
+ * Contains data specific to user level progression notifications from the
+ * gamification system. Used to display new level, rewards, and unlocked
+ * features in notification components.
  */
-export interface LevelUpNotificationData {
-  /** The new level the user has reached */
-  newLevel: number;
-  
-  /** Previous level the user was at */
+export interface LevelUpNotificationData extends BaseNotificationData {
+  /** Previous user level */
   previousLevel: number;
   
-  /** Details about the new level */
-  levelDetails: {
-    /** Title of the new level */
-    title: string;
-    /** Description of the new level */
+  /** New user level after leveling up */
+  newLevel: number;
+  
+  /** Total XP points the user now has */
+  totalXp: number;
+  
+  /** XP required to reach the next level */
+  nextLevelXp: number;
+  
+  /** New features or benefits unlocked at this level */
+  unlockedFeatures?: Array<{
+    name: string;
     description: string;
-    /** XP threshold for this level */
-    xpThreshold: number;
-    /** Benefits unlocked at this level */
-    benefits: string[];
-  };
+    iconUrl?: string;
+  }>;
   
-  /** URL to the level badge image */
-  levelBadgeUrl: string;
+  /** Optional rewards granted for reaching this level */
+  levelRewards?: Array<{
+    id: string;
+    name: string;
+    description: string;
+    value?: number;
+  }>;
   
-  /** New capabilities unlocked at this level */
-  unlockedCapabilities?: string[];
-  
-  /** Timestamp when the level up occurred */
-  leveledUpAt: string;
-  
-  /** 
-   * Next level information to show progression path
-   * Helps motivate users to continue earning XP
-   */
-  nextLevel?: {
-    /** Next level number */
-    level: number;
-    /** XP needed to reach next level */
-    xpNeeded: number;
-    /** Title of the next level */
-    title: string;
-  };
-  
-  /** 
-   * Validation hash to ensure notification data integrity
-   * Used to verify the level up was legitimate
-   */
-  validationHash: string;
+  /** Validation flag to ensure the level up is legitimate */
+  isVerified: boolean;
 }
 
 /**
  * Appointment Reminder Data
  * 
- * Contains data specific to healthcare appointment reminders from the Care journey.
- * This interface is used for notifications about upcoming appointments.
+ * Contains data specific to appointment reminder notifications from the
+ * Care journey. Used to display appointment details, provider information,
+ * and action buttons in notification components.
  */
-export interface AppointmentReminderData {
-  /** Unique identifier of the appointment */
-  appointmentId: string;
+export interface AppointmentReminderData extends BaseNotificationData {
+  /** The appointment being reminded about */
+  appointment: Appointment;
   
-  /** Type of appointment (in-person, virtual) */
-  appointmentType: AppointmentType;
+  /** Time remaining until the appointment (in minutes) */
+  timeRemaining: number;
   
-  /** Title or purpose of the appointment */
-  title: string;
+  /** Whether this is the final reminder before the appointment */
+  isFinalReminder: boolean;
   
-  /** Scheduled date and time of the appointment (ISO string) */
-  scheduledAt: string;
-  
-  /** Time until the appointment in a human-readable format (e.g., "tomorrow at 2pm", "in 30 minutes") */
-  timeUntil: string;
-  
-  /** Provider information */
-  provider: {
-    /** Provider ID */
-    id: string;
-    /** Provider name */
-    name: string;
-    /** Provider specialty */
-    specialty?: string;
-    /** Provider profile image URL */
-    imageUrl?: string;
-  };
-  
-  /** Location information for in-person appointments */
-  location?: {
-    /** Location name */
-    name: string;
-    /** Street address */
+  /** Location details for in-person appointments */
+  locationDetails?: {
     address: string;
-    /** City */
-    city: string;
-    /** State/province */
-    state: string;
-    /** Postal code */
-    postalCode: string;
-    /** Optional directions or notes */
+    coordinates?: {
+      latitude: number;
+      longitude: number;
+    };
     directions?: string;
   };
   
-  /** Virtual session information for telemedicine appointments */
-  virtualSession?: {
-    /** Session URL */
-    joinUrl: string;
-    /** Session code */
-    sessionCode?: string;
-    /** Whether the app supports direct launch of the session */
-    canLaunchFromApp: boolean;
+  /** Connection details for virtual appointments */
+  connectionDetails?: {
+    url: string;
+    meetingId?: string;
+    passcode?: string;
+    provider: string;
   };
   
-  /** 
-   * Required preparation instructions for the appointment
-   * E.g., "Fast for 12 hours before the appointment"
-   */
-  preparationInstructions?: string[];
-  
-  /** 
-   * Actions the user can take directly from the notification
-   * E.g., reschedule, cancel, confirm
-   */
-  availableActions: {
-    /** Action type */
+  /** Actions that can be taken from the notification */
+  actions: Array<{
     type: 'reschedule' | 'cancel' | 'confirm' | 'join';
-    /** Action label */
     label: string;
-    /** Whether this action is recommended */
-    isRecommended?: boolean;
-  }[];
+    url?: string;
+  }>;
   
-  /** 
-   * Validation hash to ensure notification data integrity
-   * Used to verify the appointment reminder is legitimate
-   */
-  validationHash: string;
+  /** Validation flag to ensure the appointment is still active */
+  isActive: boolean;
+}
+
+/**
+ * Health Metric Alert Data
+ * 
+ * Contains data specific to health metric alerts from the Health journey.
+ * Used to display metric values, thresholds, and recommended actions
+ * in notification components.
+ */
+export interface HealthMetricAlertData extends BaseNotificationData {
+  /** The health metric that triggered the alert */
+  metric: HealthMetric;
+  
+  /** The threshold that was exceeded or not met */
+  threshold: {
+    min?: number;
+    max?: number;
+    unit: string;
+    description: string;
+  };
+  
+  /** Severity level of the alert */
+  severity: 'info' | 'warning' | 'critical';
+  
+  /** Recommended actions based on the metric value */
+  recommendedActions?: Array<{
+    description: string;
+    priority: number;
+    url?: string;
+  }>;
+  
+  /** Historical context for this metric */
+  historicalContext?: {
+    trend: 'improving' | 'stable' | 'worsening';
+    previousReadings: Array<{
+      value: number;
+      timestamp: string;
+    }>;
+  };
+  
+  /** Validation flag to ensure the alert is legitimate */
+  isValidated: boolean;
 }
 
 /**
  * Claim Status Update Data
  * 
- * Contains data specific to insurance claim status updates from the Plan journey.
- * This interface is used for notifications about changes to a user's insurance claims.
+ * Contains data specific to insurance claim status updates from the
+ * Plan journey. Used to display claim details, status changes, and
+ * next steps in notification components.
  */
-export interface ClaimStatusUpdateData {
-  /** Unique identifier of the claim */
-  claimId: string;
-  
-  /** Type of claim */
-  claimType: ClaimType;
+export interface ClaimStatusUpdateData extends BaseNotificationData {
+  /** The claim that was updated */
+  claim: Claim;
   
   /** Previous status of the claim */
   previousStatus: ClaimStatus;
@@ -218,139 +207,88 @@ export interface ClaimStatusUpdateData {
   /** New status of the claim */
   newStatus: ClaimStatus;
   
-  /** Human-readable description of the status change */
-  statusChangeDescription: string;
+  /** Reason for the status change, if applicable */
+  statusChangeReason?: string;
   
-  /** Timestamp when the status was updated */
-  updatedAt: string;
+  /** Estimated processing time for pending claims (in days) */
+  estimatedProcessingTime?: number;
   
-  /** Claim details */
-  claim: {
-    /** Claim reference number */
-    referenceNumber: string;
-    /** Service date */
-    serviceDate: string;
-    /** Provider name */
-    providerName: string;
-    /** Claim amount */
+  /** Additional documents required, if applicable */
+  requiredDocuments?: Array<{
+    name: string;
+    description: string;
+    isRequired: boolean;
+    uploadUrl?: string;
+  }>;
+  
+  /** Payment details for approved claims */
+  paymentDetails?: {
     amount: number;
-    /** Currency code */
     currency: string;
-  };
-  
-  /** Financial information for processed claims */
-  financialDetails?: {
-    /** Amount approved */
-    approvedAmount?: number;
-    /** Amount paid */
-    paidAmount?: number;
-    /** Patient responsibility amount */
-    patientResponsibility?: number;
-    /** Payment date if applicable */
-    paymentDate?: string;
-    /** Payment method if applicable */
+    estimatedPaymentDate?: string;
     paymentMethod?: string;
   };
   
-  /** 
-   * Required actions the user needs to take
-   * E.g., "Submit additional documentation"
-   */
-  requiredActions?: {
-    /** Action type */
-    type: string;
-    /** Action description */
-    description: string;
-    /** Deadline for the action if applicable */
-    deadline?: string;
-  }[];
+  /** Actions that can be taken from the notification */
+  actions: Array<{
+    type: 'view' | 'upload' | 'appeal' | 'contact';
+    label: string;
+    url?: string;
+  }>;
   
-  /** 
-   * Documents associated with this status update
-   * E.g., Explanation of Benefits (EOB)
-   */
-  documents?: {
-    /** Document ID */
-    id: string;
-    /** Document type */
-    type: string;
-    /** Document title */
-    title: string;
-    /** Document URL */
-    url: string;
-  }[];
-  
-  /** 
-   * Validation hash to ensure notification data integrity
-   * Used to verify the claim status update is legitimate
-   */
-  validationHash: string;
+  /** Validation flag to ensure the status update is legitimate */
+  isVerified: boolean;
 }
 
 /**
- * Health Goal Achievement Data
+ * Medication Reminder Data
  * 
- * Contains data specific to health goal achievement notifications from the Health journey.
- * This interface is used when a user reaches a health-related goal.
+ * Contains data specific to medication reminders from the Care journey.
+ * Used to display medication details, dosage instructions, and action
+ * buttons in notification components.
  */
-export interface HealthGoalAchievementData {
-  /** Unique identifier of the health goal */
-  goalId: string;
+export interface MedicationReminderData extends BaseNotificationData {
+  /** Name of the medication */
+  medicationName: string;
   
-  /** Title of the health goal */
-  goalTitle: string;
+  /** Dosage information */
+  dosage: {
+    amount: number;
+    unit: string;
+    instructions?: string;
+  };
   
-  /** Description of the health goal */
-  goalDescription: string;
+  /** Time the medication should be taken */
+  scheduledTime: string;
   
-  /** Type of health metric associated with this goal */
-  metricType: string;
+  /** Whether this is a recurring reminder */
+  isRecurring: boolean;
   
-  /** Target value that was achieved */
-  targetValue: number;
+  /** Importance of this medication */
+  importance: 'low' | 'medium' | 'high';
   
-  /** Unit of measurement */
-  unit: string;
+  /** Actions that can be taken from the notification */
+  actions: Array<{
+    type: 'taken' | 'snooze' | 'skip';
+    label: string;
+    url?: string;
+  }>;
   
-  /** Actual value achieved */
-  achievedValue: number;
+  /** Streak of consecutive days taking this medication */
+  currentStreak?: number;
   
-  /** Percentage of goal completion */
-  completionPercentage: number;
-  
-  /** Timestamp when the goal was achieved */
-  achievedAt: string;
-  
-  /** Experience points earned from this goal achievement */
-  xpEarned: number;
-  
-  /** 
-   * Related achievements that were unlocked
-   * Links health goals to the gamification system
-   */
-  relatedAchievements?: {
-    /** Achievement ID */
-    id: string;
-    /** Achievement title */
-    title: string;
-  }[];
-  
-  /** 
-   * Suggested next goals to maintain engagement
-   * Encourages continued health tracking
-   */
-  suggestedNextGoals?: {
-    /** Goal ID */
-    id: string;
-    /** Goal title */
-    title: string;
-    /** Goal description */
-    description: string;
-  }[];
-  
-  /** 
-   * Validation hash to ensure notification data integrity
-   * Used to verify the goal achievement is legitimate
-   */
-  validationHash: string;
+  /** Validation flag to ensure the reminder is still active */
+  isActive: boolean;
 }
+
+/**
+ * Type union of all notification data types
+ * Used for type narrowing when handling notifications
+ */
+export type NotificationData =
+  | AchievementNotificationData
+  | LevelUpNotificationData
+  | AppointmentReminderData
+  | HealthMetricAlertData
+  | ClaimStatusUpdateData
+  | MedicationReminderData;

@@ -1,434 +1,240 @@
-/**
- * Unit tests for the environment variable utilities package entry point.
- * Verifies that all exports are properly exposed and accessible.
- */
+import { describe, it, expect, jest } from '@jest/globals';
 
+// Mock the modules that are imported by the index file
+jest.mock('../../../src/env/config', () => ({
+  getEnv: jest.fn(),
+  getRequiredEnv: jest.fn(),
+  getOptionalEnv: jest.fn(),
+  cacheEnv: jest.fn(),
+  clearEnvCache: jest.fn(),
+}));
+
+jest.mock('../../../src/env/transform', () => ({
+  parseBoolean: jest.fn(),
+  parseNumber: jest.fn(),
+  parseArray: jest.fn(),
+  parseJson: jest.fn(),
+  parseUrl: jest.fn(),
+  parseRange: jest.fn(),
+}));
+
+jest.mock('../../../src/env/validation', () => ({
+  validateEnv: jest.fn(),
+  validateUrl: jest.fn(),
+  validateNumericRange: jest.fn(),
+  validateEnum: jest.fn(),
+  validateSchema: jest.fn(),
+  validateBatchEnv: jest.fn(),
+}));
+
+jest.mock('../../../src/env/journey', () => ({
+  getJourneyEnv: jest.fn(),
+  getJourneyPrefix: jest.fn(),
+  withJourneyPrefix: jest.fn(),
+  getJourneyFeatureFlag: jest.fn(),
+  getSharedEnv: jest.fn(),
+}));
+
+jest.mock('../../../src/env/error', () => ({
+  MissingEnvironmentVariableError: jest.fn(),
+  InvalidEnvironmentVariableError: jest.fn(),
+  EnvironmentValidationError: jest.fn(),
+  formatEnvErrorMessage: jest.fn(),
+  handleEnvError: jest.fn(),
+}));
+
+// Import the index file after mocking its dependencies
 import * as envUtils from '../../../src/env';
-import * as configModule from '../../../src/env/config';
-import * as transformModule from '../../../src/env/transform';
-import * as validationModule from '../../../src/env/validation';
-import * as journeyModule from '../../../src/env/journey';
-import * as errorModule from '../../../src/env/error';
-import * as typesModule from '../../../src/env/types';
 
-describe('Environment Variable Utilities Package', () => {
-  describe('Package Structure', () => {
-    it('should export all core environment variable access functions', () => {
-      // Core environment variable access functions
-      expect(envUtils.getEnv).toBeDefined();
-      expect(envUtils.getRequiredEnv).toBeDefined();
-      expect(envUtils.getOptionalEnv).toBeDefined();
-      expect(envUtils.clearEnvCache).toBeDefined();
-      expect(envUtils.getNamespacedEnv).toBeDefined();
-      expect(envUtils.validateRequiredEnv).toBeDefined();
-      
-      // Type-specific convenience functions
-      expect(envUtils.getBooleanEnv).toBeDefined();
-      expect(envUtils.getOptionalBooleanEnv).toBeDefined();
-      expect(envUtils.getNumberEnv).toBeDefined();
-      expect(envUtils.getOptionalNumberEnv).toBeDefined();
-      expect(envUtils.getJsonEnv).toBeDefined();
-      expect(envUtils.getOptionalJsonEnv).toBeDefined();
-      expect(envUtils.getArrayEnv).toBeDefined();
-      expect(envUtils.getOptionalArrayEnv).toBeDefined();
-      
-      // Journey-specific environment functions
-      expect(envUtils.getJourneyTypedEnv).toBeDefined();
-      expect(envUtils.getOptionalJourneyEnv).toBeDefined();
-      
-      // Feature flag functions
-      expect(envUtils.getFeatureFlag).toBeDefined();
-      
-      // Error classes
-      expect(envUtils.MissingEnvironmentVariableError).toBeDefined();
-      expect(envUtils.InvalidEnvironmentVariableError).toBeDefined();
+describe('Environment Variable Utilities - Index', () => {
+  describe('Export Structure', () => {
+    it('should export all core environment accessor functions', () => {
+      expect(envUtils).toHaveProperty('getEnv');
+      expect(envUtils).toHaveProperty('getRequiredEnv');
+      expect(envUtils).toHaveProperty('getOptionalEnv');
+      expect(envUtils).toHaveProperty('cacheEnv');
+      expect(envUtils).toHaveProperty('clearEnvCache');
     });
 
-    it('should export all environment variable transformation functions', () => {
-      // String to boolean conversion
-      expect(envUtils.parseBoolean).toBeDefined();
-      
-      // String to number conversion
-      expect(envUtils.parseNumber).toBeDefined();
-      
-      // String to array conversion
-      expect(envUtils.parseArray).toBeDefined();
-      expect(envUtils.parseNumberArray).toBeDefined();
-      
-      // String to object conversion
-      expect(envUtils.parseJson).toBeDefined();
-      expect(envUtils.parseCSV).toBeDefined();
-      
-      // String to specialized types conversion
-      expect(envUtils.parseRange).toBeDefined();
-      expect(envUtils.isInRange).toBeDefined();
-      expect(envUtils.parseUrl).toBeDefined();
-      expect(envUtils.parseEnum).toBeDefined();
-      expect(envUtils.parseDuration).toBeDefined();
-      expect(envUtils.parseMemorySize).toBeDefined();
-      
-      // Generic transformation
-      expect(envUtils.transform).toBeDefined();
+    it('should export all transformation utilities', () => {
+      expect(envUtils).toHaveProperty('parseBoolean');
+      expect(envUtils).toHaveProperty('parseNumber');
+      expect(envUtils).toHaveProperty('parseArray');
+      expect(envUtils).toHaveProperty('parseJson');
+      expect(envUtils).toHaveProperty('parseUrl');
+      expect(envUtils).toHaveProperty('parseRange');
     });
 
-    it('should export all environment variable validation functions', () => {
-      // Zod-based validators
-      expect(envUtils.createZodValidator).toBeDefined();
-      expect(envUtils.createZodValidatorWithDefault).toBeDefined();
-      
-      // Type-specific validators
-      expect(envUtils.createStringValidator).toBeDefined();
-      expect(envUtils.createNumberValidator).toBeDefined();
-      expect(envUtils.createBooleanValidator).toBeDefined();
-      expect(envUtils.createUrlValidator).toBeDefined();
-      expect(envUtils.createArrayValidator).toBeDefined();
-      expect(envUtils.createJsonValidator).toBeDefined();
-      expect(envUtils.createEnumValidator).toBeDefined();
-      expect(envUtils.createDurationValidator).toBeDefined();
-      expect(envUtils.createPortValidator).toBeDefined();
-      expect(envUtils.createHostValidator).toBeDefined();
-      
-      // Domain-specific validators
-      expect(envUtils.createDatabaseUrlValidator).toBeDefined();
-      expect(envUtils.createApiKeyValidator).toBeDefined();
-      expect(envUtils.createJwtSecretValidator).toBeDefined();
-      expect(envUtils.createEnvironmentValidator).toBeDefined();
-      expect(envUtils.createRedisUrlValidator).toBeDefined();
-      expect(envUtils.createKafkaBrokersValidator).toBeDefined();
-      expect(envUtils.createCorsOriginsValidator).toBeDefined();
-      expect(envUtils.createLogLevelValidator).toBeDefined();
-      expect(envUtils.createFeatureFlagsValidator).toBeDefined();
-      expect(envUtils.createJourneyConfigValidator).toBeDefined();
-      expect(envUtils.createDbPoolConfigValidator).toBeDefined();
-      expect(envUtils.createRetryPolicyValidator).toBeDefined();
-      
-      // Batch validation
-      expect(envUtils.validateEnvironmentGroup).toBeDefined();
-      expect(envUtils.validateServiceEnvironment).toBeDefined();
-      expect(envUtils.validateJourneyEnvironment).toBeDefined();
+    it('should export all validation utilities', () => {
+      expect(envUtils).toHaveProperty('validateEnv');
+      expect(envUtils).toHaveProperty('validateUrl');
+      expect(envUtils).toHaveProperty('validateNumericRange');
+      expect(envUtils).toHaveProperty('validateEnum');
+      expect(envUtils).toHaveProperty('validateSchema');
+      expect(envUtils).toHaveProperty('validateBatchEnv');
     });
 
-    it('should export all journey-specific configuration functions', () => {
-      // Journey types
-      expect(envUtils.JourneyType).toBeDefined();
-      
-      // Journey-specific environment functions
-      expect(envUtils.getJourneyEnvName).toBeDefined();
-      expect(envUtils.getJourneyEnv).toBeDefined();
-      expect(envUtils.getRequiredJourneyEnv).toBeDefined();
-      expect(envUtils.clearJourneyEnvCache).toBeDefined();
-      
-      // Feature flag functions
-      expect(envUtils.getJourneyFeatureFlag).toBeDefined();
-      expect(envUtils.isFeatureEnabled).toBeDefined();
-      expect(envUtils.isFeatureEnabledForUser).toBeDefined();
-      
-      // Cross-journey sharing
-      expect(envUtils.getSharedJourneyEnv).toBeDefined();
-      expect(envUtils.getRequiredSharedJourneyEnv).toBeDefined();
-      expect(envUtils.getAllJourneyEnvs).toBeDefined();
+    it('should export all journey-specific utilities', () => {
+      expect(envUtils).toHaveProperty('getJourneyEnv');
+      expect(envUtils).toHaveProperty('getJourneyPrefix');
+      expect(envUtils).toHaveProperty('withJourneyPrefix');
+      expect(envUtils).toHaveProperty('getJourneyFeatureFlag');
+      expect(envUtils).toHaveProperty('getSharedEnv');
     });
 
-    it('should export all error handling utilities', () => {
-      // Error classes
-      expect(envUtils.EnvironmentVariableError).toBeDefined();
-      expect(envUtils.EnvMissingError).toBeDefined();
-      expect(envUtils.EnvInvalidError).toBeDefined();
-      expect(envUtils.EnvValidationError).toBeDefined();
-      expect(envUtils.EnvTransformError).toBeDefined();
-      expect(envUtils.EnvBatchError).toBeDefined();
-      
-      // Error utilities
-      expect(envUtils.formatErrorMessage).toBeDefined();
-      expect(envUtils.withEnvErrorFallback).toBeDefined();
-      expect(envUtils.validateEnvironmentBatch).toBeDefined();
-      expect(envUtils.createRequiredEnvValidator).toBeDefined();
-      
-      // Error categorization
-      expect(envUtils.EnvironmentErrorCategory).toBeDefined();
-      expect(envUtils.categorizeEnvironmentError).toBeDefined();
-    });
-
-    it('should export all type definitions', () => {
-      // Type definitions are not directly testable at runtime
-      // but we can verify that the module is exported
-      expect(envUtils).toBeDefined();
+    it('should export all error classes and utilities', () => {
+      expect(envUtils).toHaveProperty('MissingEnvironmentVariableError');
+      expect(envUtils).toHaveProperty('InvalidEnvironmentVariableError');
+      expect(envUtils).toHaveProperty('EnvironmentValidationError');
+      expect(envUtils).toHaveProperty('formatEnvErrorMessage');
+      expect(envUtils).toHaveProperty('handleEnvError');
     });
   });
 
-  describe('Export Integrity', () => {
-    it('should correctly re-export functions from config module', () => {
-      expect(envUtils.getEnv).toBe(configModule.getEnv);
-      expect(envUtils.getRequiredEnv).toBe(configModule.getRequiredEnv);
-      expect(envUtils.getOptionalEnv).toBe(configModule.getOptionalEnv);
-      expect(envUtils.clearEnvCache).toBe(configModule.clearEnvCache);
-      expect(envUtils.getNamespacedEnv).toBe(configModule.getNamespacedEnv);
-      expect(envUtils.validateRequiredEnv).toBe(configModule.validateRequiredEnv);
-      expect(envUtils.getBooleanEnv).toBe(configModule.getBooleanEnv);
-      expect(envUtils.getOptionalBooleanEnv).toBe(configModule.getOptionalBooleanEnv);
-      expect(envUtils.getNumberEnv).toBe(configModule.getNumberEnv);
-      expect(envUtils.getOptionalNumberEnv).toBe(configModule.getOptionalNumberEnv);
-      expect(envUtils.getJsonEnv).toBe(configModule.getJsonEnv);
-      expect(envUtils.getOptionalJsonEnv).toBe(configModule.getOptionalJsonEnv);
-      expect(envUtils.getArrayEnv).toBe(configModule.getArrayEnv);
-      expect(envUtils.getOptionalArrayEnv).toBe(configModule.getOptionalArrayEnv);
-      expect(envUtils.getJourneyTypedEnv).toBe(configModule.getJourneyEnv);
-      expect(envUtils.getOptionalJourneyEnv).toBe(configModule.getOptionalJourneyEnv);
-      expect(envUtils.getFeatureFlag).toBe(configModule.getFeatureFlag);
-      expect(envUtils.MissingEnvironmentVariableError).toBe(configModule.MissingEnvironmentVariableError);
-      expect(envUtils.InvalidEnvironmentVariableError).toBe(configModule.InvalidEnvironmentVariableError);
-    });
+  describe('Export Categories', () => {
+    it('should maintain proper categorization of utilities', () => {
+      // Group exports by their module origin
+      const configUtils = [
+        envUtils.getEnv,
+        envUtils.getRequiredEnv,
+        envUtils.getOptionalEnv,
+        envUtils.cacheEnv,
+        envUtils.clearEnvCache,
+      ];
 
-    it('should correctly re-export functions from transform module', () => {
-      expect(envUtils.parseBoolean).toBe(transformModule.parseBoolean);
-      expect(envUtils.parseNumber).toBe(transformModule.parseNumber);
-      expect(envUtils.parseArray).toBe(transformModule.parseArray);
-      expect(envUtils.parseNumberArray).toBe(transformModule.parseNumberArray);
-      expect(envUtils.parseJson).toBe(transformModule.parseJson);
-      expect(envUtils.parseCSV).toBe(transformModule.parseCSV);
-      expect(envUtils.parseRange).toBe(transformModule.parseRange);
-      expect(envUtils.isInRange).toBe(transformModule.isInRange);
-      expect(envUtils.parseUrl).toBe(transformModule.parseUrl);
-      expect(envUtils.parseEnum).toBe(transformModule.parseEnum);
-      expect(envUtils.parseDuration).toBe(transformModule.parseDuration);
-      expect(envUtils.parseMemorySize).toBe(transformModule.parseMemorySize);
-      expect(envUtils.transform).toBe(transformModule.transform);
-    });
+      const transformUtils = [
+        envUtils.parseBoolean,
+        envUtils.parseNumber,
+        envUtils.parseArray,
+        envUtils.parseJson,
+        envUtils.parseUrl,
+        envUtils.parseRange,
+      ];
 
-    it('should correctly re-export functions from validation module', () => {
-      expect(envUtils.createZodValidator).toBe(validationModule.createZodValidator);
-      expect(envUtils.createZodValidatorWithDefault).toBe(validationModule.createZodValidatorWithDefault);
-      expect(envUtils.createStringValidator).toBe(validationModule.createStringValidator);
-      expect(envUtils.createNumberValidator).toBe(validationModule.createNumberValidator);
-      expect(envUtils.createBooleanValidator).toBe(validationModule.createBooleanValidator);
-      expect(envUtils.createUrlValidator).toBe(validationModule.createUrlValidator);
-      expect(envUtils.createArrayValidator).toBe(validationModule.createArrayValidator);
-      expect(envUtils.createJsonValidator).toBe(validationModule.createJsonValidator);
-      expect(envUtils.createEnumValidator).toBe(validationModule.createEnumValidator);
-      expect(envUtils.createDurationValidator).toBe(validationModule.createDurationValidator);
-      expect(envUtils.createPortValidator).toBe(validationModule.createPortValidator);
-      expect(envUtils.createHostValidator).toBe(validationModule.createHostValidator);
-      expect(envUtils.createDatabaseUrlValidator).toBe(validationModule.createDatabaseUrlValidator);
-      expect(envUtils.createApiKeyValidator).toBe(validationModule.createApiKeyValidator);
-      expect(envUtils.createJwtSecretValidator).toBe(validationModule.createJwtSecretValidator);
-      expect(envUtils.createEnvironmentValidator).toBe(validationModule.createEnvironmentValidator);
-      expect(envUtils.createRedisUrlValidator).toBe(validationModule.createRedisUrlValidator);
-      expect(envUtils.createKafkaBrokersValidator).toBe(validationModule.createKafkaBrokersValidator);
-      expect(envUtils.createCorsOriginsValidator).toBe(validationModule.createCorsOriginsValidator);
-      expect(envUtils.createLogLevelValidator).toBe(validationModule.createLogLevelValidator);
-      expect(envUtils.createFeatureFlagsValidator).toBe(validationModule.createFeatureFlagsValidator);
-      expect(envUtils.createJourneyConfigValidator).toBe(validationModule.createJourneyConfigValidator);
-      expect(envUtils.createDbPoolConfigValidator).toBe(validationModule.createDbPoolConfigValidator);
-      expect(envUtils.createRetryPolicyValidator).toBe(validationModule.createRetryPolicyValidator);
-      expect(envUtils.validateEnvironmentGroup).toBe(validationModule.validateEnvironmentGroup);
-      expect(envUtils.validateServiceEnvironment).toBe(validationModule.validateServiceEnvironment);
-      expect(envUtils.validateJourneyEnvironment).toBe(validationModule.validateJourneyEnvironment);
-    });
+      const validationUtils = [
+        envUtils.validateEnv,
+        envUtils.validateUrl,
+        envUtils.validateNumericRange,
+        envUtils.validateEnum,
+        envUtils.validateSchema,
+        envUtils.validateBatchEnv,
+      ];
 
-    it('should correctly re-export functions from journey module', () => {
-      expect(envUtils.JourneyType).toBe(journeyModule.JourneyType);
-      expect(envUtils.getJourneyEnvName).toBe(journeyModule.getJourneyEnvName);
-      expect(envUtils.getJourneyEnv).toBe(journeyModule.getJourneyEnv);
-      expect(envUtils.getRequiredJourneyEnv).toBe(journeyModule.getRequiredJourneyEnv);
-      expect(envUtils.clearJourneyEnvCache).toBe(journeyModule.clearEnvCache);
-      expect(envUtils.getJourneyFeatureFlag).toBe(journeyModule.getJourneyFeatureFlag);
-      expect(envUtils.isFeatureEnabled).toBe(journeyModule.isFeatureEnabled);
-      expect(envUtils.isFeatureEnabledForUser).toBe(journeyModule.isFeatureEnabledForUser);
-      expect(envUtils.getSharedJourneyEnv).toBe(journeyModule.getSharedJourneyEnv);
-      expect(envUtils.getRequiredSharedJourneyEnv).toBe(journeyModule.getRequiredSharedJourneyEnv);
-      expect(envUtils.getAllJourneyEnvs).toBe(journeyModule.getAllJourneyEnvs);
-    });
+      const journeyUtils = [
+        envUtils.getJourneyEnv,
+        envUtils.getJourneyPrefix,
+        envUtils.withJourneyPrefix,
+        envUtils.getJourneyFeatureFlag,
+        envUtils.getSharedEnv,
+      ];
 
-    it('should correctly re-export functions from error module', () => {
-      expect(envUtils.EnvironmentVariableError).toBe(errorModule.EnvironmentVariableError);
-      expect(envUtils.EnvMissingError).toBe(errorModule.MissingEnvironmentVariableError);
-      expect(envUtils.EnvInvalidError).toBe(errorModule.InvalidEnvironmentVariableError);
-      expect(envUtils.EnvValidationError).toBe(errorModule.ValidationEnvironmentVariableError);
-      expect(envUtils.EnvTransformError).toBe(errorModule.TransformEnvironmentVariableError);
-      expect(envUtils.EnvBatchError).toBe(errorModule.BatchEnvironmentValidationError);
-      expect(envUtils.formatErrorMessage).toBe(errorModule.formatErrorMessage);
-      expect(envUtils.withEnvErrorFallback).toBe(errorModule.withEnvErrorFallback);
-      expect(envUtils.validateEnvironmentBatch).toBe(errorModule.validateEnvironmentBatch);
-      expect(envUtils.createRequiredEnvValidator).toBe(errorModule.createRequiredEnvValidator);
-      expect(envUtils.EnvironmentErrorCategory).toBe(errorModule.EnvironmentErrorCategory);
-      expect(envUtils.categorizeEnvironmentError).toBe(errorModule.categorizeEnvironmentError);
+      const errorUtils = [
+        envUtils.MissingEnvironmentVariableError,
+        envUtils.InvalidEnvironmentVariableError,
+        envUtils.EnvironmentValidationError,
+        envUtils.formatEnvErrorMessage,
+        envUtils.handleEnvError,
+      ];
+
+      // Verify each utility is defined (not undefined)
+      configUtils.forEach(util => expect(util).toBeDefined());
+      transformUtils.forEach(util => expect(util).toBeDefined());
+      validationUtils.forEach(util => expect(util).toBeDefined());
+      journeyUtils.forEach(util => expect(util).toBeDefined());
+      errorUtils.forEach(util => expect(util).toBeDefined());
     });
   });
 
-  describe('Documentation and Usage Examples', () => {
-    it('should provide documented exports with usage examples', () => {
-      // This test verifies that the module exports are documented
-      // with usage examples in JSDoc comments
-      // Since we can't directly test JSDoc comments in runtime tests,
-      // we're just verifying that the exports exist
-      expect(Object.keys(envUtils).length).toBeGreaterThan(0);
+  describe('Export Consistency', () => {
+    it('should maintain consistent naming conventions across utilities', () => {
+      // Verify accessor functions follow the 'getX' pattern
+      expect(envUtils.getEnv.name).toBe('getEnv');
+      expect(envUtils.getRequiredEnv.name).toBe('getRequiredEnv');
+      expect(envUtils.getOptionalEnv.name).toBe('getOptionalEnv');
+      expect(envUtils.getJourneyEnv.name).toBe('getJourneyEnv');
+      expect(envUtils.getJourneyPrefix.name).toBe('getJourneyPrefix');
+      expect(envUtils.getSharedEnv.name).toBe('getSharedEnv');
+      expect(envUtils.getJourneyFeatureFlag.name).toBe('getJourneyFeatureFlag');
+
+      // Verify transformation functions follow the 'parseX' pattern
+      expect(envUtils.parseBoolean.name).toBe('parseBoolean');
+      expect(envUtils.parseNumber.name).toBe('parseNumber');
+      expect(envUtils.parseArray.name).toBe('parseArray');
+      expect(envUtils.parseJson.name).toBe('parseJson');
+      expect(envUtils.parseUrl.name).toBe('parseUrl');
+      expect(envUtils.parseRange.name).toBe('parseRange');
+
+      // Verify validation functions follow the 'validateX' pattern
+      expect(envUtils.validateEnv.name).toBe('validateEnv');
+      expect(envUtils.validateUrl.name).toBe('validateUrl');
+      expect(envUtils.validateNumericRange.name).toBe('validateNumericRange');
+      expect(envUtils.validateEnum.name).toBe('validateEnum');
+      expect(envUtils.validateSchema.name).toBe('validateSchema');
+      expect(envUtils.validateBatchEnv.name).toBe('validateBatchEnv');
+    });
+
+    it('should maintain consistent error class naming', () => {
+      // Verify error classes follow the 'XError' pattern
+      expect(envUtils.MissingEnvironmentVariableError.name).toBe('MissingEnvironmentVariableError');
+      expect(envUtils.InvalidEnvironmentVariableError.name).toBe('InvalidEnvironmentVariableError');
+      expect(envUtils.EnvironmentValidationError.name).toBe('EnvironmentValidationError');
     });
   });
 
-  describe('Functional Categories', () => {
-    it('should provide core environment variable access functions', () => {
-      const coreAccessFunctions = [
-        'getEnv',
-        'getRequiredEnv',
-        'getOptionalEnv',
-        'clearEnvCache',
-        'getNamespacedEnv',
-        'validateRequiredEnv',
-        'getBooleanEnv',
-        'getOptionalBooleanEnv',
-        'getNumberEnv',
-        'getOptionalNumberEnv',
-        'getJsonEnv',
-        'getOptionalJsonEnv',
-        'getArrayEnv',
-        'getOptionalArrayEnv',
-        'getJourneyTypedEnv',
-        'getOptionalJourneyEnv',
-        'getFeatureFlag'
-      ];
+  describe('Type Definitions', () => {
+    it('should export all necessary type definitions', () => {
+      // We can't directly test TypeScript types at runtime,
+      // but we can verify the index exports them by checking
+      // that the TypeScript compiler doesn't complain when used
+      // This is more of a compilation check than a runtime test
       
-      coreAccessFunctions.forEach(functionName => {
-        expect(envUtils[functionName]).toBeDefined();
-        expect(typeof envUtils[functionName]).toBe('function');
-      });
-    });
-
-    it('should provide environment variable transformation functions', () => {
-      const transformFunctions = [
-        'parseBoolean',
-        'parseNumber',
-        'parseArray',
-        'parseNumberArray',
-        'parseJson',
-        'parseCSV',
-        'parseRange',
-        'isInRange',
-        'parseUrl',
-        'parseEnum',
-        'parseDuration',
-        'parseMemorySize',
-        'transform'
-      ];
+      // This test will pass as long as the TypeScript compiler
+      // doesn't complain about these types during build
+      const typeCheck = () => {
+        // These type annotations are just for verification
+        // that the types are properly exported
+        type EnvValue = envUtils.EnvValue;
+        type EnvTransformer<T> = envUtils.EnvTransformer<T>;
+        type EnvValidator<T> = envUtils.EnvValidator<T>;
+        type JourneyType = envUtils.JourneyType;
+        type EnvSchema = envUtils.EnvSchema;
+      };
       
-      transformFunctions.forEach(functionName => {
-        expect(envUtils[functionName]).toBeDefined();
-        expect(typeof envUtils[functionName]).toBe('function');
-      });
-    });
-
-    it('should provide environment variable validation functions', () => {
-      const validationFunctions = [
-        'createZodValidator',
-        'createZodValidatorWithDefault',
-        'createStringValidator',
-        'createNumberValidator',
-        'createBooleanValidator',
-        'createUrlValidator',
-        'createArrayValidator',
-        'createJsonValidator',
-        'createEnumValidator',
-        'createDurationValidator',
-        'createPortValidator',
-        'createHostValidator',
-        'createDatabaseUrlValidator',
-        'createApiKeyValidator',
-        'createJwtSecretValidator',
-        'createEnvironmentValidator',
-        'createRedisUrlValidator',
-        'createKafkaBrokersValidator',
-        'createCorsOriginsValidator',
-        'createLogLevelValidator',
-        'createFeatureFlagsValidator',
-        'createJourneyConfigValidator',
-        'createDbPoolConfigValidator',
-        'createRetryPolicyValidator',
-        'validateEnvironmentGroup',
-        'validateServiceEnvironment',
-        'validateJourneyEnvironment'
-      ];
-      
-      validationFunctions.forEach(functionName => {
-        expect(envUtils[functionName]).toBeDefined();
-        expect(typeof envUtils[functionName]).toBe('function');
-      });
-    });
-
-    it('should provide journey-specific configuration functions', () => {
-      const journeyFunctions = [
-        'getJourneyEnvName',
-        'getJourneyEnv',
-        'getRequiredJourneyEnv',
-        'clearJourneyEnvCache',
-        'getJourneyFeatureFlag',
-        'isFeatureEnabled',
-        'isFeatureEnabledForUser',
-        'getSharedJourneyEnv',
-        'getRequiredSharedJourneyEnv',
-        'getAllJourneyEnvs'
-      ];
-      
-      journeyFunctions.forEach(functionName => {
-        expect(envUtils[functionName]).toBeDefined();
-        expect(typeof envUtils[functionName]).toBe('function');
-      });
-      
-      // JourneyType is an enum, not a function
-      expect(envUtils.JourneyType).toBeDefined();
-    });
-
-    it('should provide error handling utilities', () => {
-      const errorFunctions = [
-        'formatErrorMessage',
-        'withEnvErrorFallback',
-        'validateEnvironmentBatch',
-        'createRequiredEnvValidator',
-        'categorizeEnvironmentError'
-      ];
-      
-      errorFunctions.forEach(functionName => {
-        expect(envUtils[functionName]).toBeDefined();
-        expect(typeof envUtils[functionName]).toBe('function');
-      });
-      
-      // Error classes and enums
-      expect(envUtils.EnvironmentVariableError).toBeDefined();
-      expect(envUtils.EnvMissingError).toBeDefined();
-      expect(envUtils.EnvInvalidError).toBeDefined();
-      expect(envUtils.EnvValidationError).toBeDefined();
-      expect(envUtils.EnvTransformError).toBeDefined();
-      expect(envUtils.EnvBatchError).toBeDefined();
-      expect(envUtils.EnvironmentErrorCategory).toBeDefined();
+      // Just to make sure the function is used
+      expect(typeCheck).toBeDefined();
     });
   });
 
-  describe('Interface Consistency', () => {
-    it('should maintain consistent naming patterns across utilities', () => {
-      // Verify that all getter functions follow the get* pattern
-      const getterFunctions = Object.keys(envUtils).filter(key => key.startsWith('get'));
-      expect(getterFunctions.length).toBeGreaterThan(0);
-      getterFunctions.forEach(functionName => {
-        expect(typeof envUtils[functionName]).toBe('function');
+  describe('Module Integrity', () => {
+    it('should not expose any internal implementation details', () => {
+      // Check that no unexpected properties are exported
+      const expectedExports = [
+        // Config module
+        'getEnv', 'getRequiredEnv', 'getOptionalEnv', 'cacheEnv', 'clearEnvCache',
+        // Transform module
+        'parseBoolean', 'parseNumber', 'parseArray', 'parseJson', 'parseUrl', 'parseRange',
+        // Validation module
+        'validateEnv', 'validateUrl', 'validateNumericRange', 'validateEnum', 'validateSchema', 'validateBatchEnv',
+        // Journey module
+        'getJourneyEnv', 'getJourneyPrefix', 'withJourneyPrefix', 'getJourneyFeatureFlag', 'getSharedEnv',
+        // Error module
+        'MissingEnvironmentVariableError', 'InvalidEnvironmentVariableError', 'EnvironmentValidationError',
+        'formatEnvErrorMessage', 'handleEnvError',
+        // Types
+        'EnvValue', 'EnvTransformer', 'EnvValidator', 'JourneyType', 'EnvSchema'
+      ];
+
+      // Get all keys from the exported module
+      const actualExports = Object.keys(envUtils);
+
+      // Check that all expected exports exist
+      expectedExports.forEach(exportName => {
+        expect(actualExports).toContain(exportName);
       });
-      
-      // Verify that all creator functions follow the create* pattern
-      const creatorFunctions = Object.keys(envUtils).filter(key => key.startsWith('create'));
-      expect(creatorFunctions.length).toBeGreaterThan(0);
-      creatorFunctions.forEach(functionName => {
-        expect(typeof envUtils[functionName]).toBe('function');
-      });
-      
-      // Verify that all parser functions follow the parse* pattern
-      const parserFunctions = Object.keys(envUtils).filter(key => key.startsWith('parse'));
-      expect(parserFunctions.length).toBeGreaterThan(0);
-      parserFunctions.forEach(functionName => {
-        expect(typeof envUtils[functionName]).toBe('function');
-      });
-      
-      // Verify that all validator functions follow the validate* pattern
-      const validatorFunctions = Object.keys(envUtils).filter(key => key.startsWith('validate'));
-      expect(validatorFunctions.length).toBeGreaterThan(0);
-      validatorFunctions.forEach(functionName => {
-        expect(typeof envUtils[functionName]).toBe('function');
+
+      // Check that no unexpected exports exist
+      actualExports.forEach(exportName => {
+        expect(expectedExports).toContain(exportName);
       });
     });
   });

@@ -1,377 +1,704 @@
 /**
- * Theme Types
+ * Core Theme interface and related types for the AUSTA SuperApp design system.
  * 
- * This file defines the core Theme interface and related types used by the design system
- * and UI components throughout the AUSTA SuperApp. It establishes the fundamental structure
- * of theme objects, including color palettes, typography scales, spacing system, breakpoints,
- * and other design properties.
- * 
- * These interfaces serve as the foundation for journey-specific theme variations and ensure
+ * This file defines the fundamental structure of theme objects, including color palettes,
+ * typography scales, spacing system, breakpoints, and other design properties.
+ * It serves as the foundation for journey-specific theme variations and ensures
  * consistent typing for theme consumers across both web and mobile platforms.
+ * 
+ * @module theme.types
  */
 
 import { ReactNode } from 'react';
+import {
+  ColorToken,
+  JourneyColorPalette,
+  SemanticColorPalette,
+} from '@design-system/primitives/src/tokens/colors';
+import {
+  TypographyTokens,
+  FontFamilyTokens,
+  FontWeightTokens,
+  FontSizeTokens,
+  LineHeightTokens,
+  LetterSpacingTokens,
+} from '@design-system/primitives/src/tokens/typography';
+import { ResponsiveBreakpoint } from './tokens.types';
 
 /**
- * Color Palette
- * Defines the color system for the application with brand, journey-specific,
- * semantic, and neutral color scales.
- */
-export interface ColorPalette {
-  // Brand Colors
-  brand: {
-    primary: string;
-    secondary: string;
-    tertiary: string;
-  };
-
-  // Journey-specific Colors
-  journey: {
-    health: {
-      primary: string;
-      secondary: string;
-    };
-    care: {
-      primary: string;
-      secondary: string;
-    };
-    plan: {
-      primary: string;
-      secondary: string;
-    };
-  };
-
-  // Semantic Colors
-  semantic: {
-    success: string;
-    warning: string;
-    error: string;
-    info: string;
-  };
-
-  // Neutral Colors
-  neutral: {
-    white: string;
-    black: string;
-    gray: {
-      100: string;
-      200: string;
-      300: string;
-      400: string;
-      500: string;
-      600: string;
-      700: string;
-      800: string;
-      900: string;
-    };
-  };
-
-  // Opacity variants for colors
-  opacity: {
-    light: number;
-    medium: number;
-    high: number;
-  };
-}
-
-/**
- * Typography Scale
- * Defines the typography system including font families, sizes, weights,
- * line heights, and letter spacing.
- */
-export interface TypographyScale {
-  // Font Families
-  fontFamily: {
-    primary: string;
-    secondary: string;
-    monospace: string;
-  };
-
-  // Font Sizes (in pixels)
-  fontSize: {
-    h1: number;
-    h2: number;
-    h3: number;
-    body: number;
-    small: number;
-    micro: number;
-  };
-
-  // Line Heights (unitless multipliers)
-  lineHeight: {
-    h1: number;
-    h2: number;
-    h3: number;
-    body: number;
-    small: number;
-    micro: number;
-  };
-
-  // Font Weights
-  fontWeight: {
-    regular: number;
-    medium: number;
-    semibold: number;
-    bold: number;
-  };
-
-  // Letter Spacing
-  letterSpacing: {
-    tight: number;
-    normal: number;
-    wide: number;
-  };
-}
-
-/**
- * Spacing Scale
- * Implements an 8-point grid system for consistent layout spacing.
- */
-export interface SpacingScale {
-  // Base unit in pixels (typically 8)
-  baseUnit: number;
-
-  // Named spacing values
-  xxs: number; // 4px (half base unit)
-  xs: number;  // 8px (1x base unit)
-  sm: number;  // 16px (2x base unit)
-  md: number;  // 24px (3x base unit)
-  lg: number;  // 32px (4x base unit)
-  xl: number;  // 48px (6x base unit)
-  xxl: number; // 64px (8x base unit)
-
-  // Function to calculate custom spacing
-  // This is a placeholder for the actual implementation
-  // which would be provided by the theme object
-  calc: (multiplier: number) => number;
-}
-
-/**
- * Breakpoints
- * Defines responsive breakpoints for adapting layouts across device sizes.
- */
-export interface Breakpoints {
-  xs: number; // 0px
-  sm: number; // 576px
-  md: number; // 768px
-  lg: number; // 992px
-  xl: number; // 1200px
-
-  // Function to generate media queries
-  // This is a placeholder for the actual implementation
-  // which would be provided by the theme object
-  up: (breakpoint: keyof Omit<Breakpoints, 'up' | 'down' | 'between'>) => string;
-  down: (breakpoint: keyof Omit<Breakpoints, 'up' | 'down' | 'between'>) => string;
-  between: (start: keyof Omit<Breakpoints, 'up' | 'down' | 'between'>, end: keyof Omit<Breakpoints, 'up' | 'down' | 'between'>) => string;
-}
-
-/**
- * Shadow Scale
- * Provides elevation tokens with precise RGBA values for shadows.
- */
-export interface ShadowScale {
-  none: string;
-  sm: string;
-  md: string;
-  lg: string;
-  xl: string;
-}
-
-/**
- * Animation Scale
- * Defines standardized animation durations and easing curves.
- */
-export interface AnimationScale {
-  duration: {
-    fast: number; // 150ms
-    normal: number; // 300ms
-    slow: number; // 500ms
-  };
-  easing: {
-    easeIn: string;
-    easeOut: string;
-    easeInOut: string;
-    linear: string;
-  };
-}
-
-/**
- * Border Scale
- * Defines border widths, radii, and styles.
- */
-export interface BorderScale {
-  width: {
-    thin: number;
-    normal: number;
-    thick: number;
-  };
-  radius: {
-    none: number;
-    sm: number;
-    md: number;
-    lg: number;
-    pill: number;
-    circle: string;
-  };
-  style: {
-    solid: string;
-    dashed: string;
-    dotted: string;
-  };
-}
-
-/**
- * Z-Index Scale
- * Defines z-index values for layering elements.
- */
-export interface ZIndexScale {
-  base: number;
-  elevated: number;
-  dropdown: number;
-  sticky: number;
-  drawer: number;
-  modal: number;
-  popover: number;
-  toast: number;
-  tooltip: number;
-}
-
-/**
- * Core Theme Interface
- * Consolidates all design tokens into a comprehensive theme object.
+ * Core Theme interface that defines the structure of all theme objects in the application.
+ * This interface is implemented by the base theme and extended by journey-specific themes.
  */
 export interface Theme {
+  /**
+   * Unique identifier for the theme
+   */
+  id: string;
+
+  /**
+   * Human-readable name of the theme
+   */
   name: string;
-  type: 'light' | 'dark';
-  colors: ColorPalette;
-  typography: TypographyScale;
-  spacing: SpacingScale;
-  breakpoints: Breakpoints;
-  shadows: ShadowScale;
-  animation: AnimationScale;
-  borders: BorderScale;
-  zIndex: ZIndexScale;
 
-  // Journey-specific theme indicator
-  journey?: 'health' | 'care' | 'plan';
+  /**
+   * Color palettes for the theme
+   */
+  colors: {
+    /**
+     * Brand colors that represent the AUSTA brand identity
+     */
+    brand: {
+      primary: string;
+      primary_token: ColorToken;
+      secondary: string;
+      secondary_token: ColorToken;
+      tertiary: string;
+      tertiary_token: ColorToken;
+    };
+
+    /**
+     * Journey-specific color palettes
+     */
+    journeys: {
+      health: JourneyColorPalette;
+      care: JourneyColorPalette;
+      plan: JourneyColorPalette;
+    };
+
+    /**
+     * Semantic colors that convey specific meanings
+     */
+    semantic: SemanticColorPalette;
+
+    /**
+     * Neutral colors for text, backgrounds, borders, and other UI elements
+     */
+    neutral: {
+      white: string;
+      white_token: ColorToken;
+      gray100: string;
+      gray100_token: ColorToken;
+      gray200: string;
+      gray200_token: ColorToken;
+      gray300: string;
+      gray300_token: ColorToken;
+      gray400: string;
+      gray400_token: ColorToken;
+      gray500: string;
+      gray500_token: ColorToken;
+      gray600: string;
+      gray600_token: ColorToken;
+      gray700: string;
+      gray700_token: ColorToken;
+      gray800: string;
+      gray800_token: ColorToken;
+      gray900: string;
+      gray900_token: ColorToken;
+      black: string;
+      black_token: ColorToken;
+    };
+
+    /**
+     * Contextual color mappings for journey-specific semantic colors
+     */
+    contextual: {
+      health: {
+        success: string;
+        warning: string;
+        error: string;
+        info: string;
+      };
+      care: {
+        success: string;
+        warning: string;
+        error: string;
+        info: string;
+      };
+      plan: {
+        success: string;
+        warning: string;
+        error: string;
+        info: string;
+      };
+    };
+
+    /**
+     * Accessibility helpers for ensuring proper contrast ratios
+     */
+    accessibility: {
+      /**
+       * Returns the appropriate text color (black or white) for the given background color
+       * to ensure WCAG AA compliance (4.5:1 contrast ratio for normal text)
+       */
+      getContrastText: (backgroundColor: string) => string;
+
+      /**
+       * Returns the appropriate text color for the given journey and element
+       */
+      getJourneyContrastText: (
+        journey: 'health' | 'care' | 'plan',
+        element: 'primary' | 'secondary' | 'accent' | 'background'
+      ) => string;
+    };
+  };
+
+  /**
+   * Typography settings for the theme
+   */
+  typography: TypographyTokens;
+
+  /**
+   * Spacing scale for the theme based on an 8-point grid system
+   */
+  spacing: {
+    /**
+     * Extra small spacing (4px)
+     */
+    xs: string;
+
+    /**
+     * Small spacing (8px)
+     */
+    sm: string;
+
+    /**
+     * Medium spacing (16px)
+     */
+    md: string;
+
+    /**
+     * Large spacing (24px)
+     */
+    lg: string;
+
+    /**
+     * Extra large spacing (32px)
+     */
+    xl: string;
+
+    /**
+     * 2x extra large spacing (48px)
+     */
+    '2xl': string;
+
+    /**
+     * 3x extra large spacing (64px)
+     */
+    '3xl': string;
+
+    /**
+     * 4x extra large spacing (96px)
+     */
+    '4xl': string;
+
+    /**
+     * Negative extra small spacing (-4px)
+     */
+    'neg-xs': string;
+
+    /**
+     * Negative small spacing (-8px)
+     */
+    'neg-sm': string;
+
+    /**
+     * Negative medium spacing (-16px)
+     */
+    'neg-md': string;
+
+    /**
+     * Negative large spacing (-24px)
+     */
+    'neg-lg': string;
+
+    /**
+     * Negative extra large spacing (-32px)
+     */
+    'neg-xl': string;
+
+    /**
+     * Negative 2x extra large spacing (-48px)
+     */
+    'neg-2xl': string;
+
+    /**
+     * Negative 3x extra large spacing (-64px)
+     */
+    'neg-3xl': string;
+
+    /**
+     * Negative 4x extra large spacing (-96px)
+     */
+    'neg-4xl': string;
+
+    /**
+     * Helper function to get spacing value by key or direct pixel value
+     */
+    get: (value: keyof Theme['spacing'] | number | string) => string;
+  };
+
+  /**
+   * Border radius settings for the theme
+   */
+  borderRadius: {
+    /**
+     * Small border radius (2px)
+     */
+    sm: string;
+
+    /**
+     * Medium border radius (4px)
+     */
+    md: string;
+
+    /**
+     * Large border radius (8px)
+     */
+    lg: string;
+
+    /**
+     * Extra large border radius (16px)
+     */
+    xl: string;
+
+    /**
+     * Full/circular border radius (9999px)
+     */
+    full: string;
+  };
+
+  /**
+   * Shadow settings for the theme
+   */
+  shadows: {
+    /**
+     * Small shadow (subtle elevation)
+     */
+    sm: string;
+
+    /**
+     * Medium shadow (moderate elevation)
+     */
+    md: string;
+
+    /**
+     * Large shadow (significant elevation)
+     */
+    lg: string;
+
+    /**
+     * Extra large shadow (maximum elevation)
+     */
+    xl: string;
+
+    /**
+     * No shadow (flat)
+     */
+    none: string;
+
+    /**
+     * Platform-specific shadow implementations
+     */
+    platforms: {
+      web: {
+        sm: string;
+        md: string;
+        lg: string;
+        xl: string;
+        none: string;
+      };
+      native: {
+        sm: object;
+        md: object;
+        lg: object;
+        xl: object;
+        none: object;
+      };
+    };
+  };
+
+  /**
+   * Animation settings for the theme
+   */
+  animation: {
+    /**
+     * Animation durations
+     */
+    duration: {
+      /**
+       * Fast animation (150ms)
+       */
+      fast: string;
+
+      /**
+       * Normal animation (300ms)
+       */
+      normal: string;
+
+      /**
+       * Slow animation (500ms)
+       */
+      slow: string;
+    };
+
+    /**
+     * Animation easing curves
+     */
+    easing: {
+      /**
+       * Ease-in animation curve
+       */
+      easeIn: string;
+
+      /**
+       * Ease-out animation curve
+       */
+      easeOut: string;
+
+      /**
+       * Ease-in-out animation curve
+       */
+      easeInOut: string;
+    };
+  };
+
+  /**
+   * Breakpoints for responsive design
+   */
+  breakpoints: {
+    /**
+     * Extra small breakpoint (0px)
+     */
+    xs: string;
+
+    /**
+     * Small breakpoint (576px)
+     */
+    sm: string;
+
+    /**
+     * Medium breakpoint (768px)
+     */
+    md: string;
+
+    /**
+     * Large breakpoint (992px)
+     */
+    lg: string;
+
+    /**
+     * Extra large breakpoint (1200px)
+     */
+    xl: string;
+
+    /**
+     * Media query helper for up breakpoints
+     * @example theme.breakpoints.up('md') => '@media (min-width: 768px)'
+     */
+    up: (key: ResponsiveBreakpoint) => string;
+
+    /**
+     * Media query helper for down breakpoints
+     * @example theme.breakpoints.down('md') => '@media (max-width: 767.98px)'
+     */
+    down: (key: ResponsiveBreakpoint) => string;
+
+    /**
+     * Media query helper for between breakpoints
+     * @example theme.breakpoints.between('sm', 'md') => '@media (min-width: 576px) and (max-width: 767.98px)'
+     */
+    between: (start: ResponsiveBreakpoint, end: ResponsiveBreakpoint) => string;
+  };
+
+  /**
+   * Component-specific theme overrides
+   */
+  components: {
+    /**
+     * Button component theme
+     */
+    Button: {
+      borderRadius: string;
+      fontSize: string;
+      padding: {
+        sm: string;
+        md: string;
+        lg: string;
+      };
+      variants: {
+        primary: {
+          backgroundColor: string;
+          color: string;
+          hoverBackgroundColor: string;
+          activeBackgroundColor: string;
+          disabledBackgroundColor: string;
+          disabledColor: string;
+        };
+        secondary: {
+          backgroundColor: string;
+          color: string;
+          hoverBackgroundColor: string;
+          activeBackgroundColor: string;
+          disabledBackgroundColor: string;
+          disabledColor: string;
+        };
+        outline: {
+          backgroundColor: string;
+          color: string;
+          borderColor: string;
+          hoverBackgroundColor: string;
+          hoverBorderColor: string;
+          activeBackgroundColor: string;
+          activeBorderColor: string;
+          disabledBackgroundColor: string;
+          disabledBorderColor: string;
+          disabledColor: string;
+        };
+        text: {
+          backgroundColor: string;
+          color: string;
+          hoverBackgroundColor: string;
+          activeBackgroundColor: string;
+          disabledBackgroundColor: string;
+          disabledColor: string;
+        };
+      };
+    };
+
+    /**
+     * Card component theme
+     */
+    Card: {
+      backgroundColor: string;
+      borderRadius: string;
+      boxShadow: string;
+      padding: string;
+      header: {
+        backgroundColor: string;
+        padding: string;
+      };
+      body: {
+        padding: string;
+      };
+      footer: {
+        backgroundColor: string;
+        padding: string;
+      };
+    };
+
+    /**
+     * Input component theme
+     */
+    Input: {
+      backgroundColor: string;
+      borderColor: string;
+      borderRadius: string;
+      color: string;
+      fontSize: string;
+      padding: string;
+      placeholderColor: string;
+      focusBorderColor: string;
+      errorBorderColor: string;
+      errorColor: string;
+      disabledBackgroundColor: string;
+      disabledBorderColor: string;
+      disabledColor: string;
+    };
+
+    /**
+     * ProgressBar component theme
+     */
+    ProgressBar: {
+      backgroundColor: string;
+      borderRadius: string;
+      height: string;
+      filledColor: string;
+    };
+
+    /**
+     * ProgressCircle component theme
+     */
+    ProgressCircle: {
+      backgroundColor: string;
+      filledColor: string;
+      size: {
+        sm: string;
+        md: string;
+        lg: string;
+      };
+      strokeWidth: {
+        sm: string;
+        md: string;
+        lg: string;
+      };
+    };
+
+    /**
+     * Additional component-specific theme overrides can be added here
+     */
+    [key: string]: any;
+  };
+
+  /**
+   * Journey-specific theme properties
+   */
+  journey?: {
+    /**
+     * Current active journey key
+     */
+    key?: 'health' | 'care' | 'plan' | null;
+
+    /**
+     * Journey-specific color palette
+     */
+    palette?: JourneyColorPalette;
+  };
 }
 
 /**
- * Theme Context Interface
- * Defines the shape of the React context for theme management.
+ * Health Journey Theme interface
+ * Extends the base Theme with health-specific overrides
  */
-export interface ThemeContextType {
-  theme: Theme;
-  setTheme?: (theme: Theme) => void;
-  toggleTheme?: () => void;
+export interface HealthTheme extends Theme {
+  journey: {
+    key: 'health';
+    palette: JourneyColorPalette;
+  };
 }
 
 /**
- * Theme Provider Props
- * Props for the theme provider component.
+ * Care Journey Theme interface
+ * Extends the base Theme with care-specific overrides
+ */
+export interface CareTheme extends Theme {
+  journey: {
+    key: 'care';
+    palette: JourneyColorPalette;
+  };
+}
+
+/**
+ * Plan Journey Theme interface
+ * Extends the base Theme with plan-specific overrides
+ */
+export interface PlanTheme extends Theme {
+  journey: {
+    key: 'plan';
+    palette: JourneyColorPalette;
+  };
+}
+
+/**
+ * Union type of all possible theme types
+ */
+export type AustaTheme = Theme | HealthTheme | CareTheme | PlanTheme;
+
+/**
+ * Theme context properties for React context
+ */
+export interface ThemeContextProps {
+  /**
+   * Current theme object
+   */
+  theme: AustaTheme;
+
+  /**
+   * Function to set the current theme
+   */
+  setTheme: (theme: AustaTheme) => void;
+
+  /**
+   * Function to set the current journey
+   */
+  setJourney: (journey: 'health' | 'care' | 'plan' | null) => void;
+
+  /**
+   * Current journey key
+   */
+  journeyKey: 'health' | 'care' | 'plan' | null;
+}
+
+/**
+ * Theme provider props for React context provider
  */
 export interface ThemeProviderProps {
-  theme?: Theme;
+  /**
+   * Initial theme to use
+   */
+  initialTheme?: AustaTheme;
+
+  /**
+   * Initial journey to use
+   */
+  initialJourney?: 'health' | 'care' | 'plan' | null;
+
+  /**
+   * Children components
+   */
   children: ReactNode;
 }
 
 /**
- * Utility Types for Styled Components
+ * Utility type to access theme properties in styled components
+ * @example const StyledComponent = styled.div<ThemeProp>`
+ *   color: ${props => props.theme.colors.brand.primary};
+ * `;
  */
+export interface ThemeProp {
+  theme: AustaTheme;
+}
 
 /**
- * ThemeProps
- * Helper type for components that receive the theme via props.
+ * Utility type for theme-aware props in styled components
+ * @example const StyledComponent = styled.div<ThemeAwareProps<{ color: string }>>`
+ *   color: ${props => props.color || props.theme.colors.brand.primary};
+ * `;
  */
-export type ThemeProps = {
-  theme: Theme;
+export type ThemeAwareProps<P = {}> = P & ThemeProp;
+
+/**
+ * Utility type for responsive props in styled components
+ * @example const StyledComponent = styled.div<ResponsiveProps<{ fontSize: string }>>`
+ *   font-size: ${props => props.fontSize?.xs || props.theme.typography.fontSize.md};
+ *   ${props => props.theme.breakpoints.up('md')} {
+ *     font-size: ${props => props.fontSize?.md || props.theme.typography.fontSize.lg};
+ *   }
+ * `;
+ */
+export type ResponsiveProps<P = {}> = {
+  [K in keyof P]?: P[K] | {
+    xs?: P[K];
+    sm?: P[K];
+    md?: P[K];
+    lg?: P[K];
+    xl?: P[K];
+  };
 };
 
 /**
- * WithTheme
- * Higher-order type to add theme prop to a component's props.
+ * Utility type for theme-aware responsive props in styled components
+ * Combines ThemeAwareProps and ResponsiveProps
  */
-export type WithTheme<P> = P & ThemeProps;
+export type ThemeAwareResponsiveProps<P = {}> = ThemeAwareProps<ResponsiveProps<P>>;
 
 /**
- * Themed
- * Utility type for creating theme-aware props.
+ * Utility function type for accessing theme values
+ * Used for theme-aware style functions
  */
-export type Themed<P> = (props: WithTheme<P>) => any;
+export type ThemeValueFn<T> = (theme: AustaTheme) => T;
 
 /**
- * ResponsiveValue
- * Utility type for responsive prop values based on breakpoints.
+ * Utility type for theme-aware style functions
+ * @example const getColor = (props: ThemeAwareProps): string => {
+ *   return props.color || props.theme.colors.brand.primary;
+ * };
  */
-export type ResponsiveValue<T> = T | {
-  xs?: T;
-  sm?: T;
-  md?: T;
-  lg?: T;
-  xl?: T;
-};
+export type ThemeStyleFn<P = {}, R = string> = (props: ThemeAwareProps<P>) => R;
 
 /**
- * ColorToken
- * Utility type for accessing color values from the theme.
- * Allows dot notation path to any color in the theme.
+ * Utility type for responsive theme-aware style functions
+ * @example const getFontSize = (props: ThemeAwareResponsiveProps<{ fontSize: string }>): string => {
+ *   return props.fontSize?.xs || props.theme.typography.fontSize.md;
+ * };
  */
-export type ColorToken = 
-  | 'brand.primary'
-  | 'brand.secondary'
-  | 'brand.tertiary'
-  | 'journey.health.primary'
-  | 'journey.health.secondary'
-  | 'journey.care.primary'
-  | 'journey.care.secondary'
-  | 'journey.plan.primary'
-  | 'journey.plan.secondary'
-  | 'semantic.success'
-  | 'semantic.warning'
-  | 'semantic.error'
-  | 'semantic.info'
-  | 'neutral.white'
-  | 'neutral.black'
-  | `neutral.gray.${100 | 200 | 300 | 400 | 500 | 600 | 700 | 800 | 900}`;
-
-/**
- * SpacingToken
- * Utility type for accessing spacing values from the theme.
- */
-export type SpacingToken = keyof Omit<SpacingScale, 'baseUnit' | 'calc'>;
-
-/**
- * FontSizeToken
- * Utility type for accessing font size values from the theme.
- */
-export type FontSizeToken = keyof TypographyScale['fontSize'];
-
-/**
- * FontWeightToken
- * Utility type for accessing font weight values from the theme.
- */
-export type FontWeightToken = keyof TypographyScale['fontWeight'];
-
-/**
- * LineHeightToken
- * Utility type for accessing line height values from the theme.
- */
-export type LineHeightToken = keyof TypographyScale['lineHeight'];
-
-/**
- * BorderRadiusToken
- * Utility type for accessing border radius values from the theme.
- */
-export type BorderRadiusToken = keyof BorderScale['radius'];
-
-/**
- * ShadowToken
- * Utility type for accessing shadow values from the theme.
- */
-export type ShadowToken = keyof ShadowScale;
-
-/**
- * ZIndexToken
- * Utility type for accessing z-index values from the theme.
- */
-export type ZIndexToken = keyof ZIndexScale;
+export type ResponsiveThemeStyleFn<P = {}, R = string> = (props: ThemeAwareResponsiveProps<P>) => R;

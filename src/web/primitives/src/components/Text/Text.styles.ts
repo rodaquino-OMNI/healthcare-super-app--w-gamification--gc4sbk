@@ -1,23 +1,24 @@
 /**
- * Text component styles for the AUSTA SuperApp design system.
+ * Text Component Styles
  * 
- * This file defines the styled-component for the Text primitive with configurable typography styling.
- * It provides all necessary typography styling with support for journey-specific theming and
- * accessibility features.
+ * This file defines the styled component and interfaces for the Text primitive component,
+ * which is a foundational element for typography in the AUSTA SuperApp design system.
+ * 
+ * The Text component supports:
+ * - Journey-specific theming for the three distinct user journeys (health, care, plan)
+ * - Responsive font sizing for different viewports
+ * - Text truncation with ellipsis
+ * - Comprehensive typography styling with design tokens
  * 
  * @packageDocumentation
  */
 
 import styled from 'styled-components';
-import { typography, colors, breakpoints, mediaQueries } from '../../../tokens';
+import { typography, colors, mediaQueries } from '../../tokens';
 
 /**
- * Defines the props interface for the StyledText component.
- * This interface provides all styling options for the Text component.
- * 
- * @remarks
- * In the future, this interface should be imported from @austa/interfaces package
- * once it's fully implemented.
+ * Interface defining the props for the StyledText component
+ * This interface ensures type safety for all text styling properties
  */
 export interface TextStyleProps {
   /**
@@ -81,41 +82,41 @@ export interface TextStyleProps {
    * @default false
    */
   responsive?: boolean;
-  
+
   /**
    * Maximum number of lines before truncating with ellipsis
    * Only applies when truncate is true
    * @default 1
    */
   maxLines?: number;
-  
+
   /**
-   * Whether to apply bold styling
-   * Shorthand for fontWeight={typography.fontWeight.bold}
+   * Whether to apply text transformation
+   * @default undefined
+   */
+  textTransform?: 'uppercase' | 'lowercase' | 'capitalize' | 'none';
+
+  /**
+   * Whether the text should be bold
+   * This is a shorthand for fontWeight={typography.fontWeight.bold}
    * @default false
    */
   bold?: boolean;
-  
+
   /**
-   * Whether to apply italic styling
+   * Whether the text should be italic
    * @default false
    */
   italic?: boolean;
-  
-  /**
-   * Text transform property
-   * @default undefined
-   */
-  textTransform?: 'none' | 'capitalize' | 'uppercase' | 'lowercase';
 }
 
 /**
  * Helper function to calculate responsive font sizes based on breakpoint
  * @param size Original font size with unit
- * @param breakpoint Breakpoint name (sm, md, lg, xl)
+ * @param breakpoint Breakpoint name (sm, md, lg)
  * @returns Calculated size with unit
  */
-const calculateResponsiveSize = (size: string, breakpoint: 'sm' | 'md' | 'lg' | 'xl'): string => {
+const calculateResponsiveSize = (size: string, breakpoint: string): string => {
   // Extract numeric value and unit
   const matches = size.match(/^([\d.]+)(\w+)$/);
   if (!matches) return size;
@@ -123,7 +124,7 @@ const calculateResponsiveSize = (size: string, breakpoint: 'sm' | 'md' | 'lg' | 
   const [, valueStr, unit] = matches;
   const value = parseFloat(valueStr);
   
-  // Apply scaling factor based on breakpoint
+  // Apply scaling factor based on breakpoint and typography.responsiveScaling
   let scaleFactor = 1;
   switch (breakpoint) {
     case 'sm':
@@ -136,10 +137,10 @@ const calculateResponsiveSize = (size: string, breakpoint: 'sm' | 'md' | 'lg' | 
       scaleFactor = typography.responsiveScaling.desktop;
       break;
     case 'xl':
-      scaleFactor = typography.responsiveScaling.large;
+      scaleFactor = typography.responsiveScaling.largeDesktop;
       break;
     default:
-      scaleFactor = typography.responsiveScaling.base;
+      scaleFactor = 1;
   }
   
   // Return new size with original unit
@@ -152,66 +153,78 @@ const calculateResponsiveSize = (size: string, breakpoint: 'sm' | 'md' | 'lg' | 
  * @returns Resolved color value
  */
 const resolveJourneyColor = (props: TextStyleProps): string => {
-  if (!props.color) return colors.neutral.gray900;
-  
-  // If color doesn't reference journey, return it directly
-  if (!props.color.includes('journey') || !props.journey) {
-    return props.color;
+  if (!props.color) {
+    return colors.neutral.gray900;
+  }
+
+  // If journey is specified and color references journey
+  if (props.journey) {
+    // Direct journey color reference (e.g., 'journey')
+    if (props.color === 'journey') {
+      return colors.journeys[props.journey].primary;
+    }
+    
+    // Specific journey property reference (e.g., 'journey.secondary')
+    if (props.color.startsWith('journey.')) {
+      const journeyProperty = props.color.split('.')[1];
+      // Check if the property exists in the journey colors
+      if (journeyProperty in colors.journeys[props.journey]) {
+        return colors.journeys[props.journey][journeyProperty as keyof typeof colors.journeys[typeof props.journey]];
+      }
+      // Fallback to neutral color if property doesn't exist
+      return colors.neutral.gray900;
+    }
   }
   
-  // Handle 'journey' as shorthand for journey primary color
-  if (props.color === 'journey') {
-    return colors.journeys[props.journey].primary;
-  }
-  
-  // Handle 'journey.property' format
-  if (props.color.startsWith('journey.')) {
-    const journeyProperty = props.color.split('.')[1];
-    return colors.journeys[props.journey][journeyProperty] || colors.neutral.gray900;
-  }
-  
-  return colors.neutral.gray900;
+  // Direct color value
+  return props.color;
 };
 
 /**
- * Styled component for the Text primitive with configurable typography styling.
+ * Styled component for the Text primitive with configurable typography styling
  * This component provides all necessary typography styling with support for
  * journey-specific theming and accessibility features.
  */
 export const StyledText = styled.span<TextStyleProps>`
-  /* Base typography styles */
+  /* Base typography styling */
   font-family: ${props => props.fontFamily || typography.fontFamily.base};
   font-weight: ${props => props.bold ? typography.fontWeight.bold : (props.fontWeight || typography.fontWeight.regular)};
   font-size: ${props => props.fontSize || typography.fontSize.md};
   line-height: ${props => props.lineHeight || typography.lineHeight.base};
   letter-spacing: ${props => props.letterSpacing || typography.letterSpacing.normal};
-  
-  /* Text styling */
-  color: ${resolveJourneyColor};
-  text-align: ${props => props.align || 'left'};
   font-style: ${props => props.italic ? 'italic' : 'normal'};
-  text-transform: ${props => props.textTransform || 'none'};
   
-  /* Truncation */
-  ${props => props.truncate && `
-    ${props.maxLines && props.maxLines > 1 ? `
-      display: -webkit-box;
-      -webkit-line-clamp: ${props.maxLines};
-      -webkit-box-orient: vertical;
-      overflow: hidden;
-    ` : `
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    `}
+  /* Color handling with journey-specific theming */
+  color: ${resolveJourneyColor};
+  
+  /* Text alignment */
+  text-align: ${props => props.align || 'left'};
+  
+  /* Text transformation */
+  ${props => props.textTransform && `text-transform: ${props.textTransform};`}
+  
+  /* Text truncation */
+  ${props => props.truncate && props.maxLines === 1 && `
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  `}
+  
+  /* Multi-line truncation */
+  ${props => props.truncate && props.maxLines && props.maxLines > 1 && `
+    display: -webkit-box;
+    -webkit-line-clamp: ${props.maxLines};
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    text-overflow: ellipsis;
   `}
   
   /* Responsive font sizing */
   ${props => props.responsive && `
-    @media ${mediaQueries.sm} {
+    @media ${mediaQueries.xs} {
       font-size: ${props.fontSize ? calculateResponsiveSize(props.fontSize, 'sm') : calculateResponsiveSize(typography.fontSize.md, 'sm')};
     }
-    @media ${mediaQueries.md} {
+    @media ${mediaQueries.sm} {
       font-size: ${props.fontSize ? calculateResponsiveSize(props.fontSize, 'md') : calculateResponsiveSize(typography.fontSize.md, 'md')};
     }
     @media ${mediaQueries.lg} {

@@ -1,28 +1,49 @@
 /**
- * @file OAuth Providers Barrel File
- * 
- * This barrel file exports all OAuth providers and interfaces, creating a clean public API
- * for the OAuth functionality in the AUSTA SuperApp. It simplifies imports for consumers by
- * providing a single entry point to access all OAuth-related components and enables tree-shaking
- * by using named exports.
- * 
- * Example usage:
- * ```typescript
- * // Import specific providers
- * import { GoogleOAuthProvider, FacebookOAuthProvider } from '@austa/auth/providers/oauth';
- * 
- * // Import interfaces
- * import { OAuthProfile, OAuthToken } from '@austa/auth/providers/oauth';
- * ```
+ * @file OAuth Providers index barrel file
+ * @description Centralized export point for all OAuth authentication providers and related interfaces.
+ * This file organizes exports for OAuth providers (Google, Facebook, Apple) and their shared interfaces
+ * for improved code organization and tree-shaking support.
+ *
+ * @module @austa/auth/providers/oauth
  */
 
-// Export all interfaces and types
-export * from './interfaces';
+/**
+ * OAuth Interfaces
+ * @description Type definitions for OAuth authentication including profile structures,
+ * token formats, and provider configurations
+ */
+export {
+  OAuthProfile,
+  OAuthToken,
+  OAuthConfig,
+  OAuthProviderType,
+  GoogleOAuthConfig,
+  FacebookOAuthConfig,
+  AppleOAuthConfig,
+  OAuthUserData,
+  OAuthValidationResult
+} from './interfaces';
 
-// Export the base provider
-export * from './base.provider';
+/**
+ * Base OAuth Provider
+ * @description Abstract base class that serves as the foundation for all OAuth provider implementations
+ */
+export { BaseOAuthProvider } from './base.provider';
 
-// Export specific provider implementations
-export * from './google.provider';
-export * from './facebook.provider';
-export * from './apple.provider';
+/**
+ * Google OAuth Provider
+ * @description Handles Google-specific authentication flow, token validation, and profile normalization
+ */
+export { GoogleOAuthProvider } from './google.provider';
+
+/**
+ * Facebook OAuth Provider
+ * @description Handles Facebook-specific authentication flow, token validation, and profile normalization
+ */
+export { FacebookOAuthProvider } from './facebook.provider';
+
+/**
+ * Apple OAuth Provider
+ * @description Handles Apple's Sign In with Apple flow, including JWT validation, token exchange, and profile normalization
+ */
+export { AppleOAuthProvider } from './apple.provider';

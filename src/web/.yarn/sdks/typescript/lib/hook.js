@@ -1,28 +1,37 @@
 /**
  * @license
- * Copyright (c) 2023-2025 AUSTA SuperApp
+ * Copyright (c) 2023 AUSTA Health.
  * 
- * This file implements a TypeScript module resolution hook that intercepts and modifies
- * resolution requests for the four new packages in the AUSTA SuperApp monorepo:
+ * This file is part of the AUSTA SuperApp TypeScript SDK.
+ * It hooks into TypeScript's module resolution process to intercept and modify resolution requests.
+ * 
+ * This hook ensures that imports from the four new packages (@austa/design-system, @design-system/primitives,
+ * @austa/interfaces, @austa/journey-context) are correctly resolved, even when referenced from different
+ * parts of the monorepo.
+ */
+
+// @ts-check
+
+/**
+ * This is the TypeScript hook that intercepts module resolution requests.
+ * It's used by the TypeScript language service to resolve modules correctly in a Yarn PnP environment.
+ * 
+ * The hook specifically handles the four new packages that are part of the AUSTA SuperApp refactoring:
  * - @austa/design-system
  * - @design-system/primitives
  * - @austa/interfaces
  * - @austa/journey-context
- * 
- * This hook ensures these packages are correctly resolved across workspace boundaries,
- * maintaining type safety and enabling IDE features like auto-completion and go-to-definition.
  */
 
-'use strict';
-
-const fs = require('fs');
 const path = require('path');
+const fs = require('fs');
 
 /**
- * Maps package names to their filesystem locations in the monorepo
- * These paths are relative to the monorepo root
+ * Maps package names to their filesystem locations in the monorepo.
+ * This is necessary because these packages might not be published to npm yet,
+ * but they need to be resolvable by TypeScript.
  */
-const PACKAGE_MAPPINGS = {
+const packageMappings = {
   '@austa/design-system': 'src/web/design-system',
   '@design-system/primitives': 'src/web/primitives',
   '@austa/interfaces': 'src/web/interfaces',
@@ -30,255 +39,144 @@ const PACKAGE_MAPPINGS = {
 };
 
 /**
- * Finds the monorepo root by traversing up the directory tree
- * looking for the package.json with workspaces defined
- * 
- * @param {string} startDir - Directory to start searching from
- * @returns {string|null} - Path to monorepo root or null if not found
+ * The root directory of the monorepo, used to resolve package paths.
+ * This is determined by finding the nearest package.json file.
  */
 function findMonorepoRoot(startDir) {
   let currentDir = startDir;
   
-  // Traverse up to 10 levels to find monorepo root
-  for (let i = 0; i < 10; i++) {
-    try {
-      const packageJsonPath = path.join(currentDir, 'package.json');
-      if (fs.existsSync(packageJsonPath)) {
+  // Traverse up the directory tree until we find a package.json file
+  while (currentDir !== path.parse(currentDir).root) {
+    const packageJsonPath = path.join(currentDir, 'package.json');
+    if (fs.existsSync(packageJsonPath)) {
+      try {
         const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
-        // Check if this is the monorepo root (has workspaces)
+        // Check if this is the root package.json (has workspaces)
         if (packageJson.workspaces) {
           return currentDir;
         }
+      } catch (e) {
+        // Ignore JSON parse errors and continue searching
       }
-    } catch (error) {
-      // Ignore errors and continue searching
     }
     
     // Move up one directory
-    const parentDir = path.dirname(currentDir);
-    if (parentDir === currentDir) {
-      // We've reached the filesystem root
-      break;
-    }
-    currentDir = parentDir;
+    currentDir = path.dirname(currentDir);
+  }
+  
+  // If we can't find the root, return the current directory as a fallback
+  return process.cwd();
+}
+
+// Cache the monorepo root to avoid recalculating it for every resolution
+let monorepoRoot = null;
+
+/**
+ * Resolves a package name to its filesystem location in the monorepo.
+ * @param {string} packageName - The name of the package to resolve
+ * @returns {string|null} - The filesystem path to the package, or null if not found
+ */
+function resolvePackagePath(packageName) {
+  if (!monorepoRoot) {
+    monorepoRoot = findMonorepoRoot(process.cwd());
+  }
+  
+  const mapping = packageMappings[packageName];
+  if (mapping) {
+    return path.join(monorepoRoot, mapping);
   }
   
   return null;
 }
 
 /**
- * Resolves a package name to its actual filesystem location
- * 
- * @param {string} packageName - Name of the package to resolve
- * @param {string} containingFile - Path of the file containing the import
- * @returns {string|null} - Resolved path or null if not handled
+ * Checks if a path exists in the filesystem.
+ * @param {string} filePath - The path to check
+ * @returns {boolean} - Whether the path exists
  */
-function resolvePackage(packageName, containingFile) {
-  // Only handle our specific packages
-  if (!PACKAGE_MAPPINGS[packageName]) {
-    return null;
+function pathExists(filePath) {
+  try {
+    return fs.existsSync(filePath);
+  } catch (e) {
+    return false;
   }
-  
-  // Find monorepo root
-  const monorepoRoot = findMonorepoRoot(path.dirname(containingFile));
-  if (!monorepoRoot) {
-    return null;
-  }
-  
-  // Resolve to the actual package location
-  const packagePath = path.join(monorepoRoot, PACKAGE_MAPPINGS[packageName]);
-  
-  // Verify the package exists
-  if (!fs.existsSync(packagePath)) {
-    return null;
-  }
-  
-  // Find the package's entry point
-  // First check for package.json to determine the entry point
-  const packageJsonPath = path.join(packagePath, 'package.json');
-  if (fs.existsSync(packageJsonPath)) {
-    try {
-      const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
-      
-      // Check for TypeScript types field first
-      if (packageJson.types) {
-        const typesPath = path.join(packagePath, packageJson.types);
-        if (fs.existsSync(typesPath)) {
-          return typesPath;
-        }
-      }
-      
-      // Then check for main field
-      if (packageJson.main) {
-        const mainPath = path.join(packagePath, packageJson.main);
-        if (fs.existsSync(mainPath)) {
-          return mainPath;
-        }
-        
-        // Try with .d.ts extension for type definitions
-        const dtsPath = mainPath.replace(/\.js$/, '.d.ts');
-        if (fs.existsSync(dtsPath)) {
-          return dtsPath;
-        }
-      }
-    } catch (error) {
-      // Ignore JSON parsing errors and fall back to default resolution
-    }
-  }
-  
-  // Fall back to standard index files if package.json doesn't specify entry points
-  const possibleEntryPoints = [
-    path.join(packagePath, 'index.ts'),
-    path.join(packagePath, 'src/index.ts'),
-    path.join(packagePath, 'dist/index.js'),
-    path.join(packagePath, 'dist/index.d.ts'),
-    path.join(packagePath, 'lib/index.js'),
-    path.join(packagePath, 'lib/index.d.ts')
-  ];
-  
-  for (const entryPoint of possibleEntryPoints) {
-    if (fs.existsSync(entryPoint)) {
-      return entryPoint;
-    }
-  }
-  
-  // If we can't find a specific entry point, just return the package directory
-  return packagePath;
 }
 
 /**
- * Resolves a subpath within a package
- * 
- * @param {string} packageName - Name of the package
- * @param {string} subpath - Subpath within the package
- * @param {string} containingFile - Path of the file containing the import
- * @returns {string|null} - Resolved path or null if not handled
+ * The main hook function that intercepts TypeScript's module resolution.
+ * @param {Object} ctx - The TypeScript resolution context
+ * @param {Function} next - The next resolver in the chain
+ * @returns {Object|undefined} - The resolved module or undefined
  */
-function resolvePackageSubpath(packageName, subpath, containingFile) {
-  // Only handle our specific packages
-  if (!PACKAGE_MAPPINGS[packageName]) {
-    return null;
-  }
+module.exports = function hook(ctx, next) {
+  // Extract the module name from the request
+  const { request, resolveOptions } = ctx;
   
-  // Find monorepo root
-  const monorepoRoot = findMonorepoRoot(path.dirname(containingFile));
-  if (!monorepoRoot) {
-    return null;
-  }
-  
-  // Resolve to the actual package location
-  const packagePath = path.join(monorepoRoot, PACKAGE_MAPPINGS[packageName]);
-  
-  // Check common source directories
-  const possiblePaths = [
-    path.join(packagePath, subpath), // Direct subpath
-    path.join(packagePath, 'src', subpath), // src/subpath
-    path.join(packagePath, 'dist', subpath), // dist/subpath
-    path.join(packagePath, 'lib', subpath) // lib/subpath
-  ];
-  
-  // Add extensions if not specified
-  if (!subpath.includes('.')) {
-    possiblePaths.push(
-      path.join(packagePath, `${subpath}.ts`),
-      path.join(packagePath, `${subpath}.tsx`),
-      path.join(packagePath, `${subpath}.js`),
-      path.join(packagePath, `${subpath}.jsx`),
-      path.join(packagePath, 'src', `${subpath}.ts`),
-      path.join(packagePath, 'src', `${subpath}.tsx`),
-      path.join(packagePath, 'src', `${subpath}.js`),
-      path.join(packagePath, 'src', `${subpath}.jsx`),
-      path.join(packagePath, 'dist', `${subpath}.js`),
-      path.join(packagePath, 'dist', `${subpath}.d.ts`),
-      path.join(packagePath, 'lib', `${subpath}.js`),
-      path.join(packagePath, 'lib', `${subpath}.d.ts`)
-    );
-  }
-  
-  // Check for index files in directories
-  possiblePaths.push(
-    path.join(packagePath, subpath, 'index.ts'),
-    path.join(packagePath, subpath, 'index.tsx'),
-    path.join(packagePath, subpath, 'index.js'),
-    path.join(packagePath, subpath, 'index.jsx'),
-    path.join(packagePath, 'src', subpath, 'index.ts'),
-    path.join(packagePath, 'src', subpath, 'index.tsx'),
-    path.join(packagePath, 'src', subpath, 'index.js'),
-    path.join(packagePath, 'src', subpath, 'index.jsx'),
-    path.join(packagePath, 'dist', subpath, 'index.js'),
-    path.join(packagePath, 'dist', subpath, 'index.d.ts'),
-    path.join(packagePath, 'lib', subpath, 'index.js'),
-    path.join(packagePath, 'lib', subpath, 'index.d.ts')
+  // Skip if the request is not for one of our mapped packages
+  const packageName = Object.keys(packageMappings).find(pkg => 
+    request === pkg || request.startsWith(`${pkg}/`)
   );
   
-  // Return the first path that exists
-  for (const possiblePath of possiblePaths) {
-    if (fs.existsSync(possiblePath)) {
-      return possiblePath;
+  if (!packageName) {
+    return next(ctx);
+  }
+  
+  // Resolve the package path in the monorepo
+  const packagePath = resolvePackagePath(packageName);
+  if (!packagePath) {
+    return next(ctx);
+  }
+  
+  // Handle imports from the package root (e.g., import { Button } from '@austa/design-system')
+  if (request === packageName) {
+    // Check for different entry points in order of preference
+    const possibleEntries = [
+      path.join(packagePath, 'src', 'index.ts'),
+      path.join(packagePath, 'src', 'index.tsx'),
+      path.join(packagePath, 'src', 'index.js'),
+      path.join(packagePath, 'index.ts'),
+      path.join(packagePath, 'index.tsx'),
+      path.join(packagePath, 'index.js'),
+      path.join(packagePath, 'dist', 'index.js'),
+      path.join(packagePath, 'dist', 'index.esm.js')
+    ];
+    
+    for (const entry of possibleEntries) {
+      if (pathExists(entry)) {
+        return { resolvedModule: { resolvedFileName: entry, isExternalLibraryImport: false } };
+      }
     }
   }
   
-  return null;
-}
-
-/**
- * Main hook function that intercepts TypeScript's module resolution
- * 
- * @param {Object} typescript - The TypeScript module
- * @returns {Object} - Object with before/after resolution hooks
- */
-function createModuleResolutionHook(typescript) {
-  return {
-    /**
-     * Called before TypeScript's standard module resolution
-     * Allows us to intercept and handle specific packages
-     */
-    beforeResolve(specifier, containingFile, resolveOptions, redirectedReference) {
-      // Skip if no containing file (happens for lib.d.ts etc.)
-      if (!containingFile) {
-        return undefined;
-      }
-      
-      try {
-        // Handle direct package imports (e.g., import { Button } from '@austa/design-system')
-        if (PACKAGE_MAPPINGS[specifier]) {
-          const resolvedPath = resolvePackage(specifier, containingFile);
-          if (resolvedPath) {
-            return { resolvedModule: { resolvedFileName: resolvedPath } };
-          }
-        }
-        
-        // Handle subpath imports (e.g., import { Button } from '@austa/design-system/components/Button')
-        for (const packageName of Object.keys(PACKAGE_MAPPINGS)) {
-          if (specifier.startsWith(`${packageName}/`)) {
-            const subpath = specifier.substring(packageName.length + 1);
-            const resolvedPath = resolvePackageSubpath(packageName, subpath, containingFile);
-            if (resolvedPath) {
-              return { resolvedModule: { resolvedFileName: resolvedPath } };
-            }
-          }
-        }
-      } catch (error) {
-        // Log error but don't break resolution
-        console.error(`Error in TypeScript module resolution hook: ${error.message}`);
-      }
-      
-      // Let TypeScript handle other imports
-      return undefined;
-    },
+  // Handle imports from package subpaths (e.g., import { Box } from '@austa/design-system/components')
+  if (request.startsWith(`${packageName}/`)) {
+    const subpath = request.slice(packageName.length + 1);
     
-    /**
-     * Called after TypeScript's standard module resolution
-     * Allows us to modify or override the resolution result
-     */
-    afterResolve(resolvedModule, resolvedOptions) {
-      // We handle everything in beforeResolve, so just return the module as-is
-      return resolvedModule;
+    // Check for different possible locations of the subpath
+    const possiblePaths = [
+      path.join(packagePath, 'src', subpath + '.ts'),
+      path.join(packagePath, 'src', subpath + '.tsx'),
+      path.join(packagePath, 'src', subpath + '.js'),
+      path.join(packagePath, 'src', subpath, 'index.ts'),
+      path.join(packagePath, 'src', subpath, 'index.tsx'),
+      path.join(packagePath, 'src', subpath, 'index.js'),
+      path.join(packagePath, subpath + '.ts'),
+      path.join(packagePath, subpath + '.tsx'),
+      path.join(packagePath, subpath + '.js'),
+      path.join(packagePath, subpath, 'index.ts'),
+      path.join(packagePath, subpath, 'index.tsx'),
+      path.join(packagePath, subpath, 'index.js'),
+      path.join(packagePath, 'dist', subpath + '.js'),
+      path.join(packagePath, 'dist', subpath, 'index.js')
+    ];
+    
+    for (const p of possiblePaths) {
+      if (pathExists(p)) {
+        return { resolvedModule: { resolvedFileName: p, isExternalLibraryImport: false } };
+      }
     }
-  };
-}
-
-/**
- * Export the hook function for TypeScript to use
- */
-module.exports = createModuleResolutionHook;
+  }
+  
+  // If we couldn't resolve the module, fall back to the default resolution
+  return next(ctx);
+};

@@ -1,488 +1,435 @@
 /**
- * @file jwt-provider.mock.ts
- * @description Mock implementation of the JWT provider that simulates token generation, validation,
- * and verification without cryptographic operations. This mock enables testing of JWT-dependent
- * authentication flows without relying on actual JWT signing and verification.
+ * JWT Provider Mock
+ * 
+ * Mock implementation of the JWT provider that simulates token generation, validation,
+ * and verification without cryptographic operations. This mock enables testing of
+ * JWT-dependent authentication flows without relying on actual JWT signing and verification.
+ * 
+ * It supports configurable token payloads, verification responses, and blacklisting behavior.
  */
 
-import { IJwtProvider, IJwtBlacklist } from '../../src/providers/jwt/jwt.interface';
-import { ITokenPayload, ITokenValidationOptions } from '../../src/interfaces/token.interface';
-import { JourneyType } from '../../src/interfaces/role.interface';
+import { Logger } from '@nestjs/common';
+import { IJwtProvider, IJwtBlacklistProvider } from '../../src/providers/jwt/jwt.interface';
+import { ITokenPayload, ITokenVerificationOptions } from '../../src/interfaces/token.interface';
+import { AppException } from '@austa/errors';
 
 /**
- * Configuration options for the mock JWT provider.
+ * Configuration options for the JWT provider mock
  */
-export interface MockJwtProviderOptions {
+export interface JwtProviderMockOptions {
   /**
-   * Default validation response for token validation.
-   * If true, all tokens will be considered valid by default.
-   * Default: true
+   * Default behavior for token validation
+   * If true, all tokens will be considered valid by default
+   * @default true
    */
   defaultValidationResponse?: boolean;
 
   /**
-   * Default token payload to use when generating tokens.
-   * This will be merged with any payload provided during token generation.
+   * Default behavior for token blacklisting
+   * If true, all tokens will be considered not blacklisted by default
+   * @default true
    */
-  defaultPayload?: Partial<ITokenPayload>;
+  defaultBlacklistResponse?: boolean;
 
   /**
-   * Whether to simulate token expiration based on the exp claim.
-   * Default: true
+   * Whether to simulate token expiration based on exp claim
+   * @default true
    */
   simulateExpiration?: boolean;
 
   /**
-   * Whether to automatically blacklist revoked tokens.
-   * Default: true
+   * Whether to throw errors for invalid tokens
+   * If false, will return null instead of throwing
+   * @default true
    */
-  blacklistRevokedTokens?: boolean;
+  throwOnInvalidToken?: boolean;
+
+  /**
+   * Whether to log operations
+   * @default false
+   */
+  enableLogging?: boolean;
 }
 
 /**
- * Mock implementation of the JWT provider for testing purposes.
- * Simulates token generation, validation, and verification without cryptographic operations.
- * 
- * @template TUser The user entity type
+ * Default options for the JWT provider mock
  */
-export class MockJwtProvider<TUser extends Record<string, any>> implements IJwtProvider<TUser>, IJwtBlacklist {
-  /**
-   * Map of blacklisted tokens.
-   * Key: token string, Value: expiration timestamp
-   */
-  private blacklistedTokens: Map<string, number> = new Map();
+const DEFAULT_OPTIONS: JwtProviderMockOptions = {
+  defaultValidationResponse: true,
+  defaultBlacklistResponse: true,
+  simulateExpiration: true,
+  throwOnInvalidToken: true,
+  enableLogging: false,
+};
+
+/**
+ * Mock implementation of the JWT provider interface for testing
+ * Implements both IJwtProvider and IJwtBlacklistProvider interfaces
+ */
+export class JwtProviderMock implements IJwtProvider, IJwtBlacklistProvider {
+  private readonly logger = new Logger(JwtProviderMock.name);
+  private readonly options: JwtProviderMockOptions;
+  
+  // Store for simulated token validation responses
+  private validationResponses: Map<string, boolean> = new Map();
+  
+  // Store for simulated token payloads
+  private tokenPayloads: Map<string, any> = new Map();
+  
+  // Store for blacklisted tokens
+  private blacklistedTokens: Set<string> = new Set();
+  
+  // Store for blacklisted users
+  private blacklistedUsers: Set<string> = new Set();
 
   /**
-   * Map of generated tokens.
-   * Key: token string, Value: token payload
-   */
-  private tokenStore: Map<string, ITokenPayload> = new Map();
-
-  /**
-   * Map of refresh tokens to access tokens.
-   * Key: refresh token, Value: access token
-   */
-  private refreshTokenStore: Map<string, string> = new Map();
-
-  /**
-   * Map of user IDs to tokens.
-   * Key: user ID, Value: array of tokens
-   */
-  private userTokens: Map<string, string[]> = new Map();
-
-  /**
-   * Map of tokens to validation responses.
-   * Key: token string, Value: validation response
-   */
-  private validationResponses: Map<string, boolean | ITokenPayload | null> = new Map();
-
-  /**
-   * Creates a new instance of the MockJwtProvider.
+   * Creates a new instance of the JWT provider mock
    * 
-   * @param options Configuration options for the mock provider
+   * @param options Configuration options for the mock
    */
-  constructor(private options: MockJwtProviderOptions = {}) {
-    this.options = {
-      defaultValidationResponse: true,
-      simulateExpiration: true,
-      blacklistRevokedTokens: true,
-      ...options
-    };
+  constructor(options: JwtProviderMockOptions = {}) {
+    this.options = { ...DEFAULT_OPTIONS, ...options };
+    this.log('JWT Provider Mock initialized');
   }
 
   /**
-   * Validates user credentials and returns the authenticated user.
-   * This is a mock implementation that always returns the provided user.
+   * Generates a mock JWT token with the provided payload
    * 
-   * @param credentials User credentials
-   * @returns Promise resolving to the authenticated user
+   * @param payload Data to include in the token
+   * @returns Generated mock JWT token string
    */
-  async validateCredentials(credentials: Record<string, any>): Promise<TUser | null> {
-    // This method is not directly related to JWT operations
-    // In a real implementation, it would validate username/password
-    // For the mock, we'll just return null as it's not typically used in JWT tests
-    return null;
+  async generateToken<T = any>(payload: T): Promise<string> {
+    try {
+      // Create a standardized payload with required JWT claims
+      const now = Math.floor(Date.now() / 1000);
+      const standardizedPayload = {
+        ...payload,
+        iat: now,
+        exp: now + 3600, // Default expiration: 1 hour
+      };
+
+      // Generate a mock token (base64 encoded payload with a prefix)
+      const tokenPayload = JSON.stringify(standardizedPayload);
+      const base64Payload = Buffer.from(tokenPayload).toString('base64');
+      const mockToken = `mock.${base64Payload}.signature`;
+
+      // Store the payload for later retrieval during validation
+      this.tokenPayloads.set(mockToken, standardizedPayload);
+      
+      this.log(`Generated mock token: ${this.getTokenIdentifier(mockToken)}`);
+      return mockToken;
+    } catch (error) {
+      this.log(`Error generating token: ${error.message}`, 'error');
+      throw new AppException(
+        'AUTH.TOKEN_GENERATION_FAILED',
+        'Failed to generate authentication token',
+        { originalError: error },
+      );
+    }
   }
 
   /**
-   * Validates a JWT token and returns the associated user.
-   * This is a mock implementation that returns a user based on the token payload.
+   * Validates a mock JWT token
    * 
    * @param token JWT token to validate
-   * @returns Promise resolving to the authenticated user or null if validation fails
+   * @param options Optional verification options
+   * @returns Decoded token payload if valid, null otherwise
+   * @throws AppException if token validation fails and throwOnInvalidToken is true
    */
-  async validateToken(token: string, options?: ITokenValidationOptions): Promise<ITokenPayload | null> {
-    // Check if a specific validation response has been set for this token
-    if (this.validationResponses.has(token)) {
-      const response = this.validationResponses.get(token);
-      if (typeof response === 'boolean') {
-        return response ? this.tokenStore.get(token) || null : null;
-      }
-      return response;
-    }
-
-    // Check if the token is blacklisted
-    if (await this.isTokenBlacklisted(token)) {
-      return null;
-    }
-
-    // Check if the token exists in our store
-    if (!this.tokenStore.has(token)) {
-      return null;
-    }
-
-    const payload = this.tokenStore.get(token)!;
-
-    // Simulate token expiration if enabled
-    if (this.options.simulateExpiration && payload.exp && !options?.ignoreExpiration) {
-      const now = Math.floor(Date.now() / 1000);
-      if (payload.exp < now) {
+  async validateToken<T = any>(token: string, options?: ITokenVerificationOptions): Promise<T | null> {
+    try {
+      // Check if token is blacklisted
+      if (await this.isTokenBlacklisted(token)) {
+        this.log(`Token is blacklisted: ${this.getTokenIdentifier(token)}`);
+        if (this.options.throwOnInvalidToken) {
+          throw new AppException(
+            'AUTH.TOKEN_BLACKLISTED',
+            'Authentication token has been revoked',
+          );
+        }
         return null;
       }
-    }
 
-    // Validate audience if specified in options
-    if (options?.audience && payload.aud) {
-      const audience = Array.isArray(options.audience) ? options.audience : [options.audience];
-      const tokenAudience = Array.isArray(payload.aud) ? payload.aud : [payload.aud];
-      
-      if (!audience.some(aud => tokenAudience.includes(aud))) {
-        return null;
-      }
-    }
-
-    // Validate issuer if specified in options
-    if (options?.issuer && payload.iss !== options.issuer) {
-      return null;
-    }
-
-    // Validate required claims if specified in options
-    if (options?.requiredClaims) {
-      for (const claim of options.requiredClaims) {
-        if (!(claim in payload)) {
+      // Check if we have a specific validation response for this token
+      if (this.validationResponses.has(token)) {
+        const isValid = this.validationResponses.get(token);
+        if (!isValid) {
+          this.log(`Token validation failed (configured response): ${this.getTokenIdentifier(token)}`);
+          if (this.options.throwOnInvalidToken) {
+            throw new AppException(
+              'AUTH.INVALID_TOKEN',
+              'Invalid authentication token',
+            );
+          }
           return null;
         }
       }
-    }
 
-    return payload;
-  }
-
-  /**
-   * Retrieves a user by their unique identifier.
-   * This is a mock implementation that always returns null.
-   * 
-   * @param id User identifier
-   * @returns Promise resolving to the user or null if not found
-   */
-  async getUserById(id: string): Promise<TUser | null> {
-    // This method is not directly related to JWT operations
-    // In a real implementation, it would retrieve the user from a database
-    // For the mock, we'll just return null as it's typically mocked separately
-    return null;
-  }
-
-  /**
-   * Generates a JWT token for the authenticated user.
-   * This is a mock implementation that creates a token with the provided payload.
-   * 
-   * @param user Authenticated user
-   * @param expiresIn Token expiration time in seconds or string (e.g., '1h', '7d')
-   * @param journeyType Optional journey context to include in the token
-   * @returns Promise resolving to the generated token
-   */
-  async generateToken(user: TUser, expiresIn?: number | string, journeyType?: JourneyType): Promise<string> {
-    // Create a basic payload with required fields
-    const now = Math.floor(Date.now() / 1000);
-    let expiration: number;
-    
-    if (typeof expiresIn === 'number') {
-      expiration = now + expiresIn;
-    } else if (typeof expiresIn === 'string') {
-      // Simple parsing for common formats like '1h', '7d'
-      const match = expiresIn.match(/^(\d+)([smhd])$/);
-      if (match) {
-        const value = parseInt(match[1], 10);
-        const unit = match[2];
-        
-        switch (unit) {
-          case 's': expiration = now + value; break;
-          case 'm': expiration = now + value * 60; break;
-          case 'h': expiration = now + value * 3600; break;
-          case 'd': expiration = now + value * 86400; break;
-          default: expiration = now + 3600; // Default to 1 hour
+      // Get the stored payload for this token
+      const payload = this.tokenPayloads.get(token);
+      if (!payload) {
+        // If we don't have a stored payload, try to decode it
+        const decoded = this.decodeToken<T>(token);
+        if (!decoded) {
+          this.log(`Token validation failed (unknown token): ${this.getTokenIdentifier(token)}`);
+          if (this.options.throwOnInvalidToken) {
+            throw new AppException(
+              'AUTH.INVALID_TOKEN',
+              'Invalid authentication token',
+            );
+          }
+          return null;
         }
-      } else {
-        expiration = now + 3600; // Default to 1 hour
+        return decoded;
       }
-    } else {
-      expiration = now + 3600; // Default to 1 hour
+
+      // Check token expiration if simulation is enabled
+      if (this.options.simulateExpiration && !options?.ignoreExpiration) {
+        const now = Math.floor(Date.now() / 1000);
+        if (payload.exp && payload.exp < now) {
+          this.log(`Token expired: ${this.getTokenIdentifier(token)}`);
+          if (this.options.throwOnInvalidToken) {
+            throw new AppException(
+              'AUTH.TOKEN_EXPIRED',
+              'Authentication token has expired',
+            );
+          }
+          return null;
+        }
+      }
+
+      // Validate issuer if specified in options
+      if (options?.issuer && payload.iss) {
+        const issuers = Array.isArray(options.issuer) ? options.issuer : [options.issuer];
+        if (!issuers.includes(payload.iss)) {
+          this.log(`Token has invalid issuer: ${payload.iss}`);
+          if (this.options.throwOnInvalidToken) {
+            throw new AppException(
+              'AUTH.INVALID_TOKEN_ISSUER',
+              'Token issuer does not match expected value',
+            );
+          }
+          return null;
+        }
+      }
+
+      // Validate audience if specified in options
+      if (options?.audience && payload.aud) {
+        const audiences = Array.isArray(options.audience) ? options.audience : [options.audience];
+        const tokenAudiences = Array.isArray(payload.aud) ? payload.aud : [payload.aud];
+        
+        const hasValidAudience = audiences.some(aud => tokenAudiences.includes(aud));
+        if (!hasValidAudience) {
+          this.log(`Token has invalid audience: ${payload.aud}`);
+          if (this.options.throwOnInvalidToken) {
+            throw new AppException(
+              'AUTH.INVALID_TOKEN_AUDIENCE',
+              'Token audience does not match expected value',
+            );
+          }
+          return null;
+        }
+      }
+
+      this.log(`Token validated successfully: ${this.getTokenIdentifier(token)}`);
+      return payload as unknown as T;
+    } catch (error) {
+      // If it's already an AppException, just rethrow it
+      if (error instanceof AppException) {
+        throw error;
+      }
+
+      // Otherwise, wrap it in an AppException
+      this.log(`Error validating token: ${error.message}`, 'error');
+      throw new AppException(
+        'AUTH.TOKEN_VALIDATION_FAILED',
+        'Failed to validate authentication token',
+        { originalError: error },
+      );
     }
-
-    // Create the token payload
-    const payload: ITokenPayload = {
-      sub: user.id?.toString() || 'unknown',
-      email: user.email || 'user@example.com',
-      name: user.name || 'Test User',
-      roles: user.roles || [],
-      permissions: user.permissions || [],
-      iat: now,
-      exp: expiration,
-      ...(journeyType && { journeyContext: journeyType }),
-      ...(this.options.defaultPayload || {})
-    };
-
-    // Generate a simple token (in a real implementation, this would be a signed JWT)
-    const token = `mock_jwt_${Buffer.from(JSON.stringify(payload)).toString('base64')}`;
-
-    // Store the token and its payload
-    this.tokenStore.set(token, payload);
-
-    // Associate the token with the user
-    const userId = user.id?.toString() || 'unknown';
-    if (!this.userTokens.has(userId)) {
-      this.userTokens.set(userId, []);
-    }
-    this.userTokens.get(userId)!.push(token);
-
-    // Generate a refresh token and associate it with the access token
-    const refreshToken = `mock_refresh_${Buffer.from(JSON.stringify({ sub: userId, jti: Math.random().toString(36).substring(2) })).toString('base64')}`;
-    this.refreshTokenStore.set(refreshToken, token);
-
-    return token;
   }
 
   /**
-   * Decodes a JWT token and returns its payload without validation.
-   * This is a mock implementation that retrieves the stored payload for the token.
+   * Decodes a mock JWT token without validation
    * 
    * @param token JWT token to decode
-   * @returns Promise resolving to the decoded token payload or null if decoding fails
+   * @returns Decoded token payload or null if decoding fails
    */
-  async decodeToken(token: string): Promise<ITokenPayload | null> {
-    return this.tokenStore.get(token) || null;
-  }
-
-  /**
-   * Extracts the JWT token from the request.
-   * This is a mock implementation that extracts the token from the Authorization header.
-   * 
-   * @param request HTTP request object
-   * @returns Extracted token or null if not found
-   */
-  extractTokenFromRequest(request: any): string | null {
-    if (!request) return null;
-
-    // Extract from Authorization header
-    if (request.headers?.authorization) {
-      const authHeader = request.headers.authorization;
-      if (authHeader.startsWith('Bearer ')) {
-        return authHeader.substring(7);
+  decodeToken<T = any>(token: string): T | null {
+    try {
+      // First check if we have this token in our store
+      if (this.tokenPayloads.has(token)) {
+        return this.tokenPayloads.get(token) as unknown as T;
       }
-    }
 
-    // Extract from query parameter
-    if (request.query?.token) {
-      return request.query.token;
-    }
+      // Otherwise, try to decode it from the token format
+      if (!token || !token.includes('.')) {
+        return null;
+      }
 
-    // Extract from cookies
-    if (request.cookies?.token) {
-      return request.cookies.token;
-    }
+      // Extract the payload part (second segment)
+      const parts = token.split('.');
+      if (parts.length < 2) {
+        return null;
+      }
 
-    return null;
+      // Decode the base64 payload
+      const base64Payload = parts[1];
+      const jsonPayload = Buffer.from(base64Payload, 'base64').toString();
+      return JSON.parse(jsonPayload) as T;
+    } catch (error) {
+      this.log(`Error decoding token: ${error.message}`, 'debug');
+      return null;
+    }
   }
 
   /**
-   * Revokes a JWT token, making it invalid for future authentication.
-   * This is a mock implementation that adds the token to the blacklist.
+   * Invalidates a JWT token by adding it to the blacklist
    * 
-   * @param token JWT token to revoke
-   * @returns Promise resolving to true if revocation was successful, false otherwise
+   * @param token JWT token to invalidate
+   * @param ttl Optional time-to-live in seconds (not used in mock)
+   * @returns True if the token was successfully blacklisted
    */
-  async revokeToken(token: string): Promise<boolean> {
-    if (!this.tokenStore.has(token)) {
+  async invalidateToken(token: string, ttl?: number): Promise<boolean> {
+    try {
+      this.blacklistedTokens.add(token);
+      this.log(`Token blacklisted: ${this.getTokenIdentifier(token)}`);
+      return true;
+    } catch (error) {
+      this.log(`Error blacklisting token: ${error.message}`, 'error');
       return false;
     }
-
-    if (this.options.blacklistRevokedTokens) {
-      const payload = this.tokenStore.get(token)!;
-      return this.addToBlacklist(token, payload);
-    }
-
-    return true;
   }
 
   /**
-   * Refreshes an existing token and returns a new one.
-   * This is a mock implementation that generates a new token based on the refresh token.
+   * Invalidates all tokens for a specific user
    * 
-   * @param refreshToken Refresh token
-   * @returns Promise resolving to the new access token or null if refresh fails
+   * @param userId User ID to invalidate tokens for
+   * @param ttl Optional time-to-live in seconds (not used in mock)
+   * @returns True if the operation was successful
    */
-  async refreshToken(refreshToken: string): Promise<string | null> {
-    if (!this.refreshTokenStore.has(refreshToken)) {
-      return null;
+  async invalidateAllUserTokens(userId: string, ttl?: number): Promise<boolean> {
+    try {
+      this.blacklistedUsers.add(userId);
+      this.log(`All tokens for user ${userId} blacklisted`);
+      return true;
+    } catch (error) {
+      this.log(`Error blacklisting user tokens: ${error.message}`, 'error');
+      return false;
     }
-
-    const oldToken = this.refreshTokenStore.get(refreshToken)!;
-    const payload = this.tokenStore.get(oldToken);
-
-    if (!payload) {
-      return null;
-    }
-
-    // Revoke the old token
-    await this.revokeToken(oldToken);
-
-    // Create a new token with the same payload but updated expiration
-    const now = Math.floor(Date.now() / 1000);
-    const newPayload: ITokenPayload = {
-      ...payload,
-      iat: now,
-      exp: now + 3600, // Default to 1 hour
-      jti: Math.random().toString(36).substring(2) // New unique ID
-    };
-
-    const newToken = `mock_jwt_${Buffer.from(JSON.stringify(newPayload)).toString('base64')}`;
-    this.tokenStore.set(newToken, newPayload);
-
-    // Update the refresh token mapping
-    this.refreshTokenStore.set(refreshToken, newToken);
-
-    // Update user tokens
-    const userId = payload.sub;
-    if (this.userTokens.has(userId)) {
-      const tokens = this.userTokens.get(userId)!;
-      const index = tokens.indexOf(oldToken);
-      if (index !== -1) {
-        tokens[index] = newToken;
-      } else {
-        tokens.push(newToken);
-      }
-    }
-
-    return newToken;
   }
 
   /**
-   * Adds a token to the blacklist, making it invalid for future authentication.
-   * 
-   * @param token JWT token to blacklist
-   * @param payload Decoded token payload
-   * @returns Promise resolving to true if the token was added to the blacklist, false otherwise
-   */
-  async addToBlacklist(token: string, payload: ITokenPayload): Promise<boolean> {
-    // Use the token expiration as the blacklist expiration
-    const expiration = payload.exp || Math.floor(Date.now() / 1000) + 3600;
-    this.blacklistedTokens.set(token, expiration);
-    return true;
-  }
-
-  /**
-   * Checks if a token is blacklisted.
+   * Checks if a token is blacklisted
    * 
    * @param token JWT token to check
-   * @returns Promise resolving to true if the token is blacklisted, false otherwise
+   * @returns True if the token is blacklisted, false otherwise
    */
   async isTokenBlacklisted(token: string): Promise<boolean> {
-    if (!this.blacklistedTokens.has(token)) {
+    try {
+      // Check if the specific token is blacklisted
+      if (this.blacklistedTokens.has(token)) {
+        return true;
+      }
+
+      // Check if the user is blacklisted
+      const decoded = this.decodeToken(token);
+      if (decoded && typeof decoded === 'object') {
+        const userId = decoded.sub || decoded.id;
+        if (userId && this.blacklistedUsers.has(userId)) {
+          return true;
+        }
+      }
+
+      // If no specific configuration, use the default response
+      return !this.options.defaultBlacklistResponse;
+    } catch (error) {
+      this.log(`Error checking token blacklist: ${error.message}`, 'error');
       return false;
     }
-
-    // Check if the blacklist entry has expired
-    const expiration = this.blacklistedTokens.get(token)!;
-    const now = Math.floor(Date.now() / 1000);
-
-    if (now > expiration) {
-      // Remove expired entries from the blacklist
-      this.blacklistedTokens.delete(token);
-      return false;
-    }
-
-    return true;
   }
 
   /**
-   * Removes a token from the blacklist, making it valid again.
-   * This is primarily used for testing and administrative purposes.
+   * Clears the entire token blacklist
    * 
-   * @param token JWT token to remove from the blacklist
-   * @returns Promise resolving to true if the token was removed from the blacklist, false otherwise
-   */
-  async removeFromBlacklist(token: string): Promise<boolean> {
-    return this.blacklistedTokens.delete(token);
-  }
-
-  /**
-   * Clears all blacklisted tokens.
-   * This is primarily used for testing and administrative purposes.
-   * 
-   * @returns Promise resolving to true if the blacklist was cleared, false otherwise
+   * @returns True if the operation was successful
    */
   async clearBlacklist(): Promise<boolean> {
-    this.blacklistedTokens.clear();
-    return true;
+    try {
+      this.blacklistedTokens.clear();
+      this.blacklistedUsers.clear();
+      this.log('Token blacklist cleared');
+      return true;
+    } catch (error) {
+      this.log(`Error clearing token blacklist: ${error.message}`, 'error');
+      return false;
+    }
   }
 
   /**
-   * Sets a specific validation response for a token.
-   * This allows tests to control the behavior of token validation.
+   * Configures the validation response for a specific token
    * 
-   * @param token JWT token
-   * @param response Validation response (true/false or a payload)
+   * @param token Token to configure validation for
+   * @param isValid Whether the token should be considered valid
    */
-  setValidationResponse(token: string, response: boolean | ITokenPayload | null): void {
-    this.validationResponses.set(token, response);
+  setTokenValidation(token: string, isValid: boolean): void {
+    this.validationResponses.set(token, isValid);
+    this.log(`Token validation configured for ${this.getTokenIdentifier(token)}: ${isValid}`);
   }
 
   /**
-   * Clears all validation responses.
-   * This resets the mock to use the default validation behavior.
+   * Configures a custom payload for a token
+   * 
+   * @param token Token to configure payload for
+   * @param payload Custom payload to return for this token
    */
-  clearValidationResponses(): void {
-    this.validationResponses.clear();
+  setTokenPayload(token: string, payload: any): void {
+    this.tokenPayloads.set(token, payload);
+    this.log(`Custom payload configured for ${this.getTokenIdentifier(token)}`);
   }
 
   /**
-   * Clears all stored tokens and related data.
-   * This is useful for resetting the mock between tests.
+   * Resets all mock configurations to defaults
    */
   reset(): void {
-    this.blacklistedTokens.clear();
-    this.tokenStore.clear();
-    this.refreshTokenStore.clear();
-    this.userTokens.clear();
     this.validationResponses.clear();
+    this.tokenPayloads.clear();
+    this.blacklistedTokens.clear();
+    this.blacklistedUsers.clear();
+    this.log('JWT Provider Mock reset to defaults');
   }
 
   /**
-   * Gets all tokens associated with a user.
-   * This is useful for testing token management.
-   * 
-   * @param userId User ID
-   * @returns Array of tokens associated with the user
-   */
-  getUserTokens(userId: string): string[] {
-    return this.userTokens.get(userId) || [];
-  }
-
-  /**
-   * Manually adds a token to the token store.
-   * This is useful for testing with predefined tokens.
+   * Gets a unique identifier for a token (for logging purposes)
    * 
    * @param token JWT token
-   * @param payload Token payload
+   * @returns Token identifier
    */
-  addToken(token: string, payload: ITokenPayload): void {
-    this.tokenStore.set(token, payload);
-    
-    // Associate the token with the user
-    const userId = payload.sub;
-    if (!this.userTokens.has(userId)) {
-      this.userTokens.set(userId, []);
+  private getTokenIdentifier(token: string): string {
+    // Use the last 8 characters of the token as an identifier
+    return token.slice(-8);
+  }
+
+  /**
+   * Logs a message if logging is enabled
+   * 
+   * @param message Message to log
+   * @param level Log level
+   */
+  private log(message: string, level: 'log' | 'debug' | 'error' = 'log'): void {
+    if (!this.options.enableLogging) {
+      return;
     }
-    this.userTokens.get(userId)!.push(token);
+
+    switch (level) {
+      case 'debug':
+        this.logger.debug(message);
+        break;
+      case 'error':
+        this.logger.error(message);
+        break;
+      default:
+        this.logger.log(message);
+    }
   }
 }

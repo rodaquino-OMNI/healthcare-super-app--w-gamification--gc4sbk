@@ -1,220 +1,316 @@
 /**
- * @austa/utils/validation
- * 
- * Comprehensive validation utilities for ensuring data integrity across all AUSTA SuperApp services.
- * This module provides standardized validation functions for various data types and structures,
- * with consistent error handling and localization support.
- * 
- * @packageDocumentation
+ * @file Validation Utilities Package
+ * @description Comprehensive validation utilities for the AUSTA SuperApp backend services.
+ * This package provides a standardized approach to validation across all services,
+ * ensuring consistent data integrity and error handling throughout the application.
+ *
+ * @module @austa/utils/validation
  */
 
-/**
- * String validation utilities for validating text-based data including Brazilian CPF numbers,
- * email addresses, URLs, and pattern matching.
- * 
- * @example
- * ```typescript
- * import { string } from '@austa/utils/validation';
- * 
- * // Validate a Brazilian CPF number
- * if (string.isValidCPF('123.456.789-09')) {
- *   // Process valid CPF
- * }
- * 
- * // Validate an email address
- * if (string.isValidEmail('user@example.com')) {
- *   // Process valid email
- * }
- * ```
- */
-import * as stringValidator from './string.validator';
-export const string = stringValidator;
+// Re-export all validators from specialized modules
 
 /**
- * Date validation utilities for ensuring date integrity, including validation for date ranges,
- * future/past dates, business days, and timezone-specific validation.
- * 
- * @example
- * ```typescript
- * import { date } from '@austa/utils/validation';
- * 
- * // Check if a date is valid
- * if (date.isValidDate('2023-01-15')) {
- *   // Process valid date
- * }
- * 
- * // Check if a date is within a range
- * if (date.isDateInRange(someDate, startDate, endDate)) {
- *   // Date is within range
- * }
- * ```
+ * String validation utilities for validating text-based data.
+ * Includes validators for CPF, email, URL, and general string patterns.
  */
-import * as dateValidator from './date.validator';
-export const date = dateValidator;
+export * from './string.validator';
 
 /**
- * Number validation utilities for validating numeric values, including range validation,
- * integer validation, positive/negative number validation, and currency validation.
- * 
- * @example
- * ```typescript
- * import { number } from '@austa/utils/validation';
- * 
- * // Check if a number is within a range
- * if (number.isInRange(value, 1, 100)) {
- *   // Number is within range
- * }
- * 
- * // Validate Brazilian currency format
- * if (number.isValidCurrency('R$ 1.234,56')) {
- *   // Valid currency format
- * }
- * ```
+ * Number validation utilities for validating numeric values.
+ * Includes validators for ranges, integers, and currency formats.
  */
-import * as numberValidator from './number.validator';
-export const number = numberValidator;
+export * from './number.validator';
 
 /**
- * Object validation utilities for validating object structures, checking property existence,
- * validating nested properties, and performing type checking.
- * 
- * @example
- * ```typescript
- * import { object } from '@austa/utils/validation';
- * 
- * // Check if an object has required properties
- * if (object.hasRequiredProperties(data, ['id', 'name', 'email'])) {
- *   // Object has all required properties
- * }
- * 
- * // Validate nested property
- * if (object.hasValidNestedProperty(data, 'user.profile.email', (email) => string.isValidEmail(email))) {
- *   // Nested property is valid
- * }
- * ```
+ * Date validation utilities for ensuring date integrity.
+ * Includes validators for date ranges, future/past dates, and business days.
  */
-import * as objectValidator from './object.validator';
-export const object = objectValidator;
+export * from './date.validator';
 
 /**
- * Schema validation utilities for creating and working with validation schemas using Zod and class-validator.
- * Provides a bridge between different validation approaches for seamless integration.
+ * Object validation utilities for validating complex data structures.
+ * Includes validators for property existence, nested properties, and type checking.
+ */
+export * from './object.validator';
+
+/**
+ * Common validation utilities for general-purpose validation.
+ * Includes validators for Brazilian-specific identifiers and common patterns.
+ */
+export * from './common.validator';
+
+/**
+ * Schema validation utilities for creating and working with validation schemas.
+ * Provides integration between Zod and class-validator for consistent validation.
+ */
+export * from './schema.validator';
+
+// Namespace exports for better organization
+
+import * as StringValidators from './string.validator';
+import * as NumberValidators from './number.validator';
+import * as DateValidators from './date.validator';
+import * as ObjectValidators from './object.validator';
+import * as CommonValidators from './common.validator';
+import * as SchemaValidators from './schema.validator';
+
+/**
+ * Organized validation utilities by category.
+ * Allows importing all validators from a specific category.
  * 
  * @example
- * ```typescript
- * import { schema } from '@austa/utils/validation';
+ * // Import all string validators
+ * import { Validators } from '@austa/utils/validation';
+ * const isValid = Validators.String.isValidEmail(email);
+ */
+export const Validators = {
+  /** String validation utilities */
+  String: StringValidators,
+  
+  /** Number validation utilities */
+  Number: NumberValidators,
+  
+  /** Date validation utilities */
+  Date: DateValidators,
+  
+  /** Object validation utilities */
+  Object: ObjectValidators,
+  
+  /** Common validation utilities */
+  Common: CommonValidators,
+  
+  /** Schema validation utilities */
+  Schema: SchemaValidators,
+};
+
+// Convenience re-exports of commonly used validators
+
+/**
+ * Validates a Brazilian CPF (Cadastro de Pessoas Físicas) number.
+ * Re-exported from string.validator for convenience.
+ * 
+ * @param cpf - The CPF string to validate
+ * @returns True if the CPF is valid, false otherwise
+ * 
+ * @example
+ * import { isValidCPF } from '@austa/utils/validation';
+ * const valid = isValidCPF('123.456.789-09');
+ */
+export const { isValidCPF } = StringValidators;
+
+/**
+ * Validates if a date is valid.
+ * Re-exported from date.validator for convenience.
+ * 
+ * @param date - The date to validate
+ * @returns True if the date is valid, false otherwise
+ * 
+ * @example
+ * import { isValidDate } from '@austa/utils/validation';
+ * const valid = isValidDate(new Date());
+ */
+export const { isValidDate } = DateValidators;
+
+/**
+ * Validates if a date is within a specified range.
+ * Re-exported from date.validator for convenience.
+ * 
+ * @param date - The date to check
+ * @param startDate - The start date of the range
+ * @param endDate - The end date of the range
+ * @returns True if the date is within the range, false otherwise
+ * 
+ * @example
+ * import { isDateInRange } from '@austa/utils/validation';
+ * const valid = isDateInRange(new Date(), startDate, endDate);
+ */
+export const { isDateInRange } = DateValidators;
+
+/**
+ * Validates an email address.
+ * Re-exported from string.validator for convenience.
+ * 
+ * @param email - The email to validate
+ * @returns True if the email is valid, false otherwise
+ * 
+ * @example
+ * import { isValidEmail } from '@austa/utils/validation';
+ * const valid = isValidEmail('user@example.com');
+ */
+export const { isValidEmail } = StringValidators;
+
+/**
+ * Validates a URL with SSRF protection.
+ * Re-exported from string.validator for convenience.
+ * 
+ * @param url - The URL to validate
+ * @returns True if the URL is valid and safe, false otherwise
+ * 
+ * @example
+ * import { isValidUrl } from '@austa/utils/validation';
+ * const valid = isValidUrl('https://example.com');
+ */
+export const { isValidUrl } = StringValidators;
+
+/**
+ * Validates if a value is a valid number within specified range.
+ * Re-exported from number.validator for convenience.
+ * 
+ * @param value - The number to validate
+ * @param min - The minimum allowed value (optional)
+ * @param max - The maximum allowed value (optional)
+ * @returns True if the number is valid and within range, false otherwise
+ * 
+ * @example
+ * import { isValidNumber } from '@austa/utils/validation';
+ * const valid = isValidNumber(42, 0, 100);
+ */
+export const { isValidNumber } = NumberValidators;
+
+/**
+ * Validates if an object has all required properties.
+ * Re-exported from object.validator for convenience.
+ * 
+ * @param obj - The object to validate
+ * @param requiredProps - Array of required property names
+ * @returns True if the object has all required properties, false otherwise
+ * 
+ * @example
+ * import { hasRequiredProperties } from '@austa/utils/validation';
+ * const valid = hasRequiredProperties(user, ['id', 'name', 'email']);
+ */
+export const { hasRequiredProperties } = ObjectValidators;
+
+/**
+ * Creates a Zod schema with pre-configured error messages.
+ * Re-exported from schema.validator for convenience.
+ * 
+ * @param schemaBuilder - Function that builds the schema
+ * @returns Configured Zod schema
+ * 
+ * @example
+ * import { createSchema } from '@austa/utils/validation';
  * import { z } from 'zod';
  * 
- * // Create a schema with pre-configured error messages
- * const userSchema = schema.createSchema({
- *   name: z.string().min(2).max(50),
+ * const userSchema = createSchema(() => z.object({
+ *   name: z.string(),
  *   email: z.string().email(),
- *   age: z.number().min(18)
- * });
- * 
- * // Validate data against schema
- * const result = schema.validate(userSchema, userData);
- * if (result.success) {
- *   // Data is valid
- * } else {
- *   // Handle validation errors
- *   console.error(result.errors);
- * }
- * ```
+ * }));
  */
-import * as schemaValidator from './schema.validator';
-export const schema = schemaValidator;
+export const { createSchema } = SchemaValidators;
 
 /**
- * Common validation utilities for general-purpose validation, including Brazilian-specific identifiers,
- * phone numbers, postal codes, and common patterns.
+ * Validates a Brazilian postal code (CEP).
+ * Re-exported from common.validator for convenience.
+ * 
+ * @param cep - The postal code to validate
+ * @returns True if the postal code is valid, false otherwise
  * 
  * @example
- * ```typescript
- * import { common } from '@austa/utils/validation';
- * 
- * // Validate a Brazilian CNPJ
- * if (common.isValidCNPJ('12.345.678/0001-90')) {
- *   // Valid CNPJ
- * }
- * 
- * // Validate a Brazilian phone number
- * if (common.isValidPhoneNumber('+55 11 98765-4321')) {
- *   // Valid phone number
- * }
- * ```
+ * import { isValidCEP } from '@austa/utils/validation';
+ * const valid = isValidCEP('12345-678');
  */
-import * as commonValidator from './common.validator';
-export const common = commonValidator;
+export const { isValidCEP } = CommonValidators;
 
 /**
- * Type definitions for validation options, results, and error formats.
- * These types provide consistent interfaces for all validation functions.
+ * Validates a Brazilian phone number.
+ * Re-exported from common.validator for convenience.
+ * 
+ * @param phone - The phone number to validate
+ * @returns True if the phone number is valid, false otherwise
+ * 
+ * @example
+ * import { isValidPhoneNumber } from '@austa/utils/validation';
+ * const valid = isValidPhoneNumber('(11) 98765-4321');
+ */
+export const { isValidPhoneNumber } = CommonValidators;
+
+// Type exports
+
+/**
+ * Common validation options used across multiple validators.
  */
 export interface ValidationOptions {
-  /** Whether to throw an error on validation failure instead of returning false */
+  /** Whether to throw an error on validation failure */
   throwOnError?: boolean;
   /** Custom error message to use when validation fails */
   errorMessage?: string;
-  /** Context information to include in error messages */
-  context?: Record<string, any>;
+  /** Whether to allow null values (treats null as valid) */
+  allowNull?: boolean;
+  /** Whether to allow undefined values (treats undefined as valid) */
+  allowUndefined?: boolean;
 }
 
 /**
- * Result of a validation operation that includes success status and any validation errors.
+ * Result of a validation operation that includes detailed information.
  */
 export interface ValidationResult {
-  /** Whether the validation was successful */
-  success: boolean;
-  /** Validation errors if any */
-  errors?: ValidationError[];
-  /** Validated and potentially transformed data */
-  data?: any;
+  /** Whether the validation passed */
+  valid: boolean;
+  /** Error message if validation failed */
+  message?: string;
+  /** Additional validation details */
+  details?: Record<string, any>;
+  /** Original value that was validated */
+  value: any;
 }
 
 /**
- * Structured validation error with field, message, and optional context.
+ * Options for date validation.
  */
-export interface ValidationError {
-  /** Field or property that failed validation */
-  field: string;
-  /** Error message describing the validation failure */
-  message: string;
-  /** Error code for programmatic handling */
-  code?: string;
-  /** Additional context about the validation error */
-  context?: Record<string, any>;
+export interface DateValidationOptions extends ValidationOptions {
+  /** Whether to ignore the time component when comparing dates */
+  ignoreTime?: boolean;
+  /** Timezone to use for date comparisons */
+  timezone?: string;
 }
 
 /**
- * Convenience re-exports of commonly used validators for direct import.
- * These allow importing frequently used validators without namespace.
+ * Options for number validation.
  */
-
-// String validators
-export const { isValidCPF, isValidEmail, isValidUrl } = string;
-
-// Date validators
-export const { isValidDate, isDateInRange, isFutureDate, isPastDate } = date;
-
-// Number validators
-export const { isInRange, isInteger, isPositive, isNegative } = number;
-
-// Object validators
-export const { hasRequiredProperties, isValidType } = object;
-
-// Common validators
-export const { isValidCNPJ, isValidPhoneNumber, isValidPostalCode } = common;
+export interface NumberValidationOptions extends ValidationOptions {
+  /** Whether to include the minimum value in the valid range */
+  inclusiveMin?: boolean;
+  /** Whether to include the maximum value in the valid range */
+  inclusiveMax?: boolean;
+  /** Precision to use for floating point comparisons */
+  precision?: number;
+}
 
 /**
- * Default export for backwards compatibility.
- * @deprecated Use named exports instead.
+ * Options for string validation.
  */
-export default {
-  string,
-  date,
-  number,
-  object,
-  schema,
-  common,
-};
+export interface StringValidationOptions extends ValidationOptions {
+  /** Whether to trim the string before validation */
+  trim?: boolean;
+  /** Whether to ignore case when comparing strings */
+  ignoreCase?: boolean;
+}
+
+/**
+ * Options for object validation.
+ */
+export interface ObjectValidationOptions extends ValidationOptions {
+  /** Whether to validate nested properties */
+  validateNested?: boolean;
+  /** Whether to allow additional properties not specified in the schema */
+  allowAdditionalProperties?: boolean;
+}
+
+/**
+ * Type of validation function that returns a boolean result.
+ */
+export type SimpleValidator<T> = (value: T, ...args: any[]) => boolean;
+
+/**
+ * Type of validation function that returns a detailed validation result.
+ */
+export type DetailedValidator<T> = (value: T, options?: ValidationOptions) => ValidationResult;
+
+/**
+ * Type of validation function that can be used with Zod or class-validator.
+ */
+export type SchemaValidator<T> = (value: T, context?: any) => boolean;
+
+// Default export for convenient importing
+export default Validators;

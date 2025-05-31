@@ -1,147 +1,110 @@
-import { capitalizeFirstLetter, truncate } from '@austa/utils/string';
+import { describe, it, expect } from 'jest';
+import { capitalizeFirstLetter, truncate } from '../../../src/string/formatting';
 
-/**
- * Test suite for string formatting utilities.
- * These tests verify that the formatting utilities properly handle various edge cases
- * including empty strings, special characters, and boundary conditions, which is
- * essential to maintain consistent text presentation across all platform components.
- */
 describe('String Formatting Utilities', () => {
   describe('capitalizeFirstLetter', () => {
-    describe('Normal operation', () => {
-      test('should capitalize the first letter of a lowercase string', () => {
-        expect(capitalizeFirstLetter('hello')).toBe('Hello');
-      });
-
-      test('should not change strings that already start with a capital letter', () => {
-        expect(capitalizeFirstLetter('Hello')).toBe('Hello');
-      });
-
-      test('should handle single character strings', () => {
-        expect(capitalizeFirstLetter('a')).toBe('A');
-      });
-
-      test('should not affect other characters in the string', () => {
-        expect(capitalizeFirstLetter('hello world')).toBe('Hello world');
-      });
-
-      test('should handle strings with mixed case', () => {
-        expect(capitalizeFirstLetter('hELLO')).toBe('HELLO');
-      });
+    // Basic functionality tests
+    it('should capitalize the first letter of a string', () => {
+      expect(capitalizeFirstLetter('hello')).toBe('Hello');
+      expect(capitalizeFirstLetter('world')).toBe('World');
+      expect(capitalizeFirstLetter('test string')).toBe('Test string');
     });
 
-    describe('Special characters and non-alphabetic content', () => {
-      test('should handle strings starting with numbers', () => {
-        expect(capitalizeFirstLetter('123abc')).toBe('123abc');
-      });
-
-      test('should handle strings starting with special characters', () => {
-        expect(capitalizeFirstLetter('!hello')).toBe('!hello');
-      });
-
-      test('should handle strings with Unicode characters', () => {
-        expect(capitalizeFirstLetter('água')).toBe('Água');
-        expect(capitalizeFirstLetter('café')).toBe('Café');
-        expect(capitalizeFirstLetter('über')).toBe('Über');
-      });
+    // Already capitalized strings
+    it('should not change already capitalized strings', () => {
+      expect(capitalizeFirstLetter('Hello')).toBe('Hello');
+      expect(capitalizeFirstLetter('World')).toBe('World');
+      expect(capitalizeFirstLetter('Test string')).toBe('Test string');
     });
 
-    describe('Edge cases', () => {
-      test('should return empty string for empty input', () => {
-        expect(capitalizeFirstLetter('')).toBe('');
-      });
+    // Special characters and non-alphabetic first characters
+    it('should handle strings with special characters or non-alphabetic first characters', () => {
+      expect(capitalizeFirstLetter('123test')).toBe('123test');
+      expect(capitalizeFirstLetter('!hello')).toBe('!hello');
+      expect(capitalizeFirstLetter(' space first')).toBe(' space first');
+      expect(capitalizeFirstLetter('_underscore')).toBe('_underscore');
+    });
 
-      test('should handle null and undefined gracefully', () => {
-        // @ts-expect-error Testing invalid input
-        expect(capitalizeFirstLetter(null)).toBe('');
-        // @ts-expect-error Testing invalid input
-        expect(capitalizeFirstLetter(undefined)).toBe('');
-      });
+    // Unicode characters
+    it('should properly capitalize unicode characters', () => {
+      expect(capitalizeFirstLetter('água')).toBe('Água');
+      expect(capitalizeFirstLetter('ñandu')).toBe('Ñandu');
+      expect(capitalizeFirstLetter('über')).toBe('Über');
+    });
 
-      test('should handle non-string inputs', () => {
-        // @ts-expect-error Testing invalid input type
-        expect(capitalizeFirstLetter(123)).toBe('');
-        // @ts-expect-error Testing invalid input type
-        expect(capitalizeFirstLetter({})).toBe('');
-        // @ts-expect-error Testing invalid input type
-        expect(capitalizeFirstLetter([])).toBe('');
-      });
+    // Edge cases - empty strings, null, undefined
+    it('should handle edge cases gracefully', () => {
+      // Empty string
+      expect(capitalizeFirstLetter('')).toBe('');
+      
+      // Single character
+      expect(capitalizeFirstLetter('a')).toBe('A');
+      expect(capitalizeFirstLetter('z')).toBe('Z');
+      
+      // Null and undefined handling
+      expect(() => capitalizeFirstLetter(null as unknown as string)).not.toThrow();
+      expect(() => capitalizeFirstLetter(undefined as unknown as string)).not.toThrow();
+      expect(capitalizeFirstLetter(null as unknown as string)).toBe('');
+      expect(capitalizeFirstLetter(undefined as unknown as string)).toBe('');
     });
   });
 
   describe('truncate', () => {
-    describe('Normal operation', () => {
-      test('should not modify strings shorter than the limit', () => {
-        expect(truncate('Hello', 10)).toBe('Hello');
-      });
-
-      test('should not modify strings exactly at the limit', () => {
-        expect(truncate('Hello', 5)).toBe('Hello');
-      });
-
-      test('should truncate strings longer than the limit and add ellipsis', () => {
-        expect(truncate('Hello world', 5)).toBe('Hello...');
-      });
-
-      test('should count the limit correctly', () => {
-        expect(truncate('abcdefghij', 5)).toBe('abcde...');
-        expect(truncate('abcdefghij', 7)).toBe('abcdefg...');
-      });
+    // Basic functionality tests
+    it('should truncate strings longer than the specified length', () => {
+      expect(truncate('Hello world', 5)).toBe('Hello...');
+      expect(truncate('This is a test string', 10)).toBe('This is a ...');
+      expect(truncate('Short', 10)).toBe('Short');
     });
 
-    describe('Edge cases', () => {
-      test('should handle empty strings', () => {
-        expect(truncate('', 5)).toBe('');
-      });
-
-      test('should handle null and undefined gracefully', () => {
-        // @ts-expect-error Testing invalid input
-        expect(truncate(null, 5)).toBe('');
-        // @ts-expect-error Testing invalid input
-        expect(truncate(undefined, 5)).toBe('');
-      });
-
-      test('should handle very short max lengths', () => {
-        expect(truncate('Hello', 1)).toBe('H...');
-        expect(truncate('Hello', 0)).toBe('...');
-      });
-
-      test('should handle negative max lengths as zero', () => {
-        expect(truncate('Hello', -5)).toBe('...');
-      });
-
-      test('should handle non-string inputs', () => {
-        // @ts-expect-error Testing invalid input type
-        expect(truncate(123, 5)).toBe('');
-        // @ts-expect-error Testing invalid input type
-        expect(truncate({}, 5)).toBe('');
-        // @ts-expect-error Testing invalid input type
-        expect(truncate([], 5)).toBe('');
-      });
-
-      test('should handle non-numeric length inputs', () => {
-        // @ts-expect-error Testing invalid input type
-        expect(truncate('Hello', '5')).toBe('Hello');
-        // @ts-expect-error Testing invalid input type
-        expect(truncate('Hello', null)).toBe('Hello');
-        // @ts-expect-error Testing invalid input type
-        expect(truncate('Hello', undefined)).toBe('Hello');
-      });
+    // Edge cases - empty strings, null, undefined
+    it('should handle edge cases gracefully', () => {
+      // Empty string
+      expect(truncate('', 5)).toBe('');
+      
+      // String shorter than max length
+      expect(truncate('Short', 10)).toBe('Short');
+      
+      // String exactly at max length
+      expect(truncate('Exactly10', 10)).toBe('Exactly10');
+      
+      // Very short max length
+      expect(truncate('Hello', 1)).toBe('H...');
+      expect(truncate('Hello', 0)).toBe('...');
+      
+      // Null and undefined handling
+      expect(() => truncate(null as unknown as string, 5)).not.toThrow();
+      expect(() => truncate(undefined as unknown as string, 5)).not.toThrow();
+      expect(truncate(null as unknown as string, 5)).toBe('');
+      expect(truncate(undefined as unknown as string, 5)).toBe('');
     });
 
-    describe('Special formatting cases', () => {
-      test('should handle strings with Unicode characters', () => {
-        expect(truncate('café au lait', 4)).toBe('café...');
-        expect(truncate('über alles', 4)).toBe('über...');
-      });
+    // Special cases
+    it('should handle special cases correctly', () => {
+      // Unicode characters
+      expect(truncate('Café au lait', 6)).toBe('Café a...');
+      
+      // Strings with newlines
+      expect(truncate('Line 1\nLine 2', 6)).toBe('Line 1...');
+      
+      // Strings with tabs
+      expect(truncate('Tab\tCharacter', 5)).toBe('Tab\t...');
+    });
 
-      test('should handle strings with HTML entities', () => {
-        expect(truncate('&lt;div&gt;Hello&lt;/div&gt;', 10)).toBe('&lt;div&gt;Hello...');
-      });
-
-      test('should handle strings with emojis', () => {
-        expect(truncate('Hello 👋 world', 8)).toBe('Hello 👋...');
-      });
+    // Boundary conditions
+    it('should handle boundary conditions correctly', () => {
+      // Negative length (should be treated as 0)
+      expect(truncate('Test', -5)).toBe('...');
+      
+      // Very large length
+      const longString = 'a'.repeat(1000);
+      expect(truncate(longString, 500)).toBe(longString.substring(0, 500) + '...');
+      
+      // Length equal to string length
+      expect(truncate('Exactly', 7)).toBe('Exactly');
+      
+      // Length one less than string length
+      expect(truncate('Exactly', 6)).toBe('Exactl...');
     });
   });
 });

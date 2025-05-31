@@ -8,9 +8,11 @@ import { Coverage, CoverageType } from '@austa/interfaces/plan/coverage.types';
  * Interface defining the props for the CoverageInfoCard component
  */
 export interface CoverageInfoCardProps {
-  /** The coverage data to display in the card */
+  /** Coverage information to display */
   coverage: Coverage;
-  /** Optional test ID for component testing */
+  /** Optional custom class name */
+  className?: string;
+  /** Optional test ID for testing */
   testID?: string;
 }
 
@@ -53,61 +55,63 @@ const CoPaymentBadge = styled.div`
 
 // Map coverage types to human-readable names
 const coverageTypeNames: Record<CoverageType, string> = {
-  medical_visit: 'Consulta Médica',
-  specialist_visit: 'Consulta com Especialista',
-  emergency_care: 'Atendimento de Emergência',
-  preventive_care: 'Cuidados Preventivos',
-  prescription_drugs: 'Medicamentos com Receita',
-  mental_health: 'Saúde Mental',
-  rehabilitation: 'Reabilitação',
-  durable_medical_equipment: 'Equipamentos Médicos Duráveis',
-  lab_tests: 'Exames Laboratoriais',
-  imaging: 'Exames de Imagem',
-  other: 'Outros Serviços'
+  [CoverageType.MEDICAL_VISIT]: 'Consulta Médica',
+  [CoverageType.SPECIALIST_VISIT]: 'Consulta com Especialista',
+  [CoverageType.EMERGENCY_CARE]: 'Atendimento de Emergência',
+  [CoverageType.PREVENTIVE_CARE]: 'Cuidados Preventivos',
+  [CoverageType.PRESCRIPTION_DRUGS]: 'Medicamentos com Receita',
+  [CoverageType.MENTAL_HEALTH]: 'Saúde Mental',
+  [CoverageType.REHABILITATION]: 'Reabilitação',
+  [CoverageType.DURABLE_MEDICAL_EQUIPMENT]: 'Equipamentos Médicos Duráveis',
+  [CoverageType.LAB_TESTS]: 'Exames Laboratoriais',
+  [CoverageType.IMAGING]: 'Exames de Imagem',
+  [CoverageType.OTHER]: 'Outros Serviços'
 };
 
 /**
  * A component that displays insurance coverage information in a card format.
  * Designed for the Plan journey, it shows coverage type, details, limitations,
  * and co-payment information if available.
- *
+ * 
  * @example
- * ```tsx
+ * // Basic usage
+ * <CoverageInfoCard coverage={coverageData} />
+ * 
+ * @example
+ * // With custom class name
  * <CoverageInfoCard 
- *   coverage={{
- *     id: '123',
- *     type: 'medical_visit',
- *     details: 'Coverage for regular doctor visits',
- *     limitations: 'Limited to 10 visits per year',
- *     coPayment: 25.00
- *   }} 
+ *   coverage={coverageData} 
+ *   className="custom-coverage-card"
  * />
- * ```
  */
-export const CoverageInfoCard: React.FC<CoverageInfoCardProps> = ({ coverage, testID }) => {
+export const CoverageInfoCard: React.FC<CoverageInfoCardProps> = ({ 
+  coverage, 
+  className,
+  testID 
+}) => {
   // Get the human-readable coverage type name
-  const coverageName = coverageTypeNames[coverage.type as CoverageType] || coverage.type;
+  const coverageName = coverageTypeNames[coverage.type] || String(coverage.type);
   
   return (
     <Card 
       journey="plan" 
       elevation="sm"
-      accessibilityLabel={`Coverage information for ${coverageName}`}
-      testID={testID}
-      role="region"
-      aria-labelledby={`coverage-title-${coverage.id}`}
+      accessibilityLabel={`Informações de cobertura para ${coverageName}`}
+      className={className}
+      data-testid={testID || 'coverage-info-card'}
+      aria-labelledby="coverage-title"
     >
-      <CoverageTitle id={`coverage-title-${coverage.id}`}>{coverageName}</CoverageTitle>
+      <CoverageTitle id="coverage-title">{coverageName}</CoverageTitle>
       <CoverageDetails>{coverage.details}</CoverageDetails>
       
       {coverage.limitations && (
-        <CoverageLimitations aria-label="Coverage limitations">
+        <CoverageLimitations aria-label="Limitações da cobertura">
           <strong>Limitações:</strong> {coverage.limitations}
         </CoverageLimitations>
       )}
       
       {coverage.coPayment !== undefined && (
-        <CoPaymentBadge aria-label={`Co-payment amount: ${coverage.coPayment.toFixed(2)} reais`}>
+        <CoPaymentBadge aria-label={`Copagamento: R$ ${coverage.coPayment.toFixed(2)}`}>
           Copagamento: R$ {coverage.coPayment.toFixed(2)}
         </CoPaymentBadge>
       )}

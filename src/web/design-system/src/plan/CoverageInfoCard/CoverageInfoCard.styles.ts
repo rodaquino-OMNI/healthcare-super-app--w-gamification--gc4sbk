@@ -1,210 +1,164 @@
+/**
+ * Styled components for the CoverageInfoCard component in the Plan journey.
+ * These styles apply theming and styling based on the Plan journey's visual language.
+ */
 import styled from 'styled-components';
-import { themeGet } from '@styled-system/theme-get';
-import { breakpoints, colors, spacing, animation } from '@design-system/primitives/tokens';
-import { Theme } from '@austa/interfaces/themes';
+import { themeGet } from 'styled-system';
+import { colors, spacing, shadows, animation, breakpoints } from '@design-system/primitives/tokens';
 
 /**
  * Main container for the CoverageInfoCard component.
- * Applies base styling and handles theming based on the Plan journey.
+ * Applies Plan journey-specific styling with proper elevation and interactive states.
  */
-export const Container = styled.div<{ theme: Theme }>`
+export const CoverageInfoCardContainer = styled.div`
   display: flex;
   flex-direction: column;
-  width: 100%;
-  border-radius: ${themeGet('borderRadius.md')};
-  border: ${themeGet('components.coverageInfoCard.border')};
-  border-top: ${themeGet('components.coverageInfoCard.borderTop')};
-  background-color: ${themeGet('components.coverageInfoCard.background')};
-  box-shadow: ${themeGet('components.coverageInfoCard.shadow')};
+  background-color: ${colors.journeys.plan.background};
+  border-radius: ${themeGet('borderRadius.lg')};
+  box-shadow: ${themeGet('shadows.md')};
   overflow: hidden;
-  transition: box-shadow ${themeGet('animation.duration.fast')} ${themeGet('animation.easing.easeInOut')};
-  
+  margin-bottom: ${spacing.md};
+  border-left: 4px solid ${colors.journeys.plan.primary};
+  width: 100%;
+  transition: transform ${animation.duration.normal} ${animation.easing.easeOut}, 
+              box-shadow ${animation.duration.normal} ${animation.easing.easeOut};
+
   &:hover {
-    box-shadow: ${themeGet('shadows.md')};
+    transform: translateY(-2px);
+    box-shadow: ${themeGet('shadows.lg')};
   }
-  
-  @media (max-width: ${breakpoints.md}) {
-    border-radius: ${themeGet('borderRadius.sm')};
+
+  @media (min-width: ${breakpoints.md}) {
+    flex-direction: column;
   }
 `;
 
 /**
  * Header section of the CoverageInfoCard.
- * Contains the title and any additional header content.
+ * Contains the title and any additional header elements.
  */
-export const Header = styled.div<{ theme: Theme }>`
+export const CoverageInfoCardHeader = styled.div`
   display: flex;
-  flex-direction: row;
-  align-items: center;
   justify-content: space-between;
-  padding: ${themeGet('spacing.md')} ${themeGet('spacing.md')};
-  border-bottom: 1px solid ${themeGet('colors.neutral.gray200')};
-  background-color: ${themeGet('colors.neutral.white')};
-  
-  @media (max-width: ${breakpoints.sm}) {
-    padding: ${themeGet('spacing.sm')} ${themeGet('spacing.sm')};
-  }
+  align-items: center;
+  padding: ${spacing.md};
+  border-bottom: 1px solid ${colors.neutral.gray300};
+  background-color: ${colors.journeys.plan.background};
 `;
 
 /**
- * Title component for the CoverageInfoCard.
- * Displays the coverage type with proper typography.
+ * Title element for the CoverageInfoCard.
+ * Uses Plan journey's primary color for emphasis.
  */
-export const Title = styled.h3<{ theme: Theme }>`
-  margin: 0;
-  font-family: ${themeGet('typography.fontFamily.base')};
-  font-size: ${themeGet('typography.fontSize.md')};
+export const CoverageInfoCardTitle = styled.h3`
+  font-family: ${themeGet('typography.fontFamily.heading')};
+  font-size: ${themeGet('typography.fontSize.lg')};
   font-weight: ${themeGet('typography.fontWeight.bold')};
-  color: ${themeGet('colors.text')};
-  line-height: ${themeGet('typography.lineHeight.base')};
-  
-  @media (max-width: ${breakpoints.sm}) {
-    font-size: ${themeGet('typography.fontSize.sm')};
-  }
+  color: ${colors.journeys.plan.primary};
+  margin: 0;
+  padding: 0;
 `;
 
 /**
- * Wrapper for the content section of the CoverageInfoCard.
- * Contains the coverage details and limitations.
+ * Content wrapper for the CoverageInfoCard.
+ * Contains all the coverage details, limitations, and other information.
  */
-export const ContentWrapper = styled.div<{ theme: Theme }>`
+export const CoverageInfoCardContent = styled.div`
   display: flex;
   flex-direction: column;
-  padding: ${themeGet('spacing.md')};
-  background-color: ${themeGet('colors.neutral.white')};
-  
-  @media (max-width: ${breakpoints.sm}) {
-    padding: ${themeGet('spacing.sm')};
-  }
+  padding: ${spacing.md};
+  gap: ${spacing.sm};
 `;
 
 /**
- * Row component for individual coverage items.
- * Displays a label and value pair.
+ * Individual item row in the CoverageInfoCard.
+ * Displays a label-value pair with responsive layout.
  */
-export const ItemRow = styled.div<{ theme: Theme }>`
+export const CoverageInfoCardItem = styled.div`
   display: flex;
   flex-direction: row;
   justify-content: space-between;
-  align-items: flex-start;
-  margin-bottom: ${themeGet('spacing.sm')};
+  align-items: center;
+  padding: ${spacing.sm} 0;
+  border-bottom: 1px solid ${colors.neutral.gray200};
   
   &:last-child {
-    margin-bottom: 0;
+    border-bottom: none;
   }
-  
+
   @media (max-width: ${breakpoints.sm}) {
     flex-direction: column;
-    margin-bottom: ${themeGet('spacing.xs')};
+    align-items: flex-start;
+    gap: ${spacing.xs};
   }
 `;
 
 /**
- * Label component for coverage item rows.
- * Displays the property name with proper styling.
+ * Label element for items in the CoverageInfoCard.
+ * Uses neutral gray for secondary text importance.
  */
-export const Label = styled.span<{ theme: Theme }>`
+export const CoverageInfoCardLabel = styled.span`
   font-family: ${themeGet('typography.fontFamily.base')};
   font-size: ${themeGet('typography.fontSize.sm')};
+  color: ${colors.neutral.gray700};
   font-weight: ${themeGet('typography.fontWeight.medium')};
-  color: ${themeGet('colors.neutral.gray700')};
-  margin-right: ${themeGet('spacing.md')};
-  flex: 1;
-  
-  @media (max-width: ${breakpoints.sm}) {
-    margin-right: 0;
-    margin-bottom: ${themeGet('spacing.xs')};
-  }
 `;
 
 /**
- * Value component for coverage item rows.
- * Displays the property value with proper styling.
+ * Value element for items in the CoverageInfoCard.
+ * Supports different states through class modifiers.
  */
-export const Value = styled.span<{ theme: Theme }>`
+export const CoverageInfoCardValue = styled.span`
   font-family: ${themeGet('typography.fontFamily.base')};
-  font-size: ${themeGet('typography.fontSize.sm')};
-  font-weight: ${themeGet('typography.fontWeight.regular')};
-  color: ${themeGet('colors.text')};
-  text-align: right;
-  flex: 2;
+  font-size: ${themeGet('typography.fontSize.md')};
+  color: ${colors.neutral.gray900};
+  font-weight: ${themeGet('typography.fontWeight.bold')};
+  transition: color ${animation.duration.fast} ${animation.easing.easeOut};
   
-  @media (max-width: ${breakpoints.sm}) {
-    text-align: left;
-    width: 100%;
+  &.highlighted {
+    color: ${colors.journeys.plan.secondary};
+  }
+  
+  &.covered {
+    color: ${colors.semantic.success};
+  }
+  
+  &.not-covered {
+    color: ${colors.semantic.error};
+  }
+  
+  &.partially-covered {
+    color: ${colors.semantic.warning};
   }
 `;
 
 /**
  * Badge component for displaying co-payment information.
- * Uses the Plan journey's highlight colors.
+ * Uses semantic colors to indicate coverage level.
  */
-export const CoPaymentBadge = styled.div<{ theme: Theme; isFullCoverage: boolean }>`
+export const CoverageInfoCardBadge = styled.span`
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: ${themeGet('spacing.xs')} ${themeGet('spacing.sm')};
+  padding: ${spacing.xs} ${spacing.sm};
   border-radius: ${themeGet('borderRadius.sm')};
-  font-family: ${themeGet('typography.fontFamily.base')};
   font-size: ${themeGet('typography.fontSize.xs')};
   font-weight: ${themeGet('typography.fontWeight.medium')};
-  background-color: ${props => 
-    props.isFullCoverage
-      ? themeGet('colors.semantic.success')(props)
-      : themeGet('components.coverageInfoCard.highlightBackground')(props)
-  };
-  color: ${props => 
-    props.isFullCoverage
-      ? themeGet('colors.neutral.white')(props)
-      : themeGet('components.coverageInfoCard.highlightText')(props)
-  };
-  transition: all ${themeGet('animation.duration.fast')} ${themeGet('animation.easing.easeInOut')};
+  background-color: ${colors.journeys.plan.primary_10};
+  color: ${colors.journeys.plan.primary};
   
-  &:hover {
-    transform: translateY(-1px);
+  &.full {
+    background-color: ${colors.semantic.success_token._10};
+    color: ${colors.semantic.success};
   }
   
-  @media (max-width: ${breakpoints.sm}) {
-    font-size: ${themeGet('typography.fontSize.xs')};
-    padding: ${themeGet('spacing.xs')} ${themeGet('spacing.xs')};
+  &.partial {
+    background-color: ${colors.semantic.warning_token._10};
+    color: ${colors.semantic.warning};
   }
-`;
-
-/**
- * Section for displaying coverage limitations.
- * Uses a subtle background to differentiate from regular content.
- */
-export const LimitationsSection = styled.div<{ theme: Theme }>`
-  margin-top: ${themeGet('spacing.md')};
-  padding: ${themeGet('spacing.sm')};
-  background-color: ${themeGet('colors.neutral.gray100')};
-  border-radius: ${themeGet('borderRadius.sm')};
   
-  @media (max-width: ${breakpoints.sm}) {
-    margin-top: ${themeGet('spacing.sm')};
-    padding: ${themeGet('spacing.xs')};
+  &.none {
+    background-color: ${colors.semantic.error_token._10};
+    color: ${colors.semantic.error};
   }
-`;
-
-/**
- * Title for the limitations section.
- */
-export const LimitationsTitle = styled.h4<{ theme: Theme }>`
-  margin: 0 0 ${themeGet('spacing.xs')} 0;
-  font-family: ${themeGet('typography.fontFamily.base')};
-  font-size: ${themeGet('typography.fontSize.sm')};
-  font-weight: ${themeGet('typography.fontWeight.medium')};
-  color: ${themeGet('colors.neutral.gray800')};
-`;
-
-/**
- * Text for displaying limitation details.
- */
-export const LimitationsText = styled.p<{ theme: Theme }>`
-  margin: 0;
-  font-family: ${themeGet('typography.fontFamily.base')};
-  font-size: ${themeGet('typography.fontSize.xs')};
-  font-weight: ${themeGet('typography.fontWeight.regular')};
-  color: ${themeGet('colors.neutral.gray700')};
-  line-height: ${themeGet('typography.lineHeight.relaxed')};
 `;

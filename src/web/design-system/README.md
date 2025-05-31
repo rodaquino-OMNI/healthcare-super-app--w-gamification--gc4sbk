@@ -4,12 +4,29 @@
 
 The AUSTA SuperApp Design System is a comprehensive collection of reusable components, design tokens, patterns, and guidelines that power our journey-centered healthcare application. This system ensures consistent, accessible, and engaging user experiences across all three core journeys: My Health (Minha Saúde), Care Now (Cuidar-me Agora), and My Plan & Benefits (Meu Plano & Benefícios).
 
+## Architecture
+
 The design system is organized into four discrete workspace packages within the monorepo:
 
 - **@austa/design-system**: The main package that exports all components, themes, and utilities for application consumption. It serves as the public API entry point for all UI components.
 - **@design-system/primitives**: Contains all design tokens, atomic UI building blocks, and primitive components that form the foundation of the design system.
 - **@austa/interfaces**: Houses all shared TypeScript definitions and type contracts used across the design system and applications.
 - **@austa/journey-context**: Provides context providers and hooks for journey-specific state management across components.
+
+This unified approach ensures consistency across platforms while optimizing for the specific capabilities and constraints of each environment.
+
+### Layered Architecture
+
+The design system follows a layered architecture that establishes clear separation of concerns and promotes component reusability:
+
+1. **Design Tokens** (@design-system/primitives): Foundational values for colors, typography, spacing, shadows, animation, and breakpoints.
+2. **Themes**: Journey-specific theming applied consistently using theme contracts from @austa/interfaces.
+3. **UI Primitives** (@design-system/primitives): Five foundational components (Box, Text, Stack, Icon, Touchable).
+4. **Core Components** (@austa/design-system): Built on primitives, importing from @design-system/primitives and @austa/interfaces.
+5. **Journey Context** (@austa/journey-context): React context providers for journey-specific state management.
+6. **Journey Components**: Specialized components for each journey, importing from @austa/design-system and @austa/journey-context.
+7. **Data Visualization**: Chart components for health metrics and other data visualization needs.
+8. **Gamification Elements**: Components supporting the gamification system across all journeys.
 
 ## Principles
 
@@ -41,58 +58,6 @@ The design system is organized into four discrete workspace packages within the 
 
 - **Victory Native (v36.0+):** Cross-platform chart components for health metrics
 
-## Architecture
-
-The design system follows a layered architecture that establishes clear separation of concerns and promotes component reusability:
-
-### Design Tokens
-
-At the foundation of the design system are design tokens—atomic values that define the visual language authored and versioned in the `@design-system/primitives` package:
-
-- **Colors**: Defines palettes for brand colors, journey-specific themes (health: green, care: orange, plan: blue), semantic states (success, warning, error, info), and a neutral grayscale.
-- **Typography**: Specifies font families, sizes, weights, line heights, and letter spacing optimized for bilingual support (Portuguese and English).
-- **Spacing**: Implements an 8-point grid system for consistent layout spacing across the application.
-- **Shadows**: Provides elevation tokens (sm, md, lg, xl) with precise RGBA values.
-- **Animation**: Defines standardized animation durations and easing curves.
-- **Breakpoints**: Establishes responsive breakpoints for adapting layouts across device sizes.
-
-### UI Primitives
-
-The design system includes five foundational primitives implemented in the standalone `@design-system/primitives` package with its own CI build pipeline:
-
-- **Box**: Provides comprehensive layout capabilities (flex, grid, spacing, sizing, positioning).
-- **Text**: Handles typography with support for all text styles, colors, and truncation.
-- **Stack**: Implements flex container with responsive spacing and gap support.
-- **Icon**: Manages SVG icon rendering with dynamic fills and accessibility.
-- **Touchable**: Creates cross-platform pressable elements with consistent interaction states.
-
-### Themes
-
-The theming layer applies design tokens consistently across the application with theme contracts enforced by shared types from `@austa/interfaces`:
-
-- **Base Theme**: Consolidates all design tokens into a default theme.
-- **Journey-Specific Themes**: 
-  - **Health Theme**: Green-based palette with health-specific component styling.
-  - **Care Theme**: Orange-based palette with care-specific component styling.
-  - **Plan Theme**: Blue-based palette with plan-specific component styling.
-
-### Core Components
-
-Built on primitives, the core components in `@austa/design-system` import primitives, tokens, and interfaces from their respective packages:
-
-- **Input Controls**: Button, Input, Select, Checkbox, RadioButton, DatePicker
-- **Containers**: Card, Modal, Accordion
-- **Feedback**: ProgressBar, ProgressCircle, Toast
-- **Navigation**: Tabs, Avatar, Badge
-
-### Journey Components
-
-Journey-specific components address the unique needs of each user journey, importing components from `@austa/design-system` and context from `@austa/journey-context`:
-
-- **Health**: DeviceCard, GoalCard, HealthChart, MetricCard
-- **Care**: AppointmentCard, MedicationCard, ProviderCard, SymptomSelector, VideoConsultation
-- **Plan**: BenefitCard, ClaimCard, CoverageInfoCard, InsuranceCard
-
 ## Getting Started
 
 1. **Installation:**
@@ -103,8 +68,8 @@ Journey-specific components address the unique needs of each user journey, impor
 
    # Using npm
    npm install @austa/design-system @design-system/primitives @austa/interfaces @austa/journey-context
-   
-   # Using pnpm (recommended for workspace management)
+
+   # Using pnpm
    pnpm add @austa/design-system @design-system/primitives @austa/interfaces @austa/journey-context
    ```
 
@@ -130,12 +95,18 @@ Journey-specific components address the unique needs of each user journey, impor
 3. **Basic Usage:**
 
    ```jsx
-   // Import components from the main design system package
-   import { Button, Card } from '@austa/design-system';
-   // Import primitives from the primitives package
+   // Import primitives directly when needed
    import { Box, Text } from '@design-system/primitives';
+   
+   // Import components from the main design system
+   import { Button, Card } from '@austa/design-system';
+   
+   // Import journey-specific hooks
+   import { useHealthContext } from '@austa/journey-context';
 
    const MyComponent = () => {
+     const { activeMetrics } = useHealthContext();
+     
      return (
        <Card journey="health">
          <Box padding="md">
@@ -153,24 +124,20 @@ Journey-specific components address the unique needs of each user journey, impor
 4. **Journey-Specific Components:**
 
    ```jsx
-   // Import journey-specific components from the design system
+   // Import journey-specific components
    import { HealthMetricCard } from '@austa/design-system';
-   // Import journey context hooks
-   import { useHealthContext } from '@austa/journey-context';
-   // Import shared interfaces
-   import { HealthMetricType } from '@austa/interfaces';
+   
+   // Import types from interfaces package
+   import { MetricTrend } from '@austa/interfaces/health';
 
    const HeartRateCard = () => {
-     const { updateMetric } = useHealthContext();
-     
      return (
        <HealthMetricCard
          title="Heart Rate"
          value={72}
          unit="bpm"
-         trend="stable"
+         trend={MetricTrend.STABLE}
          achievement={{ title: "Heart Health Monitor", points: 50 }}
-         onUpdate={(value) => updateMetric(HealthMetricType.HEART_RATE, value)}
        />
      );
    };
@@ -201,17 +168,6 @@ All components support journey-specific styling via the `journey` prop.
 <Button journey="health">View Health Dashboard</Button>
 <Button journey="care">Book Appointment</Button>
 <Button journey="plan">Submit Claim</Button>
-
-// Using journey context
-import { useJourneyContext } from '@austa/journey-context';
-
-const MyComponent = () => {
-  const { currentJourney } = useJourneyContext();
-  
-  return (
-    <Button journey={currentJourney}>Dynamic Journey Button</Button>
-  );
-};
 ```
 
 ### Accessibility Features
@@ -233,8 +189,11 @@ Built-in accessibility support in all components.
 Specialized components for achievements, progress tracking, and rewards.
 
 ```jsx
+// Import from the main design system package
 import { AchievementBadge, ProgressTracker, RewardCard } from '@austa/design-system';
-import { AchievementStatus } from '@austa/interfaces';
+
+// Import types from interfaces package
+import { Achievement } from '@austa/interfaces/gamification';
 
 // Achievement badge
 <AchievementBadge 
@@ -244,9 +203,9 @@ import { AchievementStatus } from '@austa/interfaces';
     description: "Complete 10,000 steps for 7 consecutive days",
     progress: 5,
     total: 7,
-    status: AchievementStatus.IN_PROGRESS,
+    unlocked: false,
     journey: "health"
-  }}
+  } as Achievement}
 />
 
 // Progress tracker
@@ -257,57 +216,6 @@ import { AchievementStatus } from '@austa/interfaces';
   journey="health"
 />
 ```
-
-## Integration with Other Packages
-
-The design system is designed to work seamlessly with other packages in the monorepo workspace:
-
-### TypeScript Configuration
-
-The design system packages use TypeScript project references to ensure proper build order and type checking:
-
-```json
-// tsconfig.json example
-{
-  "compilerOptions": {
-    "paths": {
-      "@design-system/primitives": ["../primitives/src"],
-      "@austa/interfaces": ["../interfaces"],
-      "@austa/journey-context": ["../journey-context/src"],
-      "@austa/design-system": ["./src"]
-    }
-  },
-  "references": [
-    { "path": "../primitives" },
-    { "path": "../interfaces" },
-    { "path": "../journey-context" }
-  ]
-}
-```
-
-### Workspace Configuration
-
-The design system uses pnpm workspaces to manage package dependencies and versioning:
-
-```json
-// package.json workspace example
-{
-  "name": "@austa/design-system",
-  "version": "1.0.0",
-  "dependencies": {
-    "@design-system/primitives": "workspace:*",
-    "@austa/interfaces": "workspace:*",
-    "@austa/journey-context": "workspace:*"
-  }
-}
-```
-
-### Platform Integration
-
-The design system is integrated with both web (Next.js) and mobile (React Native) platforms:
-
-- **Web Integration**: Next.js configuration includes path aliases for all design system packages
-- **Mobile Integration**: React Native Metro bundler is configured to resolve all design system packages
 
 ## Component Categories
 
@@ -335,48 +243,61 @@ The design system is integrated with both web (Next.js) and mobile (React Native
 
 - **Data Visualization:** BarChart, LineChart, PieChart, RadialProgress
 
+## Integration with Other Packages
+
+The design system is designed to work seamlessly with other packages in the monorepo:
+
+### Web Integration
+
+```jsx
+// In Next.js applications
+import { Button } from '@austa/design-system';
+import { Box, Text } from '@design-system/primitives';
+import { useJourneyState } from '@austa/journey-context';
+import { UserProfile } from '@austa/interfaces/auth';
+
+const ProfileComponent = ({ user }: { user: UserProfile }) => {
+  const { currentJourney } = useJourneyState();
+  
+  return (
+    <Box padding="lg">
+      <Text variant="heading">{user.name}</Text>
+      <Button journey={currentJourney}>Update Profile</Button>
+    </Box>
+  );
+};
+```
+
+### Mobile Integration
+
+```jsx
+// In React Native applications
+import { AppointmentCard } from '@austa/design-system';
+import { Stack } from '@design-system/primitives';
+import { useCareContext } from '@austa/journey-context';
+import { Appointment } from '@austa/interfaces/care';
+
+const AppointmentsScreen = () => {
+  const { appointments } = useCareContext();
+  
+  return (
+    <Stack spacing="md">
+      {appointments.map((appointment: Appointment) => (
+        <AppointmentCard 
+          key={appointment.id}
+          appointment={appointment}
+        />
+      ))}
+    </Stack>
+  );
+};
+```
+
 ## Documentation
 
 For detailed documentation on each component, including APIs, examples, and accessibility guidelines, visit our Storybook:
 
-[<https://design-system.austa.com.br](https://design-system.austa.com.br)>
-
-## Migration Guide
-
-If you're migrating from a previous version of the design system, please follow these steps:
-
-1. **Update Dependencies**: Add all required packages to your package.json
-   ```bash
-   pnpm add @austa/design-system @design-system/primitives @austa/interfaces @austa/journey-context
-   ```
-
-2. **Update Imports**: Change your imports to use the appropriate packages
-   ```jsx
-   // Before
-   import { Box, Text, Button } from '@austa/design-system';
-   
-   // After
-   import { Box, Text } from '@design-system/primitives';
-   import { Button } from '@austa/design-system';
-   ```
-
-3. **Update Context Usage**: Use the new journey context
-   ```jsx
-   // Before
-   import { useJourney } from '@austa/design-system';
-   
-   // After
-   import { useJourneyContext } from '@austa/journey-context';
-   ```
-
-4. **Update TypeScript Imports**: Use interfaces from the interfaces package
-   ```jsx
-   // Before
-   import { HealthMetricType } from '@austa/design-system/types';
-   
-   // After
-   import { HealthMetricType } from '@austa/interfaces';
-   ```
+[https://design-system.austa.com.br](https://design-system.austa.com.br)
 
 ## Contributing
 
@@ -384,4 +305,4 @@ We welcome contributions to the design system! Please see [CONTRIBUTING.md](./CO
 
 ## License
 
-Copyright © 2025 AUSTA. All rights reserved.
+Copyright © 2023-2025 AUSTA. All rights reserved.

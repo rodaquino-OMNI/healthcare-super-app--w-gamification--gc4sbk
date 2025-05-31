@@ -1,408 +1,243 @@
-/**
- * @file oauth.strategy.spec.ts
- * @description Tests for the OAuthStrategy base class that powers Google, Facebook, and Apple authentication.
- * Verifies profile extraction, OAuth provider settings, user creation/retrieval, and error handling.
- */
-
-import { Test } from '@nestjs/testing';
+import { Test, TestingModule } from '@nestjs/testing';
+import { Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
-// Import using standardized path aliases
-import { OAuthStrategy } from '../../../src/strategies/oauth.strategy';
-import { AuthService } from '../../../src/auth.service';
-import { OAuthProfile, OAuthProviderType } from '../../../src/providers/oauth/interfaces';
-import { AppException } from '@app/errors';
-import { ErrorType } from '@app/errors/categories/error-type.enum';
+// Import the strategy and interfaces
+import { OAuthStrategy } from '@austa/auth/strategies/oauth.strategy';
+import { IOAuthProfile, IOAuthTokens } from '@austa/interfaces/auth';
+import { AuthenticationError } from '@austa/errors';
 
 // Import test fixtures and mocks
-import {
-  googleOAuthProfile,
-  facebookOAuthProfile,
-  appleOAuthProfile,
-  incompleteOAuthProfile
-} from './strategy.fixtures';
-import {
-  MockAuthService,
-  MockConfigService,
-  MockLoggerService,
-  createAuthTestingModule
-} from './strategy.mocks';
+import { oauthFixtures } from './strategy.fixtures';
+import { MockConfigService, MockLoggerService, MockAuthService, createTestModuleConfig } from './strategy.mocks';
 
 /**
- * Concrete implementation of OAuthStrategy for testing
- * Extends the abstract base class with methods for profile extraction
+ * Concrete implementation of the abstract OAuthStrategy for testing
  */
 class TestOAuthStrategy extends OAuthStrategy {
-  constructor(
-    private readonly authService: AuthService,
-    private readonly configService: ConfigService,
-    private readonly loggerService: any,
-    strategy: string = 'test-strategy'
-  ) {
-    super(strategy, () => {});
+  constructor(name: string, strategy: any) {
+    super(name, strategy);
   }
 
-  // Extract email from OAuth profile
-  extractEmail(profile: OAuthProfile): string {
-    if (!profile.email) {
-      this.loggerService.error(
-        `Missing email in OAuth profile from ${profile.provider}`,
-        undefined,
-        'TestOAuthStrategy'
-      );
-      throw new AppException(ErrorType.VALIDATION, 'AUTH_007', 'Email is required for authentication');
-    }
-    return profile.email;
+  // Expose protected methods for testing
+  public testNormalizeProfile(profile: Partial<IOAuthProfile>): IOAuthProfile {
+    return this.normalizeProfile(profile);
   }
 
-  // Extract name from OAuth profile
-  extractName(profile: OAuthProfile): string {
-    // Try different name properties based on provider
-    if (profile.displayName) {
-      return profile.displayName;
-    }
-    
-    if (profile.firstName && profile.lastName) {
-      return `${profile.firstName} ${profile.lastName}`;
-    }
-    
-    if (profile._json && profile._json.name) {
-      return profile._json.name;
-    }
-    
-    // Default to email prefix if no name is available
-    if (profile.email) {
-      return profile.email.split('@')[0];
-    }
-    
-    this.loggerService.warn(
-      `Could not extract name from ${profile.provider} profile, using default`,
-      'TestOAuthStrategy'
-    );
-    return 'AUSTA User';
-  }
-
-  // Validate OAuth user
-  async validateOAuthUser(profile: OAuthProfile): Promise<any> {
-    try {
-      this.loggerService.log(
-        `Validating OAuth user from ${profile.provider}`,
-        'TestOAuthStrategy',
-        { profileId: profile.id }
-      );
-
-      const email = this.extractEmail(profile);
-      const name = this.extractName(profile);
-
-      // Check if user exists
-      let user = await this.authService.findUserByEmail(email);
-
-      // Create user if not exists
-      if (!user) {
-        this.loggerService.log(
-          `Creating new user from ${profile.provider} OAuth`,
-          'TestOAuthStrategy',
-          { email }
-        );
-        user = await this.authService.createUserFromOAuth({
-          ...profile,
-          email,
-          displayName: name
-        });
-      }
-
-      return user;
-    } catch (error) {
-      this.loggerService.error(
-        `OAuth validation error: ${error.message}`,
-        error.stack,
-        'TestOAuthStrategy'
-      );
-      throw error;
-    }
-  }
-
-  // Get OAuth configuration
-  getOAuthConfig(provider: OAuthProviderType): Record<string, any> {
-    const configPath = `oauth.${provider}`;
-    const config = {
-      clientId: this.configService.get(`${configPath}.clientId`),
-      clientSecret: this.configService.get(`${configPath}.clientSecret`),
-      callbackUrl: this.configService.get(`${configPath}.callbackUrl`)
-    };
-
-    // Validate required config
-    if (!config.clientId || !config.clientSecret || !config.callbackUrl) {
-      this.loggerService.error(
-        `Missing OAuth configuration for ${provider}`,
-        undefined,
-        'TestOAuthStrategy'
-      );
-      throw new AppException(
-        ErrorType.CONFIGURATION,
-        'AUTH_008',
-        `Incomplete OAuth configuration for ${provider}`
-      );
-    }
-
-    return config;
+  public testNormalizeTokens(tokens: Partial<IOAuthTokens>): IOAuthTokens {
+    return this.normalizeTokens(tokens);
   }
 }
 
 describe('OAuthStrategy', () => {
   let strategy: TestOAuthStrategy;
-  let mockAuthService: MockAuthService;
+  let module: TestingModule;
+  let mockLogger: MockLoggerService;
   let mockConfigService: MockConfigService;
-  let mockLoggerService: MockLoggerService;
+  let mockAuthService: MockAuthService;
 
   beforeEach(async () => {
-    // Create testing module with mocks
-    const { moduleRef, mockAuthService: authService, mockConfigService: configService, mockLoggerService: loggerService } = 
-      await createAuthTestingModule();
+    // Create a test module with mock providers
+    module = await Test.createTestingModule(createTestModuleConfig()).compile();
 
-    mockAuthService = authService;
-    mockConfigService = configService;
-    mockLoggerService = loggerService;
+    // Get mock instances
+    mockLogger = module.get<MockLoggerService>(Logger);
+    mockConfigService = module.get<MockConfigService>(ConfigService);
+    mockAuthService = module.get<MockAuthService>('AuthService');
 
-    // Create strategy instance
-    strategy = new TestOAuthStrategy(
-      mockAuthService as any,
-      mockConfigService as any,
-      mockLoggerService
-    );
+    // Clear logs before each test
+    mockLogger.clear();
+
+    // Create a test strategy instance
+    strategy = new TestOAuthStrategy('test-provider', {});
   });
 
   afterEach(() => {
-    // Reset mocks between tests
-    mockAuthService.resetCalls();
-    mockLoggerService.clearLogs();
+    jest.clearAllMocks();
   });
 
-  describe('extractEmail', () => {
-    it('should extract email from Google profile', () => {
-      const email = strategy.extractEmail(googleOAuthProfile);
-      expect(email).toBe('google-user@gmail.com');
-    });
-
-    it('should extract email from Facebook profile', () => {
-      const email = strategy.extractEmail(facebookOAuthProfile);
-      expect(email).toBe('facebook-user@example.com');
-    });
-
-    it('should extract email from Apple profile', () => {
-      const email = strategy.extractEmail(appleOAuthProfile);
-      expect(email).toBe('apple-user@privaterelay.appleid.com');
-    });
-
-    it('should throw AppException when email is missing', () => {
-      expect(() => {
-        strategy.extractEmail(incompleteOAuthProfile);
-      }).toThrow(AppException);
-
-      // Verify error logging
-      const errorLogs = mockLoggerService.getLogsByLevel('error');
-      expect(errorLogs.length).toBe(1);
-      expect(errorLogs[0].message).toContain('Missing email in OAuth profile');
+  describe('initialization', () => {
+    it('should initialize the strategy with the provided name and strategy', () => {
+      // Create a new strategy with a mock passport strategy
+      const mockPassportStrategy = { name: 'test-strategy' };
+      const testStrategy = new TestOAuthStrategy('test-provider', mockPassportStrategy);
+      
+      // Verify that initialization was logged
+      expect(mockLogger.hasLoggedMessage('Initialized test-provider OAuth strategy', 'log')).toBe(true);
     });
   });
 
-  describe('extractName', () => {
-    it('should extract displayName from Google profile', () => {
-      const name = strategy.extractName(googleOAuthProfile);
-      expect(name).toBe('Google Test User');
+  describe('normalizeProfile', () => {
+    it('should normalize a complete Google profile correctly', () => {
+      const profile = oauthFixtures.googleProfile;
+      const normalized = strategy.testNormalizeProfile(profile);
+
+      // Verify all fields are preserved and normalized
+      expect(normalized).toEqual(profile);
+      expect(normalized.provider).toBe('google');
+      expect(normalized.email).toBe('test@gmail.com');
+      expect(normalized.name).toBe('Test User');
+      expect(normalized.firstName).toBe('Test');
+      expect(normalized.lastName).toBe('User');
+      expect(normalized.picture).toBe('https://lh3.googleusercontent.com/a/photo.jpg');
+      expect(normalized.locale).toBe('en');
+      expect(normalized.isVerified).toBe(true);
     });
 
-    it('should extract displayName from Facebook profile', () => {
-      const name = strategy.extractName(facebookOAuthProfile);
-      expect(name).toBe('Facebook Test User');
+    it('should normalize a complete Facebook profile correctly', () => {
+      const profile = oauthFixtures.facebookProfile;
+      const normalized = strategy.testNormalizeProfile(profile);
+
+      // Verify all fields are preserved and normalized
+      expect(normalized).toEqual(profile);
+      expect(normalized.provider).toBe('facebook');
     });
 
-    it('should combine firstName and lastName when displayName is missing', () => {
-      const modifiedProfile = { ...googleOAuthProfile, displayName: undefined };
-      const name = strategy.extractName(modifiedProfile);
-      expect(name).toBe('Google User');
+    it('should normalize a minimal profile with default values', () => {
+      const profile = oauthFixtures.minimalProfile;
+      const normalized = strategy.testNormalizeProfile(profile);
+
+      // Verify required fields are preserved
+      expect(normalized.provider).toBe(profile.provider);
+      expect(normalized.providerId).toBe(profile.providerId);
+      expect(normalized.email).toBe(profile.email);
+      expect(normalized.name).toBe(profile.name);
+      
+      // Verify default values for optional fields
+      expect(normalized.firstName).toBe('');
+      expect(normalized.lastName).toBe('');
+      expect(normalized.picture).toBe('');
+      expect(normalized.locale).toBe('en');
+      expect(normalized.isVerified).toBe(false);
     });
 
-    it('should extract name from _json when other properties are missing', () => {
-      const modifiedProfile = {
-        ...googleOAuthProfile,
-        displayName: undefined,
-        firstName: undefined,
-        lastName: undefined
+    it('should generate name from firstName and lastName if name is missing', () => {
+      const profile = {
+        provider: 'google',
+        providerId: '123456789',
+        email: 'test@gmail.com',
+        firstName: 'John',
+        lastName: 'Doe'
       };
-      const name = strategy.extractName(modifiedProfile);
-      expect(name).toBe('Google Test User'); // From _json.name
+
+      const normalized = strategy.testNormalizeProfile(profile);
+      expect(normalized.name).toBe('John Doe');
     });
 
-    it('should use email prefix when no name is available', () => {
-      const modifiedProfile = {
-        ...googleOAuthProfile,
-        displayName: undefined,
-        firstName: undefined,
-        lastName: undefined,
-        _json: { email: 'test-user@example.com' }
+    it('should handle missing firstName or lastName when generating name', () => {
+      // Only firstName provided
+      const profileWithFirstName = {
+        provider: 'google',
+        providerId: '123456789',
+        email: 'test@gmail.com',
+        firstName: 'John'
       };
-      const name = strategy.extractName(modifiedProfile);
-      expect(name).toBe('test-user');
+
+      const normalizedWithFirstName = strategy.testNormalizeProfile(profileWithFirstName);
+      expect(normalizedWithFirstName.name).toBe('John');
+
+      // Only lastName provided
+      const profileWithLastName = {
+        provider: 'google',
+        providerId: '123456789',
+        email: 'test@gmail.com',
+        lastName: 'Doe'
+      };
+
+      const normalizedWithLastName = strategy.testNormalizeProfile(profileWithLastName);
+      expect(normalizedWithLastName.name).toBe('Doe');
     });
 
-    it('should use default name when no other options are available', () => {
-      const modifiedProfile = {
-        ...incompleteOAuthProfile,
-        displayName: undefined,
-        firstName: undefined,
-        lastName: undefined,
-        _json: {}
+    it('should throw AuthenticationError if provider is missing', () => {
+      const profile = {
+        providerId: '123456789',
+        email: 'test@gmail.com',
+        name: 'Test User'
       };
-      const name = strategy.extractName(modifiedProfile);
-      expect(name).toBe('AUSTA User');
 
-      // Verify warning log
-      const warnLogs = mockLoggerService.getLogsByLevel('warn');
-      expect(warnLogs.length).toBe(1);
-      expect(warnLogs[0].message).toContain('Could not extract name');
+      expect(() => strategy.testNormalizeProfile(profile)).toThrow(AuthenticationError);
+      expect(() => strategy.testNormalizeProfile(profile)).toThrow('Missing provider in OAuth profile');
+    });
+
+    it('should throw AuthenticationError if providerId is missing', () => {
+      const profile = {
+        provider: 'google',
+        email: 'test@gmail.com',
+        name: 'Test User'
+      };
+
+      expect(() => strategy.testNormalizeProfile(profile)).toThrow(AuthenticationError);
+      expect(() => strategy.testNormalizeProfile(profile)).toThrow('Missing providerId in OAuth profile');
+    });
+
+    it('should throw AuthenticationError if email is missing', () => {
+      const profile = {
+        provider: 'google',
+        providerId: '123456789',
+        name: 'Test User'
+      };
+
+      expect(() => strategy.testNormalizeProfile(profile)).toThrow(AuthenticationError);
+      expect(() => strategy.testNormalizeProfile(profile)).toThrow('Missing email in OAuth profile');
+    });
+
+    it('should log debug information when normalizing a profile', () => {
+      const profile = oauthFixtures.googleProfile;
+      strategy.testNormalizeProfile(profile);
+
+      // Verify that debug log was created
+      expect(mockLogger.hasLoggedMessage(
+        `Normalized OAuth profile for ${profile.provider}:${profile.providerId}`,
+        'debug'
+      )).toBe(true);
     });
   });
 
-  describe('validateOAuthUser', () => {
-    it('should validate existing user by email', async () => {
-      // Setup mock to return existing user
-      mockAuthService.findUserByEmail = jest.fn().mockResolvedValue({
-        id: '123',
-        email: 'google-user@gmail.com',
-        name: 'Existing User'
-      });
+  describe('normalizeTokens', () => {
+    it('should normalize complete token data correctly', () => {
+      const tokens = oauthFixtures.googleTokens;
+      const normalized = strategy.testNormalizeTokens(tokens);
 
-      const user = await strategy.validateOAuthUser(googleOAuthProfile);
-
-      // Verify user was found by email
-      expect(mockAuthService.findUserByEmailCalls.length).toBe(1);
-      expect(mockAuthService.findUserByEmailCalls[0].email).toBe('google-user@gmail.com');
-      
-      // Verify user was returned
-      expect(user).toBeDefined();
-      expect(user.id).toBe('123');
-      expect(user.email).toBe('google-user@gmail.com');
-
-      // Verify no user creation was attempted
-      expect(mockAuthService.createUserFromOAuthCalls.length).toBe(0);
-
-      // Verify logging
-      const infoLogs = mockLoggerService.getLogsByLevel('info');
-      expect(infoLogs.length).toBe(1);
-      expect(infoLogs[0].message).toContain('Validating OAuth user');
+      // Verify all fields are preserved
+      expect(normalized).toEqual(tokens);
     });
 
-    it('should create new user when user does not exist', async () => {
-      // Setup mock to return no existing user
-      mockAuthService.findUserByEmail = jest.fn().mockResolvedValue(null);
-      
-      // Setup mock for user creation
-      mockAuthService.createUserFromOAuth = jest.fn().mockResolvedValue({
-        id: 'new-123',
-        email: 'google-user@gmail.com',
-        name: 'Google Test User',
-        oauthProviderId: 'google'
-      });
+    it('should provide default values for missing token fields', () => {
+      // Minimal token with only accessToken
+      const minimalTokens = {
+        accessToken: 'test-access-token'
+      };
 
-      const user = await strategy.validateOAuthUser(googleOAuthProfile);
+      const normalized = strategy.testNormalizeTokens(minimalTokens);
 
-      // Verify user lookup was attempted
-      expect(mockAuthService.findUserByEmailCalls.length).toBe(1);
-      expect(mockAuthService.findUserByEmailCalls[0].email).toBe('google-user@gmail.com');
+      // Verify required field is preserved
+      expect(normalized.accessToken).toBe(minimalTokens.accessToken);
       
-      // Verify user creation was called
-      expect(mockAuthService.createUserFromOAuthCalls.length).toBe(1);
-      expect(mockAuthService.createUserFromOAuthCalls[0].profile.email).toBe('google-user@gmail.com');
-      expect(mockAuthService.createUserFromOAuthCalls[0].profile.displayName).toBe('Google Test User');
-      
-      // Verify created user was returned
-      expect(user).toBeDefined();
-      expect(user.id).toBe('new-123');
-      expect(user.oauthProviderId).toBe('google');
-
-      // Verify logging
-      const logs = mockLoggerService.logs;
-      expect(logs.length).toBe(2); // Validation log + creation log
-      expect(logs[1].message).toContain('Creating new user');
+      // Verify default values for optional fields
+      expect(normalized.refreshToken).toBe('');
+      expect(normalized.idToken).toBe('');
+      expect(normalized.expiresIn).toBe(3600);
+      expect(normalized.tokenType).toBe('Bearer');
     });
 
-    it('should handle and log errors during validation', async () => {
-      // Setup mock to throw error
-      mockAuthService.findUserByEmail = jest.fn().mockRejectedValue(
-        new Error('Database connection error')
-      );
+    it('should handle different token types', () => {
+      const tokens = {
+        accessToken: 'test-access-token',
+        tokenType: 'MAC'
+      };
 
-      // Expect validation to throw
-      await expect(strategy.validateOAuthUser(googleOAuthProfile)).rejects.toThrow(
-        'Database connection error'
-      );
-
-      // Verify error was logged
-      const errorLogs = mockLoggerService.getLogsByLevel('error');
-      expect(errorLogs.length).toBe(1);
-      expect(errorLogs[0].message).toContain('OAuth validation error');
-      expect(errorLogs[0].message).toContain('Database connection error');
+      const normalized = strategy.testNormalizeTokens(tokens);
+      expect(normalized.tokenType).toBe('MAC');
     });
 
-    it('should throw AppException when email extraction fails', async () => {
-      // Expect validation to throw for incomplete profile
-      await expect(strategy.validateOAuthUser(incompleteOAuthProfile)).rejects.toThrow(AppException);
+    it('should handle custom expiration times', () => {
+      const tokens = {
+        accessToken: 'test-access-token',
+        expiresIn: 7200 // 2 hours
+      };
 
-      // Verify error was logged
-      const errorLogs = mockLoggerService.getLogsByLevel('error');
-      expect(errorLogs.length).toBe(1);
-      expect(errorLogs[0].message).toContain('Missing email in OAuth profile');
-    });
-  });
-
-  describe('getOAuthConfig', () => {
-    it('should retrieve Google OAuth configuration', () => {
-      const config = strategy.getOAuthConfig('google');
-      
-      expect(config).toEqual({
-        clientId: 'google-client-id',
-        clientSecret: 'google-client-secret',
-        callbackUrl: 'http://localhost:3000/auth/google/callback'
-      });
-    });
-
-    it('should retrieve Facebook OAuth configuration', () => {
-      // Override config to use Facebook-specific keys
-      mockConfigService.set('oauth.facebook.clientId', 'facebook-app-id');
-      mockConfigService.set('oauth.facebook.clientSecret', 'facebook-app-secret');
-      
-      const config = strategy.getOAuthConfig('facebook');
-      
-      expect(config).toEqual({
-        clientId: 'facebook-app-id',
-        clientSecret: 'facebook-app-secret',
-        callbackUrl: 'http://localhost:3000/auth/facebook/callback'
-      });
-    });
-
-    it('should retrieve Apple OAuth configuration', () => {
-      const config = strategy.getOAuthConfig('apple');
-      
-      expect(config).toEqual({
-        clientId: 'apple-client-id',
-        clientSecret: 'apple-private-key', // Apple uses private key as secret
-        callbackUrl: 'http://localhost:3000/auth/apple/callback'
-      });
-    });
-
-    it('should throw AppException when configuration is incomplete', () => {
-      // Set incomplete configuration
-      mockConfigService.set('oauth.google.clientId', undefined);
-      
-      expect(() => {
-        strategy.getOAuthConfig('google');
-      }).toThrow(AppException);
-
-      // Verify error was logged
-      const errorLogs = mockLoggerService.getLogsByLevel('error');
-      expect(errorLogs.length).toBe(1);
-      expect(errorLogs[0].message).toContain('Missing OAuth configuration');
+      const normalized = strategy.testNormalizeTokens(tokens);
+      expect(normalized.expiresIn).toBe(7200);
     });
   });
 });

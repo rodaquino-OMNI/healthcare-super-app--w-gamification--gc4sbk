@@ -1,236 +1,283 @@
 /**
- * Utility functions for grouping and organizing array elements.
- * These utilities are essential for data aggregation and organization across all journey services.
+ * Utility functions for grouping array elements by various criteria.
+ * These functions are essential for data aggregation and organization across all journey services,
+ * including organizing health metrics by date, grouping care appointments by provider,
+ * categorizing plan benefits, and segmenting gamification achievements.
  */
 
 /**
- * Groups array elements by a specified key or selector function.
+ * Groups an array of objects by a specified key or selector function.
  * 
- * @template T - The type of elements in the array
- * @template K - The type of the grouping key (must be a valid object property key)
- * @param array - The array to group
- * @param keyOrSelector - The key to group by or a function that returns a grouping key for each item
- * @returns An object where keys are group identifiers and values are arrays of items in that group
- * @throws Error if the array is null or undefined
- * 
+ * @param arr - The array of objects to group
+ * @param keyOrSelector - The property name or selector function to group by
+ * @returns An object with keys derived from the specified property and values as arrays of objects
  * @example
- * // Group users by role
- * const usersByRole = groupBy(users, 'role');
+ * // Group by string key
+ * const users = [{ role: 'admin', name: 'Alice' }, { role: 'user', name: 'Bob' }, { role: 'admin', name: 'Charlie' }];
+ * groupBy(users, 'role'); 
+ * // returns { 'admin': [{ role: 'admin', name: 'Alice' }, { role: 'admin', name: 'Charlie' }], 'user': [{ role: 'user', name: 'Bob' }] }
  * 
- * @example
- * // Group appointments by month using a selector function
- * const appointmentsByMonth = groupBy(appointments, 
- *   appointment => formatDate(appointment.date, 'MM/yyyy')
- * );
+ * // Group by selector function
+ * const metrics = [{ date: '2023-01-01', value: 10 }, { date: '2023-01-02', value: 20 }, { date: '2023-01-01', value: 30 }];
+ * groupBy(metrics, item => item.date.substring(0, 7)); 
+ * // returns { '2023-01': [{ date: '2023-01-01', value: 10 }, { date: '2023-01-02', value: 20 }, { date: '2023-01-01', value: 30 }] }
  */
-export const groupBy = <T, K extends PropertyKey>(
-  array: T[],
-  keyOrSelector: keyof T | ((item: T) => K)
-): Record<string, T[]> => {
-  if (!array) {
-    throw new Error('Cannot group undefined or null array');
+export const groupBy = <T>(arr: T[], keyOrSelector: keyof T | ((item: T) => string | number)): Record<string, T[]> => {
+  if (!Array.isArray(arr)) {
+    throw new Error('Input must be an array');
   }
 
-  return array.reduce((result, item) => {
-    // Determine the key for this item
-    const key = typeof keyOrSelector === 'function'
-      ? (keyOrSelector as (item: T) => K)(item)
-      : item[keyOrSelector as keyof T];
-    
-    // Convert the key to string to ensure it can be used as an object key
-    const keyString = String(key);
-    
-    // Initialize the array for this key if it doesn't exist
-    if (!result[keyString]) {
-      result[keyString] = [];
+  if (keyOrSelector === undefined || keyOrSelector === null) {
+    throw new Error('Key or selector function must be provided');
+  }
+
+  const selector = typeof keyOrSelector === 'function'
+    ? keyOrSelector
+    : (item: T) => {
+        if (item === null || item === undefined) {
+          throw new Error('Cannot access property of null or undefined');
+        }
+        return String((item as any)[keyOrSelector]);
+      };
+
+  return arr.reduce((result: Record<string, T[]>, item: T) => {
+    if (item === null || item === undefined) {
+      return result;
+    }
+
+    try {
+      const key = String(selector(item));
+      
+      if (key === undefined || key === null) {
+        return result;
+      }
+
+      if (!result[key]) {
+        result[key] = [];
+      }
+
+      result[key].push(item);
+    } catch (error) {
+      // Skip items that cause errors in the selector function
+      console.warn('Error in groupBy selector:', error);
     }
     
-    // Add the item to the appropriate group
-    result[keyString].push(item);
-    
     return result;
-  }, {} as Record<string, T[]>);
+  }, {});
 };
 
 /**
  * Partitions an array into two groups based on a predicate function.
  * 
- * @template T - The type of elements in the array
- * @param array - The array to partition
- * @param predicate - A function that determines whether an item passes the condition
- * @returns A tuple containing two arrays: [passing, failing]
- * @throws Error if the array is null or undefined
- * 
+ * @param arr - The array to partition
+ * @param predicate - The function to determine which group an item belongs to
+ * @returns An array containing two arrays: items that pass the predicate and items that fail
  * @example
- * // Partition health metrics into normal and abnormal readings
- * const [normalReadings, abnormalReadings] = partitionBy(
- *   healthMetrics,
- *   metric => metric.value >= metric.minNormal && metric.value <= metric.maxNormal
- * );
+ * const numbers = [1, 2, 3, 4, 5, 6];
+ * partitionBy(numbers, n => n % 2 === 0); 
+ * // returns [[2, 4, 6], [1, 3, 5]]
  * 
- * @example
- * // Partition appointments into past and upcoming
- * const [pastAppointments, upcomingAppointments] = partitionBy(
- *   appointments,
- *   appointment => new Date(appointment.date) < new Date()
- * );
+ * const users = [{ name: 'Alice', active: true }, { name: 'Bob', active: false }, { name: 'Charlie', active: true }];
+ * partitionBy(users, user => user.active); 
+ * // returns [[{ name: 'Alice', active: true }, { name: 'Charlie', active: true }], [{ name: 'Bob', active: false }]]
  */
-export const partitionBy = <T>(
-  array: T[],
-  predicate: (item: T) => boolean
-): [T[], T[]] => {
-  if (!array) {
-    throw new Error('Cannot partition undefined or null array');
+export const partitionBy = <T>(arr: T[], predicate: (item: T) => boolean): [T[], T[]] => {
+  if (!Array.isArray(arr)) {
+    throw new Error('Input must be an array');
   }
 
-  return array.reduce(
-    (result, item) => {
-      // Add the item to either the passing or failing array based on the predicate
-      result[predicate(item) ? 0 : 1].push(item);
+  if (typeof predicate !== 'function') {
+    throw new Error('Predicate must be a function');
+  }
+
+  const passing: T[] = [];
+  const failing: T[] = [];
+
+  for (const item of arr) {
+    try {
+      if (predicate(item)) {
+        passing.push(item);
+      } else {
+        failing.push(item);
+      }
+    } catch (error) {
+      // If predicate throws an error, consider it a failing case
+      failing.push(item);
+      console.warn('Error in partitionBy predicate:', error);
+    }
+  }
+
+  return [passing, failing];
+};
+
+/**
+ * Transforms an array of objects into a lookup object using a specified key or selector function.
+ * Similar to indexBy but with support for selector functions.
+ * 
+ * @param arr - The array of objects to transform
+ * @param keyOrSelector - The property name or selector function to use as the key
+ * @returns An object mapping keys to their corresponding objects
+ * @example
+ * // Key by string property
+ * const users = [{ id: 1, name: 'Alice' }, { id: 2, name: 'Bob' }];
+ * keyBy(users, 'id'); 
+ * // returns { '1': { id: 1, name: 'Alice' }, '2': { id: 2, name: 'Bob' } }
+ * 
+ * // Key by selector function
+ * const appointments = [{ date: '2023-01-01', doctor: 'Smith' }, { date: '2023-01-02', doctor: 'Jones' }];
+ * keyBy(appointments, item => `${item.date}-${item.doctor}`);
+ * // returns { '2023-01-01-Smith': { date: '2023-01-01', doctor: 'Smith' }, '2023-01-02-Jones': { date: '2023-01-02', doctor: 'Jones' } }
+ */
+export const keyBy = <T>(arr: T[], keyOrSelector: keyof T | ((item: T) => string | number)): Record<string, T> => {
+  if (!Array.isArray(arr)) {
+    throw new Error('Input must be an array');
+  }
+
+  if (keyOrSelector === undefined || keyOrSelector === null) {
+    throw new Error('Key or selector function must be provided');
+  }
+
+  const selector = typeof keyOrSelector === 'function'
+    ? keyOrSelector
+    : (item: T) => {
+        if (item === null || item === undefined) {
+          throw new Error('Cannot access property of null or undefined');
+        }
+        return String((item as any)[keyOrSelector]);
+      };
+
+  return arr.reduce((result: Record<string, T>, item: T) => {
+    if (item === null || item === undefined) {
       return result;
-    },
-    [[], []] as [T[], T[]]
-  );
-};
+    }
 
-/**
- * Transforms an array into an object where each item is indexed by the specified key.
- * 
- * @template T - The type of elements in the array
- * @template K - The type of the key (must be a valid object property key)
- * @param array - The array to transform
- * @param keyOrSelector - The key to index by or a function that returns a key for each item
- * @returns An object where keys are derived from each item and values are the items themselves
- * @throws Error if the array is null or undefined or if duplicate keys are found
- * 
- * @example
- * // Create a lookup object for users by ID
- * const usersById = keyBy(users, 'id');
- * 
- * @example
- * // Create a lookup for health metrics by type and date
- * const metricsByTypeAndDate = keyBy(healthMetrics, 
- *   metric => `${metric.type}_${formatDate(metric.date, 'yyyyMMdd')}`
- * );
- */
-export const keyBy = <T, K extends PropertyKey>(
-  array: T[],
-  keyOrSelector: keyof T | ((item: T) => K)
-): Record<string, T> => {
-  if (!array) {
-    throw new Error('Cannot index undefined or null array');
-  }
+    try {
+      const key = String(selector(item));
+      
+      if (key === undefined || key === null) {
+        return result;
+      }
 
-  return array.reduce((result, item) => {
-    // Determine the key for this item
-    const key = typeof keyOrSelector === 'function'
-      ? (keyOrSelector as (item: T) => K)(item)
-      : item[keyOrSelector as keyof T];
-    
-    // Convert the key to string to ensure it can be used as an object key
-    const keyString = String(key);
-    
-    // Check for duplicate keys
-    if (result[keyString] !== undefined) {
-      throw new Error(`Duplicate key "${keyString}" found when creating lookup object`);
+      result[key] = item;
+    } catch (error) {
+      // Skip items that cause errors in the selector function
+      console.warn('Error in keyBy selector:', error);
     }
     
-    // Add the item to the result object
-    result[keyString] = item;
-    
     return result;
-  }, {} as Record<string, T>);
+  }, {});
 };
 
 /**
- * Creates a lookup object from an array with custom key and value selectors.
+ * Groups an array of objects by multiple keys, creating a nested structure.
  * 
- * @template T - The type of elements in the array
- * @template K - The type of the key (must be a valid object property key)
- * @template V - The type of the values in the resulting object
- * @param array - The array to transform
- * @param keySelector - A function that returns a key for each item
- * @param valueSelector - A function that returns a value for each item
- * @returns An object where keys and values are derived from each item
- * @throws Error if the array is null or undefined or if duplicate keys are found
- * 
+ * @param arr - The array of objects to group
+ * @param keys - An array of property names or selector functions to group by, in order of nesting
+ * @returns A nested object structure grouped by the specified keys
  * @example
- * // Create a lookup of user names by ID
- * const userNamesById = indexBy(
- *   users,
- *   user => user.id,
- *   user => user.fullName
- * );
+ * const data = [
+ *   { year: 2023, month: 'Jan', day: 1, value: 10 },
+ *   { year: 2023, month: 'Jan', day: 2, value: 20 },
+ *   { year: 2023, month: 'Feb', day: 1, value: 30 },
+ *   { year: 2024, month: 'Jan', day: 1, value: 40 }
+ * ];
+ * groupByMultiple(data, ['year', 'month']);
+ * // returns {
+ * //   '2023': {
+ * //     'Jan': [{ year: 2023, month: 'Jan', day: 1, value: 10 }, { year: 2023, month: 'Jan', day: 2, value: 20 }],
+ * //     'Feb': [{ year: 2023, month: 'Feb', day: 1, value: 30 }]
+ * //   },
+ * //   '2024': {
+ * //     'Jan': [{ year: 2024, month: 'Jan', day: 1, value: 40 }]
+ * //   }
+ * // }
  */
-export const indexBy = <T, K extends PropertyKey, V>(
-  array: T[],
-  keySelector: (item: T) => K,
-  valueSelector: (item: T) => V
-): Record<string, V> => {
-  if (!array) {
-    throw new Error('Cannot index undefined or null array');
+export const groupByMultiple = <T>(
+  arr: T[], 
+  keys: (keyof T | ((item: T) => string | number))[]
+): Record<string, any> => {
+  if (!Array.isArray(arr)) {
+    throw new Error('Input must be an array');
   }
 
-  return array.reduce((result, item) => {
-    // Determine the key and value for this item
-    const key = keySelector(item);
-    const value = valueSelector(item);
-    
-    // Convert the key to string to ensure it can be used as an object key
-    const keyString = String(key);
-    
-    // Check for duplicate keys
-    if (result[keyString] !== undefined) {
-      throw new Error(`Duplicate key "${keyString}" found when creating lookup object`);
-    }
-    
-    // Add the entry to the result object
-    result[keyString] = value;
-    
-    return result;
-  }, {} as Record<string, V>);
+  if (!Array.isArray(keys) || keys.length === 0) {
+    throw new Error('Keys must be a non-empty array');
+  }
+
+  if (keys.length === 1) {
+    return groupBy(arr, keys[0]);
+  }
+
+  const firstKey = keys[0];
+  const remainingKeys = keys.slice(1);
+  const grouped = groupBy(arr, firstKey);
+
+  // Process each group with the remaining keys
+  Object.keys(grouped).forEach(key => {
+    grouped[key] = groupByMultiple(grouped[key], remainingKeys);
+  });
+
+  return grouped;
 };
 
 /**
- * Counts occurrences of each unique value in an array based on a key or selector function.
+ * Counts occurrences of each unique value in an array, optionally using a key or selector function for objects.
  * 
- * @template T - The type of elements in the array
- * @template K - The type of the grouping key (must be a valid object property key)
- * @param array - The array to analyze
- * @param keyOrSelector - The key to count by or a function that returns a key for each item
- * @returns An object where keys are unique values and values are the counts of occurrences
- * @throws Error if the array is null or undefined
- * 
+ * @param arr - The array to count values in
+ * @param keyOrSelector - Optional property name or selector function for objects
+ * @returns An object mapping unique values to their counts
  * @example
- * // Count appointments by status
- * const appointmentCountsByStatus = countBy(appointments, 'status');
+ * // Count primitive values
+ * countBy([1, 2, 2, 3, 1, 1]); 
+ * // returns { '1': 3, '2': 2, '3': 1 }
  * 
- * @example
- * // Count health metrics by month
- * const metricCountsByMonth = countBy(healthMetrics, 
- *   metric => formatDate(metric.date, 'MM/yyyy')
- * );
+ * // Count by object property
+ * const users = [{ role: 'admin', name: 'Alice' }, { role: 'user', name: 'Bob' }, { role: 'admin', name: 'Charlie' }];
+ * countBy(users, 'role'); 
+ * // returns { 'admin': 2, 'user': 1 }
+ * 
+ * // Count by selector function
+ * const dates = ['2023-01-01', '2023-01-15', '2023-02-01'];
+ * countBy(dates, date => date.substring(0, 7)); 
+ * // returns { '2023-01': 2, '2023-02': 1 }
  */
-export const countBy = <T, K extends PropertyKey>(
-  array: T[],
-  keyOrSelector: keyof T | ((item: T) => K)
+export const countBy = <T>(
+  arr: T[], 
+  keyOrSelector?: keyof T | ((item: T) => string | number)
 ): Record<string, number> => {
-  if (!array) {
-    throw new Error('Cannot count undefined or null array');
+  if (!Array.isArray(arr)) {
+    throw new Error('Input must be an array');
   }
 
-  return array.reduce((result, item) => {
-    // Determine the key for this item
-    const key = typeof keyOrSelector === 'function'
-      ? (keyOrSelector as (item: T) => K)(item)
-      : item[keyOrSelector as keyof T];
-    
-    // Convert the key to string to ensure it can be used as an object key
-    const keyString = String(key);
-    
-    // Initialize or increment the count for this key
-    result[keyString] = (result[keyString] || 0) + 1;
+  const selector = keyOrSelector
+    ? (typeof keyOrSelector === 'function'
+      ? keyOrSelector
+      : (item: T) => {
+          if (item === null || item === undefined) {
+            throw new Error('Cannot access property of null or undefined');
+          }
+          return String((item as any)[keyOrSelector]);
+        })
+    : (item: T) => String(item);
+
+  return arr.reduce((result: Record<string, number>, item: T) => {
+    if (item === null || item === undefined) {
+      return result;
+    }
+
+    try {
+      const key = String(selector(item));
+      
+      if (key === undefined || key === null) {
+        return result;
+      }
+
+      result[key] = (result[key] || 0) + 1;
+    } catch (error) {
+      // Skip items that cause errors in the selector function
+      console.warn('Error in countBy selector:', error);
+    }
     
     return result;
-  }, {} as Record<string, number>);
+  }, {});
 };

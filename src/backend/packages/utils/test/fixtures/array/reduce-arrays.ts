@@ -1,490 +1,274 @@
 /**
- * Test fixtures for array reduction utility functions.
- * These fixtures provide standardized test cases for array reduction operations
- * including sum, average, grouping, and other aggregation patterns.
+ * Test fixtures for array reduction operations.
+ * These fixtures provide standardized test data for array utility functions
+ * that perform reduction operations (sum, average, grouping, etc.).
  */
 
 /**
- * Interface for numeric reduction test fixtures
+ * Simple numeric arrays with known reduction values
  */
-export interface NumericReductionFixture {
-  /** Description of the test case */
-  description: string;
-  /** Input array to be reduced */
-  input: number[];
-  /** Expected output after reduction */
-  expected: number;
-  /** Initial value for the reduction (if applicable) */
-  initialValue?: number;
-  /** Whether this is an edge case */
-  isEdgeCase?: boolean;
-}
+export const numericArrays = {
+  /**
+   * Empty array for edge case testing
+   */
+  empty: {
+    input: [],
+    sum: 0,
+    average: 0,
+    min: undefined,
+    max: undefined,
+    count: 0,
+  },
+
+  /**
+   * Simple positive integers
+   */
+  simple: {
+    input: [1, 2, 3, 4, 5],
+    sum: 15,
+    average: 3,
+    min: 1,
+    max: 5,
+    count: 5,
+  },
+
+  /**
+   * Array with negative numbers
+   */
+  withNegatives: {
+    input: [-5, -2, 0, 3, 8],
+    sum: 4,
+    average: 0.8,
+    min: -5,
+    max: 8,
+    count: 5,
+  },
+
+  /**
+   * Array with decimal numbers
+   */
+  withDecimals: {
+    input: [1.5, 2.25, 3.75, 4.5],
+    sum: 12,
+    average: 3,
+    min: 1.5,
+    max: 4.5,
+    count: 4,
+  },
+
+  /**
+   * Large array for performance testing
+   */
+  large: {
+    input: Array.from({ length: 1000 }, (_, i) => i + 1),
+    sum: 500500, // Sum of numbers 1 to 1000
+    average: 500.5,
+    min: 1,
+    max: 1000,
+    count: 1000,
+  },
+};
 
 /**
- * Interface for object reduction test fixtures that produce a single value
+ * Interface for user objects in test fixtures
  */
-export interface ObjectReductionFixture<T, R> {
-  /** Description of the test case */
-  description: string;
-  /** Input array of objects to be reduced */
-  input: T[];
-  /** Expected output after reduction */
-  expected: R;
-  /** Initial value for the reduction (if applicable) */
-  initialValue?: R;
-  /** Whether this is an edge case */
-  isEdgeCase?: boolean;
-}
-
-/**
- * Interface for map reduction test fixtures
- */
-export interface MapReductionFixture<T> {
-  /** Description of the test case */
-  description: string;
-  /** Input array of objects to be reduced to a map */
-  input: T[];
-  /** Expected output map after reduction */
-  expected: Record<string, any>;
-  /** Initial value for the reduction (if applicable) */
-  initialValue?: Record<string, any>;
-  /** Whether this is an edge case */
-  isEdgeCase?: boolean;
-}
-
-/**
- * Simple object interface for testing object array reductions
- */
-export interface TestObject {
+export interface TestUser {
   id: number;
   name: string;
-  value: number;
-  category: string;
+  age: number;
+  role: string;
+  active: boolean;
 }
 
 /**
- * Test fixtures for numeric sum reduction
+ * Object arrays that can be reduced to maps or aggregated values
  */
-export const sumReductionFixtures: NumericReductionFixture[] = [
-  // Normal cases
-  {
-    description: 'Sums an array of positive integers',
+export const objectArrays = {
+  /**
+   * Empty array for edge case testing
+   */
+  empty: {
+    input: [] as TestUser[],
+    countByRole: {},
+    sumAgeByRole: {},
+    activeUserIds: [],
+    inactiveUserIds: [],
+  },
+
+  /**
+   * Array of user objects with various properties
+   */
+  users: {
+    input: [
+      { id: 1, name: 'Alice', age: 28, role: 'admin', active: true },
+      { id: 2, name: 'Bob', age: 35, role: 'user', active: true },
+      { id: 3, name: 'Charlie', age: 42, role: 'admin', active: false },
+      { id: 4, name: 'Diana', age: 31, role: 'user', active: true },
+      { id: 5, name: 'Eve', age: 25, role: 'user', active: false },
+    ] as TestUser[],
+    
+    // Expected results for various reductions
+    countByRole: { admin: 2, user: 3 },
+    sumAgeByRole: { admin: 70, user: 91 },
+    avgAgeByRole: { admin: 35, user: 30.33 },
+    activeUserIds: [1, 2, 4],
+    inactiveUserIds: [3, 5],
+    userMap: {
+      1: { id: 1, name: 'Alice', age: 28, role: 'admin', active: true },
+      2: { id: 2, name: 'Bob', age: 35, role: 'user', active: true },
+      3: { id: 3, name: 'Charlie', age: 42, role: 'admin', active: false },
+      4: { id: 4, name: 'Diana', age: 31, role: 'user', active: true },
+      5: { id: 5, name: 'Eve', age: 25, role: 'user', active: false },
+    },
+    oldestByRole: {
+      admin: { id: 3, name: 'Charlie', age: 42, role: 'admin', active: false },
+      user: { id: 2, name: 'Bob', age: 35, role: 'user', active: true },
+    },
+    youngestByRole: {
+      admin: { id: 1, name: 'Alice', age: 28, role: 'admin', active: true },
+      user: { id: 5, name: 'Eve', age: 25, role: 'user', active: false },
+    },
+  },
+};
+
+/**
+ * Interface for product objects in test fixtures
+ */
+export interface TestProduct {
+  id: string;
+  name: string;
+  category: string;
+  price: number;
+  stock: number;
+}
+
+/**
+ * Product data for testing category-based reductions
+ */
+export const productArrays = {
+  /**
+   * Array of product objects with various properties
+   */
+  products: {
+    input: [
+      { id: 'p1', name: 'Laptop', category: 'electronics', price: 1200, stock: 10 },
+      { id: 'p2', name: 'Smartphone', category: 'electronics', price: 800, stock: 15 },
+      { id: 'p3', name: 'Headphones', category: 'electronics', price: 200, stock: 30 },
+      { id: 'p4', name: 'T-shirt', category: 'clothing', price: 25, stock: 100 },
+      { id: 'p5', name: 'Jeans', category: 'clothing', price: 60, stock: 45 },
+      { id: 'p6', name: 'Book', category: 'books', price: 15, stock: 50 },
+      { id: 'p7', name: 'Magazine', category: 'books', price: 8, stock: 75 },
+    ] as TestProduct[],
+    
+    // Expected results for various reductions
+    countByCategory: { electronics: 3, clothing: 2, books: 2 },
+    totalValueByCategory: { electronics: 2200, clothing: 85, books: 23 },
+    avgPriceByCategory: { electronics: 733.33, clothing: 42.5, books: 11.5 },
+    totalStockByCategory: { electronics: 55, clothing: 145, books: 125 },
+    productMap: {
+      p1: { id: 'p1', name: 'Laptop', category: 'electronics', price: 1200, stock: 10 },
+      p2: { id: 'p2', name: 'Smartphone', category: 'electronics', price: 800, stock: 15 },
+      p3: { id: 'p3', name: 'Headphones', category: 'electronics', price: 200, stock: 30 },
+      p4: { id: 'p4', name: 'T-shirt', category: 'clothing', price: 25, stock: 100 },
+      p5: { id: 'p5', name: 'Jeans', category: 'clothing', price: 60, stock: 45 },
+      p6: { id: 'p6', name: 'Book', category: 'books', price: 15, stock: 50 },
+      p7: { id: 'p7', name: 'Magazine', category: 'books', price: 8, stock: 75 },
+    },
+    mostExpensiveByCategory: {
+      electronics: { id: 'p1', name: 'Laptop', category: 'electronics', price: 1200, stock: 10 },
+      clothing: { id: 'p5', name: 'Jeans', category: 'clothing', price: 60, stock: 45 },
+      books: { id: 'p6', name: 'Book', category: 'books', price: 15, stock: 50 },
+    },
+  },
+};
+
+/**
+ * Fixtures with initial values for testing complex reduction operations
+ */
+export const complexReductions = {
+  /**
+   * Reduction with initial value (calculating factorial)
+   */
+  factorial: {
+    input: [1, 2, 3, 4, 5],
+    initialValue: 1,
+    expected: 120, // 1 * 1 * 2 * 3 * 4 * 5
+  },
+
+  /**
+   * Building a frequency map from an array of values
+   */
+  frequencyMap: {
+    input: ['apple', 'banana', 'apple', 'orange', 'banana', 'apple'],
+    initialValue: {} as Record<string, number>,
+    expected: { apple: 3, banana: 2, orange: 1 },
+  },
+
+  /**
+   * Transforming an array of strings to a single concatenated string
+   */
+  stringConcat: {
+    input: ['Hello', ' ', 'world', '!'],
+    initialValue: '',
+    expected: 'Hello world!',
+  },
+
+  /**
+   * Filtering and mapping in a single reduce operation
+   */
+  filterAndMap: {
+    input: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+    initialValue: [] as number[],
+    // Expected result: squares of even numbers
+    expected: [4, 16, 36, 64, 100],
+  },
+
+  /**
+   * Nested object reduction (building a nested structure)
+   */
+  nestedObjectReduction: {
+    input: [
+      { category: 'fruit', name: 'apple', count: 5 },
+      { category: 'vegetable', name: 'carrot', count: 10 },
+      { category: 'fruit', name: 'banana', count: 3 },
+      { category: 'vegetable', name: 'potato', count: 7 },
+      { category: 'fruit', name: 'orange', count: 4 },
+    ],
+    initialValue: {} as Record<string, { totalCount: number, items: string[] }>,
+    expected: {
+      fruit: { totalCount: 12, items: ['apple', 'banana', 'orange'] },
+      vegetable: { totalCount: 17, items: ['carrot', 'potato'] },
+    },
+  },
+
+  /**
+   * Pagination reduction (chunking an array into pages)
+   */
+  pagination: {
+    input: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+    pageSize: 3,
+    initialValue: [] as number[][],
+    expected: [[1, 2, 3], [4, 5, 6], [7, 8, 9], [10]],
+  },
+};
+
+/**
+ * Fixtures for testing array reduction with async operations
+ */
+export const asyncReductions = {
+  /**
+   * Simple array for testing async sum
+   */
+  asyncSum: {
     input: [1, 2, 3, 4, 5],
     expected: 15,
   },
-  {
-    description: 'Sums an array with negative numbers',
-    input: [1, -2, 3, -4, 5],
-    expected: 3,
-  },
-  {
-    description: 'Sums an array of decimals',
-    input: [1.1, 2.2, 3.3, 4.4, 5.5],
-    expected: 16.5,
-  },
-  {
-    description: 'Sums with initial value',
-    input: [1, 2, 3, 4, 5],
-    initialValue: 10,
-    expected: 25,
-  },
-  
-  // Edge cases
-  {
-    description: 'Sums an empty array (should return 0 or initial value)',
-    input: [],
-    expected: 0,
-    isEdgeCase: true,
-  },
-  {
-    description: 'Sums an empty array with initial value',
-    input: [],
-    initialValue: 10,
-    expected: 10,
-    isEdgeCase: true,
-  },
-  {
-    description: 'Sums an array with a single element',
-    input: [42],
-    expected: 42,
-    isEdgeCase: true,
-  },
-  {
-    description: 'Handles array with NaN values',
-    input: [1, 2, NaN, 4, 5],
-    expected: NaN,
-    isEdgeCase: true,
-  },
-];
 
-/**
- * Test fixtures for numeric average reduction
- */
-export const averageReductionFixtures: NumericReductionFixture[] = [
-  // Normal cases
-  {
-    description: 'Calculates average of positive integers',
-    input: [10, 20, 30, 40, 50],
-    expected: 30,
+  /**
+   * Array for testing async sequential processing
+   */
+  asyncSequential: {
+    input: ['a', 'b', 'c', 'd'],
+    expected: 'a->b->c->d',
   },
-  {
-    description: 'Calculates average with negative numbers',
-    input: [10, -10, 20, -20, 30],
-    expected: 6,
-  },
-  {
-    description: 'Calculates average of decimals',
-    input: [1.5, 2.5, 3.5, 4.5, 5.5],
-    expected: 3.5,
-  },
-  
-  // Edge cases
-  {
-    description: 'Calculates average of empty array (should return 0 or handle specially)',
-    input: [],
-    expected: 0,
-    isEdgeCase: true,
-  },
-  {
-    description: 'Calculates average of single element array',
-    input: [42],
-    expected: 42,
-    isEdgeCase: true,
-  },
-  {
-    description: 'Handles array with NaN values in average calculation',
-    input: [10, 20, NaN, 40, 50],
-    expected: NaN,
-    isEdgeCase: true,
-  },
-];
-
-/**
- * Test fixtures for finding maximum value
- */
-export const maxReductionFixtures: NumericReductionFixture[] = [
-  // Normal cases
-  {
-    description: 'Finds maximum in array of positive integers',
-    input: [1, 5, 3, 9, 2],
-    expected: 9,
-  },
-  {
-    description: 'Finds maximum in array with negative numbers',
-    input: [-10, -5, -20, -1, -7],
-    expected: -1,
-  },
-  {
-    description: 'Finds maximum in mixed positive/negative array',
-    input: [-10, 5, -20, 1, -7],
-    expected: 5,
-  },
-  
-  // Edge cases
-  {
-    description: 'Finds maximum in empty array with initial value',
-    input: [],
-    initialValue: -Infinity,
-    expected: -Infinity,
-    isEdgeCase: true,
-  },
-  {
-    description: 'Finds maximum in single element array',
-    input: [42],
-    expected: 42,
-    isEdgeCase: true,
-  },
-];
-
-/**
- * Test fixtures for finding minimum value
- */
-export const minReductionFixtures: NumericReductionFixture[] = [
-  // Normal cases
-  {
-    description: 'Finds minimum in array of positive integers',
-    input: [5, 3, 9, 1, 7],
-    expected: 1,
-  },
-  {
-    description: 'Finds minimum in array with negative numbers',
-    input: [-10, -5, -20, -1, -7],
-    expected: -20,
-  },
-  {
-    description: 'Finds minimum in mixed positive/negative array',
-    input: [-10, 5, -20, 1, -7],
-    expected: -20,
-  },
-  
-  // Edge cases
-  {
-    description: 'Finds minimum in empty array with initial value',
-    input: [],
-    initialValue: Infinity,
-    expected: Infinity,
-    isEdgeCase: true,
-  },
-  {
-    description: 'Finds minimum in single element array',
-    input: [42],
-    expected: 42,
-    isEdgeCase: true,
-  },
-];
-
-/**
- * Test fixtures for object sum reduction
- */
-export const objectSumReductionFixtures: ObjectReductionFixture<TestObject, number>[] = [
-  // Normal cases
-  {
-    description: 'Sums the "value" property of objects',
-    input: [
-      { id: 1, name: 'Item 1', value: 10, category: 'A' },
-      { id: 2, name: 'Item 2', value: 20, category: 'B' },
-      { id: 3, name: 'Item 3', value: 30, category: 'A' },
-      { id: 4, name: 'Item 4', value: 40, category: 'C' },
-      { id: 5, name: 'Item 5', value: 50, category: 'B' },
-    ],
-    expected: 150,
-  },
-  {
-    description: 'Sums the "value" property with initial value',
-    input: [
-      { id: 1, name: 'Item 1', value: 10, category: 'A' },
-      { id: 2, name: 'Item 2', value: 20, category: 'B' },
-      { id: 3, name: 'Item 3', value: 30, category: 'A' },
-    ],
-    initialValue: 100,
-    expected: 160,
-  },
-  
-  // Edge cases
-  {
-    description: 'Sums empty object array with initial value',
-    input: [],
-    initialValue: 50,
-    expected: 50,
-    isEdgeCase: true,
-  },
-  {
-    description: 'Sums object array with a single element',
-    input: [{ id: 1, name: 'Item 1', value: 42, category: 'A' }],
-    expected: 42,
-    isEdgeCase: true,
-  },
-];
-
-/**
- * Test fixtures for object to map reduction (grouping by property)
- */
-export const groupByReductionFixtures: MapReductionFixture<TestObject>[] = [
-  // Normal cases
-  {
-    description: 'Groups objects by category',
-    input: [
-      { id: 1, name: 'Item 1', value: 10, category: 'A' },
-      { id: 2, name: 'Item 2', value: 20, category: 'B' },
-      { id: 3, name: 'Item 3', value: 30, category: 'A' },
-      { id: 4, name: 'Item 4', value: 40, category: 'C' },
-      { id: 5, name: 'Item 5', value: 50, category: 'B' },
-    ],
-    expected: {
-      'A': [
-        { id: 1, name: 'Item 1', value: 10, category: 'A' },
-        { id: 3, name: 'Item 3', value: 30, category: 'A' },
-      ],
-      'B': [
-        { id: 2, name: 'Item 2', value: 20, category: 'B' },
-        { id: 5, name: 'Item 5', value: 50, category: 'B' },
-      ],
-      'C': [
-        { id: 4, name: 'Item 4', value: 40, category: 'C' },
-      ],
-    },
-  },
-  {
-    description: 'Groups objects by category with initial value',
-    input: [
-      { id: 1, name: 'Item 1', value: 10, category: 'A' },
-      { id: 2, name: 'Item 2', value: 20, category: 'B' },
-    ],
-    initialValue: {
-      'C': [{ id: 3, name: 'Initial Item', value: 30, category: 'C' }],
-    },
-    expected: {
-      'A': [
-        { id: 1, name: 'Item 1', value: 10, category: 'A' },
-      ],
-      'B': [
-        { id: 2, name: 'Item 2', value: 20, category: 'B' },
-      ],
-      'C': [
-        { id: 3, name: 'Initial Item', value: 30, category: 'C' },
-      ],
-    },
-  },
-  
-  // Edge cases
-  {
-    description: 'Groups empty object array',
-    input: [],
-    expected: {},
-    isEdgeCase: true,
-  },
-  {
-    description: 'Groups empty object array with initial value',
-    input: [],
-    initialValue: { 'A': [{ id: 1, name: 'Initial', value: 10, category: 'A' }] },
-    expected: { 'A': [{ id: 1, name: 'Initial', value: 10, category: 'A' }] },
-    isEdgeCase: true,
-  },
-];
-
-/**
- * Test fixtures for object to map reduction (aggregating by property)
- */
-export const aggregateByReductionFixtures: MapReductionFixture<TestObject>[] = [
-  // Normal cases
-  {
-    description: 'Aggregates sum of values by category',
-    input: [
-      { id: 1, name: 'Item 1', value: 10, category: 'A' },
-      { id: 2, name: 'Item 2', value: 20, category: 'B' },
-      { id: 3, name: 'Item 3', value: 30, category: 'A' },
-      { id: 4, name: 'Item 4', value: 40, category: 'C' },
-      { id: 5, name: 'Item 5', value: 50, category: 'B' },
-    ],
-    expected: {
-      'A': 40,  // 10 + 30
-      'B': 70,  // 20 + 50
-      'C': 40,  // 40
-    },
-  },
-  {
-    description: 'Aggregates sum of values by category with initial value',
-    input: [
-      { id: 1, name: 'Item 1', value: 10, category: 'A' },
-      { id: 2, name: 'Item 2', value: 20, category: 'B' },
-    ],
-    initialValue: {
-      'A': 100,
-      'C': 200,
-    },
-    expected: {
-      'A': 110,  // 100 + 10
-      'B': 20,   // 20
-      'C': 200,  // 200 (unchanged)
-    },
-  },
-  
-  // Edge cases
-  {
-    description: 'Aggregates empty object array',
-    input: [],
-    expected: {},
-    isEdgeCase: true,
-  },
-  {
-    description: 'Aggregates empty object array with initial value',
-    input: [],
-    initialValue: { 'A': 100, 'B': 200 },
-    expected: { 'A': 100, 'B': 200 },
-    isEdgeCase: true,
-  },
-];
-
-/**
- * Test fixtures for complex reduction with multiple operations
- */
-export const complexReductionFixtures: ObjectReductionFixture<TestObject, any>[] = [
-  // Normal cases
-  {
-    description: 'Calculates statistics (count, sum, avg, min, max) for each category',
-    input: [
-      { id: 1, name: 'Item 1', value: 10, category: 'A' },
-      { id: 2, name: 'Item 2', value: 20, category: 'B' },
-      { id: 3, name: 'Item 3', value: 30, category: 'A' },
-      { id: 4, name: 'Item 4', value: 40, category: 'C' },
-      { id: 5, name: 'Item 5', value: 50, category: 'B' },
-      { id: 6, name: 'Item 6', value: 60, category: 'A' },
-    ],
-    expected: {
-      'A': { count: 3, sum: 100, avg: 33.33, min: 10, max: 60 },
-      'B': { count: 2, sum: 70, avg: 35, min: 20, max: 50 },
-      'C': { count: 1, sum: 40, avg: 40, min: 40, max: 40 },
-    },
-  },
-  {
-    description: 'Builds a hierarchical structure from flat data',
-    input: [
-      { id: 1, name: 'Item 1', value: 10, category: 'A' },
-      { id: 2, name: 'Item 2', value: 20, category: 'B' },
-      { id: 3, name: 'Item 3', value: 30, category: 'A' },
-    ],
-    expected: {
-      categories: ['A', 'B'],
-      items: {
-        'A': [
-          { id: 1, name: 'Item 1', value: 10 },
-          { id: 3, name: 'Item 3', value: 30 },
-        ],
-        'B': [
-          { id: 2, name: 'Item 2', value: 20 },
-        ],
-      },
-      totals: {
-        'A': 40,
-        'B': 20,
-      },
-    },
-  },
-  
-  // Edge cases
-  {
-    description: 'Handles empty array for complex reduction',
-    input: [],
-    expected: { categories: [], items: {}, totals: {} },
-    isEdgeCase: true,
-  },
-];
-
-/**
- * Test fixtures for string concatenation reduction
- */
-export const stringConcatReductionFixtures: ObjectReductionFixture<string, string>[] = [
-  // Normal cases
-  {
-    description: 'Concatenates an array of strings',
-    input: ['Hello', ' ', 'world', '!'],
-    expected: 'Hello world!',
-  },
-  {
-    description: 'Concatenates with initial value',
-    input: ['world', '!'],
-    initialValue: 'Hello ',
-    expected: 'Hello world!',
-  },
-  
-  // Edge cases
-  {
-    description: 'Concatenates empty array',
-    input: [],
-    expected: '',
-    isEdgeCase: true,
-  },
-  {
-    description: 'Concatenates empty array with initial value',
-    input: [],
-    initialValue: 'Initial ',
-    expected: 'Initial ',
-    isEdgeCase: true,
-  },
-  {
-    description: 'Concatenates array with empty strings',
-    input: ['', '', ''],
-    expected: '',
-    isEdgeCase: true,
-  },
-];
+};

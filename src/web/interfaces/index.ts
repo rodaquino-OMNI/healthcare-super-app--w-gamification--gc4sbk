@@ -19,106 +19,35 @@
  * import { AuthSession } from '@austa/interfaces/auth';
  */
 
-// Re-export all journey-specific interfaces
-
-/**
- * Health Journey interfaces
- * 
- * Includes interfaces for health metrics, medical events, health goals,
- * and device connections used in the Health Journey.
- */
+// Re-export journey-specific interfaces
 export * as Health from './health';
-
-/**
- * Care Journey interfaces
- * 
- * Includes interfaces for appointments, medications, telemedicine sessions,
- * providers, and treatment plans used in the Care Journey.
- */
 export * as Care from './care';
-
-/**
- * Plan Journey interfaces
- * 
- * Includes interfaces for insurance plans, claims, coverage, benefits,
- * and documents used in the Plan Journey.
- */
 export * as Plan from './plan';
 
-/**
- * Gamification interfaces
- * 
- * Includes interfaces for achievements, quests, rewards, profiles, events,
- * leaderboards, XP, and rules used in the gamification system.
- */
-export * as Gamification from './gamification';
-
-/**
- * Authentication interfaces
- * 
- * Includes interfaces for authentication sessions, state, tokens, users,
- * and API responses used in the authentication system.
- */
+// Re-export cross-cutting concerns
 export * as Auth from './auth';
-
-/**
- * Notification interfaces
- * 
- * Includes interfaces for notifications, preferences, templates, and
- * notification data used in the notification system.
- */
+export * as Gamification from './gamification';
 export * as Notification from './notification';
 
-/**
- * Common utility interfaces
- * 
- * Includes common interfaces for models, errors, validation, responses,
- * and utility types used across all domains.
- */
+// Re-export shared interfaces
 export * as Common from './common';
-
-/**
- * Component interfaces
- * 
- * Includes interfaces for UI components, including primitives, core components,
- * and journey-specific components used in the design system.
- */
-export * as Components from './components';
-
-/**
- * Theme interfaces
- * 
- * Includes interfaces for themes, tokens, style props, and journey-specific
- * theme variations used in the design system.
- */
 export * as Themes from './themes';
-
-/**
- * API interfaces
- * 
- * Includes interfaces for API requests, responses, GraphQL operations,
- * REST endpoints, and WebSocket events used in API communication.
- */
+export * as Components from './components';
 export * as API from './api';
 
-/**
- * Next.js interfaces
- * 
- * Includes interfaces for Next.js pages, API routes, middleware, and
- * server-side rendering used in the web application.
- */
+// Re-export Next.js specific interfaces
 export * as Next from './next';
 
-// Direct re-exports for backward compatibility and convenience
+// Direct exports of commonly used types for backward compatibility
 
-// Auth interfaces
-export { AuthSession, AuthState } from './auth';
+// Auth types
+export type { AuthSession, AuthState } from './auth';
 
-// Health interfaces
+// Health Journey types
 export { HealthMetricType } from './health';
 export type { HealthMetric, MedicalEvent, HealthGoal, DeviceConnection } from './health';
 
-// Care interfaces
+// Care Journey types
 export type { 
   Appointment, 
   Medication, 
@@ -126,7 +55,7 @@ export type {
   TreatmentPlan 
 } from './care';
 
-// Plan interfaces
+// Plan Journey types
 export type { 
   ClaimStatus, 
   ClaimType, 
@@ -138,7 +67,7 @@ export type {
   Benefit 
 } from './plan';
 
-// Gamification interfaces
+// Gamification types
 export type { 
   Achievement, 
   Quest, 
@@ -146,7 +75,7 @@ export type {
   GameProfile 
 } from './gamification';
 
-// Notification interfaces
+// Notification types
 export { 
   NotificationType, 
   NotificationChannel, 
@@ -168,20 +97,45 @@ export type {
   ClaimStatusUpdateData 
 } from './notification';
 
-// Add TypeScript module augmentation for global types
+/**
+ * Type declaration to support module augmentation
+ * This allows consumers to extend interfaces in a type-safe way
+ */
 declare global {
-  /**
-   * AUSTA SuperApp namespace for global type augmentation
-   */
-  namespace AUSTA {
-    /**
-     * Journey types for the AUSTA SuperApp
-     */
-    type JourneyType = 'health' | 'care' | 'plan';
-
-    /**
-     * Platform types for the AUSTA SuperApp
-     */
-    type PlatformType = 'web' | 'mobile';
+  namespace AustaInterfaces {
+    // Journey namespaces
+    export import Health = Interfaces.Health;
+    export import Care = Interfaces.Care;
+    export import Plan = Interfaces.Plan;
+    
+    // Cross-cutting namespaces
+    export import Auth = Interfaces.Auth;
+    export import Gamification = Interfaces.Gamification;
+    export import Notification = Interfaces.Notification;
+    
+    // Shared namespaces
+    export import Common = Interfaces.Common;
+    export import Themes = Interfaces.Themes;
+    export import Components = Interfaces.Components;
+    export import API = Interfaces.API;
+    export import Next = Interfaces.Next;
   }
 }
+
+// Self-reference for namespace support
+import * as Interfaces from '.';
+
+// Default export for ESM compatibility
+export default {
+  Health,
+  Care,
+  Plan,
+  Auth,
+  Gamification,
+  Notification,
+  Common,
+  Themes,
+  Components,
+  API,
+  Next
+};

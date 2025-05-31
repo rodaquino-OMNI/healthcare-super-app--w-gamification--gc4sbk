@@ -1,326 +1,221 @@
-import { chunk, chunkBySize, chunkByPredicate, chunkByKey, chunkForParallel } from '../../../src/array/chunk.util';
+import { chunk, chunkBySize, chunkByPredicate } from '../../../src/array/chunk.util';
 
 describe('Array Chunking Utilities', () => {
-  describe('chunk', () => {
+  describe('chunk()', () => {
     it('should split an array into chunks of specified size', () => {
-      const input = [1, 2, 3, 4, 5, 6, 7, 8];
-      const result = chunk(input, 3);
-      expect(result).toEqual([[1, 2, 3], [4, 5, 6], [7, 8]]);
+      const array = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+      const result = chunk(array, 3);
+      
+      expect(result).toEqual([[1, 2, 3], [4, 5, 6], [7, 8, 9], [10]]);
     });
 
-    it('should handle arrays with length divisible by chunk size', () => {
-      const input = [1, 2, 3, 4, 5, 6];
-      const result = chunk(input, 2);
-      expect(result).toEqual([[1, 2], [3, 4], [5, 6]]);
+    it('should return the original array as a single chunk when size is greater than array length', () => {
+      const array = [1, 2, 3];
+      const result = chunk(array, 5);
+      
+      expect(result).toEqual([[1, 2, 3]]);
     });
 
     it('should handle empty arrays', () => {
-      const result = chunk([], 3);
+      const array: number[] = [];
+      const result = chunk(array, 3);
+      
       expect(result).toEqual([]);
     });
 
-    it('should handle single-element arrays', () => {
-      const result = chunk([1], 3);
+    it('should throw an error when size is less than or equal to 0', () => {
+      const array = [1, 2, 3, 4, 5];
+      
+      expect(() => chunk(array, 0)).toThrow('Chunk size must be greater than 0');
+      expect(() => chunk(array, -1)).toThrow('Chunk size must be greater than 0');
+    });
+
+    it('should handle arrays with a single element', () => {
+      const array = [1];
+      const result = chunk(array, 1);
+      
       expect(result).toEqual([[1]]);
     });
 
-    it('should throw an error if size is less than or equal to 0', () => {
-      expect(() => chunk([1, 2, 3], 0)).toThrow('Chunk size must be greater than 0');
-      expect(() => chunk([1, 2, 3], -1)).toThrow('Chunk size must be greater than 0');
-    });
-
-    it('should throw an error if input is not an array', () => {
-      // @ts-expect-error: Testing invalid input
-      expect(() => chunk('not an array', 2)).toThrow('Input must be an array');
+    it('should preserve the original array', () => {
+      const array = [1, 2, 3, 4, 5];
+      const originalArray = [...array];
+      chunk(array, 2);
+      
+      expect(array).toEqual(originalArray);
     });
   });
 
-  describe('chunkBySize', () => {
-    it('should split an array into specified number of chunks', () => {
-      const input = [1, 2, 3, 4, 5, 6, 7];
-      const result = chunkBySize(input, 3);
+  describe('chunkBySize()', () => {
+    it('should divide an array into a specified number of chunks', () => {
+      const array = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+      const result = chunkBySize(array, 3);
+      
+      // Should divide into 3 chunks of roughly equal size
+      expect(result).toEqual([[1, 2, 3, 4], [5, 6, 7], [8, 9, 10]]);
+    });
+
+    it('should handle when count is greater than array length', () => {
+      const array = [1, 2, 3];
+      const result = chunkBySize(array, 5);
+      
+      // Should create chunks with at most one element each
+      expect(result).toEqual([[1], [2], [3], [], []]);
+    });
+
+    it('should handle empty arrays', () => {
+      const array: number[] = [];
+      const result = chunkBySize(array, 3);
+      
+      expect(result).toEqual([[], [], []]);
+    });
+
+    it('should throw an error when count is less than or equal to 0', () => {
+      const array = [1, 2, 3, 4, 5];
+      
+      expect(() => chunkBySize(array, 0)).toThrow('Chunk count must be greater than 0');
+      expect(() => chunkBySize(array, -1)).toThrow('Chunk count must be greater than 0');
+    });
+
+    it('should handle arrays with a single element', () => {
+      const array = [1];
+      const result = chunkBySize(array, 1);
+      
+      expect(result).toEqual([[1]]);
+    });
+
+    it('should preserve the original array', () => {
+      const array = [1, 2, 3, 4, 5];
+      const originalArray = [...array];
+      chunkBySize(array, 2);
+      
+      expect(array).toEqual(originalArray);
+    });
+
+    it('should distribute elements as evenly as possible', () => {
+      const array = [1, 2, 3, 4, 5, 6, 7];
+      const result = chunkBySize(array, 3);
+      
+      // First chunks should have more elements if distribution is uneven
       expect(result).toEqual([[1, 2, 3], [4, 5], [6, 7]]);
-    });
-
-    it('should handle arrays with length divisible by number of chunks', () => {
-      const input = [1, 2, 3, 4, 5, 6];
-      const result = chunkBySize(input, 3);
-      expect(result).toEqual([[1, 2], [3, 4], [5, 6]]);
-    });
-
-    it('should handle empty arrays', () => {
-      const result = chunkBySize([], 3);
-      expect(result).toEqual([]);
-    });
-
-    it('should handle single-element arrays', () => {
-      const result = chunkBySize([1], 3);
-      expect(result).toEqual([[1]]);
-    });
-
-    it('should limit number of chunks to array length', () => {
-      const input = [1, 2, 3];
-      const result = chunkBySize(input, 5);
-      expect(result).toEqual([[1], [2], [3]]);
-    });
-
-    it('should throw an error if numChunks is less than or equal to 0', () => {
-      expect(() => chunkBySize([1, 2, 3], 0)).toThrow('Number of chunks must be greater than 0');
-      expect(() => chunkBySize([1, 2, 3], -1)).toThrow('Number of chunks must be greater than 0');
-    });
-
-    it('should throw an error if input is not an array', () => {
-      // @ts-expect-error: Testing invalid input
-      expect(() => chunkBySize('not an array', 2)).toThrow('Input must be an array');
+      
+      // Check that the difference between chunk sizes is at most 1
+      const sizes = result.map(chunk => chunk.length);
+      const maxSize = Math.max(...sizes);
+      const minSize = Math.min(...sizes);
+      
+      expect(maxSize - minSize).toBeLessThanOrEqual(1);
     });
   });
 
-  describe('chunkByPredicate', () => {
-    it('should split an array based on a predicate function', () => {
-      const input = [1, 2, 3, 4, 5];
-      const result = chunkByPredicate(input, n => n % 2 === 0);
-      expect(result).toEqual([[1, 3, 5], [2, 4]]);
+  describe('chunkByPredicate()', () => {
+    it('should chunk array based on element equality', () => {
+      const array = [1, 1, 2, 3, 3, 3, 4, 5, 5];
+      const result = chunkByPredicate(array, (a, b) => a === b);
+      
+      expect(result).toEqual([[1, 1], [2], [3, 3, 3], [4], [5, 5]]);
     });
 
-    it('should handle arrays where all elements satisfy the predicate', () => {
-      const input = [2, 4, 6, 8];
-      const result = chunkByPredicate(input, n => n % 2 === 0);
-      expect(result).toEqual([[2, 4, 6, 8]]);
-    });
-
-    it('should handle arrays where no elements satisfy the predicate', () => {
-      const input = [1, 3, 5, 7];
-      const result = chunkByPredicate(input, n => n % 2 === 0);
-      expect(result).toEqual([[1, 3, 5, 7]]);
+    it('should chunk array based on custom predicate', () => {
+      const array = [1, 3, 5, 2, 4, 6, 7, 9, 11];
+      // Group by even/odd
+      const result = chunkByPredicate(array, (a, b) => a % 2 === b % 2);
+      
+      expect(result).toEqual([[1, 3, 5], [2, 4, 6], [7, 9, 11]]);
     });
 
     it('should handle empty arrays', () => {
-      const result = chunkByPredicate([], n => n % 2 === 0);
+      const array: number[] = [];
+      const result = chunkByPredicate(array, (a, b) => a === b);
+      
       expect(result).toEqual([]);
     });
 
-    it('should handle single-element arrays', () => {
-      const result = chunkByPredicate([1], n => n % 2 === 0);
+    it('should handle arrays with a single element', () => {
+      const array = [1];
+      const result = chunkByPredicate(array, (a, b) => a === b);
+      
       expect(result).toEqual([[1]]);
     });
 
-    it('should throw an error if input is not an array', () => {
-      // @ts-expect-error: Testing invalid input
-      expect(() => chunkByPredicate('not an array', n => n % 2 === 0)).toThrow('Input must be an array');
-    });
-
-    it('should throw an error if predicate is not a function', () => {
-      // @ts-expect-error: Testing invalid input
-      expect(() => chunkByPredicate([1, 2, 3], 'not a function')).toThrow('Predicate must be a function');
-    });
-  });
-
-  describe('chunkByKey', () => {
-    it('should split an array based on a key selector function', () => {
-      const input = [
-        { id: 1, role: 'admin' },
-        { id: 2, role: 'user' },
-        { id: 3, role: 'admin' },
-        { id: 4, role: 'user' },
-        { id: 5, role: 'guest' }
-      ];
-      const result = chunkByKey(input, user => user.role);
+    it('should preserve the original array', () => {
+      const array = [1, 2, 3, 4, 5];
+      const originalArray = [...array];
+      chunkByPredicate(array, (a, b) => a === b);
       
-      // Sort the result for consistent testing
-      const sortedResult = result.sort((a, b) => a[0].role.localeCompare(b[0].role));
-      
-      expect(sortedResult).toEqual([
-        [{ id: 1, role: 'admin' }, { id: 3, role: 'admin' }],
-        [{ id: 5, role: 'guest' }],
-        [{ id: 2, role: 'user' }, { id: 4, role: 'user' }]
-      ]);
+      expect(array).toEqual(originalArray);
     });
 
-    it('should handle arrays with unique keys', () => {
-      const input = [
+    it('should handle complex objects', () => {
+      const array = [
         { id: 1, category: 'A' },
-        { id: 2, category: 'B' },
-        { id: 3, category: 'C' }
+        { id: 2, category: 'A' },
+        { id: 3, category: 'B' },
+        { id: 4, category: 'B' },
+        { id: 5, category: 'C' }
       ];
-      const result = chunkByKey(input, item => item.category);
       
-      // Sort the result for consistent testing
-      const sortedResult = result.sort((a, b) => a[0].category.localeCompare(b[0].category));
+      const result = chunkByPredicate(array, (a, b) => a.category === b.category);
       
-      expect(sortedResult).toEqual([
-        [{ id: 1, category: 'A' }],
-        [{ id: 2, category: 'B' }],
-        [{ id: 3, category: 'C' }]
+      expect(result).toEqual([
+        [{ id: 1, category: 'A' }, { id: 2, category: 'A' }],
+        [{ id: 3, category: 'B' }, { id: 4, category: 'B' }],
+        [{ id: 5, category: 'C' }]
       ]);
     });
 
-    it('should handle empty arrays', () => {
-      const result = chunkByKey([], item => item);
-      expect(result).toEqual([]);
-    });
-
-    it('should handle single-element arrays', () => {
-      const input = [{ id: 1, role: 'admin' }];
-      const result = chunkByKey(input, user => user.role);
-      expect(result).toEqual([[{ id: 1, role: 'admin' }]]);
-    });
-
-    it('should throw an error if input is not an array', () => {
-      // @ts-expect-error: Testing invalid input
-      expect(() => chunkByKey('not an array', item => item)).toThrow('Input must be an array');
-    });
-
-    it('should throw an error if key selector is not a function', () => {
-      // @ts-expect-error: Testing invalid input
-      expect(() => chunkByKey([1, 2, 3], 'not a function')).toThrow('Key selector must be a function');
-    });
-  });
-
-  describe('chunkForParallel', () => {
-    it('should split an array into chunks optimized for parallel processing', () => {
-      const input = [
-        { id: 1, complexity: 5 },
-        { id: 2, complexity: 2 },
-        { id: 3, complexity: 7 },
-        { id: 4, complexity: 3 },
-        { id: 5, complexity: 4 }
-      ];
-      const result = chunkForParallel(input, 2, item => item.complexity);
+    it('should handle arrays with all elements satisfying the predicate', () => {
+      const array = [2, 4, 6, 8, 10];
+      const result = chunkByPredicate(array, (a, b) => a % 2 === b % 2); // All even
       
-      // Verify that we have 2 chunks
-      expect(result.length).toBe(2);
-      
-      // Verify that all items are included
-      const flatResult = result.flat();
-      expect(flatResult.length).toBe(input.length);
-      expect(new Set(flatResult.map(item => item.id))).toEqual(new Set(input.map(item => item.id)));
-      
-      // Verify that the chunks are balanced by weight
-      const weights = result.map(chunk => 
-        chunk.reduce((sum, item) => sum + item.complexity, 0)
-      );
-      
-      // The difference between chunk weights should be minimal
-      const weightDifference = Math.abs(weights[0] - weights[1]);
-      expect(weightDifference).toBeLessThanOrEqual(1);
-    });
-
-    it('should use default weight of 1 when no weight selector is provided', () => {
-      const input = [1, 2, 3, 4, 5, 6];
-      const result = chunkForParallel(input, 3);
-      
-      // Verify that we have 3 chunks
-      expect(result.length).toBe(3);
-      
-      // Verify that all items are included
-      const flatResult = result.flat();
-      expect(flatResult.length).toBe(input.length);
-      expect(new Set(flatResult)).toEqual(new Set(input));
-      
-      // Verify that the chunks are balanced
-      expect(result.map(chunk => chunk.length)).toEqual([2, 2, 2]);
-    });
-
-    it('should handle empty arrays', () => {
-      const result = chunkForParallel([], 3);
-      expect(result).toEqual([]);
-    });
-
-    it('should handle single-element arrays', () => {
-      const result = chunkForParallel([1], 3);
-      expect(result).toEqual([[1]]);
-    });
-
-    it('should limit number of chunks to array length', () => {
-      const input = [1, 2, 3];
-      const result = chunkForParallel(input, 5);
-      expect(result.length).toBe(3);
-    });
-
-    it('should throw an error if numChunks is less than or equal to 0', () => {
-      expect(() => chunkForParallel([1, 2, 3], 0)).toThrow('Number of chunks must be greater than 0');
-      expect(() => chunkForParallel([1, 2, 3], -1)).toThrow('Number of chunks must be greater than 0');
-    });
-
-    it('should throw an error if input is not an array', () => {
-      // @ts-expect-error: Testing invalid input
-      expect(() => chunkForParallel('not an array', 2)).toThrow('Input must be an array');
+      expect(result).toEqual([[2, 4, 6, 8, 10]]);
     });
   });
 
   // Performance benchmarks
-  describe('Performance Benchmarks', () => {
-    // Helper function to create a large array
+  describe('Performance', () => {
+    // Helper to create a large array
     const createLargeArray = (size: number) => Array.from({ length: size }, (_, i) => i);
     
-    // Helper function to measure execution time
-    const measureExecutionTime = (fn: () => void): number => {
-      const start = performance.now();
-      fn();
-      return performance.now() - start;
-    };
-
-    it('should efficiently chunk large arrays by size', () => {
+    it('should efficiently chunk large arrays with chunk()', () => {
       const largeArray = createLargeArray(10000);
-      const executionTime = measureExecutionTime(() => {
-        chunk(largeArray, 100);
-      });
+      const startTime = performance.now();
       
-      // Log the execution time for reference
-      console.log(`Chunking 10,000 elements by size took ${executionTime.toFixed(2)}ms`);
+      const result = chunk(largeArray, 100);
       
-      // This is not a strict test, but ensures the operation completes in a reasonable time
-      expect(executionTime).toBeLessThan(100); // Should be well under 100ms on modern hardware
+      const endTime = performance.now();
+      const duration = endTime - startTime;
+      
+      expect(result.length).toBe(100);
+      expect(duration).toBeLessThan(50); // Should complete in under 50ms
     });
 
-    it('should efficiently split large arrays into chunks', () => {
+    it('should efficiently divide large arrays with chunkBySize()', () => {
       const largeArray = createLargeArray(10000);
-      const executionTime = measureExecutionTime(() => {
-        chunkBySize(largeArray, 10);
-      });
+      const startTime = performance.now();
       
-      console.log(`Splitting 10,000 elements into 10 chunks took ${executionTime.toFixed(2)}ms`);
-      expect(executionTime).toBeLessThan(100);
+      const result = chunkBySize(largeArray, 10);
+      
+      const endTime = performance.now();
+      const duration = endTime - startTime;
+      
+      expect(result.length).toBe(10);
+      expect(duration).toBeLessThan(50); // Should complete in under 50ms
     });
 
-    it('should efficiently chunk large arrays by predicate', () => {
-      const largeArray = createLargeArray(10000);
-      const executionTime = measureExecutionTime(() => {
-        chunkByPredicate(largeArray, n => n % 2 === 0);
-      });
+    it('should efficiently chunk large arrays with chunkByPredicate()', () => {
+      // Create array with alternating even/odd numbers
+      const largeArray = createLargeArray(1000).map(i => i % 2 === 0 ? i : i + 1);
+      const startTime = performance.now();
       
-      console.log(`Chunking 10,000 elements by predicate took ${executionTime.toFixed(2)}ms`);
-      expect(executionTime).toBeLessThan(100);
-    });
-
-    it('should efficiently chunk large arrays by key', () => {
-      // Create an array of objects with various keys
-      const largeObjectArray = Array.from({ length: 10000 }, (_, i) => ({
-        id: i,
-        category: `Category ${i % 10}` // 10 different categories
-      }));
+      const result = chunkByPredicate(largeArray, (a, b) => a % 4 === b % 4);
       
-      const executionTime = measureExecutionTime(() => {
-        chunkByKey(largeObjectArray, item => item.category);
-      });
+      const endTime = performance.now();
+      const duration = endTime - startTime;
       
-      console.log(`Chunking 10,000 objects by key took ${executionTime.toFixed(2)}ms`);
-      expect(executionTime).toBeLessThan(200); // Slightly higher threshold for more complex operation
-    });
-
-    it('should efficiently chunk large arrays for parallel processing', () => {
-      // Create an array of objects with varying weights
-      const largeWeightedArray = Array.from({ length: 10000 }, (_, i) => ({
-        id: i,
-        weight: Math.floor(Math.random() * 10) + 1 // Random weight between 1 and 10
-      }));
-      
-      const executionTime = measureExecutionTime(() => {
-        chunkForParallel(largeWeightedArray, 8, item => item.weight);
-      });
-      
-      console.log(`Chunking 10,000 weighted objects for parallel processing took ${executionTime.toFixed(2)}ms`);
-      expect(executionTime).toBeLessThan(200);
+      // Should have at most 4 chunks (for values % 4)
+      expect(result.length).toBeLessThanOrEqual(4);
+      expect(duration).toBeLessThan(100); // Should complete in under 100ms
     });
   });
 });

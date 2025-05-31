@@ -1,38 +1,54 @@
-import styled from 'styled-components';
-import type { ThemeType } from '@design-system/primitives';
+/**
+ * Styling for the LineChart component
+ * 
+ * This file defines the CSS-in-JS styling layer for the LineChart component using styled-components.
+ * It exports ChartContainer and ChartWrapper components that provide responsive, themed containers
+ * with proper spacing, shadows, and layout properties.
+ */
 
+import styled from 'styled-components';
+import { DesignTokens } from '@design-system/primitives';
+
+// Type for the theme provided by styled-components
+type ThemeType = { tokens: DesignTokens };
+
+/**
+ * Container for the chart with proper spacing, background, and elevation
+ */
 export const ChartContainer = styled.div`
   width: 100%;
-  position: relative;
   display: flex;
   flex-direction: column;
-  background-color: ${({ theme }: { theme: ThemeType }) => theme.colors.neutral.white};
-  border-radius: ${({ theme }: { theme: ThemeType }) => theme.borderRadius.md};
-  box-shadow: ${({ theme }: { theme: ThemeType }) => theme.shadows.sm};
-  padding: ${({ theme }: { theme: ThemeType }) => theme.spacing.md};
-  margin-bottom: ${({ theme }: { theme: ThemeType }) => theme.spacing.md};
+  background-color: ${({ theme }: { theme: ThemeType }) => theme.tokens.colors.neutral.white};
+  border-radius: ${({ theme }: { theme: ThemeType }) => theme.tokens.spacing.md};
+  box-shadow: ${({ theme }: { theme: ThemeType }) => theme.tokens.shadows.sm.web.boxShadow};
+  padding: ${({ theme }: { theme: ThemeType }) => theme.tokens.spacing.md};
+  margin-bottom: ${({ theme }: { theme: ThemeType }) => theme.tokens.spacing.md};
   overflow: hidden;
 
-  @media (min-width: ${({ theme }: { theme: ThemeType }) => theme.breakpoints.md}) {
-    padding: ${({ theme }: { theme: ThemeType }) => theme.spacing.lg};
+  @media ${({ theme }: { theme: ThemeType }) => theme.tokens.mediaQueries.md} {
+    padding: ${({ theme }: { theme: ThemeType }) => theme.tokens.spacing.lg};
   }
 `;
 
+/**
+ * Wrapper for the chart content with responsive height and styling for chart elements
+ */
 export const ChartWrapper = styled.div`
+  position: relative;
   width: 100%;
   height: 100%;
   min-height: 200px;
-  position: relative;
 
-  @media (min-width: ${({ theme }: { theme: ThemeType }) => theme.breakpoints.md}) {
+  @media ${({ theme }: { theme: ThemeType }) => theme.tokens.mediaQueries.md} {
     min-height: 250px;
   }
 
-  @media (min-width: ${({ theme }: { theme: ThemeType }) => theme.breakpoints.lg}) {
+  @media ${({ theme }: { theme: ThemeType }) => theme.tokens.mediaQueries.lg} {
     min-height: 300px;
   }
 
-  /* Ensure the SVG fills the container */
+  /* Ensure SVG fills the container */
   svg {
     width: 100%;
     height: 100%;
@@ -40,34 +56,30 @@ export const ChartWrapper = styled.div`
 
   /* Style for the chart lines */
   .chart-line {
+    stroke-width: 2px;
     fill: none;
-    stroke-width: 2;
-    stroke-linejoin: round;
-    stroke-linecap: round;
   }
 
-  /* Style for the chart points */
+  /* Style for the data points */
   .chart-point {
-    fill: ${({ theme }: { theme: ThemeType }) => theme.colors.neutral.white};
-    stroke-width: 2;
-    cursor: pointer;
-    transition: r 0.2s ease;
-
+    fill: ${({ theme }: { theme: ThemeType }) => theme.tokens.colors.neutral.white};
+    stroke-width: 2px;
+    
     &:hover {
       r: 6;
     }
   }
 
-  /* Style for the axes */
+  /* Style for the axis labels */
   .chart-axis {
-    font-size: 12px;
-    font-family: ${({ theme }: { theme: ThemeType }) => theme.typography.fontFamily.base};
-    color: ${({ theme }: { theme: ThemeType }) => theme.colors.neutral.gray600};
+    font-family: ${({ theme }: { theme: ThemeType }) => theme.tokens.typography.fontFamily};
+    font-size: ${({ theme }: { theme: ThemeType }) => theme.tokens.typography.fontSize.sm};
+    fill: ${({ theme }: { theme: ThemeType }) => theme.tokens.colors.neutral.gray600};
   }
 
   /* Style for the grid lines */
   .chart-grid {
-    stroke: ${({ theme }: { theme: ThemeType }) => theme.colors.neutral.gray200};
+    stroke: ${({ theme }: { theme: ThemeType }) => theme.tokens.colors.neutral.gray200};
     stroke-dasharray: 4;
     stroke-width: 1;
   }

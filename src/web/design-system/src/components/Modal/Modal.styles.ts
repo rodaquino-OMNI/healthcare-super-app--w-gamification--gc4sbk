@@ -1,16 +1,12 @@
 import styled from 'styled-components';
 import { Box } from '@design-system/primitives/components/Box';
 import { animation, spacing, shadows, breakpoints, colors } from '@design-system/primitives/tokens';
-import { JourneyType } from '@austa/interfaces/common';
 
-// Interface for journey-specific styling props
-interface JourneyStyledProps {
-  journeyType?: JourneyType;
-  visible?: boolean;
-}
+// Define journey type for proper TypeScript typing
+export type JourneyType = 'health' | 'care' | 'plan' | undefined;
 
 // Styled component for the modal backdrop that covers the entire screen with a semi-transparent background
-export const ModalBackdrop = styled(Box)<JourneyStyledProps>`
+export const ModalBackdrop = styled(Box)<{ visible?: boolean }>`
   position: fixed;
   top: 0;
   left: 0;
@@ -33,7 +29,7 @@ export const ModalBackdrop = styled(Box)<JourneyStyledProps>`
 `;
 
 // Styled component for the modal container with appropriate styling and animations
-export const ModalContainer = styled(Box)<JourneyStyledProps>`
+export const ModalContainer = styled(Box)<{ visible?: boolean; journey?: JourneyType }>`
   background-color: white;
   border-radius: md;
   box-shadow: ${shadows.lg};
@@ -52,6 +48,18 @@ export const ModalContainer = styled(Box)<JourneyStyledProps>`
     opacity: 1;
   `}
   
+  ${({ journey }) => journey === 'health' && `
+    border-top: 4px solid ${colors.journey.health.primary};
+  `}
+  
+  ${({ journey }) => journey === 'care' && `
+    border-top: 4px solid ${colors.journey.care.primary};
+  `}
+  
+  ${({ journey }) => journey === 'plan' && `
+    border-top: 4px solid ${colors.journey.plan.primary};
+  `}
+  
   @media ${breakpoints.mediaQueries.sm} {
     width: 80%;
   }
@@ -66,62 +74,40 @@ export const ModalContainer = styled(Box)<JourneyStyledProps>`
 `;
 
 // Styled component for the modal header section containing the title
-export const ModalHeader = styled(Box)<JourneyStyledProps>`
+export const ModalHeader = styled(Box)<{ journey?: JourneyType }>`
   padding: ${spacing.md} ${spacing.lg};
   border-bottom: 1px solid ${colors.neutral.gray200};
   display: flex;
   justify-content: space-between;
   align-items: center;
   
-  ${({ journeyType, theme }) => {
-    if (journeyType === 'health') {
-      return `
-        border-bottom-color: ${theme.colors.health.primary};
-        color: ${theme.colors.health.text};
-      `;
-    } else if (journeyType === 'care') {
-      return `
-        border-bottom-color: ${theme.colors.care.primary};
-        color: ${theme.colors.care.text};
-      `;
-    } else if (journeyType === 'plan') {
-      return `
-        border-bottom-color: ${theme.colors.plan.primary};
-        color: ${theme.colors.plan.text};
-      `;
-    }
-    return '';
-  }}
+  ${({ journey }) => journey === 'health' && `
+    color: ${colors.journey.health.primary};
+  `}
+  
+  ${({ journey }) => journey === 'care' && `
+    color: ${colors.journey.care.primary};
+  `}
+  
+  ${({ journey }) => journey === 'plan' && `
+    color: ${colors.journey.plan.primary};
+  `}
 `;
 
 // Styled component for the modal content section
-export const ModalContent = styled(Box)<JourneyStyledProps>`
+export const ModalContent = styled(Box)`
   padding: ${spacing.lg};
   overflow-y: auto;
 `;
 
 // Styled component for the modal actions section containing buttons
-export const ModalActions = styled(Box)<JourneyStyledProps>`
+export const ModalActions = styled(Box)<{ journey?: JourneyType }>`
   padding: ${spacing.md} ${spacing.lg};
   border-top: 1px solid ${colors.neutral.gray200};
   display: flex;
   justify-content: flex-end;
   gap: ${spacing.sm};
   
-  ${({ journeyType, theme }) => {
-    if (journeyType === 'health') {
-      return `
-        border-top-color: ${theme.colors.health.primary};
-      `;
-    } else if (journeyType === 'care') {
-      return `
-        border-top-color: ${theme.colors.care.primary};
-      `;
-    } else if (journeyType === 'plan') {
-      return `
-        border-top-color: ${theme.colors.plan.primary};
-      `;
-    }
-    return '';
-  }}
+  /* Journey-specific styling can be applied to action buttons via props */
+  /* No direct styling needed here as buttons will have their own journey styling */
 `;

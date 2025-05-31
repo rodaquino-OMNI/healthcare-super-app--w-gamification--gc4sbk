@@ -1,574 +1,355 @@
 /**
  * Unit tests for object comparison utilities
- * 
- * These tests verify that deep equality comparison works correctly for nested objects,
- * arrays, and primitive values, and that the difference detection accurately identifies
- * changed properties between objects.
+ * Tests the isEqual and getDifferences functions from src/object/comparison.ts
  */
 
-import {
-  isEqual,
-  getDifferences,
-  hasDifferences,
-  objectsAreEqual,
-  ComparisonOptions,
-  ObjectDifferences,
-  isPlainObject
-} from '../../../src/object/comparison';
+import { isEqual, getDifferences } from '../../../src/object/comparison';
 
 describe('Object Comparison Utilities', () => {
-  describe('isPlainObject', () => {
-    it('should correctly identify plain objects', () => {
-      expect(isPlainObject({})).toBe(true);
-      expect(isPlainObject({ a: 1 })).toBe(true);
-      expect(isPlainObject(Object.create(null))).toBe(true);
-      expect(isPlainObject(new Object())).toBe(true);
-    });
-
-    it('should correctly identify non-plain objects', () => {
-      expect(isPlainObject([])).toBe(false);
-      expect(isPlainObject(null)).toBe(false);
-      expect(isPlainObject(undefined)).toBe(false);
-      expect(isPlainObject(42)).toBe(false);
-      expect(isPlainObject('string')).toBe(false);
-      expect(isPlainObject(true)).toBe(false);
-      expect(isPlainObject(new Date())).toBe(false);
-      expect(isPlainObject(new Map())).toBe(false);
-      expect(isPlainObject(new Set())).toBe(false);
-      expect(isPlainObject(() => {})).toBe(false);
-    });
-
-    it('should handle class instances correctly', () => {
-      class TestClass {}
-      expect(isPlainObject(new TestClass())).toBe(true); // In JavaScript, class instances are plain objects
-    });
-  });
-
   describe('isEqual', () => {
-    it('should correctly compare primitive values', () => {
-      expect(isEqual(42, 42)).toBe(true);
-      expect(isEqual('test', 'test')).toBe(true);
-      expect(isEqual(true, true)).toBe(true);
-      expect(isEqual(null, null)).toBe(true);
-      expect(isEqual(undefined, undefined)).toBe(true);
-      const sym = Symbol('test');
-      expect(isEqual(sym, sym)).toBe(true);
+    describe('primitive values', () => {
+      it('should return true for identical primitive values', () => {
+        expect(isEqual(1, 1)).toBe(true);
+        expect(isEqual('test', 'test')).toBe(true);
+        expect(isEqual(true, true)).toBe(true);
+        expect(isEqual(null, null)).toBe(true);
+        expect(isEqual(undefined, undefined)).toBe(true);
+      });
 
-      expect(isEqual(42, 43)).toBe(false);
-      expect(isEqual('test', 'other')).toBe(false);
-      expect(isEqual(true, false)).toBe(false);
-      expect(isEqual(null, undefined)).toBe(false);
-      expect(isEqual(Symbol('test'), Symbol('test'))).toBe(false); // Different symbol instances
+      it('should return false for different primitive values', () => {
+        expect(isEqual(1, 2)).toBe(false);
+        expect(isEqual('test', 'test2')).toBe(false);
+        expect(isEqual(true, false)).toBe(false);
+        expect(isEqual(null, undefined)).toBe(false);
+        expect(isEqual(0, null)).toBe(false);
+        expect(isEqual('', null)).toBe(false);
+      });
     });
 
-    it('should correctly compare simple objects', () => {
-      expect(isEqual({ a: 1, b: 2 }, { a: 1, b: 2 })).toBe(true);
-      expect(isEqual({ a: 1, b: 2 }, { b: 2, a: 1 })).toBe(true); // Order doesn't matter
-      expect(isEqual({ a: 1, b: 2 }, { a: 1, b: 3 })).toBe(false);
-      expect(isEqual({ a: 1, b: 2 }, { a: 1 })).toBe(false); // Missing property
-      expect(isEqual({ a: 1 }, { a: 1, b: 2 })).toBe(false); // Extra property
+    describe('simple objects', () => {
+      it('should return true for identical simple objects', () => {
+        const obj1 = { a: 1, b: 'test', c: true };
+        const obj2 = { a: 1, b: 'test', c: true };
+        expect(isEqual(obj1, obj2)).toBe(true);
+      });
+
+      it('should return true for identical objects with properties in different order', () => {
+        const obj1 = { a: 1, b: 'test', c: true };
+        const obj2 = { c: true, a: 1, b: 'test' };
+        expect(isEqual(obj1, obj2)).toBe(true);
+      });
+
+      it('should return false for objects with different values', () => {
+        const obj1 = { a: 1, b: 'test', c: true };
+        const obj2 = { a: 1, b: 'test', c: false };
+        expect(isEqual(obj1, obj2)).toBe(false);
+      });
+
+      it('should return false for objects with different properties', () => {
+        const obj1 = { a: 1, b: 'test', c: true };
+        const obj2 = { a: 1, b: 'test', d: true };
+        expect(isEqual(obj1, obj2)).toBe(false);
+      });
+
+      it('should return false for objects with different number of properties', () => {
+        const obj1 = { a: 1, b: 'test', c: true };
+        const obj2 = { a: 1, b: 'test' };
+        expect(isEqual(obj1, obj2)).toBe(false);
+      });
     });
 
-    it('should correctly compare nested objects', () => {
-      const obj1 = {
-        user: {
-          name: 'John',
-          profile: {
-            age: 30,
-            address: {
-              city: 'New York',
-              zip: '10001'
-            }
-          }
-        }
-      };
+    describe('nested objects', () => {
+      it('should return true for identical nested objects', () => {
+        const obj1 = { a: 1, b: { c: 2, d: { e: 3 } } };
+        const obj2 = { a: 1, b: { c: 2, d: { e: 3 } } };
+        expect(isEqual(obj1, obj2)).toBe(true);
+      });
 
-      const obj2 = {
-        user: {
-          name: 'John',
-          profile: {
-            age: 30,
-            address: {
-              city: 'New York',
-              zip: '10001'
-            }
-          }
-        }
-      };
+      it('should return false for nested objects with different values', () => {
+        const obj1 = { a: 1, b: { c: 2, d: { e: 3 } } };
+        const obj2 = { a: 1, b: { c: 2, d: { e: 4 } } };
+        expect(isEqual(obj1, obj2)).toBe(false);
+      });
 
-      const obj3 = {
-        user: {
-          name: 'John',
-          profile: {
-            age: 30,
-            address: {
-              city: 'Boston', // Different city
-              zip: '10001'
-            }
-          }
-        }
-      };
-
-      expect(isEqual(obj1, obj2)).toBe(true);
-      expect(isEqual(obj1, obj3)).toBe(false);
+      it('should return false for nested objects with different structures', () => {
+        const obj1 = { a: 1, b: { c: 2, d: { e: 3 } } };
+        const obj2 = { a: 1, b: { c: 2, d: 3 } };
+        expect(isEqual(obj1, obj2)).toBe(false);
+      });
     });
 
-    it('should correctly compare arrays', () => {
-      expect(isEqual([1, 2, 3], [1, 2, 3])).toBe(true);
-      expect(isEqual([1, 2, 3], [1, 2, 4])).toBe(false);
-      expect(isEqual([1, 2, 3], [1, 2])).toBe(false); // Different length
-      expect(isEqual([1, 2], [1, 2, 3])).toBe(false); // Different length
+    describe('arrays', () => {
+      it('should return true for identical arrays', () => {
+        const arr1 = [1, 2, 3];
+        const arr2 = [1, 2, 3];
+        expect(isEqual(arr1, arr2)).toBe(true);
+      });
 
-      // Arrays of objects
-      expect(isEqual(
-        [{ id: 1, name: 'Item 1' }, { id: 2, name: 'Item 2' }],
-        [{ id: 1, name: 'Item 1' }, { id: 2, name: 'Item 2' }]
-      )).toBe(true);
+      it('should return false for arrays with different values', () => {
+        const arr1 = [1, 2, 3];
+        const arr2 = [1, 2, 4];
+        expect(isEqual(arr1, arr2)).toBe(false);
+      });
 
-      expect(isEqual(
-        [{ id: 1, name: 'Item 1' }, { id: 2, name: 'Item 2' }],
-        [{ id: 1, name: 'Item 1' }, { id: 2, name: 'Modified' }]
-      )).toBe(false);
+      it('should return false for arrays with different lengths', () => {
+        const arr1 = [1, 2, 3];
+        const arr2 = [1, 2];
+        expect(isEqual(arr1, arr2)).toBe(false);
+      });
+
+      it('should handle sparse arrays correctly', () => {
+        // eslint-disable-next-line no-sparse-arrays
+        const arr1 = [1, , 3];
+        // eslint-disable-next-line no-sparse-arrays
+        const arr2 = [1, , 3];
+        const arr3 = [1, undefined, 3];
+        
+        expect(isEqual(arr1, arr2)).toBe(true);
+        expect(isEqual(arr1, arr3)).toBe(false);
+      });
+
+      it('should handle typed arrays correctly', () => {
+        const arr1 = new Uint8Array([1, 2, 3]);
+        const arr2 = new Uint8Array([1, 2, 3]);
+        const arr3 = new Uint8Array([1, 2, 4]);
+        const arr4 = new Int8Array([1, 2, 3]);
+        
+        expect(isEqual(arr1, arr2)).toBe(true);
+        expect(isEqual(arr1, arr3)).toBe(false);
+        expect(isEqual(arr1, arr4)).toBe(false); // Different types
+      });
     });
 
-    it('should correctly compare nested arrays', () => {
-      expect(isEqual([1, [2, 3], 4], [1, [2, 3], 4])).toBe(true);
-      expect(isEqual([1, [2, 3], 4], [1, [2, 4], 4])).toBe(false);
-      expect(isEqual([1, [2, [3, 4]], 5], [1, [2, [3, 4]], 5])).toBe(true);
-      expect(isEqual([1, [2, [3, 4]], 5], [1, [2, [3, 5]], 5])).toBe(false);
+    describe('arrays of objects', () => {
+      it('should return true for identical arrays of objects', () => {
+        const arr1 = [{ a: 1 }, { b: 2 }];
+        const arr2 = [{ a: 1 }, { b: 2 }];
+        expect(isEqual(arr1, arr2)).toBe(true);
+      });
+
+      it('should return false for arrays of objects with different values', () => {
+        const arr1 = [{ a: 1 }, { b: 2 }];
+        const arr2 = [{ a: 1 }, { b: 3 }];
+        expect(isEqual(arr1, arr2)).toBe(false);
+      });
+
+      it('should return false for arrays of objects with different order', () => {
+        const arr1 = [{ a: 1 }, { b: 2 }];
+        const arr2 = [{ b: 2 }, { a: 1 }];
+        expect(isEqual(arr1, arr2)).toBe(false);
+      });
     });
 
-    it('should correctly compare arrays of objects', () => {
-      const arr1 = [
-        { id: 1, metadata: { tags: ['a', 'b'] } },
-        { id: 2, metadata: { tags: ['c', 'd'] } }
-      ];
+    describe('special cases', () => {
+      it('should handle Date objects correctly', () => {
+        const date1 = new Date('2023-01-01');
+        const date2 = new Date('2023-01-01');
+        const date3 = new Date('2023-01-02');
+        
+        expect(isEqual(date1, date2)).toBe(true);
+        expect(isEqual(date1, date3)).toBe(false);
+      });
 
-      const arr2 = [
-        { id: 1, metadata: { tags: ['a', 'b'] } },
-        { id: 2, metadata: { tags: ['c', 'd'] } }
-      ];
+      it('should handle RegExp objects correctly', () => {
+        const regex1 = /test/g;
+        const regex2 = /test/g;
+        const regex3 = /test/i;
+        
+        expect(isEqual(regex1, regex2)).toBe(true);
+        expect(isEqual(regex1, regex3)).toBe(false);
+      });
 
-      const arr3 = [
-        { id: 1, metadata: { tags: ['a', 'b'] } },
-        { id: 2, metadata: { tags: ['c', 'e'] } } // Different tag
-      ];
+      it('should handle Map objects correctly', () => {
+        const map1 = new Map([['a', 1], ['b', 2]]);
+        const map2 = new Map([['a', 1], ['b', 2]]);
+        const map3 = new Map([['a', 1], ['b', 3]]);
+        
+        expect(isEqual(map1, map2)).toBe(true);
+        expect(isEqual(map1, map3)).toBe(false);
+      });
 
-      expect(isEqual(arr1, arr2)).toBe(true);
-      expect(isEqual(arr1, arr3)).toBe(false);
+      it('should handle Set objects correctly', () => {
+        const set1 = new Set([1, 2, 3]);
+        const set2 = new Set([1, 2, 3]);
+        const set3 = new Set([1, 2, 4]);
+        
+        expect(isEqual(set1, set2)).toBe(true);
+        expect(isEqual(set1, set3)).toBe(false);
+      });
     });
 
-    it('should correctly compare Date objects', () => {
-      const date1 = new Date('2023-01-01');
-      const date2 = new Date('2023-01-01');
-      const date3 = new Date('2023-01-02');
+    describe('circular references', () => {
+      it('should handle circular references correctly', () => {
+        const obj1: any = { a: 1 };
+        const obj2: any = { a: 1 };
+        obj1.self = obj1;
+        obj2.self = obj2;
 
-      expect(isEqual(date1, date2)).toBe(true);
-      expect(isEqual(date1, date3)).toBe(false);
+        expect(isEqual(obj1, obj2)).toBe(true);
+      });
 
-      // Date in objects
-      expect(isEqual({ date: date1 }, { date: date2 })).toBe(true);
-      expect(isEqual({ date: date1 }, { date: date3 })).toBe(false);
+      it('should detect differences in objects with circular references', () => {
+        const obj1: any = { a: 1 };
+        const obj2: any = { a: 2 };
+        obj1.self = obj1;
+        obj2.self = obj2;
+
+        expect(isEqual(obj1, obj2)).toBe(false);
+      });
+
+      it('should handle complex circular references correctly', () => {
+        const obj1: any = { a: 1 };
+        const obj2: any = { a: 1 };
+        const child1: any = { parent: obj1, value: 'child' };
+        const child2: any = { parent: obj2, value: 'child' };
+        obj1.child = child1;
+        obj2.child = child2;
+
+        expect(isEqual(obj1, obj2)).toBe(true);
+      });
     });
 
-    it('should handle the ignoreUndefined option', () => {
-      const obj1 = { a: 1, b: undefined, c: 3 };
-      const obj2 = { a: 1, c: 3 };
+    describe('edge cases', () => {
+      it('should handle null and undefined correctly', () => {
+        expect(isEqual(null, null)).toBe(true);
+        expect(isEqual(undefined, undefined)).toBe(true);
+        expect(isEqual(null, undefined)).toBe(false);
+      });
 
-      // By default, undefined properties are considered
-      expect(isEqual(obj1, obj2)).toBe(false);
+      it('should handle NaN correctly', () => {
+        expect(isEqual(NaN, NaN)).toBe(true);
+        expect(isEqual(NaN, 0)).toBe(false);
+      });
 
-      // With ignoreUndefined: true
-      expect(isEqual(obj1, obj2, { ignoreUndefined: true })).toBe(true);
+      it('should handle +0 and -0 correctly', () => {
+        expect(isEqual(0, 0)).toBe(true);
+        expect(isEqual(0, -0)).toBe(true); // JavaScript considers +0 and -0 equal
+      });
 
-      // Should work in both directions
-      expect(isEqual(obj2, obj1, { ignoreUndefined: true })).toBe(true);
-    });
-
-    it('should handle the strict option', () => {
-      // With strict: true (default)
-      expect(isEqual(1, '1')).toBe(false);
-      expect(isEqual(0, false)).toBe(false);
-      expect(isEqual('', false)).toBe(false);
-
-      // With strict: false
-      expect(isEqual(1, '1', { strict: false })).toBe(true);
-      expect(isEqual(0, false, { strict: false })).toBe(true);
-      expect(isEqual('', false, { strict: false })).toBe(true);
-
-      // Objects with different types of values
-      expect(isEqual({ a: 1 }, { a: '1' })).toBe(false);
-      expect(isEqual({ a: 1 }, { a: '1' }, { strict: false })).toBe(true);
-    });
-
-    it('should handle the excludePaths option', () => {
-      const obj1 = {
-        id: 1,
-        user: {
-          name: 'John',
-          metadata: {
-            created: new Date('2023-01-01'),
-            updated: new Date('2023-01-02')
-          }
-        },
-        items: [{ id: 1 }, { id: 2 }]
-      };
-
-      const obj2 = {
-        id: 1,
-        user: {
-          name: 'Jane', // Different
-          metadata: {
-            created: new Date('2023-01-01'),
-            updated: new Date('2023-01-03') // Different
-          }
-        },
-        items: [{ id: 1 }, { id: 3 }] // Different
-      };
-
-      // Without exclusions
-      expect(isEqual(obj1, obj2)).toBe(false);
-
-      // Exclude specific paths
-      expect(isEqual(obj1, obj2, {
-        excludePaths: ['user.name', 'user.metadata.updated', 'items']
-      })).toBe(true);
-
-      // Exclude with wildcard
-      expect(isEqual(obj1, obj2, {
-        excludePaths: ['user.*', 'items']
-      })).toBe(true);
-    });
-
-    it('should handle circular references', () => {
-      // Create objects with circular references
-      const obj1: any = { a: 1 };
-      obj1.self = obj1;
-      obj1.nested = { parent: obj1 };
-
-      const obj2: any = { a: 1 };
-      obj2.self = obj2;
-      obj2.nested = { parent: obj2 };
-
-      const obj3: any = { a: 2 }; // Different value
-      obj3.self = obj3;
-      obj3.nested = { parent: obj3 };
-
-      expect(isEqual(obj1, obj2)).toBe(true);
-      expect(isEqual(obj1, obj3)).toBe(false);
-    });
-
-    it('should handle sparse arrays', () => {
-      // eslint-disable-next-line no-sparse-arrays
-      const sparse1 = [1, , 3];
-      // eslint-disable-next-line no-sparse-arrays
-      const sparse2 = [1, , 3];
-      // eslint-disable-next-line no-sparse-arrays
-      const sparse3 = [1, , 4]; // Different value
-      const normal = [1, undefined, 3]; // Explicit undefined
-
-      expect(isEqual(sparse1, sparse2)).toBe(true);
-      expect(isEqual(sparse1, sparse3)).toBe(false);
-      expect(isEqual(sparse1, normal)).toBe(true); // Sparse holes are treated as undefined
-    });
-
-    it('should handle typed arrays', () => {
-      const int8Array1 = new Int8Array([1, 2, 3]);
-      const int8Array2 = new Int8Array([1, 2, 3]);
-      const int8Array3 = new Int8Array([1, 2, 4]); // Different value
-
-      // Typed arrays are not plain objects, so they're compared by reference
-      expect(isEqual(int8Array1, int8Array1)).toBe(true); // Same reference
-      expect(isEqual(int8Array1, int8Array2)).toBe(false); // Different reference
-      expect(isEqual(int8Array1, int8Array3)).toBe(false); // Different reference and value
-    });
-
-    it('should handle array-like objects', () => {
-      const arrayLike1 = { 0: 'a', 1: 'b', 2: 'c', length: 3 };
-      const arrayLike2 = { 0: 'a', 1: 'b', 2: 'c', length: 3 };
-      const arrayLike3 = { 0: 'a', 1: 'b', 2: 'd', length: 3 }; // Different value
-
-      // Array-like objects are plain objects, so they're compared by value
-      expect(isEqual(arrayLike1, arrayLike2)).toBe(true);
-      expect(isEqual(arrayLike1, arrayLike3)).toBe(false);
+      it('should handle functions correctly', () => {
+        const func1 = () => 1;
+        const func2 = () => 1;
+        const func3 = () => 2;
+        
+        // Functions are compared by reference, not by content
+        expect(isEqual(func1, func1)).toBe(true);
+        expect(isEqual(func1, func2)).toBe(false);
+        expect(isEqual(func1, func3)).toBe(false);
+      });
     });
   });
 
   describe('getDifferences', () => {
-    it('should detect differences in simple objects', () => {
-      const oldObj = { a: 1, b: 2, c: 3 };
-      const newObj = { a: 1, b: 3, d: 4 }; // b changed, c removed, d added
-
-      const differences = getDifferences(oldObj, newObj);
-
-      expect(differences).toEqual({
-        'b': { oldValue: 2, newValue: 3 },
-        'c': { oldValue: 3, newValue: undefined },
-        'd': { oldValue: undefined, newValue: 4 }
-      });
+    it('should return null for identical objects', () => {
+      const obj1 = { a: 1, b: 'test', c: true };
+      const obj2 = { a: 1, b: 'test', c: true };
+      expect(getDifferences(obj1, obj2)).toBeNull();
     });
 
-    it('should detect differences in nested objects', () => {
-      const oldObj = {
-        user: {
-          name: 'John',
-          profile: {
-            age: 30,
-            address: {
-              city: 'New York',
-              zip: '10001'
-            }
-          }
+    it('should identify different values in objects', () => {
+      const obj1 = { a: 1, b: 'test', c: true };
+      const obj2 = { a: 2, b: 'test', c: true };
+      const expected = { a: { oldValue: 1, newValue: 2 } };
+      expect(getDifferences(obj1, obj2)).toEqual(expected);
+    });
+
+    it('should identify missing properties in the second object', () => {
+      const obj1 = { a: 1, b: 'test', c: true };
+      const obj2 = { a: 1, b: 'test' };
+      const expected = { c: { oldValue: true, newValue: undefined } };
+      expect(getDifferences(obj1, obj2)).toEqual(expected);
+    });
+
+    it('should identify additional properties in the second object', () => {
+      const obj1 = { a: 1, b: 'test' };
+      const obj2 = { a: 1, b: 'test', c: true };
+      const expected = { c: { oldValue: undefined, newValue: true } };
+      expect(getDifferences(obj1, obj2)).toEqual(expected);
+    });
+
+    it('should identify differences in nested objects', () => {
+      const obj1 = { a: 1, b: { c: 2, d: 3 } };
+      const obj2 = { a: 1, b: { c: 2, d: 4 } };
+      const expected = { 'b.d': { oldValue: 3, newValue: 4 } };
+      expect(getDifferences(obj1, obj2)).toEqual(expected);
+    });
+
+    it('should identify differences in arrays', () => {
+      const obj1 = { a: [1, 2, 3] };
+      const obj2 = { a: [1, 2, 4] };
+      const expected = { 'a[2]': { oldValue: 3, newValue: 4 } };
+      expect(getDifferences(obj1, obj2)).toEqual(expected);
+    });
+
+    it('should identify differences in array length', () => {
+      const obj1 = { a: [1, 2, 3] };
+      const obj2 = { a: [1, 2] };
+      const expected = { 'a.length': { oldValue: 3, newValue: 2 }, 'a[2]': { oldValue: 3, newValue: undefined } };
+      expect(getDifferences(obj1, obj2)).toEqual(expected);
+    });
+
+    it('should handle Date objects correctly', () => {
+      const date1 = new Date('2023-01-01');
+      const date2 = new Date('2023-01-02');
+      const obj1 = { date: date1 };
+      const obj2 = { date: date2 };
+      
+      const result = getDifferences(obj1, obj2);
+      expect(result).not.toBeNull();
+      expect(result?.date.oldValue).toEqual(date1);
+      expect(result?.date.newValue).toEqual(date2);
+    });
+
+    it('should handle circular references correctly', () => {
+      const obj1: any = { a: 1 };
+      const obj2: any = { a: 2 };
+      obj1.self = obj1;
+      obj2.self = obj2;
+
+      const expected = { a: { oldValue: 1, newValue: 2 } };
+      expect(getDifferences(obj1, obj2)).toEqual(expected);
+    });
+
+    it('should handle complex nested structures', () => {
+      const obj1 = {
+        name: 'John',
+        age: 30,
+        address: {
+          street: '123 Main St',
+          city: 'New York',
+          zip: '10001'
+        },
+        hobbies: ['reading', 'swimming'],
+        metadata: {
+          created: new Date('2023-01-01'),
+          updated: new Date('2023-01-01')
         }
       };
 
-      const newObj = {
-        user: {
-          name: 'John',
-          profile: {
-            age: 31, // Changed
-            address: {
-              city: 'Boston', // Changed
-              zip: '10001'
-            }
-          }
+      const obj2 = {
+        name: 'John',
+        age: 31,
+        address: {
+          street: '123 Main St',
+          city: 'Boston',
+          zip: '02101'
+        },
+        hobbies: ['reading', 'running'],
+        metadata: {
+          created: new Date('2023-01-01'),
+          updated: new Date('2023-01-02')
         }
       };
 
-      const differences = getDifferences(oldObj, newObj);
-
-      expect(differences).toEqual({
-        'user.profile.age': { oldValue: 30, newValue: 31 },
-        'user.profile.address.city': { oldValue: 'New York', newValue: 'Boston' }
-      });
-    });
-
-    it('should detect differences in arrays', () => {
-      const oldObj = { items: [1, 2, 3] };
-      const newObj = { items: [1, 4, 3] }; // Second item changed
-
-      const differences = getDifferences(oldObj, newObj);
-
-      expect(differences).toEqual({
-        'items[1]': { oldValue: 2, newValue: 4 }
-      });
-    });
-
-    it('should detect differences in arrays of objects', () => {
-      const oldObj = {
-        users: [
-          { id: 1, name: 'John' },
-          { id: 2, name: 'Jane' }
-        ]
+      const expected = {
+        'age': { oldValue: 30, newValue: 31 },
+        'address.city': { oldValue: 'New York', newValue: 'Boston' },
+        'address.zip': { oldValue: '10001', newValue: '02101' },
+        'hobbies[1]': { oldValue: 'swimming', newValue: 'running' },
+        'metadata.updated': { oldValue: new Date('2023-01-01'), newValue: new Date('2023-01-02') }
       };
 
-      const newObj = {
-        users: [
-          { id: 1, name: 'John' },
-          { id: 2, name: 'Janet' } // Name changed
-        ]
-      };
-
-      const differences = getDifferences(oldObj, newObj);
-
-      expect(differences).toEqual({
-        'users[1].name': { oldValue: 'Jane', newValue: 'Janet' }
-      });
-    });
-
-    it('should detect differences when array lengths change', () => {
-      const oldObj = { items: [1, 2, 3] };
-      const newObj = { items: [1, 2] }; // Last item removed
-
-      const differences = getDifferences(oldObj, newObj);
-
-      // When array lengths differ, the entire array is considered different
-      expect(differences).toEqual({
-        'items': { oldValue: [1, 2, 3], newValue: [1, 2] }
-      });
-    });
-
-    it('should handle the ignoreUndefined option', () => {
-      const oldObj = { a: 1, b: 2, c: undefined };
-      const newObj = { a: 1, b: 2 }; // c is missing
-
-      // By default, undefined properties are considered
-      const differences1 = getDifferences(oldObj, newObj);
-      expect(differences1).toEqual({
-        'c': { oldValue: undefined, newValue: undefined }
-      });
-
-      // With ignoreUndefined: true
-      const differences2 = getDifferences(oldObj, newObj, { ignoreUndefined: true });
-      expect(differences2).toEqual({});
-    });
-
-    it('should handle the strict option', () => {
-      const oldObj = { a: 1, b: 2 };
-      const newObj = { a: '1', b: 2 }; // a is now a string
-
-      // With strict: true (default)
-      const differences1 = getDifferences(oldObj, newObj);
-      expect(differences1).toEqual({
-        'a': { oldValue: 1, newValue: '1' }
-      });
-
-      // With strict: false
-      const differences2 = getDifferences(oldObj, newObj, { strict: false });
-      expect(differences2).toEqual({});
-    });
-
-    it('should handle the excludePaths option', () => {
-      const oldObj = {
-        id: 1,
-        user: {
-          name: 'John',
-          metadata: {
-            created: new Date('2023-01-01'),
-            updated: new Date('2023-01-02')
-          }
-        }
-      };
-
-      const newObj = {
-        id: 2, // Changed
-        user: {
-          name: 'Jane', // Changed
-          metadata: {
-            created: new Date('2023-01-01'),
-            updated: new Date('2023-01-03') // Changed
-          }
-        }
-      };
-
-      // Without exclusions
-      const differences1 = getDifferences(oldObj, newObj);
-      expect(Object.keys(differences1)).toEqual([
-        'id',
-        'user.name',
-        'user.metadata.updated'
-      ]);
-
-      // With exclusions
-      const differences2 = getDifferences(oldObj, newObj, {
-        excludePaths: ['id', 'user.metadata']
-      });
-      expect(Object.keys(differences2)).toEqual(['user.name']);
-
-      // With wildcard exclusions
-      const differences3 = getDifferences(oldObj, newObj, {
-        excludePaths: ['user.*']
-      });
-      expect(Object.keys(differences3)).toEqual(['id']);
-    });
-
-    it('should handle type changes correctly', () => {
-      const oldObj = {
-        prop: { nested: 'value' }
-      };
-
-      const newObj = {
-        prop: 'string value' // Changed from object to string
-      };
-
-      const differences = getDifferences(oldObj, newObj);
-
-      expect(differences).toEqual({
-        'prop': {
-          oldValue: { nested: 'value' },
-          newValue: 'string value'
-        }
-      });
-    });
-
-    it('should handle array to object type changes', () => {
-      const oldObj = {
-        prop: [1, 2, 3]
-      };
-
-      const newObj = {
-        prop: { a: 1, b: 2 } // Changed from array to object
-      };
-
-      const differences = getDifferences(oldObj, newObj);
-
-      expect(differences).toEqual({
-        'prop': {
-          oldValue: [1, 2, 3],
-          newValue: { a: 1, b: 2 }
-        }
-      });
-    });
-  });
-
-  describe('hasDifferences', () => {
-    it('should return true when objects have differences', () => {
-      const oldObj = { a: 1, b: 2 };
-      const newObj = { a: 1, b: 3 }; // b changed
-
-      expect(hasDifferences(oldObj, newObj)).toBe(true);
-    });
-
-    it('should return false when objects are equal', () => {
-      const oldObj = { a: 1, b: 2 };
-      const newObj = { a: 1, b: 2 };
-
-      expect(hasDifferences(oldObj, newObj)).toBe(false);
-    });
-
-    it('should respect comparison options', () => {
-      const oldObj = { a: 1, b: undefined };
-      const newObj = { a: 1 }; // b missing
-
-      // By default, undefined properties are considered
-      expect(hasDifferences(oldObj, newObj)).toBe(true);
-
-      // With ignoreUndefined: true
-      expect(hasDifferences(oldObj, newObj, { ignoreUndefined: true })).toBe(false);
-    });
-  });
-
-  describe('objectsAreEqual', () => {
-    it('should work as a type guard', () => {
-      interface User {
-        id: number;
-        name: string;
-      }
-
-      interface ExtendedUser extends User {
-        role: string;
-      }
-
-      const user: User = { id: 1, name: 'John' };
-      const extendedUser: ExtendedUser = { id: 1, name: 'John', role: 'admin' };
-      const differentUser: User = { id: 2, name: 'Jane' };
-
-      // When objects are not equal
-      if (!objectsAreEqual(user, differentUser)) {
-        // TypeScript knows they're not equal here
-        expect(user.id).not.toBe(differentUser.id);
-      }
-
-      // When objects have compatible properties but different shapes
-      if (objectsAreEqual(user, extendedUser, { excludePaths: ['role'] })) {
-        // TypeScript treats them as compatible here
-        expect(user.id).toBe(extendedUser.id);
-        expect(user.name).toBe(extendedUser.name);
-      }
-    });
-
-    it('should return true for equal objects', () => {
-      const obj1 = { a: 1, b: 2 };
-      const obj2 = { a: 1, b: 2 };
-
-      expect(objectsAreEqual(obj1, obj2)).toBe(true);
-    });
-
-    it('should return false for different objects', () => {
-      const obj1 = { a: 1, b: 2 };
-      const obj2 = { a: 1, b: 3 };
-
-      expect(objectsAreEqual(obj1, obj2)).toBe(false);
+      expect(getDifferences(obj1, obj2)).toEqual(expected);
     });
   });
 });

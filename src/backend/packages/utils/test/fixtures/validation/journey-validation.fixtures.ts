@@ -1,242 +1,242 @@
 /**
- * Journey-specific validation test fixtures
+ * Journey Validation Test Fixtures
  * 
- * This file provides test fixtures for validating journey-specific data models
- * across the Health, Care, and Plan journeys. These fixtures ensure that each
- * journey can properly validate its specific data requirements while maintaining
- * consistent validation patterns across the SuperApp.
+ * This file provides test fixtures for journey-specific validation scenarios
+ * organized by health, care, and plan journeys. These fixtures ensure each journey
+ * can properly validate its specific data requirements while maintaining consistent
+ * validation patterns across the SuperApp.
  */
 
 import { z } from 'zod';
-import * as Joi from 'joi';
-import { JOURNEY_NAMES } from '../../../src/constants';
 
-// Common date constants for testing
-const TODAY = new Date();
-const YESTERDAY = new Date(TODAY);
-YESTERDAY.setDate(TODAY.getDate() - 1);
-const TOMORROW = new Date(TODAY);
-TOMORROW.setDate(TODAY.getDate() + 1);
-const ONE_YEAR_AGO = new Date(TODAY);
-ONE_YEAR_AGO.setFullYear(TODAY.getFullYear() - 1);
+// Common types used across journeys
+export enum JourneyType {
+  HEALTH = 'health',
+  CARE = 'care',
+  PLAN = 'plan'
+}
+
+export enum ClaimType {
+  CONSULTATION = 'consultation',
+  EXAMINATION = 'examination',
+  PROCEDURE = 'procedure',
+  EMERGENCY = 'emergency',
+  MEDICATION = 'medication'
+}
+
+export enum MetricType {
+  STEPS = 'steps',
+  HEART_RATE = 'heart_rate',
+  BLOOD_PRESSURE = 'blood_pressure',
+  BLOOD_GLUCOSE = 'blood_glucose',
+  WEIGHT = 'weight',
+  SLEEP = 'sleep',
+  OXYGEN_SATURATION = 'oxygen_saturation'
+}
+
+export enum AppointmentType {
+  IN_PERSON = 'in_person',
+  TELEMEDICINE = 'telemedicine',
+  HOME_VISIT = 'home_visit'
+}
 
 /**
  * Health Journey Validation Fixtures
  */
 export const healthJourneyFixtures = {
-  // Health Metrics validation fixtures
+  // Health metrics validation fixtures
   metrics: {
-    // Zod schema for health metrics validation
-    schema: z.object({
-      metricType: z.enum(['WEIGHT', 'BLOOD_PRESSURE', 'HEART_RATE', 'BLOOD_GLUCOSE', 'STEPS', 'SLEEP']),
-      value: z.number().positive(),
-      unit: z.string().min(1),
-      timestamp: z.date().refine((date) => date <= TODAY, { message: 'Date cannot be in the future' }),
-      source: z.enum(['MANUAL', 'DEVICE', 'INTEGRATION']),
-      deviceId: z.string().optional(),
-    }),
-    
-    // Valid test cases
     valid: {
-      weight: {
-        metricType: 'WEIGHT',
-        value: 75.5,
-        unit: 'kg',
-        timestamp: YESTERDAY,
-        source: 'MANUAL',
-      },
-      bloodPressure: {
-        metricType: 'BLOOD_PRESSURE',
-        value: 120,
-        unit: 'mmHg',
-        timestamp: YESTERDAY,
-        source: 'DEVICE',
-        deviceId: 'device-123',
-      },
       steps: {
-        metricType: 'STEPS',
+        userId: '123e4567-e89b-12d3-a456-426614174000',
+        type: MetricType.STEPS,
         value: 10000,
         unit: 'steps',
-        timestamp: YESTERDAY,
-        source: 'INTEGRATION',
-        deviceId: 'fitbit-456',
+        timestamp: new Date('2023-04-15T14:30:00Z'),
+        source: 'googlefit'
       },
-    },
-    
-    // Invalid test cases
-    invalid: {
-      futureDate: {
-        metricType: 'WEIGHT',
-        value: 75.5,
-        unit: 'kg',
-        timestamp: TOMORROW,
-        source: 'MANUAL',
-      },
-      negativeValue: {
-        metricType: 'HEART_RATE',
-        value: -60,
+      heartRate: {
+        userId: '123e4567-e89b-12d3-a456-426614174000',
+        type: MetricType.HEART_RATE,
+        value: 72,
         unit: 'bpm',
-        timestamp: YESTERDAY,
-        source: 'DEVICE',
-        deviceId: 'device-123',
+        timestamp: new Date('2023-04-15T14:30:00Z'),
+        source: 'fitbit'
       },
-      missingUnit: {
-        metricType: 'BLOOD_GLUCOSE',
-        value: 120,
-        unit: '',
-        timestamp: YESTERDAY,
-        source: 'MANUAL',
+      bloodPressure: {
+        userId: '123e4567-e89b-12d3-a456-426614174000',
+        type: MetricType.BLOOD_PRESSURE,
+        value: { systolic: 120, diastolic: 80 },
+        unit: 'mmHg',
+        timestamp: new Date('2023-04-15T14:30:00Z'),
+        source: 'manual'
+      },
+      weight: {
+        userId: '123e4567-e89b-12d3-a456-426614174000',
+        type: MetricType.WEIGHT,
+        value: 70.5,
+        unit: 'kg',
+        timestamp: new Date('2023-04-15T14:30:00Z'),
+        source: 'withings'
+      }
+    },
+    invalid: {
+      missingUserId: {
+        // userId is missing
+        type: MetricType.STEPS,
+        value: 10000,
+        unit: 'steps',
+        timestamp: new Date('2023-04-15T14:30:00Z'),
+        source: 'googlefit'
       },
       invalidMetricType: {
-        metricType: 'INVALID_TYPE',
-        value: 75.5,
-        unit: 'kg',
-        timestamp: YESTERDAY,
-        source: 'MANUAL',
+        userId: '123e4567-e89b-12d3-a456-426614174000',
+        type: 'invalid_type', // Invalid metric type
+        value: 10000,
+        unit: 'steps',
+        timestamp: new Date('2023-04-15T14:30:00Z'),
+        source: 'googlefit'
       },
-    },
+      negativeValue: {
+        userId: '123e4567-e89b-12d3-a456-426614174000',
+        type: MetricType.STEPS,
+        value: -100, // Negative value not allowed for steps
+        unit: 'steps',
+        timestamp: new Date('2023-04-15T14:30:00Z'),
+        source: 'googlefit'
+      },
+      futureTimestamp: {
+        userId: '123e4567-e89b-12d3-a456-426614174000',
+        type: MetricType.HEART_RATE,
+        value: 72,
+        unit: 'bpm',
+        timestamp: new Date(Date.now() + 86400000), // Future timestamp (tomorrow)
+        source: 'fitbit'
+      },
+      invalidBloodPressureFormat: {
+        userId: '123e4567-e89b-12d3-a456-426614174000',
+        type: MetricType.BLOOD_PRESSURE,
+        value: 120, // Should be an object with systolic and diastolic
+        unit: 'mmHg',
+        timestamp: new Date('2023-04-15T14:30:00Z'),
+        source: 'manual'
+      }
+    }
   },
   
-  // Health Goals validation fixtures
+  // Health goals validation fixtures
   goals: {
-    // Zod schema for health goals validation
-    schema: z.object({
-      goalType: z.enum(['WEIGHT', 'STEPS', 'ACTIVITY', 'SLEEP', 'NUTRITION', 'CUSTOM']),
-      targetValue: z.number().positive(),
-      unit: z.string().min(1),
-      startDate: z.date(),
-      targetDate: z.date().refine((date) => date > TODAY, { message: 'Target date must be in the future' }),
-      frequency: z.enum(['DAILY', 'WEEKLY', 'MONTHLY']),
-      reminderEnabled: z.boolean(),
-      reminderTime: z.string().regex(/^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/).optional(),
-    }).refine((data) => data.targetDate > data.startDate, {
-      message: 'Target date must be after start date',
-      path: ['targetDate'],
-    }),
-    
-    // Valid test cases
     valid: {
-      weightGoal: {
-        goalType: 'WEIGHT',
-        targetValue: 70,
-        unit: 'kg',
-        startDate: TODAY,
-        targetDate: TOMORROW,
-        frequency: 'WEEKLY',
-        reminderEnabled: true,
-        reminderTime: '08:00',
-      },
       stepsGoal: {
-        goalType: 'STEPS',
-        targetValue: 10000,
+        userId: '123e4567-e89b-12d3-a456-426614174000',
+        metricType: MetricType.STEPS,
+        target: 10000,
         unit: 'steps',
-        startDate: TODAY,
-        targetDate: TOMORROW,
-        frequency: 'DAILY',
-        reminderEnabled: false,
+        frequency: 'daily',
+        startDate: new Date('2023-04-01'),
+        endDate: new Date('2023-04-30'),
+        reminderEnabled: true,
+        reminderTime: '08:00'
       },
-    },
-    
-    // Invalid test cases
-    invalid: {
-      pastTargetDate: {
-        goalType: 'WEIGHT',
-        targetValue: 70,
+      weightGoal: {
+        userId: '123e4567-e89b-12d3-a456-426614174000',
+        metricType: MetricType.WEIGHT,
+        target: 65,
         unit: 'kg',
-        startDate: ONE_YEAR_AGO,
-        targetDate: YESTERDAY,
-        frequency: 'WEEKLY',
-        reminderEnabled: true,
-        reminderTime: '08:00',
-      },
-      targetBeforeStart: {
-        goalType: 'STEPS',
-        targetValue: 10000,
-        unit: 'steps',
-        startDate: TOMORROW,
-        targetDate: TODAY,
-        frequency: 'DAILY',
-        reminderEnabled: false,
-      },
-      invalidReminderTime: {
-        goalType: 'SLEEP',
-        targetValue: 8,
-        unit: 'hours',
-        startDate: TODAY,
-        targetDate: TOMORROW,
-        frequency: 'DAILY',
-        reminderEnabled: true,
-        reminderTime: '25:00',
-      },
+        frequency: 'weekly',
+        startDate: new Date('2023-04-01'),
+        endDate: new Date('2023-06-30'),
+        reminderEnabled: false
+      }
     },
+    invalid: {
+      endDateBeforeStartDate: {
+        userId: '123e4567-e89b-12d3-a456-426614174000',
+        metricType: MetricType.STEPS,
+        target: 10000,
+        unit: 'steps',
+        frequency: 'daily',
+        startDate: new Date('2023-04-30'), // Start date after end date
+        endDate: new Date('2023-04-01'),
+        reminderEnabled: true,
+        reminderTime: '08:00'
+      },
+      invalidFrequency: {
+        userId: '123e4567-e89b-12d3-a456-426614174000',
+        metricType: MetricType.WEIGHT,
+        target: 65,
+        unit: 'kg',
+        frequency: 'bi-monthly', // Invalid frequency
+        startDate: new Date('2023-04-01'),
+        endDate: new Date('2023-06-30'),
+        reminderEnabled: false
+      },
+      missingReminderTime: {
+        userId: '123e4567-e89b-12d3-a456-426614174000',
+        metricType: MetricType.STEPS,
+        target: 10000,
+        unit: 'steps',
+        frequency: 'daily',
+        startDate: new Date('2023-04-01'),
+        endDate: new Date('2023-04-30'),
+        reminderEnabled: true
+        // reminderTime is missing but required when reminderEnabled is true
+      }
+    }
   },
   
   // Device connection validation fixtures
   deviceConnections: {
-    // Zod schema for device connections validation
-    schema: z.object({
-      deviceType: z.enum(['FITBIT', 'GOOGLEFIT', 'APPLEHEALTH', 'GARMIN', 'SAMSUNG', 'OTHER']),
-      connectionStatus: z.enum(['CONNECTED', 'DISCONNECTED', 'PENDING', 'FAILED']),
-      lastSyncDate: z.date().optional(),
-      accessToken: z.string().min(1),
-      refreshToken: z.string().min(1),
-      expiresAt: z.date(),
-      scopes: z.array(z.string()),
-    }),
-    
-    // Valid test cases
     valid: {
-      fitbitConnection: {
-        deviceType: 'FITBIT',
-        connectionStatus: 'CONNECTED',
-        lastSyncDate: YESTERDAY,
-        accessToken: 'access-token-123',
-        refreshToken: 'refresh-token-123',
-        expiresAt: TOMORROW,
+      fitbit: {
+        userId: '123e4567-e89b-12d3-a456-426614174000',
+        provider: 'fitbit',
+        accessToken: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...',
+        refreshToken: 'rt_abc123def456',
+        expiresAt: new Date(Date.now() + 86400000),
         scopes: ['activity', 'heartrate', 'sleep'],
+        lastSyncedAt: new Date('2023-04-15T10:30:00Z')
       },
-      googleFitConnection: {
-        deviceType: 'GOOGLEFIT',
-        connectionStatus: 'CONNECTED',
-        lastSyncDate: YESTERDAY,
-        accessToken: 'access-token-456',
-        refreshToken: 'refresh-token-456',
-        expiresAt: TOMORROW,
+      googleFit: {
+        userId: '123e4567-e89b-12d3-a456-426614174000',
+        provider: 'googlefit',
+        accessToken: 'ya29.a0AfB_byC-...',
+        refreshToken: '1//xEoDL4iW3cxlI...',
+        expiresAt: new Date(Date.now() + 3600000),
         scopes: ['activity', 'body', 'location'],
-      },
+        lastSyncedAt: new Date('2023-04-15T11:45:00Z')
+      }
     },
-    
-    // Invalid test cases
     invalid: {
       expiredToken: {
-        deviceType: 'FITBIT',
-        connectionStatus: 'CONNECTED',
-        lastSyncDate: YESTERDAY,
-        accessToken: 'access-token-123',
-        refreshToken: 'refresh-token-123',
-        expiresAt: YESTERDAY,
+        userId: '123e4567-e89b-12d3-a456-426614174000',
+        provider: 'fitbit',
+        accessToken: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...',
+        refreshToken: 'rt_abc123def456',
+        expiresAt: new Date(Date.now() - 86400000), // Expired token
         scopes: ['activity', 'heartrate', 'sleep'],
+        lastSyncedAt: new Date('2023-04-15T10:30:00Z')
       },
-      emptyAccessToken: {
-        deviceType: 'GOOGLEFIT',
-        connectionStatus: 'CONNECTED',
-        lastSyncDate: YESTERDAY,
-        accessToken: '',
-        refreshToken: 'refresh-token-456',
-        expiresAt: TOMORROW,
-        scopes: ['activity', 'body', 'location'],
+      unsupportedProvider: {
+        userId: '123e4567-e89b-12d3-a456-426614174000',
+        provider: 'garmin', // Unsupported provider
+        accessToken: 'abc123def456',
+        refreshToken: 'rt_abc123def456',
+        expiresAt: new Date(Date.now() + 86400000),
+        scopes: ['activity', 'heartrate'],
+        lastSyncedAt: new Date('2023-04-15T10:30:00Z')
       },
-      invalidDeviceType: {
-        deviceType: 'INVALID_DEVICE',
-        connectionStatus: 'CONNECTED',
-        lastSyncDate: YESTERDAY,
-        accessToken: 'access-token-123',
-        refreshToken: 'refresh-token-123',
-        expiresAt: TOMORROW,
-        scopes: ['activity', 'heartrate', 'sleep'],
-      },
-    },
-  },
+      emptyScopes: {
+        userId: '123e4567-e89b-12d3-a456-426614174000',
+        provider: 'fitbit',
+        accessToken: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...',
+        refreshToken: 'rt_abc123def456',
+        expiresAt: new Date(Date.now() + 86400000),
+        scopes: [], // Empty scopes array
+        lastSyncedAt: new Date('2023-04-15T10:30:00Z')
+      }
+    }
+  }
 };
 
 /**
@@ -245,282 +245,273 @@ export const healthJourneyFixtures = {
 export const careJourneyFixtures = {
   // Appointment validation fixtures
   appointments: {
-    // Zod schema for appointment validation
-    schema: z.object({
-      providerId: z.string().uuid(),
-      specialtyId: z.string().uuid(),
-      appointmentType: z.enum(['IN_PERSON', 'VIDEO', 'PHONE']),
-      date: z.date().refine((date) => date > TODAY, { message: 'Appointment date must be in the future' }),
-      startTime: z.string().regex(/^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/),
-      duration: z.number().int().min(15).max(120),
-      reason: z.string().min(5).max(500),
-      insurancePlanId: z.string().uuid().optional(),
-      notes: z.string().max(1000).optional(),
-    }),
-    
-    // Valid test cases
     valid: {
-      inPersonAppointment: {
-        providerId: '123e4567-e89b-12d3-a456-426614174000',
-        specialtyId: '123e4567-e89b-12d3-a456-426614174001',
-        appointmentType: 'IN_PERSON',
-        date: TOMORROW,
-        startTime: '14:30',
-        duration: 30,
-        reason: 'Annual physical examination',
-        insurancePlanId: '123e4567-e89b-12d3-a456-426614174002',
-        notes: 'Please bring previous test results',
+      inPerson: {
+        userId: '123e4567-e89b-12d3-a456-426614174000',
+        providerId: '987e6543-e21b-12d3-a456-426614174000',
+        type: AppointmentType.IN_PERSON,
+        specialtyId: '456e7890-e21b-12d3-a456-426614174000',
+        date: new Date('2023-05-10T14:30:00Z'),
+        duration: 30, // minutes
+        reason: 'Annual check-up',
+        notes: 'First visit with this provider',
+        status: 'scheduled',
+        locationId: '789e1234-e21b-12d3-a456-426614174000'
       },
-      videoAppointment: {
-        providerId: '123e4567-e89b-12d3-a456-426614174003',
-        specialtyId: '123e4567-e89b-12d3-a456-426614174004',
-        appointmentType: 'VIDEO',
-        date: TOMORROW,
-        startTime: '10:00',
-        duration: 15,
+      telemedicine: {
+        userId: '123e4567-e89b-12d3-a456-426614174000',
+        providerId: '987e6543-e21b-12d3-a456-426614174000',
+        type: AppointmentType.TELEMEDICINE,
+        specialtyId: '456e7890-e21b-12d3-a456-426614174000',
+        date: new Date('2023-05-12T10:00:00Z'),
+        duration: 15, // minutes
         reason: 'Follow-up consultation',
-      },
+        notes: '',
+        status: 'scheduled',
+        meetingUrl: 'https://telemedicine.austa.com.br/room/abc123'
+      }
     },
-    
-    // Invalid test cases
     invalid: {
       pastDate: {
-        providerId: '123e4567-e89b-12d3-a456-426614174000',
-        specialtyId: '123e4567-e89b-12d3-a456-426614174001',
-        appointmentType: 'IN_PERSON',
-        date: YESTERDAY,
-        startTime: '14:30',
+        userId: '123e4567-e89b-12d3-a456-426614174000',
+        providerId: '987e6543-e21b-12d3-a456-426614174000',
+        type: AppointmentType.IN_PERSON,
+        specialtyId: '456e7890-e21b-12d3-a456-426614174000',
+        date: new Date('2022-05-10T14:30:00Z'), // Past date
         duration: 30,
-        reason: 'Annual physical examination',
+        reason: 'Annual check-up',
+        notes: '',
+        status: 'scheduled',
+        locationId: '789e1234-e21b-12d3-a456-426614174000'
       },
-      invalidTime: {
-        providerId: '123e4567-e89b-12d3-a456-426614174003',
-        specialtyId: '123e4567-e89b-12d3-a456-426614174004',
-        appointmentType: 'VIDEO',
-        date: TOMORROW,
-        startTime: '25:00',
+      missingLocationForInPerson: {
+        userId: '123e4567-e89b-12d3-a456-426614174000',
+        providerId: '987e6543-e21b-12d3-a456-426614174000',
+        type: AppointmentType.IN_PERSON,
+        specialtyId: '456e7890-e21b-12d3-a456-426614174000',
+        date: new Date('2023-05-10T14:30:00Z'),
+        duration: 30,
+        reason: 'Annual check-up',
+        notes: '',
+        status: 'scheduled'
+        // locationId is missing but required for in-person appointments
+      },
+      missingMeetingUrlForTelemedicine: {
+        userId: '123e4567-e89b-12d3-a456-426614174000',
+        providerId: '987e6543-e21b-12d3-a456-426614174000',
+        type: AppointmentType.TELEMEDICINE,
+        specialtyId: '456e7890-e21b-12d3-a456-426614174000',
+        date: new Date('2023-05-12T10:00:00Z'),
         duration: 15,
         reason: 'Follow-up consultation',
-      },
-      tooShortReason: {
-        providerId: '123e4567-e89b-12d3-a456-426614174000',
-        specialtyId: '123e4567-e89b-12d3-a456-426614174001',
-        appointmentType: 'PHONE',
-        date: TOMORROW,
-        startTime: '14:30',
-        duration: 30,
-        reason: 'Hi',
+        notes: '',
+        status: 'scheduled'
+        // meetingUrl is missing but required for telemedicine appointments
       },
       invalidDuration: {
-        providerId: '123e4567-e89b-12d3-a456-426614174003',
-        specialtyId: '123e4567-e89b-12d3-a456-426614174004',
-        appointmentType: 'VIDEO',
-        date: TOMORROW,
-        startTime: '10:00',
-        duration: 5,
-        reason: 'Follow-up consultation',
-      },
-    },
+        userId: '123e4567-e89b-12d3-a456-426614174000',
+        providerId: '987e6543-e21b-12d3-a456-426614174000',
+        type: AppointmentType.IN_PERSON,
+        specialtyId: '456e7890-e21b-12d3-a456-426614174000',
+        date: new Date('2023-05-10T14:30:00Z'),
+        duration: 5, // Duration too short (minimum 15 minutes)
+        reason: 'Annual check-up',
+        notes: '',
+        status: 'scheduled',
+        locationId: '789e1234-e21b-12d3-a456-426614174000'
+      }
+    }
   },
   
   // Medication validation fixtures
   medications: {
-    // Zod schema for medication validation
-    schema: z.object({
-      name: z.string().min(3).max(100),
-      dosage: z.string().min(1).max(50),
-      frequency: z.enum(['ONCE_DAILY', 'TWICE_DAILY', 'THREE_TIMES_DAILY', 'FOUR_TIMES_DAILY', 'AS_NEEDED', 'WEEKLY', 'MONTHLY', 'CUSTOM']),
-      customFrequency: z.string().max(100).optional(),
-      startDate: z.date(),
-      endDate: z.date().optional(),
-      instructions: z.string().max(500).optional(),
-      reminderEnabled: z.boolean(),
-      reminderTimes: z.array(z.string().regex(/^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/)).optional(),
-    }).refine(
-      (data) => !data.endDate || data.endDate >= data.startDate,
-      {
-        message: 'End date must be after or equal to start date',
-        path: ['endDate'],
-      }
-    ).refine(
-      (data) => data.frequency !== 'CUSTOM' || (data.customFrequency && data.customFrequency.length > 0),
-      {
-        message: 'Custom frequency is required when frequency is set to CUSTOM',
-        path: ['customFrequency'],
-      }
-    ).refine(
-      (data) => !data.reminderEnabled || (data.reminderTimes && data.reminderTimes.length > 0),
-      {
-        message: 'Reminder times are required when reminders are enabled',
-        path: ['reminderTimes'],
-      }
-    ),
-    
-    // Valid test cases
     valid: {
       dailyMedication: {
+        userId: '123e4567-e89b-12d3-a456-426614174000',
         name: 'Lisinopril',
         dosage: '10mg',
-        frequency: 'ONCE_DAILY',
-        startDate: TODAY,
-        endDate: new Date(TODAY.getFullYear(), TODAY.getMonth() + 1, TODAY.getDate()),
-        instructions: 'Take with food',
+        frequency: 'daily',
+        startDate: new Date('2023-04-01'),
+        endDate: new Date('2023-07-01'),
+        instructions: 'Take with food in the morning',
         reminderEnabled: true,
         reminderTimes: ['08:00'],
+        prescribedBy: '987e6543-e21b-12d3-a456-426614174000',
+        active: true
+      },
+      multipleTimesPerDay: {
+        userId: '123e4567-e89b-12d3-a456-426614174000',
+        name: 'Metformin',
+        dosage: '500mg',
+        frequency: 'twice_daily',
+        startDate: new Date('2023-04-01'),
+        endDate: null, // Ongoing medication
+        instructions: 'Take with meals',
+        reminderEnabled: true,
+        reminderTimes: ['08:00', '20:00'],
+        prescribedBy: '987e6543-e21b-12d3-a456-426614174000',
+        active: true
       },
       asNeededMedication: {
+        userId: '123e4567-e89b-12d3-a456-426614174000',
         name: 'Ibuprofen',
-        dosage: '200mg',
-        frequency: 'AS_NEEDED',
-        startDate: TODAY,
-        instructions: 'Take for pain as needed, not to exceed 6 tablets in 24 hours',
+        dosage: '400mg',
+        frequency: 'as_needed',
+        startDate: new Date('2023-04-01'),
+        endDate: new Date('2023-04-15'),
+        instructions: 'Take for pain as needed, not more than 3 times per day',
         reminderEnabled: false,
-      },
-      customMedication: {
-        name: 'Insulin',
-        dosage: '10 units',
-        frequency: 'CUSTOM',
-        customFrequency: 'Before meals and at bedtime',
-        startDate: TODAY,
-        instructions: 'Adjust based on blood glucose readings',
-        reminderEnabled: true,
-        reminderTimes: ['07:30', '12:30', '18:30', '22:00'],
-      },
+        prescribedBy: '987e6543-e21b-12d3-a456-426614174000',
+        active: true
+      }
     },
-    
-    // Invalid test cases
     invalid: {
-      endBeforeStart: {
-        name: 'Amoxicillin',
-        dosage: '500mg',
-        frequency: 'THREE_TIMES_DAILY',
-        startDate: TOMORROW,
-        endDate: TODAY,
-        instructions: 'Take until completed',
-        reminderEnabled: true,
-        reminderTimes: ['08:00', '14:00', '20:00'],
-      },
-      missingCustomFrequency: {
-        name: 'Metformin',
-        dosage: '1000mg',
-        frequency: 'CUSTOM',
-        startDate: TODAY,
-        reminderEnabled: false,
-      },
       missingReminderTimes: {
-        name: 'Atorvastatin',
-        dosage: '20mg',
-        frequency: 'ONCE_DAILY',
-        startDate: TODAY,
-        reminderEnabled: true,
-      },
-      nameTooShort: {
-        name: 'Rx',
+        userId: '123e4567-e89b-12d3-a456-426614174000',
+        name: 'Lisinopril',
         dosage: '10mg',
-        frequency: 'ONCE_DAILY',
-        startDate: TODAY,
-        reminderEnabled: false,
+        frequency: 'daily',
+        startDate: new Date('2023-04-01'),
+        endDate: new Date('2023-07-01'),
+        instructions: 'Take with food in the morning',
+        reminderEnabled: true,
+        // reminderTimes is missing but required when reminderEnabled is true
+        prescribedBy: '987e6543-e21b-12d3-a456-426614174000',
+        active: true
       },
-    },
+      invalidFrequencyReminderTimes: {
+        userId: '123e4567-e89b-12d3-a456-426614174000',
+        name: 'Metformin',
+        dosage: '500mg',
+        frequency: 'twice_daily',
+        startDate: new Date('2023-04-01'),
+        endDate: null,
+        instructions: 'Take with meals',
+        reminderEnabled: true,
+        reminderTimes: ['08:00'], // Only one reminder time for twice_daily frequency
+        prescribedBy: '987e6543-e21b-12d3-a456-426614174000',
+        active: true
+      },
+      endDateBeforeStartDate: {
+        userId: '123e4567-e89b-12d3-a456-426614174000',
+        name: 'Ibuprofen',
+        dosage: '400mg',
+        frequency: 'as_needed',
+        startDate: new Date('2023-04-15'),
+        endDate: new Date('2023-04-01'), // End date before start date
+        instructions: 'Take for pain as needed, not more than 3 times per day',
+        reminderEnabled: false,
+        prescribedBy: '987e6543-e21b-12d3-a456-426614174000',
+        active: true
+      }
+    }
   },
   
-  // Telemedicine session validation fixtures
-  telemedicineSessions: {
-    // Zod schema for telemedicine session validation
-    schema: z.object({
-      appointmentId: z.string().uuid(),
-      sessionType: z.enum(['VIDEO', 'AUDIO']),
-      scheduledStartTime: z.date(),
-      actualStartTime: z.date().optional(),
-      endTime: z.date().optional(),
-      status: z.enum(['SCHEDULED', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED', 'NO_SHOW']),
-      providerNotes: z.string().max(2000).optional(),
-      patientNotes: z.string().max(1000).optional(),
-      technicalIssues: z.array(z.enum(['AUDIO', 'VIDEO', 'CONNECTION', 'OTHER'])).optional(),
-      recordingEnabled: z.boolean(),
-      recordingUrl: z.string().url().optional(),
-    }).refine(
-      (data) => !data.actualStartTime || data.actualStartTime >= data.scheduledStartTime,
-      {
-        message: 'Actual start time cannot be before scheduled start time',
-        path: ['actualStartTime'],
-      }
-    ).refine(
-      (data) => !data.endTime || !data.actualStartTime || data.endTime >= data.actualStartTime,
-      {
-        message: 'End time cannot be before actual start time',
-        path: ['endTime'],
-      }
-    ).refine(
-      (data) => !data.recordingUrl || data.recordingEnabled,
-      {
-        message: 'Recording URL cannot be provided if recording is not enabled',
-        path: ['recordingUrl'],
-      }
-    ),
-    
-    // Valid test cases
+  // Provider validation fixtures
+  providers: {
     valid: {
-      scheduledSession: {
-        appointmentId: '123e4567-e89b-12d3-a456-426614174000',
-        sessionType: 'VIDEO',
-        scheduledStartTime: TOMORROW,
-        status: 'SCHEDULED',
-        recordingEnabled: false,
-      },
-      completedSession: {
-        appointmentId: '123e4567-e89b-12d3-a456-426614174001',
-        sessionType: 'VIDEO',
-        scheduledStartTime: YESTERDAY,
-        actualStartTime: new Date(YESTERDAY.getTime() + 5 * 60000), // 5 minutes after scheduled
-        endTime: new Date(YESTERDAY.getTime() + 35 * 60000), // 30 minutes duration
-        status: 'COMPLETED',
-        providerNotes: 'Patient reported improvement in symptoms',
-        patientNotes: 'Doctor recommended continuing current medication',
-        recordingEnabled: true,
-        recordingUrl: 'https://telemedicine.austa.com.br/recordings/session-123.mp4',
-      },
-      cancelledSession: {
-        appointmentId: '123e4567-e89b-12d3-a456-426614174002',
-        sessionType: 'AUDIO',
-        scheduledStartTime: YESTERDAY,
-        status: 'CANCELLED',
-        patientNotes: 'Need to reschedule due to emergency',
-        recordingEnabled: false,
-      },
+      doctor: {
+        id: '987e6543-e21b-12d3-a456-426614174000',
+        name: 'Dr. Ana Silva',
+        specialtyId: '456e7890-e21b-12d3-a456-426614174000',
+        specialtyName: 'Cardiologist',
+        licenseNumber: 'CRM-SP 123456',
+        bio: 'Experienced cardiologist with 15 years of practice',
+        education: [
+          { institution: 'Universidade de São Paulo', degree: 'MD', year: 2005 },
+          { institution: 'Hospital das Clínicas', degree: 'Residency', year: 2008 }
+        ],
+        languages: ['Portuguese', 'English'],
+        acceptingNewPatients: true,
+        telemedicineAvailable: true,
+        locations: [
+          { id: '789e1234-e21b-12d3-a456-426614174000', name: 'Clínica São Paulo', address: 'Av. Paulista, 1000' }
+        ],
+        availableHours: {
+          monday: ['09:00-12:00', '14:00-17:00'],
+          tuesday: ['09:00-12:00', '14:00-17:00'],
+          wednesday: ['09:00-12:00'],
+          thursday: ['09:00-12:00', '14:00-17:00'],
+          friday: ['09:00-12:00', '14:00-17:00']
+        }
+      }
     },
-    
-    // Invalid test cases
     invalid: {
-      actualStartBeforeScheduled: {
-        appointmentId: '123e4567-e89b-12d3-a456-426614174000',
-        sessionType: 'VIDEO',
-        scheduledStartTime: TOMORROW,
-        actualStartTime: TODAY,
-        status: 'IN_PROGRESS',
-        recordingEnabled: false,
+      invalidLicenseFormat: {
+        id: '987e6543-e21b-12d3-a456-426614174000',
+        name: 'Dr. Ana Silva',
+        specialtyId: '456e7890-e21b-12d3-a456-426614174000',
+        specialtyName: 'Cardiologist',
+        licenseNumber: '123456', // Invalid license format (should be CRM-XX NNNNNN)
+        bio: 'Experienced cardiologist with 15 years of practice',
+        education: [
+          { institution: 'Universidade de São Paulo', degree: 'MD', year: 2005 },
+          { institution: 'Hospital das Clínicas', degree: 'Residency', year: 2008 }
+        ],
+        languages: ['Portuguese', 'English'],
+        acceptingNewPatients: true,
+        telemedicineAvailable: true,
+        locations: [
+          { id: '789e1234-e21b-12d3-a456-426614174000', name: 'Clínica São Paulo', address: 'Av. Paulista, 1000' }
+        ],
+        availableHours: {
+          monday: ['09:00-12:00', '14:00-17:00'],
+          tuesday: ['09:00-12:00', '14:00-17:00'],
+          wednesday: ['09:00-12:00'],
+          thursday: ['09:00-12:00', '14:00-17:00'],
+          friday: ['09:00-12:00', '14:00-17:00']
+        }
       },
-      endBeforeActualStart: {
-        appointmentId: '123e4567-e89b-12d3-a456-426614174001',
-        sessionType: 'VIDEO',
-        scheduledStartTime: YESTERDAY,
-        actualStartTime: new Date(YESTERDAY.getTime() + 30 * 60000),
-        endTime: new Date(YESTERDAY.getTime() + 15 * 60000),
-        status: 'COMPLETED',
-        recordingEnabled: false,
+      invalidTimeFormat: {
+        id: '987e6543-e21b-12d3-a456-426614174000',
+        name: 'Dr. Ana Silva',
+        specialtyId: '456e7890-e21b-12d3-a456-426614174000',
+        specialtyName: 'Cardiologist',
+        licenseNumber: 'CRM-SP 123456',
+        bio: 'Experienced cardiologist with 15 years of practice',
+        education: [
+          { institution: 'Universidade de São Paulo', degree: 'MD', year: 2005 },
+          { institution: 'Hospital das Clínicas', degree: 'Residency', year: 2008 }
+        ],
+        languages: ['Portuguese', 'English'],
+        acceptingNewPatients: true,
+        telemedicineAvailable: true,
+        locations: [
+          { id: '789e1234-e21b-12d3-a456-426614174000', name: 'Clínica São Paulo', address: 'Av. Paulista, 1000' }
+        ],
+        availableHours: {
+          monday: ['9:00-12:00'], // Invalid time format (should be HH:MM)
+          tuesday: ['09:00-12:00', '14:00-17:00'],
+          wednesday: ['09:00-12:00'],
+          thursday: ['09:00-12:00', '14:00-17:00'],
+          friday: ['09:00-12:00', '14:00-17:00']
+        }
       },
-      recordingUrlWithoutEnabled: {
-        appointmentId: '123e4567-e89b-12d3-a456-426614174002',
-        sessionType: 'VIDEO',
-        scheduledStartTime: YESTERDAY,
-        actualStartTime: YESTERDAY,
-        endTime: new Date(YESTERDAY.getTime() + 30 * 60000),
-        status: 'COMPLETED',
-        recordingEnabled: false,
-        recordingUrl: 'https://telemedicine.austa.com.br/recordings/session-123.mp4',
-      },
-    },
-  },
+      noLocationsWithTelemedicine: {
+        id: '987e6543-e21b-12d3-a456-426614174000',
+        name: 'Dr. Ana Silva',
+        specialtyId: '456e7890-e21b-12d3-a456-426614174000',
+        specialtyName: 'Cardiologist',
+        licenseNumber: 'CRM-SP 123456',
+        bio: 'Experienced cardiologist with 15 years of practice',
+        education: [
+          { institution: 'Universidade de São Paulo', degree: 'MD', year: 2005 },
+          { institution: 'Hospital das Clínicas', degree: 'Residency', year: 2008 }
+        ],
+        languages: ['Portuguese', 'English'],
+        acceptingNewPatients: true,
+        telemedicineAvailable: true,
+        locations: [], // No locations but telemedicineAvailable is true
+        availableHours: {
+          monday: ['09:00-12:00', '14:00-17:00'],
+          tuesday: ['09:00-12:00', '14:00-17:00'],
+          wednesday: ['09:00-12:00'],
+          thursday: ['09:00-12:00', '14:00-17:00'],
+          friday: ['09:00-12:00', '14:00-17:00']
+        }
+      }
+    }
+  }
 };
 
 /**
@@ -529,772 +520,780 @@ export const careJourneyFixtures = {
 export const planJourneyFixtures = {
   // Claims validation fixtures
   claims: {
-    // Zod schema for claims validation
-    schema: z.object({
-      procedureType: z.enum(['CONSULTATION', 'EXAMINATION', 'PROCEDURE', 'EMERGENCY', 'MEDICATION', 'OTHER']),
-      date: z.date().refine((date) => date <= TODAY, { message: 'Date cannot be in the future' }),
-      provider: z.string().min(1),
-      amount: z.number().positive(),
-      receiptUrls: z.array(z.string().url()).min(1),
-      additionalDocumentUrls: z.array(z.string().url()).optional(),
-      description: z.string().min(10).max(500),
-      insurancePlanId: z.string().uuid(),
-      preAuthorized: z.boolean(),
-      preAuthorizationCode: z.string().optional(),
-    }).refine(
-      (data) => !data.preAuthorized || (data.preAuthorizationCode && data.preAuthorizationCode.length > 0),
-      {
-        message: 'Pre-authorization code is required when pre-authorized is true',
-        path: ['preAuthorizationCode'],
-      }
-    ),
-    
-    // Valid test cases
     valid: {
-      consultationClaim: {
-        procedureType: 'CONSULTATION',
-        date: YESTERDAY,
-        provider: 'Dr. Maria Silva',
+      consultation: {
+        userId: '123e4567-e89b-12d3-a456-426614174000',
+        procedureType: ClaimType.CONSULTATION,
+        date: new Date('2023-03-15'),
+        provider: 'Dr. Ana Silva',
         amount: 250.00,
-        receiptUrls: ['https://storage.austa.com.br/receipts/receipt-123.pdf'],
-        description: 'Routine consultation with cardiologist',
-        insurancePlanId: '123e4567-e89b-12d3-a456-426614174000',
-        preAuthorized: false,
+        receiptUrl: 'https://storage.austa.com.br/receipts/abc123.pdf',
+        status: 'submitted',
+        notes: 'Regular check-up'
       },
-      preAuthorizedClaim: {
-        procedureType: 'PROCEDURE',
-        date: YESTERDAY,
-        provider: 'Hospital São Paulo',
-        amount: 1500.00,
-        receiptUrls: ['https://storage.austa.com.br/receipts/receipt-456.pdf'],
-        additionalDocumentUrls: [
-          'https://storage.austa.com.br/documents/medical-report-456.pdf',
-          'https://storage.austa.com.br/documents/prescription-456.pdf',
-        ],
-        description: 'Endoscopy procedure with biopsy',
-        insurancePlanId: '123e4567-e89b-12d3-a456-426614174001',
-        preAuthorized: true,
-        preAuthorizationCode: 'AUTH-12345-XYZ',
+      examination: {
+        userId: '123e4567-e89b-12d3-a456-426614174000',
+        procedureType: ClaimType.EXAMINATION,
+        date: new Date('2023-03-20'),
+        provider: 'Laboratório Diagnósticos',
+        amount: 350.75,
+        receiptUrl: 'https://storage.austa.com.br/receipts/def456.pdf',
+        status: 'submitted',
+        notes: 'Annual blood work'
       },
+      emergency: {
+        userId: '123e4567-e89b-12d3-a456-426614174000',
+        procedureType: ClaimType.EMERGENCY,
+        date: new Date('2023-03-10'),
+        provider: 'Hospital São Luiz',
+        amount: 1200.50,
+        receiptUrl: 'https://storage.austa.com.br/receipts/ghi789.pdf',
+        status: 'submitted',
+        notes: 'Emergency room visit due to high fever',
+        emergencyDetails: {
+          admissionTime: '22:30',
+          dischargeTime: '02:15',
+          symptoms: ['fever', 'headache', 'nausea']
+        }
+      }
     },
-    
-    // Invalid test cases
     invalid: {
       futureDate: {
-        procedureType: 'CONSULTATION',
-        date: TOMORROW,
-        provider: 'Dr. Maria Silva',
+        userId: '123e4567-e89b-12d3-a456-426614174000',
+        procedureType: ClaimType.CONSULTATION,
+        date: new Date(Date.now() + 86400000), // Future date (tomorrow)
+        provider: 'Dr. Ana Silva',
         amount: 250.00,
-        receiptUrls: ['https://storage.austa.com.br/receipts/receipt-123.pdf'],
-        description: 'Routine consultation with cardiologist',
-        insurancePlanId: '123e4567-e89b-12d3-a456-426614174000',
-        preAuthorized: false,
-      },
-      missingPreAuthCode: {
-        procedureType: 'PROCEDURE',
-        date: YESTERDAY,
-        provider: 'Hospital São Paulo',
-        amount: 1500.00,
-        receiptUrls: ['https://storage.austa.com.br/receipts/receipt-456.pdf'],
-        description: 'Endoscopy procedure with biopsy',
-        insurancePlanId: '123e4567-e89b-12d3-a456-426614174001',
-        preAuthorized: true,
+        receiptUrl: 'https://storage.austa.com.br/receipts/abc123.pdf',
+        status: 'submitted',
+        notes: 'Regular check-up'
       },
       negativeAmount: {
-        procedureType: 'MEDICATION',
-        date: YESTERDAY,
-        provider: 'Farmácia Popular',
-        amount: -50.00,
-        receiptUrls: ['https://storage.austa.com.br/receipts/receipt-789.pdf'],
-        description: 'Monthly prescription medications',
-        insurancePlanId: '123e4567-e89b-12d3-a456-426614174002',
-        preAuthorized: false,
+        userId: '123e4567-e89b-12d3-a456-426614174000',
+        procedureType: ClaimType.EXAMINATION,
+        date: new Date('2023-03-20'),
+        provider: 'Laboratório Diagnósticos',
+        amount: -350.75, // Negative amount
+        receiptUrl: 'https://storage.austa.com.br/receipts/def456.pdf',
+        status: 'submitted',
+        notes: 'Annual blood work'
       },
-      noReceipts: {
-        procedureType: 'EXAMINATION',
-        date: YESTERDAY,
-        provider: 'Laboratório Diagnóstico',
-        amount: 350.00,
-        receiptUrls: [],
-        description: 'Blood tests for annual checkup',
-        insurancePlanId: '123e4567-e89b-12d3-a456-426614174003',
-        preAuthorized: false,
+      missingProvider: {
+        userId: '123e4567-e89b-12d3-a456-426614174000',
+        procedureType: ClaimType.CONSULTATION,
+        date: new Date('2023-03-15'),
+        // provider is missing
+        amount: 250.00,
+        receiptUrl: 'https://storage.austa.com.br/receipts/abc123.pdf',
+        status: 'submitted',
+        notes: 'Regular check-up'
       },
-    },
+      missingEmergencyDetails: {
+        userId: '123e4567-e89b-12d3-a456-426614174000',
+        procedureType: ClaimType.EMERGENCY,
+        date: new Date('2023-03-10'),
+        provider: 'Hospital São Luiz',
+        amount: 1200.50,
+        receiptUrl: 'https://storage.austa.com.br/receipts/ghi789.pdf',
+        status: 'submitted',
+        notes: 'Emergency room visit due to high fever'
+        // emergencyDetails is missing but required for emergency claims
+      },
+      invalidReceiptFormat: {
+        userId: '123e4567-e89b-12d3-a456-426614174000',
+        procedureType: ClaimType.CONSULTATION,
+        date: new Date('2023-03-15'),
+        provider: 'Dr. Ana Silva',
+        amount: 250.00,
+        receiptUrl: 'invalid-url', // Invalid URL format
+        status: 'submitted',
+        notes: 'Regular check-up'
+      }
+    }
   },
   
   // Benefits validation fixtures
   benefits: {
-    // Zod schema for benefits validation
-    schema: z.object({
-      benefitType: z.enum(['WELLNESS', 'DISCOUNT', 'SERVICE', 'PRODUCT', 'REIMBURSEMENT']),
-      name: z.string().min(3).max(100),
-      description: z.string().min(10).max(1000),
-      startDate: z.date(),
-      endDate: z.date().optional(),
-      usageLimit: z.number().int().min(0).optional(),
-      usageCount: z.number().int().min(0).default(0),
-      partnerName: z.string().min(1).optional(),
-      partnerLogo: z.string().url().optional(),
-      termsUrl: z.string().url().optional(),
-      redemptionCode: z.string().optional(),
-      redemptionUrl: z.string().url().optional(),
-      insurancePlanIds: z.array(z.string().uuid()),
-    }).refine(
-      (data) => !data.endDate || data.endDate > data.startDate,
-      {
-        message: 'End date must be after start date',
-        path: ['endDate'],
-      }
-    ).refine(
-      (data) => !data.usageLimit || data.usageCount <= data.usageLimit,
-      {
-        message: 'Usage count cannot exceed usage limit',
-        path: ['usageCount'],
-      }
-    ).refine(
-      (data) => data.benefitType !== 'DISCOUNT' || (data.partnerName && data.partnerName.length > 0),
-      {
-        message: 'Partner name is required for discount benefits',
-        path: ['partnerName'],
-      }
-    ),
-    
-    // Valid test cases
     valid: {
-      wellnessBenefit: {
-        benefitType: 'WELLNESS',
-        name: 'Free Gym Membership',
-        description: 'Access to partner gyms nationwide with your insurance card',
-        startDate: TODAY,
-        endDate: new Date(TODAY.getFullYear() + 1, TODAY.getMonth(), TODAY.getDate()),
-        usageLimit: 1,
-        usageCount: 0,
-        partnerName: 'FitNetwork',
-        partnerLogo: 'https://storage.austa.com.br/partners/fitnetwork-logo.png',
-        termsUrl: 'https://austa.com.br/benefits/terms/gym-membership',
-        redemptionUrl: 'https://austa.com.br/benefits/redeem/gym-membership',
-        insurancePlanIds: ['123e4567-e89b-12d3-a456-426614174000', '123e4567-e89b-12d3-a456-426614174001'],
+      annualCheckup: {
+        id: '234e5678-e89b-12d3-a456-426614174000',
+        name: 'Annual Check-up',
+        description: 'Comprehensive annual health examination',
+        coveragePercentage: 100,
+        annualLimit: 1,
+        requiresPreApproval: false,
+        waitingPeriod: 30, // days
+        eligibleProviders: ['in-network'],
+        exclusions: ['specialty consultations'],
+        startDate: new Date('2023-01-01'),
+        endDate: new Date('2023-12-31')
       },
-      discountBenefit: {
-        benefitType: 'DISCOUNT',
-        name: '20% Off Prescription Medications',
-        description: 'Get 20% off all prescription medications at partner pharmacies',
-        startDate: TODAY,
-        partnerName: 'Farmácia Popular',
-        partnerLogo: 'https://storage.austa.com.br/partners/farmaciapopular-logo.png',
-        redemptionCode: 'AUSTA20',
-        insurancePlanIds: ['123e4567-e89b-12d3-a456-426614174000'],
+      dentalCoverage: {
+        id: '345e6789-e89b-12d3-a456-426614174000',
+        name: 'Dental Coverage',
+        description: 'Basic dental procedures and check-ups',
+        coveragePercentage: 80,
+        annualLimit: 4,
+        requiresPreApproval: false,
+        waitingPeriod: 60, // days
+        eligibleProviders: ['in-network', 'out-network'],
+        exclusions: ['cosmetic procedures', 'orthodontics'],
+        startDate: new Date('2023-01-01'),
+        endDate: new Date('2023-12-31')
       },
+      majorSurgery: {
+        id: '456e7890-e89b-12d3-a456-426614174000',
+        name: 'Major Surgery',
+        description: 'Coverage for major surgical procedures',
+        coveragePercentage: 90,
+        annualLimit: null, // No annual limit
+        requiresPreApproval: true,
+        waitingPeriod: 180, // days
+        eligibleProviders: ['in-network'],
+        exclusions: ['elective cosmetic surgery'],
+        startDate: new Date('2023-01-01'),
+        endDate: new Date('2023-12-31')
+      }
     },
-    
-    // Invalid test cases
     invalid: {
-      endBeforeStart: {
-        benefitType: 'SERVICE',
-        name: 'Annual Health Checkup',
-        description: 'Comprehensive annual health assessment',
-        startDate: TOMORROW,
-        endDate: TODAY,
-        usageLimit: 1,
-        usageCount: 0,
-        insurancePlanIds: ['123e4567-e89b-12d3-a456-426614174000'],
+      invalidCoveragePercentage: {
+        id: '234e5678-e89b-12d3-a456-426614174000',
+        name: 'Annual Check-up',
+        description: 'Comprehensive annual health examination',
+        coveragePercentage: 110, // Invalid percentage (> 100)
+        annualLimit: 1,
+        requiresPreApproval: false,
+        waitingPeriod: 30,
+        eligibleProviders: ['in-network'],
+        exclusions: ['specialty consultations'],
+        startDate: new Date('2023-01-01'),
+        endDate: new Date('2023-12-31')
       },
-      usageExceedsLimit: {
-        benefitType: 'PRODUCT',
-        name: 'Free Health Monitor',
-        description: 'Receive a complimentary health monitoring device',
-        startDate: TODAY,
-        usageLimit: 1,
-        usageCount: 2,
-        insurancePlanIds: ['123e4567-e89b-12d3-a456-426614174000'],
+      negativeLimitValue: {
+        id: '345e6789-e89b-12d3-a456-426614174000',
+        name: 'Dental Coverage',
+        description: 'Basic dental procedures and check-ups',
+        coveragePercentage: 80,
+        annualLimit: -4, // Negative limit
+        requiresPreApproval: false,
+        waitingPeriod: 60,
+        eligibleProviders: ['in-network', 'out-network'],
+        exclusions: ['cosmetic procedures', 'orthodontics'],
+        startDate: new Date('2023-01-01'),
+        endDate: new Date('2023-12-31')
       },
-      missingPartnerForDiscount: {
-        benefitType: 'DISCOUNT',
-        name: '15% Off Health Supplements',
-        description: 'Discount on health supplements at partner stores',
-        startDate: TODAY,
-        redemptionCode: 'HEALTH15',
-        insurancePlanIds: ['123e4567-e89b-12d3-a456-426614174000'],
+      endDateBeforeStartDate: {
+        id: '456e7890-e89b-12d3-a456-426614174000',
+        name: 'Major Surgery',
+        description: 'Coverage for major surgical procedures',
+        coveragePercentage: 90,
+        annualLimit: null,
+        requiresPreApproval: true,
+        waitingPeriod: 180,
+        eligibleProviders: ['in-network'],
+        exclusions: ['elective cosmetic surgery'],
+        startDate: new Date('2023-12-31'), // Start date after end date
+        endDate: new Date('2023-01-01')
       },
-    },
+      emptyEligibleProviders: {
+        id: '234e5678-e89b-12d3-a456-426614174000',
+        name: 'Annual Check-up',
+        description: 'Comprehensive annual health examination',
+        coveragePercentage: 100,
+        annualLimit: 1,
+        requiresPreApproval: false,
+        waitingPeriod: 30,
+        eligibleProviders: [], // Empty array
+        exclusions: ['specialty consultations'],
+        startDate: new Date('2023-01-01'),
+        endDate: new Date('2023-12-31')
+      }
+    }
   },
   
   // Coverage validation fixtures
   coverage: {
-    // Zod schema for coverage validation
-    schema: z.object({
-      insurancePlanId: z.string().uuid(),
-      coverageType: z.enum(['BASIC', 'STANDARD', 'PREMIUM', 'CUSTOM']),
-      startDate: z.date(),
-      endDate: z.date(),
-      isActive: z.boolean(),
-      memberId: z.string().min(5),
-      memberName: z.string().min(3),
-      coverageDetails: z.object({
-        consultations: z.number().min(0).max(100),
-        examinations: z.number().min(0).max(100),
-        procedures: z.number().min(0).max(100),
-        emergencies: z.number().min(0).max(100),
-        medications: z.number().min(0).max(100),
-        hospitalizations: z.number().min(0).max(100),
-      }),
-      annualLimit: z.number().min(0).optional(),
-      usedAmount: z.number().min(0).default(0),
-      dependents: z.array(z.object({
-        name: z.string().min(3),
-        relationship: z.enum(['SPOUSE', 'CHILD', 'PARENT', 'OTHER']),
-        birthDate: z.date(),
-        memberId: z.string().min(5),
-      })).optional(),
-    }).refine(
-      (data) => data.endDate > data.startDate,
-      {
-        message: 'End date must be after start date',
-        path: ['endDate'],
-      }
-    ).refine(
-      (data) => !data.annualLimit || data.usedAmount <= data.annualLimit,
-      {
-        message: 'Used amount cannot exceed annual limit',
-        path: ['usedAmount'],
-      }
-    ),
-    
-    // Valid test cases
     valid: {
-      basicCoverage: {
-        insurancePlanId: '123e4567-e89b-12d3-a456-426614174000',
-        coverageType: 'BASIC',
-        startDate: TODAY,
-        endDate: new Date(TODAY.getFullYear() + 1, TODAY.getMonth(), TODAY.getDate()),
-        isActive: true,
-        memberId: 'AUSTA12345',
-        memberName: 'João Silva',
-        coverageDetails: {
-          consultations: 70,
-          examinations: 60,
-          procedures: 50,
-          emergencies: 80,
-          medications: 40,
-          hospitalizations: 60,
-        },
-        annualLimit: 50000,
-        usedAmount: 5000,
+      basicPlan: {
+        id: '567e8901-e89b-12d3-a456-426614174000',
+        name: 'Basic Health Plan',
+        type: 'individual',
+        memberId: 'BHP12345678',
+        startDate: new Date('2023-01-01'),
+        endDate: new Date('2023-12-31'),
+        status: 'active',
+        network: 'standard',
+        monthlyPremium: 350.00,
+        annualDeductible: 1000.00,
+        maxOutOfPocket: 5000.00,
+        benefitIds: [
+          '234e5678-e89b-12d3-a456-426614174000',
+          '345e6789-e89b-12d3-a456-426614174000'
+        ],
+        dependents: [],
+        documents: [
+          {
+            type: 'insurance_card',
+            url: 'https://storage.austa.com.br/insurance/card123.pdf',
+            issuedAt: new Date('2023-01-01')
+          },
+          {
+            type: 'terms_and_conditions',
+            url: 'https://storage.austa.com.br/insurance/terms123.pdf',
+            issuedAt: new Date('2023-01-01')
+          }
+        ]
+      },
+      familyPlan: {
+        id: '678e9012-e89b-12d3-a456-426614174000',
+        name: 'Family Health Plan',
+        type: 'family',
+        memberId: 'FHP98765432',
+        startDate: new Date('2023-01-01'),
+        endDate: new Date('2023-12-31'),
+        status: 'active',
+        network: 'premium',
+        monthlyPremium: 850.00,
+        annualDeductible: 2000.00,
+        maxOutOfPocket: 10000.00,
+        benefitIds: [
+          '234e5678-e89b-12d3-a456-426614174000',
+          '345e6789-e89b-12d3-a456-426614174000',
+          '456e7890-e89b-12d3-a456-426614174000'
+        ],
         dependents: [
           {
             name: 'Maria Silva',
-            relationship: 'SPOUSE',
-            birthDate: new Date(1985, 5, 15),
-            memberId: 'AUSTA12346',
+            relationship: 'spouse',
+            birthDate: new Date('1985-06-15')
           },
           {
-            name: 'Pedro Silva',
-            relationship: 'CHILD',
-            birthDate: new Date(2010, 8, 22),
-            memberId: 'AUSTA12347',
-          },
+            name: 'João Silva',
+            relationship: 'child',
+            birthDate: new Date('2010-03-22')
+          }
         ],
-      },
-      premiumCoverage: {
-        insurancePlanId: '123e4567-e89b-12d3-a456-426614174001',
-        coverageType: 'PREMIUM',
-        startDate: TODAY,
-        endDate: new Date(TODAY.getFullYear() + 1, TODAY.getMonth(), TODAY.getDate()),
-        isActive: true,
-        memberId: 'AUSTA67890',
-        memberName: 'Ana Oliveira',
-        coverageDetails: {
-          consultations: 90,
-          examinations: 90,
-          procedures: 80,
-          emergencies: 100,
-          medications: 70,
-          hospitalizations: 90,
-        },
-        annualLimit: 100000,
-        usedAmount: 0,
-      },
+        documents: [
+          {
+            type: 'insurance_card',
+            url: 'https://storage.austa.com.br/insurance/card456.pdf',
+            issuedAt: new Date('2023-01-01')
+          },
+          {
+            type: 'terms_and_conditions',
+            url: 'https://storage.austa.com.br/insurance/terms456.pdf',
+            issuedAt: new Date('2023-01-01')
+          }
+        ]
+      }
     },
-    
-    // Invalid test cases
     invalid: {
-      endBeforeStart: {
-        insurancePlanId: '123e4567-e89b-12d3-a456-426614174000',
-        coverageType: 'BASIC',
-        startDate: TOMORROW,
-        endDate: TODAY,
-        isActive: true,
-        memberId: 'AUSTA12345',
-        memberName: 'João Silva',
-        coverageDetails: {
-          consultations: 70,
-          examinations: 60,
-          procedures: 50,
-          emergencies: 80,
-          medications: 40,
-          hospitalizations: 60,
-        },
+      invalidPlanType: {
+        id: '567e8901-e89b-12d3-a456-426614174000',
+        name: 'Basic Health Plan',
+        type: 'group', // Invalid plan type (should be individual or family)
+        memberId: 'BHP12345678',
+        startDate: new Date('2023-01-01'),
+        endDate: new Date('2023-12-31'),
+        status: 'active',
+        network: 'standard',
+        monthlyPremium: 350.00,
+        annualDeductible: 1000.00,
+        maxOutOfPocket: 5000.00,
+        benefitIds: [
+          '234e5678-e89b-12d3-a456-426614174000',
+          '345e6789-e89b-12d3-a456-426614174000'
+        ],
+        dependents: [],
+        documents: [
+          {
+            type: 'insurance_card',
+            url: 'https://storage.austa.com.br/insurance/card123.pdf',
+            issuedAt: new Date('2023-01-01')
+          }
+        ]
       },
-      usedExceedsLimit: {
-        insurancePlanId: '123e4567-e89b-12d3-a456-426614174001',
-        coverageType: 'STANDARD',
-        startDate: TODAY,
-        endDate: new Date(TODAY.getFullYear() + 1, TODAY.getMonth(), TODAY.getDate()),
-        isActive: true,
-        memberId: 'AUSTA67890',
-        memberName: 'Ana Oliveira',
-        coverageDetails: {
-          consultations: 80,
-          examinations: 70,
-          procedures: 60,
-          emergencies: 90,
-          medications: 50,
-          hospitalizations: 70,
-        },
-        annualLimit: 50000,
-        usedAmount: 60000,
+      dependentsInIndividualPlan: {
+        id: '567e8901-e89b-12d3-a456-426614174000',
+        name: 'Basic Health Plan',
+        type: 'individual',
+        memberId: 'BHP12345678',
+        startDate: new Date('2023-01-01'),
+        endDate: new Date('2023-12-31'),
+        status: 'active',
+        network: 'standard',
+        monthlyPremium: 350.00,
+        annualDeductible: 1000.00,
+        maxOutOfPocket: 5000.00,
+        benefitIds: [
+          '234e5678-e89b-12d3-a456-426614174000',
+          '345e6789-e89b-12d3-a456-426614174000'
+        ],
+        dependents: [ // Dependents in individual plan
+          {
+            name: 'Maria Silva',
+            relationship: 'spouse',
+            birthDate: new Date('1985-06-15')
+          }
+        ],
+        documents: [
+          {
+            type: 'insurance_card',
+            url: 'https://storage.austa.com.br/insurance/card123.pdf',
+            issuedAt: new Date('2023-01-01')
+          }
+        ]
       },
-      invalidCoveragePercentage: {
-        insurancePlanId: '123e4567-e89b-12d3-a456-426614174002',
-        coverageType: 'CUSTOM',
-        startDate: TODAY,
-        endDate: new Date(TODAY.getFullYear() + 1, TODAY.getMonth(), TODAY.getDate()),
-        isActive: true,
-        memberId: 'AUSTA54321',
-        memberName: 'Carlos Mendes',
-        coverageDetails: {
-          consultations: 110, // Invalid: over 100%
-          examinations: 70,
-          procedures: 60,
-          emergencies: 90,
-          medications: 50,
-          hospitalizations: 70,
-        },
+      missingInsuranceCard: {
+        id: '567e8901-e89b-12d3-a456-426614174000',
+        name: 'Basic Health Plan',
+        type: 'individual',
+        memberId: 'BHP12345678',
+        startDate: new Date('2023-01-01'),
+        endDate: new Date('2023-12-31'),
+        status: 'active',
+        network: 'standard',
+        monthlyPremium: 350.00,
+        annualDeductible: 1000.00,
+        maxOutOfPocket: 5000.00,
+        benefitIds: [
+          '234e5678-e89b-12d3-a456-426614174000',
+          '345e6789-e89b-12d3-a456-426614174000'
+        ],
+        dependents: [],
+        documents: [ // Missing insurance_card document
+          {
+            type: 'terms_and_conditions',
+            url: 'https://storage.austa.com.br/insurance/terms123.pdf',
+            issuedAt: new Date('2023-01-01')
+          }
+        ]
       },
-    },
-  },
+      invalidDependentRelationship: {
+        id: '678e9012-e89b-12d3-a456-426614174000',
+        name: 'Family Health Plan',
+        type: 'family',
+        memberId: 'FHP98765432',
+        startDate: new Date('2023-01-01'),
+        endDate: new Date('2023-12-31'),
+        status: 'active',
+        network: 'premium',
+        monthlyPremium: 850.00,
+        annualDeductible: 2000.00,
+        maxOutOfPocket: 10000.00,
+        benefitIds: [
+          '234e5678-e89b-12d3-a456-426614174000',
+          '345e6789-e89b-12d3-a456-426614174000',
+          '456e7890-e89b-12d3-a456-426614174000'
+        ],
+        dependents: [
+          {
+            name: 'Maria Silva',
+            relationship: 'friend', // Invalid relationship
+            birthDate: new Date('1985-06-15')
+          }
+        ],
+        documents: [
+          {
+            type: 'insurance_card',
+            url: 'https://storage.austa.com.br/insurance/card456.pdf',
+            issuedAt: new Date('2023-01-01')
+          }
+        ]
+      }
+    }
+  }
 };
 
 /**
  * Cross-Journey Validation Fixtures
- * These fixtures test scenarios that span multiple journeys
+ * 
+ * These fixtures represent scenarios that span multiple journeys
+ * and require validation across journey boundaries.
  */
 export const crossJourneyFixtures = {
   // Health + Care journey integration
-  healthCareCrossover: {
-    // Zod schema for health metrics that trigger care recommendations
-    schema: z.object({
-      metricType: z.enum(['BLOOD_PRESSURE', 'BLOOD_GLUCOSE', 'HEART_RATE']),
-      value: z.number(),
-      unit: z.string().min(1),
-      timestamp: z.date(),
-      source: z.enum(['MANUAL', 'DEVICE', 'INTEGRATION']),
-      deviceId: z.string().optional(),
-      thresholds: z.object({
-        low: z.number(),
-        high: z.number(),
-        critical: z.number().optional(),
-      }),
-      careActionRequired: z.boolean(),
-      careActionType: z.enum(['MONITOR', 'CONSULT', 'EMERGENCY']).optional(),
-    }).refine(
-      (data) => !data.careActionRequired || data.careActionType !== undefined,
-      {
-        message: 'Care action type is required when care action is required',
-        path: ['careActionType'],
-      }
-    ).refine(
-      (data) => data.thresholds.low < data.thresholds.high,
-      {
-        message: 'Low threshold must be less than high threshold',
-        path: ['thresholds'],
-      }
-    ).refine(
-      (data) => !data.thresholds.critical || data.thresholds.high < data.thresholds.critical,
-      {
-        message: 'High threshold must be less than critical threshold',
-        path: ['thresholds'],
-      }
-    ),
-    
-    // Valid test cases
+  healthCareIntegration: {
     valid: {
-      normalBloodPressure: {
-        metricType: 'BLOOD_PRESSURE',
-        value: 120,
-        unit: 'mmHg',
-        timestamp: YESTERDAY,
-        source: 'DEVICE',
-        deviceId: 'device-123',
-        thresholds: {
-          low: 90,
-          high: 140,
-          critical: 180,
+      appointmentWithHealthMetrics: {
+        appointment: {
+          userId: '123e4567-e89b-12d3-a456-426614174000',
+          providerId: '987e6543-e21b-12d3-a456-426614174000',
+          type: AppointmentType.IN_PERSON,
+          specialtyId: '456e7890-e21b-12d3-a456-426614174000',
+          date: new Date('2023-05-10T14:30:00Z'),
+          duration: 30,
+          reason: 'Blood pressure check',
+          notes: '',
+          status: 'scheduled',
+          locationId: '789e1234-e21b-12d3-a456-426614174000'
         },
-        careActionRequired: false,
-      },
-      highBloodGlucose: {
-        metricType: 'BLOOD_GLUCOSE',
-        value: 180,
-        unit: 'mg/dL',
-        timestamp: YESTERDAY,
-        source: 'MANUAL',
-        thresholds: {
-          low: 70,
-          high: 140,
-          critical: 250,
-        },
-        careActionRequired: true,
-        careActionType: 'CONSULT',
-      },
-      criticalHeartRate: {
-        metricType: 'HEART_RATE',
-        value: 150,
-        unit: 'bpm',
-        timestamp: YESTERDAY,
-        source: 'DEVICE',
-        deviceId: 'device-456',
-        thresholds: {
-          low: 50,
-          high: 100,
-          critical: 140,
-        },
-        careActionRequired: true,
-        careActionType: 'EMERGENCY',
-      },
-    },
-    
-    // Invalid test cases
-    invalid: {
-      missingCareActionType: {
-        metricType: 'BLOOD_PRESSURE',
-        value: 160,
-        unit: 'mmHg',
-        timestamp: YESTERDAY,
-        source: 'DEVICE',
-        deviceId: 'device-123',
-        thresholds: {
-          low: 90,
-          high: 140,
-          critical: 180,
-        },
-        careActionRequired: true,
-      },
-      invalidThresholds: {
-        metricType: 'BLOOD_GLUCOSE',
-        value: 120,
-        unit: 'mg/dL',
-        timestamp: YESTERDAY,
-        source: 'MANUAL',
-        thresholds: {
-          low: 140, // Invalid: low > high
-          high: 70,
-          critical: 250,
-        },
-        careActionRequired: false,
-      },
-      criticalLowerThanHigh: {
-        metricType: 'HEART_RATE',
-        value: 90,
-        unit: 'bpm',
-        timestamp: YESTERDAY,
-        source: 'DEVICE',
-        deviceId: 'device-456',
-        thresholds: {
-          low: 50,
-          high: 120,
-          critical: 100, // Invalid: critical < high
-        },
-        careActionRequired: false,
-      },
-    },
-  },
-  
-  // Care + Plan journey integration
-  carePlanCrossover: {
-    // Zod schema for appointment with insurance coverage validation
-    schema: z.object({
-      appointmentId: z.string().uuid(),
-      providerId: z.string().uuid(),
-      specialtyId: z.string().uuid(),
-      appointmentType: z.enum(['IN_PERSON', 'VIDEO', 'PHONE']),
-      date: z.date().refine((date) => date > TODAY, { message: 'Appointment date must be in the future' }),
-      startTime: z.string().regex(/^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/),
-      duration: z.number().int().min(15).max(120),
-      reason: z.string().min(5).max(500),
-      insuranceCoverage: z.object({
-        insurancePlanId: z.string().uuid(),
-        coveragePercentage: z.number().min(0).max(100),
-        preAuthorizationRequired: z.boolean(),
-        preAuthorizationCode: z.string().optional(),
-        estimatedCost: z.number().positive(),
-        estimatedCopay: z.number().min(0),
-        inNetwork: z.boolean(),
-      }),
-    }).refine(
-      (data) => !data.insuranceCoverage.preAuthorizationRequired || 
-               (data.insuranceCoverage.preAuthorizationCode && 
-                data.insuranceCoverage.preAuthorizationCode.length > 0),
-      {
-        message: 'Pre-authorization code is required when pre-authorization is required',
-        path: ['insuranceCoverage', 'preAuthorizationCode'],
+        healthMetrics: [
+          {
+            userId: '123e4567-e89b-12d3-a456-426614174000',
+            type: MetricType.BLOOD_PRESSURE,
+            value: { systolic: 120, diastolic: 80 },
+            unit: 'mmHg',
+            timestamp: new Date('2023-05-01T10:30:00Z'),
+            source: 'manual'
+          },
+          {
+            userId: '123e4567-e89b-12d3-a456-426614174000',
+            type: MetricType.BLOOD_PRESSURE,
+            value: { systolic: 125, diastolic: 82 },
+            unit: 'mmHg',
+            timestamp: new Date('2023-05-05T10:30:00Z'),
+            source: 'manual'
+          }
+        ]
       }
-    ).refine(
-      (data) => {
-        const { estimatedCost, coveragePercentage, estimatedCopay } = data.insuranceCoverage;
-        const calculatedCopay = estimatedCost * (1 - coveragePercentage / 100);
-        return Math.abs(calculatedCopay - estimatedCopay) < 0.01; // Allow for small floating point differences
-      },
-      {
-        message: 'Estimated copay must match the calculated amount based on coverage percentage',
-        path: ['insuranceCoverage', 'estimatedCopay'],
-      }
-    ),
-    
-    // Valid test cases
-    valid: {
-      inNetworkAppointment: {
-        appointmentId: '123e4567-e89b-12d3-a456-426614174000',
-        providerId: '123e4567-e89b-12d3-a456-426614174001',
-        specialtyId: '123e4567-e89b-12d3-a456-426614174002',
-        appointmentType: 'IN_PERSON',
-        date: TOMORROW,
-        startTime: '14:30',
-        duration: 30,
-        reason: 'Annual physical examination',
-        insuranceCoverage: {
-          insurancePlanId: '123e4567-e89b-12d3-a456-426614174003',
-          coveragePercentage: 80,
-          preAuthorizationRequired: false,
-          estimatedCost: 250.00,
-          estimatedCopay: 50.00,
-          inNetwork: true,
-        },
-      },
-      preAuthorizedAppointment: {
-        appointmentId: '123e4567-e89b-12d3-a456-426614174004',
-        providerId: '123e4567-e89b-12d3-a456-426614174005',
-        specialtyId: '123e4567-e89b-12d3-a456-426614174006',
-        appointmentType: 'VIDEO',
-        date: TOMORROW,
-        startTime: '10:00',
-        duration: 45,
-        reason: 'Specialist consultation',
-        insuranceCoverage: {
-          insurancePlanId: '123e4567-e89b-12d3-a456-426614174007',
-          coveragePercentage: 70,
-          preAuthorizationRequired: true,
-          preAuthorizationCode: 'AUTH-67890-XYZ',
-          estimatedCost: 350.00,
-          estimatedCopay: 105.00,
-          inNetwork: true,
-        },
-      },
     },
-    
-    // Invalid test cases
     invalid: {
-      missingPreAuthCode: {
-        appointmentId: '123e4567-e89b-12d3-a456-426614174008',
-        providerId: '123e4567-e89b-12d3-a456-426614174009',
-        specialtyId: '123e4567-e89b-12d3-a456-426614174010',
-        appointmentType: 'IN_PERSON',
-        date: TOMORROW,
-        startTime: '15:45',
-        duration: 60,
-        reason: 'Specialized procedure',
-        insuranceCoverage: {
-          insurancePlanId: '123e4567-e89b-12d3-a456-426614174011',
-          coveragePercentage: 60,
-          preAuthorizationRequired: true, // Missing preAuthorizationCode
-          estimatedCost: 500.00,
-          estimatedCopay: 200.00,
-          inNetwork: true,
+      appointmentWithoutRelevantMetrics: {
+        appointment: {
+          userId: '123e4567-e89b-12d3-a456-426614174000',
+          providerId: '987e6543-e21b-12d3-a456-426614174000',
+          type: AppointmentType.IN_PERSON,
+          specialtyId: '456e7890-e21b-12d3-a456-426614174000',
+          date: new Date('2023-05-10T14:30:00Z'),
+          duration: 30,
+          reason: 'Blood pressure check',
+          notes: '',
+          status: 'scheduled',
+          locationId: '789e1234-e21b-12d3-a456-426614174000'
         },
-      },
-      incorrectCopayCalculation: {
-        appointmentId: '123e4567-e89b-12d3-a456-426614174012',
-        providerId: '123e4567-e89b-12d3-a456-426614174013',
-        specialtyId: '123e4567-e89b-12d3-a456-426614174014',
-        appointmentType: 'PHONE',
-        date: TOMORROW,
-        startTime: '09:15',
-        duration: 15,
-        reason: 'Follow-up consultation',
-        insuranceCoverage: {
-          insurancePlanId: '123e4567-e89b-12d3-a456-426614174015',
-          coveragePercentage: 75,
-          preAuthorizationRequired: false,
-          estimatedCost: 200.00,
-          estimatedCopay: 30.00, // Incorrect: should be 50.00 (25% of 200)
-          inNetwork: true,
-        },
-      },
-    },
+        healthMetrics: [ // No blood pressure metrics for a blood pressure check appointment
+          {
+            userId: '123e4567-e89b-12d3-a456-426614174000',
+            type: MetricType.STEPS,
+            value: 10000,
+            unit: 'steps',
+            timestamp: new Date('2023-05-01T10:30:00Z'),
+            source: 'googlefit'
+          }
+        ]
+      }
+    }
   },
   
   // Health + Plan journey integration
-  healthPlanCrossover: {
-    // Zod schema for wellness program with insurance benefits
-    schema: z.object({
-      programId: z.string().uuid(),
-      programName: z.string().min(3).max(100),
-      programType: z.enum(['FITNESS', 'NUTRITION', 'MENTAL_HEALTH', 'CHRONIC_CONDITION']),
-      startDate: z.date(),
-      endDate: z.date(),
-      healthMetrics: z.array(z.enum(['WEIGHT', 'BLOOD_PRESSURE', 'HEART_RATE', 'BLOOD_GLUCOSE', 'STEPS', 'SLEEP'])).min(1),
-      targetGoals: z.array(z.object({
-        metricType: z.enum(['WEIGHT', 'BLOOD_PRESSURE', 'HEART_RATE', 'BLOOD_GLUCOSE', 'STEPS', 'SLEEP']),
-        targetValue: z.number().positive(),
-        unit: z.string().min(1),
-      })).min(1),
-      insuranceBenefits: z.object({
-        insurancePlanId: z.string().uuid(),
-        discountPercentage: z.number().min(0).max(100),
-        pointsPerMetric: z.number().int().min(0),
-        rewardsThreshold: z.number().int().min(0),
-        maxAnnualReward: z.number().min(0),
-      }),
-    }).refine(
-      (data) => data.endDate > data.startDate,
-      {
-        message: 'End date must be after start date',
-        path: ['endDate'],
-      }
-    ).refine(
-      (data) => {
-        // Ensure all targetGoals metrics are included in healthMetrics
-        const healthMetricsSet = new Set(data.healthMetrics);
-        return data.targetGoals.every(goal => healthMetricsSet.has(goal.metricType));
-      },
-      {
-        message: 'Target goals must only include metrics listed in health metrics',
-        path: ['targetGoals'],
-      }
-    ),
-    
-    // Valid test cases
+  healthPlanIntegration: {
     valid: {
-      fitnessProgram: {
-        programId: '123e4567-e89b-12d3-a456-426614174000',
-        programName: 'Active Lifestyle Program',
-        programType: 'FITNESS',
-        startDate: TODAY,
-        endDate: new Date(TODAY.getFullYear(), TODAY.getMonth() + 3, TODAY.getDate()),
-        healthMetrics: ['WEIGHT', 'STEPS', 'HEART_RATE'],
-        targetGoals: [
-          {
-            metricType: 'STEPS',
-            targetValue: 10000,
-            unit: 'steps',
-          },
-          {
-            metricType: 'WEIGHT',
-            targetValue: 70,
-            unit: 'kg',
-          },
-        ],
-        insuranceBenefits: {
-          insurancePlanId: '123e4567-e89b-12d3-a456-426614174001',
-          discountPercentage: 5,
-          pointsPerMetric: 10,
-          rewardsThreshold: 500,
-          maxAnnualReward: 1000,
+      claimWithHealthMetrics: {
+        claim: {
+          userId: '123e4567-e89b-12d3-a456-426614174000',
+          procedureType: ClaimType.EXAMINATION,
+          date: new Date('2023-03-20'),
+          provider: 'Laboratório Diagnósticos',
+          amount: 350.75,
+          receiptUrl: 'https://storage.austa.com.br/receipts/def456.pdf',
+          status: 'submitted',
+          notes: 'Blood glucose test'
         },
-      },
-      chronicConditionProgram: {
-        programId: '123e4567-e89b-12d3-a456-426614174002',
-        programName: 'Diabetes Management Program',
-        programType: 'CHRONIC_CONDITION',
-        startDate: TODAY,
-        endDate: new Date(TODAY.getFullYear() + 1, TODAY.getMonth(), TODAY.getDate()),
-        healthMetrics: ['BLOOD_GLUCOSE', 'WEIGHT', 'STEPS'],
-        targetGoals: [
+        healthMetrics: [
           {
-            metricType: 'BLOOD_GLUCOSE',
-            targetValue: 120,
+            userId: '123e4567-e89b-12d3-a456-426614174000',
+            type: MetricType.BLOOD_GLUCOSE,
+            value: 110,
             unit: 'mg/dL',
-          },
-          {
-            metricType: 'WEIGHT',
-            targetValue: 75,
-            unit: 'kg',
-          },
-        ],
-        insuranceBenefits: {
-          insurancePlanId: '123e4567-e89b-12d3-a456-426614174003',
-          discountPercentage: 10,
-          pointsPerMetric: 20,
-          rewardsThreshold: 1000,
-          maxAnnualReward: 2000,
-        },
-      },
+            timestamp: new Date('2023-03-20T11:30:00Z'),
+            source: 'manual'
+          }
+        ]
+      }
     },
-    
-    // Invalid test cases
     invalid: {
-      endBeforeStart: {
-        programId: '123e4567-e89b-12d3-a456-426614174004',
-        programName: 'Mental Wellness Program',
-        programType: 'MENTAL_HEALTH',
-        startDate: TOMORROW,
-        endDate: TODAY,
-        healthMetrics: ['SLEEP', 'HEART_RATE'],
-        targetGoals: [
-          {
-            metricType: 'SLEEP',
-            targetValue: 8,
-            unit: 'hours',
-          },
-        ],
-        insuranceBenefits: {
-          insurancePlanId: '123e4567-e89b-12d3-a456-426614174005',
-          discountPercentage: 3,
-          pointsPerMetric: 5,
-          rewardsThreshold: 300,
-          maxAnnualReward: 500,
+      claimWithoutMatchingMetrics: {
+        claim: {
+          userId: '123e4567-e89b-12d3-a456-426614174000',
+          procedureType: ClaimType.EXAMINATION,
+          date: new Date('2023-03-20'),
+          provider: 'Laboratório Diagnósticos',
+          amount: 350.75,
+          receiptUrl: 'https://storage.austa.com.br/receipts/def456.pdf',
+          status: 'submitted',
+          notes: 'Blood glucose test'
         },
-      },
-      metricNotInHealthMetrics: {
-        programId: '123e4567-e89b-12d3-a456-426614174006',
-        programName: 'Nutrition Program',
-        programType: 'NUTRITION',
-        startDate: TODAY,
-        endDate: new Date(TODAY.getFullYear(), TODAY.getMonth() + 6, TODAY.getDate()),
-        healthMetrics: ['WEIGHT', 'STEPS'],
-        targetGoals: [
-          {
-            metricType: 'BLOOD_GLUCOSE', // Not in healthMetrics
-            targetValue: 100,
-            unit: 'mg/dL',
-          },
-          {
-            metricType: 'WEIGHT',
-            targetValue: 68,
-            unit: 'kg',
-          },
-        ],
-        insuranceBenefits: {
-          insurancePlanId: '123e4567-e89b-12d3-a456-426614174007',
-          discountPercentage: 5,
-          pointsPerMetric: 10,
-          rewardsThreshold: 500,
-          maxAnnualReward: 1000,
-        },
-      },
-    },
+        healthMetrics: [] // Missing health metrics for the examination
+      }
+    }
   },
+  
+  // Care + Plan journey integration
+  carePlanIntegration: {
+    valid: {
+      appointmentWithCoverage: {
+        appointment: {
+          userId: '123e4567-e89b-12d3-a456-426614174000',
+          providerId: '987e6543-e21b-12d3-a456-426614174000',
+          type: AppointmentType.IN_PERSON,
+          specialtyId: '456e7890-e21b-12d3-a456-426614174000',
+          date: new Date('2023-05-10T14:30:00Z'),
+          duration: 30,
+          reason: 'Annual check-up',
+          notes: '',
+          status: 'scheduled',
+          locationId: '789e1234-e21b-12d3-a456-426614174000'
+        },
+        coverage: {
+          id: '567e8901-e89b-12d3-a456-426614174000',
+          name: 'Basic Health Plan',
+          type: 'individual',
+          memberId: 'BHP12345678',
+          startDate: new Date('2023-01-01'),
+          endDate: new Date('2023-12-31'),
+          status: 'active',
+          network: 'standard',
+          monthlyPremium: 350.00,
+          annualDeductible: 1000.00,
+          maxOutOfPocket: 5000.00,
+          benefitIds: [
+            '234e5678-e89b-12d3-a456-426614174000' // Annual check-up benefit
+          ],
+          dependents: [],
+          documents: [
+            {
+              type: 'insurance_card',
+              url: 'https://storage.austa.com.br/insurance/card123.pdf',
+              issuedAt: new Date('2023-01-01')
+            }
+          ]
+        },
+        benefit: {
+          id: '234e5678-e89b-12d3-a456-426614174000',
+          name: 'Annual Check-up',
+          description: 'Comprehensive annual health examination',
+          coveragePercentage: 100,
+          annualLimit: 1,
+          requiresPreApproval: false,
+          waitingPeriod: 30, // days
+          eligibleProviders: ['in-network'],
+          exclusions: ['specialty consultations'],
+          startDate: new Date('2023-01-01'),
+          endDate: new Date('2023-12-31')
+        }
+      }
+    },
+    invalid: {
+      appointmentWithoutCoverage: {
+        appointment: {
+          userId: '123e4567-e89b-12d3-a456-426614174000',
+          providerId: '987e6543-e21b-12d3-a456-426614174000',
+          type: AppointmentType.IN_PERSON,
+          specialtyId: '456e7890-e21b-12d3-a456-426614174000',
+          date: new Date('2023-05-10T14:30:00Z'),
+          duration: 30,
+          reason: 'Annual check-up',
+          notes: '',
+          status: 'scheduled',
+          locationId: '789e1234-e21b-12d3-a456-426614174000'
+        },
+        coverage: {
+          id: '567e8901-e89b-12d3-a456-426614174000',
+          name: 'Basic Health Plan',
+          type: 'individual',
+          memberId: 'BHP12345678',
+          startDate: new Date('2023-01-01'),
+          endDate: new Date('2023-12-31'),
+          status: 'active',
+          network: 'standard',
+          monthlyPremium: 350.00,
+          annualDeductible: 1000.00,
+          maxOutOfPocket: 5000.00,
+          benefitIds: [
+            '345e6789-e89b-12d3-a456-426614174000' // Dental coverage benefit (not annual check-up)
+          ],
+          dependents: [],
+          documents: [
+            {
+              type: 'insurance_card',
+              url: 'https://storage.austa.com.br/insurance/card123.pdf',
+              issuedAt: new Date('2023-01-01')
+            }
+          ]
+        },
+        benefit: {
+          id: '345e6789-e89b-12d3-a456-426614174000',
+          name: 'Dental Coverage',
+          description: 'Basic dental procedures and check-ups',
+          coveragePercentage: 80,
+          annualLimit: 4,
+          requiresPreApproval: false,
+          waitingPeriod: 60,
+          eligibleProviders: ['in-network', 'out-network'],
+          exclusions: ['cosmetic procedures', 'orthodontics'],
+          startDate: new Date('2023-01-01'),
+          endDate: new Date('2023-12-31')
+        }
+      },
+      appointmentWithInactiveProvider: {
+        appointment: {
+          userId: '123e4567-e89b-12d3-a456-426614174000',
+          providerId: '987e6543-e21b-12d3-a456-426614174000',
+          type: AppointmentType.IN_PERSON,
+          specialtyId: '456e7890-e21b-12d3-a456-426614174000',
+          date: new Date('2023-05-10T14:30:00Z'),
+          duration: 30,
+          reason: 'Annual check-up',
+          notes: '',
+          status: 'scheduled',
+          locationId: '789e1234-e21b-12d3-a456-426614174000'
+        },
+        coverage: {
+          id: '567e8901-e89b-12d3-a456-426614174000',
+          name: 'Basic Health Plan',
+          type: 'individual',
+          memberId: 'BHP12345678',
+          startDate: new Date('2023-01-01'),
+          endDate: new Date('2023-12-31'),
+          status: 'active',
+          network: 'standard',
+          monthlyPremium: 350.00,
+          annualDeductible: 1000.00,
+          maxOutOfPocket: 5000.00,
+          benefitIds: [
+            '234e5678-e89b-12d3-a456-426614174000' // Annual check-up benefit
+          ],
+          dependents: [],
+          documents: [
+            {
+              type: 'insurance_card',
+              url: 'https://storage.austa.com.br/insurance/card123.pdf',
+              issuedAt: new Date('2023-01-01')
+            }
+          ]
+        },
+        benefit: {
+          id: '234e5678-e89b-12d3-a456-426614174000',
+          name: 'Annual Check-up',
+          description: 'Comprehensive annual health examination',
+          coveragePercentage: 100,
+          annualLimit: 1,
+          requiresPreApproval: false,
+          waitingPeriod: 30,
+          eligibleProviders: ['in-network'],
+          exclusions: ['specialty consultations'],
+          startDate: new Date('2023-01-01'),
+          endDate: new Date('2023-12-31')
+        },
+        provider: {
+          id: '987e6543-e21b-12d3-a456-426614174000',
+          name: 'Dr. Ana Silva',
+          specialtyId: '456e7890-e21b-12d3-a456-426614174000',
+          specialtyName: 'Cardiologist',
+          licenseNumber: 'CRM-SP 123456',
+          bio: 'Experienced cardiologist with 15 years of practice',
+          education: [
+            { institution: 'Universidade de São Paulo', degree: 'MD', year: 2005 },
+            { institution: 'Hospital das Clínicas', degree: 'Residency', year: 2008 }
+          ],
+          languages: ['Portuguese', 'English'],
+          acceptingNewPatients: false, // Not accepting new patients
+          telemedicineAvailable: true,
+          locations: [
+            { id: '789e1234-e21b-12d3-a456-426614174000', name: 'Clínica São Paulo', address: 'Av. Paulista, 1000' }
+          ],
+          availableHours: {}
+        }
+      }
+    }
+  }
 };
 
 /**
- * Export all journey validation fixtures
+ * Validation Schema Examples
+ * 
+ * These are examples of Zod validation schemas that can be used with the fixtures.
+ * They demonstrate how to implement journey-specific validation rules.
  */
-export const journeyValidationFixtures = {
-  health: healthJourneyFixtures,
-  care: careJourneyFixtures,
-  plan: planJourneyFixtures,
-  crossJourney: crossJourneyFixtures,
+export const validationSchemaExamples = {
+  // Health journey validation schemas
+  health: {
+    metricSchema: z.object({
+      userId: z.string().uuid(),
+      type: z.nativeEnum(MetricType),
+      value: z.union([
+        z.number(),
+        z.object({
+          systolic: z.number().int().positive(),
+          diastolic: z.number().int().positive()
+        })
+      ]),
+      unit: z.string(),
+      timestamp: z.date().refine(date => date <= new Date(), {
+        message: 'Timestamp cannot be in the future'
+      }),
+      source: z.string()
+    }).refine(data => {
+      // Custom refinement for blood pressure format
+      if (data.type === MetricType.BLOOD_PRESSURE) {
+        return typeof data.value === 'object' && 'systolic' in data.value && 'diastolic' in data.value;
+      }
+      return true;
+    }, {
+      message: 'Blood pressure metrics must include systolic and diastolic values',
+      path: ['value']
+    })
+  },
+  
+  // Care journey validation schemas
+  care: {
+    appointmentSchema: z.object({
+      userId: z.string().uuid(),
+      providerId: z.string().uuid(),
+      type: z.nativeEnum(AppointmentType),
+      specialtyId: z.string().uuid(),
+      date: z.date().refine(date => date > new Date(), {
+        message: 'Appointment date must be in the future'
+      }),
+      duration: z.number().int().min(15).max(120),
+      reason: z.string().min(1),
+      notes: z.string().optional(),
+      status: z.string(),
+      locationId: z.string().uuid().optional(),
+      meetingUrl: z.string().url().optional()
+    }).refine(data => {
+      // Custom refinement for appointment type requirements
+      if (data.type === AppointmentType.IN_PERSON && !data.locationId) {
+        return false;
+      }
+      if (data.type === AppointmentType.TELEMEDICINE && !data.meetingUrl) {
+        return false;
+      }
+      return true;
+    }, {
+      message: 'In-person appointments require a location ID and telemedicine appointments require a meeting URL',
+      path: ['type']
+    })
+  },
+  
+  // Plan journey validation schemas
+  plan: {
+    claimSchema: z.object({
+      userId: z.string().uuid(),
+      procedureType: z.nativeEnum(ClaimType),
+      date: z.date().refine(date => date <= new Date(), {
+        message: 'Claim date cannot be in the future'
+      }),
+      provider: z.string().min(1),
+      amount: z.number().positive(),
+      receiptUrl: z.string().url(),
+      status: z.string(),
+      notes: z.string().optional(),
+      emergencyDetails: z.object({
+        admissionTime: z.string().regex(/^([01]\d|2[0-3]):([0-5]\d)$/),
+        dischargeTime: z.string().regex(/^([01]\d|2[0-3]):([0-5]\d)$/),
+        symptoms: z.array(z.string()).min(1)
+      }).optional()
+    }).refine(data => {
+      // Custom refinement for emergency claims
+      if (data.procedureType === ClaimType.EMERGENCY && !data.emergencyDetails) {
+        return false;
+      }
+      return true;
+    }, {
+      message: 'Emergency claims require emergency details',
+      path: ['emergencyDetails']
+    })
+  }
 };
-
-export default journeyValidationFixtures;

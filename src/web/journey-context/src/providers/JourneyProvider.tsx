@@ -1,100 +1,104 @@
 import React, { createContext, useState, useContext, useEffect, ReactNode } from 'react';
-import { Platform } from '../types/platform.types';
-import { JourneyId, Journey, JOURNEY_IDS } from '../types/journey.types';
-import { JourneyProviderProps, JourneyContextType } from '../types/context.types';
+import { ALL_JOURNEYS, JOURNEY_IDS } from '../constants/journeys';
+import { DEFAULT_JOURNEY_ID } from '../constants/defaults';
+import { Journey, JourneyId } from '../types/journey.types';
+import { JourneyProviderProps, BaseJourneyContextType } from '../types/context.types';
+import { isValidJourneyId } from '../utils/validation';
+import { getJourneyById } from '../utils/conversion';
 import { createJourneyStorage } from '../storage';
-import { ALL_JOURNEYS, DEFAULT_JOURNEY_ID } from '../constants/journeys';
-import { useAuth } from '../hooks/useAuth';
 
 /**
  * Context for managing the current user journey
- * This context is platform-agnostic and works for both web and mobile
+ * This is a platform-agnostic implementation that works on both web and mobile
  */
-const JourneyContext = createContext<JourneyContextType>({
+const JourneyContext = createContext<BaseJourneyContextType>({
   currentJourney: DEFAULT_JOURNEY_ID,
   setCurrentJourney: () => {},
-  journeyData: ALL_JOURNEYS.find(journey => journey.id === DEFAULT_JOURNEY_ID) || ALL_JOURNEYS[0],
+  journeyData: getJourneyById(DEFAULT_JOURNEY_ID),
+  availableJourneys: ALL_JOURNEYS,
 });
 
 /**
- * Platform-agnostic Journey Provider that manages and distributes the current journey state
- * across the application, enabling journey-specific UI theming and business logic.
+ * Platform-agnostic Journey Provider component
  * 
- * Features:
- * - Establishes a consistent journey selection mechanism
- * - Validates journey IDs against available journeys
- * - Reacts to authentication status changes
- * - Persists journey selection with platform-agnostic storage
- * - Provides a type-safe interface for accessing and updating the current journey
+ * Manages the current journey state (Health, Care, Plan) across the application,
+ * enabling journey-specific UI theming and business logic. It establishes a consistent
+ * journey selection mechanism, validates journey IDs against the available journeys,
+ * and provides a type-safe interface for accessing and updating the current journey.
  * 
- * @param props Provider props including children components
- * @returns Journey Provider component
+ * @param children - React nodes to be wrapped by the provider
+ * @param initialJourney - Optional initial journey ID to set (defaults to DEFAULT_JOURNEY_ID)
+ * @param onJourneyChange - Optional callback when journey changes
  */
-export const JourneyProvider: React.FC<JourneyProviderProps> = ({ children, initialJourney }) => {
-  // Initialize storage adapter for the current platform
+export const JourneyProvider: React.FC<JourneyProviderProps> = ({ 
+  children, 
+  initialJourney = DEFAULT_JOURNEY_ID,
+  onJourneyChange,
+}) => {
+  // Initialize journey storage for persistence
   const journeyStorage = createJourneyStorage();
-  const { isAuthenticated } = useAuth();
   
-  // Initialize state with provided initialJourney, stored preference, or default journey
+  // Initialize state with the initial journey or default
   const [currentJourney, setCurrentJourneyState] = useState<JourneyId>(() => {
-    // If initialJourney is provided and valid, use it
-    if (initialJourney && isValidJourneyId(initialJourney)) {
-      return initialJourney;
-    }
-    
-    // Try to get stored journey preference
+    // Try to get the stored journey preference first
     try {
-      const storedJourney = journeyStorage.getItem('currentJourney') as JourneyId | null;
+      const storedJourney = journeyStorage.getSync('journeyPreference');
+      // Validate the stored journey ID
       if (storedJourney && isValidJourneyId(storedJourney)) {
-        return storedJourney;
+        return storedJourney as JourneyId;
       }
     } catch (error) {
       console.error('Failed to retrieve stored journey preference:', error);
     }
     
-    // Fall back to default journey
-    return DEFAULT_JOURNEY_ID;
+    // Fall back to the provided initial journey or default
+    return isValidJourneyId(initialJourney) ? initialJourney : DEFAULT_JOURNEY_ID;
   });
 
   // Get the current journey data
-  const journeyData = ALL_JOURNEYS.find(journey => journey.id === currentJourney) || ALL_JOURNEYS[0];
-
-  // Validate that a journey ID exists in available journeys
-  function isValidJourneyId(journeyId: string): journeyId is JourneyId {
-    return ALL_JOURNEYS.some(journey => journey.id === journeyId);
-  }
+  const journeyData = getJourneyById(currentJourney);
 
   // Handle journey changes with validation and persistence
-  const setCurrentJourney = (journeyId: string) => {
+  const setCurrentJourney = (journeyId: JourneyId) => {
+    // Validate that the journey ID is valid
     if (isValidJourneyId(journeyId)) {
+      // Update state
       setCurrentJourneyState(journeyId);
       
-      // Persist journey preference
+      // Persist the journey preference
       try {
-        journeyStorage.setItem('currentJourney', journeyId);
+        journeyStorage.setSync('journeyPreference', journeyId);
       } catch (error) {
         console.error('Failed to store journey preference:', error);
       }
+      
+      // Call the onJourneyChange callback if provided
+      if (onJourneyChange) {
+        onJourneyChange(journeyId, getJourneyById(journeyId));
+      }
     } else {
-      console.error(`Invalid journey ID: ${journeyId}. Available journeys: ${ALL_JOURNEYS.map(j => j.id).join(', ')}`);
+      console.error(`Invalid journey ID: ${journeyId}`);
     }
   };
 
-  // Set initial journey or handle authentication changes
+  // Effect to handle initialization and cleanup
   useEffect(() => {
-    if (isAuthenticated) {
-      // Ensure we have a valid journey selected after authentication
-      if (!currentJourney || !isValidJourneyId(currentJourney)) {
-        setCurrentJourney(DEFAULT_JOURNEY_ID);
-      }
+    // Validate current journey on mount
+    if (!isValidJourneyId(currentJourney)) {
+      setCurrentJourney(DEFAULT_JOURNEY_ID);
     }
-  }, [isAuthenticated]);
+    
+    return () => {
+      // Cleanup if needed
+    };
+  }, []);
 
-  // Context value with current journey state and methods
-  const value: JourneyContextType = {
+  // Create the context value
+  const value: BaseJourneyContextType = {
     currentJourney,
     setCurrentJourney,
     journeyData,
+    availableJourneys: ALL_JOURNEYS,
   };
 
   return (
@@ -106,13 +110,31 @@ export const JourneyProvider: React.FC<JourneyProviderProps> = ({ children, init
 
 /**
  * Hook to access the JourneyContext
+ * 
+ * Provides access to the current journey state and methods to update it.
+ * This hook is platform-agnostic and works consistently on both web and mobile.
+ * 
  * @returns The journey context value
  * @throws Error if used outside of a JourneyProvider
  */
-export const useJourney = (): JourneyContextType => {
+export const useJourney = (): BaseJourneyContextType => {
   const context = useContext(JourneyContext);
+  
   if (context === undefined) {
     throw new Error('useJourney must be used within a JourneyProvider');
   }
+  
   return context;
 };
+
+/**
+ * Export the JourneyContext for advanced use cases
+ * This allows for direct context consumption in class components or other scenarios
+ */
+export { JourneyContext };
+
+/**
+ * Re-export journey types and constants for convenience
+ */
+export { JOURNEY_IDS };
+export type { Journey, JourneyId };

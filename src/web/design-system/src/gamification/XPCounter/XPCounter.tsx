@@ -1,7 +1,7 @@
 import React from 'react';
 import { useTheme } from 'styled-components';
-import { XPCounterProps } from '@austa/interfaces/gamification';
-import { useJourneyContext } from '@austa/journey-context';
+import { XPCounterProps } from '@austa/interfaces/gamification/xp';
+import { useJourney } from '@austa/journey-context';
 import { XPContainer, XPLabel, XPRemaining } from './XPCounter.styles';
 import { ProgressBar } from '../../components/ProgressBar';
 
@@ -49,10 +49,11 @@ export const XPCounter: React.FC<XPCounterProps> = ({
   testId,
 }) => {
   const theme = useTheme();
-  const { currentJourney } = useJourneyContext();
+  // Use journey context when journey prop is not explicitly provided
+  const { journeyId } = useJourney();
   
-  // Use provided journey or fall back to journey context
-  const activeJourney = journey || currentJourney || 'health';
+  // Use provided journey or fallback to current journey from context
+  const activeJourney = journey || journeyId;
   
   // Calculate remaining XP and progress percentage
   const remainingXP = calculateRemainingXP(currentXP, nextLevelXP);
@@ -64,7 +65,7 @@ export const XPCounter: React.FC<XPCounterProps> = ({
       data-testid={testId}
       aria-label={level ? `Level ${level}: ${currentXP} XP, ${remainingXP} XP to next level` : `${currentXP} XP, ${remainingXP} XP to next level`}
     >
-      <XPLabel journey={activeJourney}>
+      <XPLabel journey={activeJourney as 'health' | 'care' | 'plan'}>
         {currentXP} XP
       </XPLabel>
       
@@ -75,7 +76,7 @@ export const XPCounter: React.FC<XPCounterProps> = ({
       <ProgressBar 
         current={currentXP - levelXP}
         total={nextLevelXP - levelXP}
-        journey={activeJourney}
+        journey={activeJourney as 'health' | 'care' | 'plan'}
         ariaLabel={`${Math.round(progress)}% progress to next level. ${remainingXP} XP remaining.`}
         size="md"
         testId={testId ? `${testId}-progress` : undefined}

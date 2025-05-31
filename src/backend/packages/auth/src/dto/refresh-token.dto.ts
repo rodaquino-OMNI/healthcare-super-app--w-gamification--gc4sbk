@@ -1,36 +1,33 @@
-import { IsNotEmpty, IsString, Matches, MinLength } from 'class-validator';
+import { IsNotEmpty, IsString, Length, Matches } from 'class-validator';
 
 /**
- * Data Transfer Object for token refresh operations.
+ * Data Transfer Object for token refresh requests.
  * 
- * This DTO is used when a client wants to obtain a new access token using a valid refresh token.
- * It enforces validation rules on the refresh token string to ensure it meets the required format
- * and security standards before processing.
+ * This DTO validates refresh token requests to ensure they contain a valid refresh token string.
+ * It is used in the token refresh endpoint to obtain new access tokens using a valid refresh token.
  * 
- * The token refresh flow works as follows:
- * 1. Client sends a request with a valid refresh token to the token refresh endpoint
- * 2. Server validates the refresh token format using this DTO
- * 3. Server verifies the refresh token against the Redis-backed token store
- * 4. If valid, server issues a new access token and optionally a new refresh token (token rotation)
- * 5. The old refresh token may be blacklisted to prevent reuse (depending on security settings)
+ * The validation rules enforce:
+ * - Non-empty string value
+ * - Proper JWT format with three segments separated by periods
+ * - Minimum and maximum length constraints for security
  * 
- * This implementation supports secure token rotation and enhanced session management
- * as specified in the updated security requirements.
+ * This implementation supports Redis-backed token blacklisting to prevent token reuse
+ * and implements secure token rotation as part of the enhanced session management requirements.
  */
 export class RefreshTokenDto {
   /**
    * The refresh token string used to obtain a new access token.
    * 
-   * Must be a non-empty string that meets the minimum length requirement and
-   * follows the expected JWT format (base64url-encoded segments separated by periods).
+   * Must be a valid JWT format token that was previously issued by the authentication service.
+   * The token will be validated against the Redis blacklist to prevent replay attacks.
    * 
-   * Invalid refresh tokens will be rejected with appropriate error messages.
+   * @example "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwiaWF0IjoxNTE2MjM5MDIyfQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c"
    */
   @IsNotEmpty({ message: 'Refresh token is required' })
   @IsString({ message: 'Refresh token must be a string' })
-  @MinLength(30, { message: 'Refresh token is invalid or malformed' })
+  @Length(30, 1024, { message: 'Refresh token length is invalid' })
   @Matches(/^[\w-]+\.[\w-]+\.[\w-]+$/, {
-    message: 'Refresh token format is invalid. Expected JWT format with three segments'
+    message: 'Refresh token format is invalid',
   })
   refreshToken: string;
 }

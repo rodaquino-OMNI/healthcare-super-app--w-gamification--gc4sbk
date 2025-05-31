@@ -1,1173 +1,720 @@
 /**
  * Environment Variable Validation Utilities
  * 
- * This module provides schema-based validation for environment variables using Zod,
+ * This module provides schema-based validation for configuration values,
  * enabling services to ensure environment variables meet required formats and constraints.
- * It includes specialized validators for common types and batch validation utilities.
+ * Prevents runtime failures due to misconfiguration by enforcing validation at application startup.
  */
 
 import { z } from 'zod';
-import {
-  EnvironmentVariableError,
-  InvalidEnvironmentVariableError,
-  ValidationEnvironmentVariableError,
-  BatchEnvironmentValidationError,
-  validateEnvironmentBatch
-} from './error';
-import {
-  parseBoolean,
-  parseNumber,
-  parseArray,
-  parseNumberArray,
-  parseJson,
-  parseUrl,
-  parseRange,
-  parseDuration,
-  parseEnum
-} from './transform';
+import { URL } from 'url';
 
 /**
- * Creates a validator function for an environment variable using a Zod schema
- * 
- * @param variableName - The name of the environment variable to validate
- * @param schema - The Zod schema to validate against
- * @returns A function that validates the environment variable against the schema
- * @throws ValidationEnvironmentVariableError if validation fails
- * 
- * @example
- * // Create a validator for a required string environment variable
- * const validateApiKey = createZodValidator('API_KEY', z.string().min(10));
- * 
- * // Use the validator
- * validateApiKey(); // Throws if API_KEY is missing or invalid
+ * Error thrown when environment variable validation fails
  */
-export function createZodValidator<T>(variableName: string, schema: z.ZodType<T>): () => T {
-  return () => {
-    const value = process.env[variableName];
+export class EnvValidationError extends Error {
+  constructor(
+    message: string,
+    public readonly errors: Record<string, string[]>,
+    public readonly envName?: string
+  ) {
+    super(message);
+    this.name = 'EnvValidationError';
+    Object.setPrototypeOf(this, EnvValidationError.prototype);
+  }
+
+  /**
+   * Returns a formatted string representation of all validation errors
+   */
+  public formatErrors(): string {
+    const lines = Object.entries(this.errors).map(([key, errors]) => {
+      return `  ${key}:\n${errors.map(err => `    - ${err}`).join('\n')}`;
+    });
     
-    if (value === undefined) {
-      throw new InvalidEnvironmentVariableError(
-        variableName,
-        undefined,
-        'a defined value'
-      );
-    }
-    
-    try {
-      return schema.parse(value);
-    } catch (error) {
-      if (error instanceof z.ZodError) {
-        const validationErrors = error.errors.map(err => {
-          // Format the error message to be more user-friendly
-          return `${err.message}${err.path.length > 0 ? ` at ${err.path.join('.')}` : ''}`;
-        });
-        
-        throw new ValidationEnvironmentVariableError(variableName, validationErrors);
-      }
-      
-      // If it's not a ZodError, re-throw
-      throw error;
-    }
-  };
+    return `Environment validation failed with the following errors:\n${lines.join('\n')}`;
+  }
 }
 
 /**
- * Creates a validator function for an environment variable using a Zod schema,
- * with a default value if the variable is not defined
- * 
- * @param variableName - The name of the environment variable to validate
- * @param schema - The Zod schema to validate against
- * @param defaultValue - The default value to use if the variable is not defined
- * @returns A function that validates the environment variable against the schema
- * @throws ValidationEnvironmentVariableError if validation fails
- * 
- * @example
- * // Create a validator for an optional number environment variable with default
- * const validatePort = createZodValidatorWithDefault('PORT', z.number().int().positive(), 3000);
- * 
- * // Use the validator
- * const port = validatePort(); // Returns 3000 if PORT is not defined
+ * Options for environment variable validation
  */
-export function createZodValidatorWithDefault<T>(
-  variableName: string,
+export interface ValidationOptions {
+  /** Whether to throw an error if the environment variable is not defined */
+  required?: boolean;
+  /** Default value to use if the environment variable is not defined */
+  defaultValue?: string;
+  /** Custom error message to use if validation fails */
+  errorMessage?: string;
+  /** Description of the environment variable for documentation */
+  description?: string;
+}
+
+/**
+ * Result of a validation operation
+ */
+export interface ValidationResult<T> {
+  /** Whether the validation was successful */
+  success: boolean;
+  /** The validated value if successful */
+  value?: T;
+  /** Error messages if validation failed */
+  errors?: string[];
+}
+
+/**
+ * Type for a validation function that validates a string value against a schema
+ */
+export type Validator<T> = (value: string, options?: ValidationOptions) => ValidationResult<T>;
+
+/**
+ * Validates a string value against a Zod schema
+ * 
+ * @param schema - Zod schema to validate against
+ * @param value - String value to validate
+ * @param options - Validation options
+ * @returns Validation result
+ */
+export function validateWithSchema<T>(
   schema: z.ZodType<T>,
-  defaultValue: T
-): () => T {
-  return () => {
-    const value = process.env[variableName];
-    
-    if (value === undefined) {
-      return defaultValue;
+  value: string | undefined,
+  options: ValidationOptions = {}
+): ValidationResult<T> {
+  const { required = true, defaultValue, errorMessage } = options;
+
+  // Handle undefined values
+  if (value === undefined) {
+    if (defaultValue !== undefined) {
+      return validateWithSchema(schema, defaultValue, options);
     }
     
-    try {
-      return schema.parse(value);
-    } catch (error) {
-      if (error instanceof z.ZodError) {
-        const validationErrors = error.errors.map(err => {
-          return `${err.message}${err.path.length > 0 ? ` at ${err.path.join('.')}` : ''}`;
-        });
-        
-        throw new ValidationEnvironmentVariableError(variableName, validationErrors);
-      }
-      
-      throw error;
+    if (required) {
+      return {
+        success: false,
+        errors: [errorMessage || 'Environment variable is required but not defined']
+      };
     }
+    
+    // If not required and no default, return success with undefined
+    return { success: true };
+  }
+
+  // Validate with schema
+  const result = schema.safeParse(value);
+  
+  if (result.success) {
+    return {
+      success: true,
+      value: result.data
+    };
+  }
+  
+  // Format errors from Zod
+  const errors = result.error.errors.map(err => {
+    return errorMessage || `${err.message}${err.path.length ? ` at ${err.path.join('.')}` : ''}`;
+  });
+  
+  return {
+    success: false,
+    errors
   };
 }
 
 /**
- * Creates a validator function for a required string environment variable
+ * Validates an environment variable against a schema
  * 
- * @param variableName - The name of the environment variable to validate
- * @param options - Optional validation options
- * @returns A function that validates the environment variable
- * @throws InvalidEnvironmentVariableError if validation fails
- * 
- * @example
- * // Create a validator for a required string environment variable
- * const validateApiKey = createStringValidator('API_KEY', { minLength: 10 });
- * 
- * // Use the validator
- * const apiKey = validateApiKey(); // Throws if API_KEY is missing or invalid
+ * @param envName - Name of the environment variable
+ * @param schema - Zod schema to validate against
+ * @param options - Validation options
+ * @returns Validated value
+ * @throws EnvValidationError if validation fails
  */
-export function createStringValidator(
-  variableName: string,
-  options: {
-    minLength?: number;
-    maxLength?: number;
-    pattern?: RegExp;
-    enum?: string[];
-  } = {}
-): () => string {
-  let schema = z.string();
+export function validateEnv<T>(
+  envName: string,
+  schema: z.ZodType<T>,
+  options: ValidationOptions = {}
+): T | undefined {
+  const value = process.env[envName];
+  const result = validateWithSchema(schema, value, options);
   
-  if (options.minLength !== undefined) {
-    schema = schema.min(options.minLength, 
-      `Should be at least ${options.minLength} characters`);
-  }
-  
-  if (options.maxLength !== undefined) {
-    schema = schema.max(options.maxLength, 
-      `Should be at most ${options.maxLength} characters`);
-  }
-  
-  if (options.pattern !== undefined) {
-    schema = schema.regex(options.pattern, 
-      'Does not match the required pattern');
-  }
-  
-  if (options.enum !== undefined) {
-    schema = schema.refine(
-      value => options.enum!.includes(value),
-      `Should be one of: ${options.enum.join(', ')}`
+  if (!result.success && result.errors) {
+    throw new EnvValidationError(
+      `Validation failed for environment variable ${envName}`,
+      { [envName]: result.errors },
+      envName
     );
   }
   
-  return createZodValidator(variableName, schema);
+  return result.value;
 }
 
 /**
- * Creates a validator function for a required number environment variable
+ * Validates a string environment variable
  * 
- * @param variableName - The name of the environment variable to validate
- * @param options - Optional validation options
- * @returns A function that validates the environment variable
- * @throws InvalidEnvironmentVariableError if validation fails
- * 
- * @example
- * // Create a validator for a required number environment variable
- * const validatePort = createNumberValidator('PORT', { min: 1024, max: 65535 });
- * 
- * // Use the validator
- * const port = validatePort(); // Throws if PORT is missing or invalid
+ * @param envName - Name of the environment variable
+ * @param options - Validation options
+ * @returns Validated string value
  */
-export function createNumberValidator(
-  variableName: string,
-  options: {
-    min?: number;
-    max?: number;
-    int?: boolean;
-    positive?: boolean;
-    nonNegative?: boolean;
-  } = {}
-): () => number {
-  return () => {
-    const value = process.env[variableName];
-    
-    if (value === undefined) {
-      throw new InvalidEnvironmentVariableError(
-        variableName,
-        undefined,
-        'a number value'
-      );
-    }
-    
-    try {
-      const parsedValue = parseNumber(value);
-      
-      if (options.int && !Number.isInteger(parsedValue)) {
-        throw new InvalidEnvironmentVariableError(
-          variableName,
-          value,
-          'an integer value'
-        );
-      }
-      
-      if (options.positive && parsedValue <= 0) {
-        throw new InvalidEnvironmentVariableError(
-          variableName,
-          value,
-          'a positive number'
-        );
-      }
-      
-      if (options.nonNegative && parsedValue < 0) {
-        throw new InvalidEnvironmentVariableError(
-          variableName,
-          value,
-          'a non-negative number'
-        );
-      }
-      
-      if (options.min !== undefined && parsedValue < options.min) {
-        throw new InvalidEnvironmentVariableError(
-          variableName,
-          value,
-          `a number greater than or equal to ${options.min}`
-        );
-      }
-      
-      if (options.max !== undefined && parsedValue > options.max) {
-        throw new InvalidEnvironmentVariableError(
-          variableName,
-          value,
-          `a number less than or equal to ${options.max}`
-        );
-      }
-      
-      return parsedValue;
-    } catch (error) {
-      if (error instanceof InvalidEnvironmentVariableError) {
-        throw error;
-      }
-      
-      throw new InvalidEnvironmentVariableError(
-        variableName,
-        value,
-        'a valid number'
-      );
-    }
-  };
-}
-
-/**
- * Creates a validator function for a required boolean environment variable
- * 
- * @param variableName - The name of the environment variable to validate
- * @returns A function that validates the environment variable
- * @throws InvalidEnvironmentVariableError if validation fails
- * 
- * @example
- * // Create a validator for a required boolean environment variable
- * const validateDebugMode = createBooleanValidator('DEBUG_MODE');
- * 
- * // Use the validator
- * const isDebugMode = validateDebugMode(); // Throws if DEBUG_MODE is missing or invalid
- */
-export function createBooleanValidator(variableName: string): () => boolean {
-  return () => {
-    const value = process.env[variableName];
-    
-    if (value === undefined) {
-      throw new InvalidEnvironmentVariableError(
-        variableName,
-        undefined,
-        'a boolean value (true, false, 1, 0, yes, no)'
-      );
-    }
-    
-    return parseBoolean(value);
-  };
-}
-
-/**
- * Creates a validator function for a required URL environment variable
- * 
- * @param variableName - The name of the environment variable to validate
- * @param options - Optional validation options
- * @returns A function that validates the environment variable
- * @throws InvalidEnvironmentVariableError if validation fails
- * 
- * @example
- * // Create a validator for a required URL environment variable
- * const validateApiUrl = createUrlValidator('API_URL', { protocols: ['https'] });
- * 
- * // Use the validator
- * const apiUrl = validateApiUrl(); // Throws if API_URL is missing or invalid
- */
-export function createUrlValidator(
-  variableName: string,
-  options: {
-    protocols?: string[];
-    requireTld?: boolean;
-  } = {}
-): () => URL {
-  return () => {
-    const value = process.env[variableName];
-    
-    if (value === undefined) {
-      throw new InvalidEnvironmentVariableError(
-        variableName,
-        undefined,
-        'a valid URL'
-      );
-    }
-    
-    try {
-      return parseUrl(value, options);
-    } catch (error) {
-      if (error instanceof Error) {
-        throw new InvalidEnvironmentVariableError(
-          variableName,
-          value,
-          `a valid URL: ${error.message}`
-        );
-      }
-      
-      throw new InvalidEnvironmentVariableError(
-        variableName,
-        value,
-        'a valid URL'
-      );
-    }
-  };
-}
-
-/**
- * Creates a validator function for a required array environment variable
- * 
- * @param variableName - The name of the environment variable to validate
- * @param options - Optional validation options
- * @returns A function that validates the environment variable
- * @throws InvalidEnvironmentVariableError if validation fails
- * 
- * @example
- * // Create a validator for a required array environment variable
- * const validateAllowedOrigins = createArrayValidator('ALLOWED_ORIGINS', { delimiter: ',' });
- * 
- * // Use the validator
- * const allowedOrigins = validateAllowedOrigins(); // Throws if ALLOWED_ORIGINS is missing or invalid
- */
-export function createArrayValidator(
-  variableName: string,
-  options: {
-    delimiter?: string;
-    minLength?: number;
-    maxLength?: number;
-    itemValidator?: (item: string, index: number) => boolean;
-  } = {}
-): () => string[] {
-  return () => {
-    const value = process.env[variableName];
-    
-    if (value === undefined) {
-      throw new InvalidEnvironmentVariableError(
-        variableName,
-        undefined,
-        'a comma-separated list'
-      );
-    }
-    
-    const delimiter = options.delimiter || ',';
-    const items = parseArray(value, delimiter);
-    
-    if (options.minLength !== undefined && items.length < options.minLength) {
-      throw new InvalidEnvironmentVariableError(
-        variableName,
-        value,
-        `a list with at least ${options.minLength} items`
-      );
-    }
-    
-    if (options.maxLength !== undefined && items.length > options.maxLength) {
-      throw new InvalidEnvironmentVariableError(
-        variableName,
-        value,
-        `a list with at most ${options.maxLength} items`
-      );
-    }
-    
-    if (options.itemValidator) {
-      for (let i = 0; i < items.length; i++) {
-        if (!options.itemValidator(items[i], i)) {
-          throw new InvalidEnvironmentVariableError(
-            variableName,
-            value,
-            `a list where item at index ${i} ("${items[i]}") is valid`
-          );
-        }
-      }
-    }
-    
-    return items;
-  };
-}
-
-/**
- * Creates a validator function for a required JSON environment variable
- * 
- * @param variableName - The name of the environment variable to validate
- * @param schema - Optional Zod schema to validate the parsed JSON against
- * @returns A function that validates the environment variable
- * @throws InvalidEnvironmentVariableError if validation fails
- * 
- * @example
- * // Create a validator for a required JSON environment variable
- * const validateConfig = createJsonValidator('APP_CONFIG', z.object({
- *   debug: z.boolean(),
- *   timeout: z.number()
- * }));
- * 
- * // Use the validator
- * const config = validateConfig(); // Throws if APP_CONFIG is missing or invalid
- */
-export function createJsonValidator<T>(
-  variableName: string,
-  schema?: z.ZodType<T>
-): () => T {
-  return () => {
-    const value = process.env[variableName];
-    
-    if (value === undefined) {
-      throw new InvalidEnvironmentVariableError(
-        variableName,
-        undefined,
-        'a valid JSON string'
-      );
-    }
-    
-    try {
-      const parsedValue = parseJson(value);
-      
-      if (schema) {
-        try {
-          return schema.parse(parsedValue);
-        } catch (error) {
-          if (error instanceof z.ZodError) {
-            const validationErrors = error.errors.map(err => {
-              return `${err.message}${err.path.length > 0 ? ` at ${err.path.join('.')}` : ''}`;
-            });
-            
-            throw new ValidationEnvironmentVariableError(variableName, validationErrors);
-          }
-          
-          throw error;
-        }
-      }
-      
-      return parsedValue as T;
-    } catch (error) {
-      if (error instanceof ValidationEnvironmentVariableError) {
-        throw error;
-      }
-      
-      if (error instanceof Error) {
-        throw new InvalidEnvironmentVariableError(
-          variableName,
-          value,
-          `a valid JSON string: ${error.message}`
-        );
-      }
-      
-      throw new InvalidEnvironmentVariableError(
-        variableName,
-        value,
-        'a valid JSON string'
-      );
-    }
-  };
-}
-
-/**
- * Creates a validator function for a required enum environment variable
- * 
- * @param variableName - The name of the environment variable to validate
- * @param enumObject - The enum object to validate against
- * @returns A function that validates the environment variable
- * @throws InvalidEnvironmentVariableError if validation fails
- * 
- * @example
- * enum LogLevel { DEBUG = 'debug', INFO = 'info', WARN = 'warn', ERROR = 'error' }
- * 
- * // Create a validator for a required enum environment variable
- * const validateLogLevel = createEnumValidator('LOG_LEVEL', LogLevel);
- * 
- * // Use the validator
- * const logLevel = validateLogLevel(); // Throws if LOG_LEVEL is missing or invalid
- */
-export function createEnumValidator<T extends Record<string, string | number>>(
-  variableName: string,
-  enumObject: T
-): () => T[keyof T] {
-  return () => {
-    const value = process.env[variableName];
-    
-    if (value === undefined) {
-      throw new InvalidEnvironmentVariableError(
-        variableName,
-        undefined,
-        `one of: ${Object.values(enumObject).join(', ')}`
-      );
-    }
-    
-    try {
-      return parseEnum(value, enumObject);
-    } catch (error) {
-      if (error instanceof Error) {
-        throw new InvalidEnvironmentVariableError(
-          variableName,
-          value,
-          `one of: ${Object.values(enumObject).join(', ')}`
-        );
-      }
-      
-      throw error;
-    }
-  };
-}
-
-/**
- * Creates a validator function for a required duration environment variable
- * 
- * @param variableName - The name of the environment variable to validate
- * @param options - Optional validation options
- * @returns A function that validates the environment variable
- * @throws InvalidEnvironmentVariableError if validation fails
- * 
- * @example
- * // Create a validator for a required duration environment variable
- * const validateTimeout = createDurationValidator('TIMEOUT', { min: 1000, max: 30000 });
- * 
- * // Use the validator
- * const timeout = validateTimeout(); // Throws if TIMEOUT is missing or invalid
- */
-export function createDurationValidator(
-  variableName: string,
-  options: {
-    min?: number;
-    max?: number;
-  } = {}
-): () => number {
-  return () => {
-    const value = process.env[variableName];
-    
-    if (value === undefined) {
-      throw new InvalidEnvironmentVariableError(
-        variableName,
-        undefined,
-        'a valid duration (e.g., 1d, 2h, 30m, 45s, 500ms)'
-      );
-    }
-    
-    try {
-      const parsedValue = parseDuration(value);
-      
-      if (options.min !== undefined && parsedValue < options.min) {
-        throw new InvalidEnvironmentVariableError(
-          variableName,
-          value,
-          `a duration greater than or equal to ${options.min}ms`
-        );
-      }
-      
-      if (options.max !== undefined && parsedValue > options.max) {
-        throw new InvalidEnvironmentVariableError(
-          variableName,
-          value,
-          `a duration less than or equal to ${options.max}ms`
-        );
-      }
-      
-      return parsedValue;
-    } catch (error) {
-      if (error instanceof InvalidEnvironmentVariableError) {
-        throw error;
-      }
-      
-      if (error instanceof Error) {
-        throw new InvalidEnvironmentVariableError(
-          variableName,
-          value,
-          `a valid duration: ${error.message}`
-        );
-      }
-      
-      throw new InvalidEnvironmentVariableError(
-        variableName,
-        value,
-        'a valid duration'
-      );
-    }
-  };
-}
-
-/**
- * Creates a validator function for a required port environment variable
- * 
- * @param variableName - The name of the environment variable to validate
- * @returns A function that validates the environment variable
- * @throws InvalidEnvironmentVariableError if validation fails
- * 
- * @example
- * // Create a validator for a required port environment variable
- * const validatePort = createPortValidator('PORT');
- * 
- * // Use the validator
- * const port = validatePort(); // Throws if PORT is missing or invalid
- */
-export function createPortValidator(variableName: string): () => number {
-  return createNumberValidator(variableName, {
-    int: true,
-    min: 1,
-    max: 65535
-  });
-}
-
-/**
- * Creates a validator function for a required host environment variable
- * 
- * @param variableName - The name of the environment variable to validate
- * @returns A function that validates the environment variable
- * @throws InvalidEnvironmentVariableError if validation fails
- * 
- * @example
- * // Create a validator for a required host environment variable
- * const validateHost = createHostValidator('HOST');
- * 
- * // Use the validator
- * const host = validateHost(); // Throws if HOST is missing or invalid
- */
-export function createHostValidator(variableName: string): () => string {
-  // Simplified hostname regex pattern
-  const hostnamePattern = /^(([a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9\-]*[a-zA-Z0-9])\.)*([A-Za-z0-9]|[A-Za-z0-9][A-Za-z0-9\-]*[A-Za-z0-9])$|^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/;
+export function validateString(
+  envName: string,
+  options: ValidationOptions & { minLength?: number; maxLength?: number; pattern?: RegExp } = {}
+): string | undefined {
+  const { minLength, maxLength, pattern, ...baseOptions } = options;
   
-  return createStringValidator(variableName, {
-    pattern: hostnamePattern
-  });
+  let schema = z.string();
+  
+  if (minLength !== undefined) {
+    schema = schema.min(minLength, `String must be at least ${minLength} characters long`);
+  }
+  
+  if (maxLength !== undefined) {
+    schema = schema.max(maxLength, `String must be at most ${maxLength} characters long`);
+  }
+  
+  if (pattern !== undefined) {
+    schema = schema.regex(pattern, 'String does not match required pattern');
+  }
+  
+  return validateEnv(envName, schema, baseOptions);
 }
 
 /**
- * Creates a validator function for a required database URL environment variable
+ * Validates a numeric environment variable
  * 
- * @param variableName - The name of the environment variable to validate
- * @param options - Optional validation options
- * @returns A function that validates the environment variable
- * @throws InvalidEnvironmentVariableError if validation fails
- * 
- * @example
- * // Create a validator for a required database URL environment variable
- * const validateDbUrl = createDatabaseUrlValidator('DATABASE_URL', { protocols: ['postgresql'] });
- * 
- * // Use the validator
- * const dbUrl = validateDbUrl(); // Throws if DATABASE_URL is missing or invalid
+ * @param envName - Name of the environment variable
+ * @param options - Validation options
+ * @returns Validated number value
  */
-export function createDatabaseUrlValidator(
-  variableName: string,
-  options: {
-    protocols?: string[];
-  } = {}
-): () => URL {
-  return createUrlValidator(variableName, {
-    protocols: options.protocols || ['postgresql', 'mysql', 'mongodb']
-  });
+export function validateNumber(
+  envName: string,
+  options: ValidationOptions & { min?: number; max?: number; integer?: boolean } = {}
+): number | undefined {
+  const { min, max, integer = false, ...baseOptions } = options;
+  
+  let schema = z.coerce.number();
+  
+  if (integer) {
+    schema = schema.int('Value must be an integer');
+  }
+  
+  if (min !== undefined) {
+    schema = schema.min(min, `Value must be at least ${min}`);
+  }
+  
+  if (max !== undefined) {
+    schema = schema.max(max, `Value must be at most ${max}`);
+  }
+  
+  return validateEnv(envName, schema, baseOptions);
 }
 
 /**
- * Creates a validator function for a required API key environment variable
+ * Validates a boolean environment variable
  * 
- * @param variableName - The name of the environment variable to validate
- * @param options - Optional validation options
- * @returns A function that validates the environment variable
- * @throws InvalidEnvironmentVariableError if validation fails
- * 
- * @example
- * // Create a validator for a required API key environment variable
- * const validateApiKey = createApiKeyValidator('API_KEY', { minLength: 32 });
- * 
- * // Use the validator
- * const apiKey = validateApiKey(); // Throws if API_KEY is missing or invalid
+ * @param envName - Name of the environment variable
+ * @param options - Validation options
+ * @returns Validated boolean value
  */
-export function createApiKeyValidator(
-  variableName: string,
-  options: {
-    minLength?: number;
-    pattern?: RegExp;
-  } = {}
-): () => string {
-  return createStringValidator(variableName, {
-    minLength: options.minLength || 16,
-    pattern: options.pattern
-  });
+export function validateBoolean(
+  envName: string,
+  options: ValidationOptions = {}
+): boolean | undefined {
+  const schema = z.union([
+    z.literal('true').transform(() => true),
+    z.literal('false').transform(() => false),
+    z.literal('1').transform(() => true),
+    z.literal('0').transform(() => false),
+    z.literal('yes').transform(() => true),
+    z.literal('no').transform(() => false),
+  ]).catch(undefined);
+  
+  return validateEnv(envName, schema, options);
 }
 
 /**
- * Creates a validator function for a required JWT secret environment variable
+ * Validates a URL environment variable
  * 
- * @param variableName - The name of the environment variable to validate
- * @returns A function that validates the environment variable
- * @throws InvalidEnvironmentVariableError if validation fails
- * 
- * @example
- * // Create a validator for a required JWT secret environment variable
- * const validateJwtSecret = createJwtSecretValidator('JWT_SECRET');
- * 
- * // Use the validator
- * const jwtSecret = validateJwtSecret(); // Throws if JWT_SECRET is missing or invalid
+ * @param envName - Name of the environment variable
+ * @param options - Validation options
+ * @returns Validated URL value
  */
-export function createJwtSecretValidator(variableName: string): () => string {
-  return createStringValidator(variableName, {
-    minLength: 32
-  });
-}
-
-/**
- * Creates a validator function for a required environment name variable
- * 
- * @param variableName - The name of the environment variable to validate
- * @returns A function that validates the environment variable
- * @throws InvalidEnvironmentVariableError if validation fails
- * 
- * @example
- * // Create a validator for a required environment name variable
- * const validateNodeEnv = createEnvironmentValidator('NODE_ENV');
- * 
- * // Use the validator
- * const nodeEnv = validateNodeEnv(); // Throws if NODE_ENV is missing or invalid
- */
-export function createEnvironmentValidator(variableName: string): () => 'development' | 'test' | 'staging' | 'production' {
-  return () => {
-    const value = process.env[variableName];
-    
-    if (value === undefined) {
-      throw new InvalidEnvironmentVariableError(
-        variableName,
-        undefined,
-        'one of: development, test, staging, production'
-      );
-    }
-    
-    const validEnvironments = ['development', 'test', 'staging', 'production'];
-    
-    if (!validEnvironments.includes(value)) {
-      throw new InvalidEnvironmentVariableError(
-        variableName,
-        value,
-        'one of: development, test, staging, production'
-      );
-    }
-    
-    return value as 'development' | 'test' | 'staging' | 'production';
-  };
-}
-
-/**
- * Creates a validator function for a required Redis URL environment variable
- * 
- * @param variableName - The name of the environment variable to validate
- * @returns A function that validates the environment variable
- * @throws InvalidEnvironmentVariableError if validation fails
- * 
- * @example
- * // Create a validator for a required Redis URL environment variable
- * const validateRedisUrl = createRedisUrlValidator('REDIS_URL');
- * 
- * // Use the validator
- * const redisUrl = validateRedisUrl(); // Throws if REDIS_URL is missing or invalid
- */
-export function createRedisUrlValidator(variableName: string): () => URL {
-  return createUrlValidator(variableName, {
-    protocols: ['redis']
-  });
-}
-
-/**
- * Creates a validator function for a required Kafka broker list environment variable
- * 
- * @param variableName - The name of the environment variable to validate
- * @returns A function that validates the environment variable
- * @throws InvalidEnvironmentVariableError if validation fails
- * 
- * @example
- * // Create a validator for a required Kafka broker list environment variable
- * const validateKafkaBrokers = createKafkaBrokersValidator('KAFKA_BROKERS');
- * 
- * // Use the validator
- * const kafkaBrokers = validateKafkaBrokers(); // Throws if KAFKA_BROKERS is missing or invalid
- */
-export function createKafkaBrokersValidator(variableName: string): () => string[] {
-  return createArrayValidator(variableName, {
-    delimiter: ',',
-    minLength: 1,
-    itemValidator: (item) => {
-      // Simple validation for host:port format
-      const parts = item.split(':');
-      if (parts.length !== 2) return false;
-      
-      const [host, portStr] = parts;
-      if (!host) return false;
-      
-      const port = parseInt(portStr, 10);
-      return !isNaN(port) && port > 0 && port <= 65535;
-    }
-  });
-}
-
-/**
- * Creates a validator function for a required CORS origins environment variable
- * 
- * @param variableName - The name of the environment variable to validate
- * @returns A function that validates the environment variable
- * @throws InvalidEnvironmentVariableError if validation fails
- * 
- * @example
- * // Create a validator for a required CORS origins environment variable
- * const validateCorsOrigins = createCorsOriginsValidator('CORS_ORIGINS');
- * 
- * // Use the validator
- * const corsOrigins = validateCorsOrigins(); // Throws if CORS_ORIGINS is missing or invalid
- */
-export function createCorsOriginsValidator(variableName: string): () => string[] {
-  return createArrayValidator(variableName, {
-    delimiter: ',',
-    itemValidator: (item) => {
-      if (item === '*') return true;
-      
+export function validateUrl(
+  envName: string,
+  options: ValidationOptions & { protocols?: string[]; requireTld?: boolean } = {}
+): URL | undefined {
+  const { protocols = ['http:', 'https:'], requireTld = true, ...baseOptions } = options;
+  
+  const schema = z.string().refine(
+    (value) => {
       try {
-        new URL(item);
+        const url = new URL(value);
+        if (protocols.length > 0 && !protocols.includes(url.protocol)) {
+          return false;
+        }
+        if (requireTld && !url.hostname.includes('.')) {
+          return false;
+        }
         return true;
       } catch {
         return false;
       }
+    },
+    {
+      message: `Invalid URL. ${protocols.length > 0 ? `Must use one of these protocols: ${protocols.join(', ')}. ` : ''}${requireTld ? 'Must include a valid domain with TLD.' : ''}`
     }
+  ).transform(value => new URL(value));
+  
+  return validateEnv(envName, schema, baseOptions);
+}
+
+/**
+ * Validates an enum environment variable
+ * 
+ * @param envName - Name of the environment variable
+ * @param values - Allowed enum values
+ * @param options - Validation options
+ * @returns Validated enum value
+ */
+export function validateEnum<T extends string>(
+  envName: string,
+  values: readonly T[],
+  options: ValidationOptions = {}
+): T | undefined {
+  const schema = z.enum([...values as any] as [T, ...T[]]);
+  return validateEnv(envName, schema, {
+    errorMessage: `Value must be one of: ${values.join(', ')}`,
+    ...options
   });
 }
 
 /**
- * Creates a validator function for a required log level environment variable
+ * Validates a comma-separated list environment variable
  * 
- * @param variableName - The name of the environment variable to validate
- * @returns A function that validates the environment variable
- * @throws InvalidEnvironmentVariableError if validation fails
- * 
- * @example
- * // Create a validator for a required log level environment variable
- * const validateLogLevel = createLogLevelValidator('LOG_LEVEL');
- * 
- * // Use the validator
- * const logLevel = validateLogLevel(); // Throws if LOG_LEVEL is missing or invalid
+ * @param envName - Name of the environment variable
+ * @param itemSchema - Schema for individual items in the list
+ * @param options - Validation options
+ * @returns Validated list of values
  */
-export function createLogLevelValidator(variableName: string): () => 'debug' | 'info' | 'warn' | 'error' | 'fatal' {
-  return () => {
-    const value = process.env[variableName];
-    
-    if (value === undefined) {
-      throw new InvalidEnvironmentVariableError(
-        variableName,
-        undefined,
-        'one of: debug, info, warn, error, fatal'
+export function validateList<T>(
+  envName: string,
+  itemSchema: z.ZodType<T>,
+  options: ValidationOptions & { separator?: string; minItems?: number; maxItems?: number } = {}
+): T[] | undefined {
+  const { separator = ',', minItems, maxItems, ...baseOptions } = options;
+  
+  let schema = z.string()
+    .transform(str => str.split(separator).map(item => item.trim()).filter(Boolean))
+    .transform(items => {
+      const results = items.map(item => itemSchema.safeParse(item));
+      const success = results.every(result => result.success);
+      
+      if (success) {
+        return items.map((_, index) => (results[index] as z.SafeParseSuccess<T>).data);
+      }
+      
+      throw new Error(
+        results
+          .map((result, index) => !result.success ? `Item at index ${index}: ${result.error.message}` : null)
+          .filter(Boolean)
+          .join('; ')
       );
-    }
-    
-    const validLogLevels = ['debug', 'info', 'warn', 'error', 'fatal'];
-    
-    if (!validLogLevels.includes(value.toLowerCase())) {
-      throw new InvalidEnvironmentVariableError(
-        variableName,
-        value,
-        'one of: debug, info, warn, error, fatal'
-      );
-    }
-    
-    return value.toLowerCase() as 'debug' | 'info' | 'warn' | 'error' | 'fatal';
-  };
+    });
+  
+  if (minItems !== undefined) {
+    schema = schema.refine(
+      items => items.length >= minItems,
+      `List must contain at least ${minItems} items`
+    );
+  }
+  
+  if (maxItems !== undefined) {
+    schema = schema.refine(
+      items => items.length <= maxItems,
+      `List must contain at most ${maxItems} items`
+    );
+  }
+  
+  return validateEnv(envName, schema, baseOptions);
 }
 
 /**
- * Creates a validator function for a required feature flags environment variable
+ * Validates a JSON environment variable
  * 
- * @param variableName - The name of the environment variable to validate
- * @returns A function that validates the environment variable
- * @throws InvalidEnvironmentVariableError if validation fails
- * 
- * @example
- * // Create a validator for a required feature flags environment variable
- * const validateFeatureFlags = createFeatureFlagsValidator('FEATURE_FLAGS');
- * 
- * // Use the validator
- * const featureFlags = validateFeatureFlags(); // Throws if FEATURE_FLAGS is missing or invalid
+ * @param envName - Name of the environment variable
+ * @param schema - Schema for the parsed JSON
+ * @param options - Validation options
+ * @returns Validated JSON value
  */
-export function createFeatureFlagsValidator(variableName: string): () => Record<string, boolean> {
-  return () => {
-    const value = process.env[variableName];
-    
-    if (value === undefined) {
-      throw new InvalidEnvironmentVariableError(
-        variableName,
-        undefined,
-        'a JSON object with boolean values'
-      );
-    }
-    
-    try {
-      const parsedValue = parseJson(value);
-      
-      if (typeof parsedValue !== 'object' || parsedValue === null) {
-        throw new InvalidEnvironmentVariableError(
-          variableName,
-          value,
-          'a JSON object with boolean values'
-        );
+export function validateJson<T>(
+  envName: string,
+  schema: z.ZodType<T>,
+  options: ValidationOptions = {}
+): T | undefined {
+  const jsonSchema = z.string()
+    .transform((str, ctx) => {
+      try {
+        return JSON.parse(str);
+      } catch (error) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'Invalid JSON format'
+        });
+        return z.NEVER;
       }
-      
-      const result: Record<string, boolean> = {};
-      
-      for (const [key, val] of Object.entries(parsedValue)) {
-        if (typeof val !== 'boolean') {
-          throw new InvalidEnvironmentVariableError(
-            variableName,
-            value,
-            `a JSON object with boolean values (${key} is not a boolean)`
+    })
+    .pipe(schema);
+  
+  return validateEnv(envName, jsonSchema, options);
+}
+
+/**
+ * Configuration for batch validation
+ */
+export interface BatchValidationConfig {
+  /** Map of environment variable names to their validators */
+  validators: Record<string, () => any>;
+  /** Whether to throw on first error or collect all errors */
+  throwOnFirstError?: boolean;
+}
+
+/**
+ * Validates multiple environment variables in a batch
+ * 
+ * @param config - Batch validation configuration
+ * @returns Object with validated values
+ * @throws EnvValidationError if validation fails
+ */
+export function validateEnvBatch<T extends Record<string, () => any>>(
+  config: BatchValidationConfig
+): { [K in keyof T]: ReturnType<T[K]> } {
+  const { validators, throwOnFirstError = false } = config;
+  const result: Record<string, any> = {};
+  const errors: Record<string, string[]> = {};
+  
+  for (const [key, validator] of Object.entries(validators)) {
+    try {
+      result[key] = validator();
+    } catch (error) {
+      if (error instanceof EnvValidationError) {
+        Object.assign(errors, error.errors);
+        
+        if (throwOnFirstError) {
+          throw new EnvValidationError(
+            'Environment validation failed',
+            errors
           );
         }
-        
-        result[key] = val;
-      }
-      
-      return result;
-    } catch (error) {
-      if (error instanceof InvalidEnvironmentVariableError) {
+      } else {
         throw error;
       }
-      
-      if (error instanceof Error) {
-        throw new InvalidEnvironmentVariableError(
-          variableName,
-          value,
-          `a valid JSON object: ${error.message}`
-        );
-      }
-      
-      throw new InvalidEnvironmentVariableError(
-        variableName,
-        value,
-        'a valid JSON object with boolean values'
-      );
     }
+  }
+  
+  if (Object.keys(errors).length > 0) {
+    throw new EnvValidationError(
+      'Environment validation failed',
+      errors
+    );
+  }
+  
+  return result as any;
+}
+
+/**
+ * Creates a conditional validator that only runs if a condition is met
+ * 
+ * @param condition - Function that determines if validation should run
+ * @param validator - Validator function to run if condition is met
+ * @param options - Options for when condition is not met
+ * @returns Conditional validator function
+ */
+export function conditional<T>(
+  condition: () => boolean,
+  validator: () => T,
+  options: { defaultValue?: T } = {}
+): () => T | undefined {
+  return () => {
+    if (condition()) {
+      return validator();
+    }
+    return options.defaultValue;
   };
 }
 
 /**
- * Creates a validator function for a required journey configuration environment variable
+ * Creates a validator that depends on another environment variable
  * 
- * @param variableName - The name of the environment variable to validate
- * @returns A function that validates the environment variable
- * @throws InvalidEnvironmentVariableError if validation fails
- * 
- * @example
- * // Create a validator for a required journey configuration environment variable
- * const validateJourneyConfig = createJourneyConfigValidator('JOURNEY_CONFIG');
- * 
- * // Use the validator
- * const journeyConfig = validateJourneyConfig(); // Throws if JOURNEY_CONFIG is missing or invalid
+ * @param dependsOn - Function that returns the value this validator depends on
+ * @param validatorFactory - Function that creates a validator based on the dependency
+ * @returns Dependent validator function
  */
-export function createJourneyConfigValidator(variableName: string): () => {
-  health: { enabled: boolean; features?: string[] };
-  care: { enabled: boolean; features?: string[] };
-  plan: { enabled: boolean; features?: string[] };
-} {
-  const journeySchema = z.object({
-    enabled: z.boolean(),
-    features: z.array(z.string()).optional()
-  });
-  
-  const schema = z.object({
-    health: journeySchema,
-    care: journeySchema,
-    plan: journeySchema
-  });
-  
-  return createJsonValidator(variableName, schema);
-}
-
-/**
- * Creates a validator function for a required database connection pool configuration environment variable
- * 
- * @param variableName - The name of the environment variable to validate
- * @returns A function that validates the environment variable
- * @throws InvalidEnvironmentVariableError if validation fails
- * 
- * @example
- * // Create a validator for a required database connection pool configuration environment variable
- * const validateDbPoolConfig = createDbPoolConfigValidator('DB_POOL_CONFIG');
- * 
- * // Use the validator
- * const dbPoolConfig = validateDbPoolConfig(); // Throws if DB_POOL_CONFIG is missing or invalid
- */
-export function createDbPoolConfigValidator(variableName: string): () => {
-  min: number;
-  max: number;
-  idle: number;
-} {
-  const schema = z.object({
-    min: z.number().int().min(1),
-    max: z.number().int().min(1),
-    idle: z.number().int().min(1000)
-  }).refine(data => data.min <= data.max, {
-    message: 'min must be less than or equal to max',
-    path: ['min']
-  });
-  
-  return createJsonValidator(variableName, schema);
-}
-
-/**
- * Creates a validator function for a required retry policy configuration environment variable
- * 
- * @param variableName - The name of the environment variable to validate
- * @returns A function that validates the environment variable
- * @throws InvalidEnvironmentVariableError if validation fails
- * 
- * @example
- * // Create a validator for a required retry policy configuration environment variable
- * const validateRetryPolicy = createRetryPolicyValidator('RETRY_POLICY');
- * 
- * // Use the validator
- * const retryPolicy = validateRetryPolicy(); // Throws if RETRY_POLICY is missing or invalid
- */
-export function createRetryPolicyValidator(variableName: string): () => {
-  attempts: number;
-  delay: number;
-  backoff: number;
-  maxDelay?: number;
-} {
-  const schema = z.object({
-    attempts: z.number().int().min(1),
-    delay: z.number().int().min(1),
-    backoff: z.number().min(1),
-    maxDelay: z.number().int().min(1).optional()
-  });
-  
-  return createJsonValidator(variableName, schema);
-}
-
-/**
- * Validates a group of related environment variables
- * 
- * @param validators - An object mapping variable names to validator functions
- * @param contextMessage - Optional context message explaining the validation scope
- * @throws BatchEnvironmentValidationError if any validations fail
- * 
- * @example
- * // Validate a group of related environment variables
- * validateEnvironmentGroup({
- *   PORT: createPortValidator('PORT'),
- *   HOST: createHostValidator('HOST'),
- *   NODE_ENV: createEnvironmentValidator('NODE_ENV')
- * }, 'Server configuration');
- */
-export function validateEnvironmentGroup(
-  validators: Record<string, () => any>,
-  contextMessage?: string
-): Record<string, any> {
-  const validationFns: (() => void)[] = [];
-  const results: Record<string, any> = {};
-  
-  for (const [name, validator] of Object.entries(validators)) {
-    validationFns.push(() => {
-      results[name] = validator();
-    });
-  }
-  
-  validateEnvironmentBatch(validationFns, contextMessage);
-  
-  return results;
-}
-
-/**
- * Validates all environment variables required for a service to start
- * 
- * @param validators - An object mapping variable names to validator functions
- * @throws Error if any validations fail, with a detailed error message
- * 
- * @example
- * // Validate all environment variables required for a service to start
- * validateServiceEnvironment({
- *   PORT: createPortValidator('PORT'),
- *   HOST: createHostValidator('HOST'),
- *   NODE_ENV: createEnvironmentValidator('NODE_ENV'),
- *   DATABASE_URL: createDatabaseUrlValidator('DATABASE_URL'),
- *   REDIS_URL: createRedisUrlValidator('REDIS_URL'),
- *   KAFKA_BROKERS: createKafkaBrokersValidator('KAFKA_BROKERS'),
- *   JWT_SECRET: createJwtSecretValidator('JWT_SECRET'),
- *   LOG_LEVEL: createLogLevelValidator('LOG_LEVEL')
- * });
- */
-export function validateServiceEnvironment(
-  validators: Record<string, () => any>
-): Record<string, any> {
-  try {
-    return validateEnvironmentGroup(validators, 'Service environment validation');
-  } catch (error) {
-    if (error instanceof BatchEnvironmentValidationError) {
-      console.error('Service environment validation failed:');
-      console.error(error.getDetailedMessage());
-      
-      throw new Error(
-        `Service cannot start due to ${error.errors.length} environment configuration errors. ` +
-        'See logs for details.'
-      );
+export function dependsOn<D, T>(
+  dependsOn: () => D,
+  validatorFactory: (dependencyValue: D) => () => T
+): () => T | undefined {
+  return () => {
+    const dependencyValue = dependsOn();
+    if (dependencyValue === undefined) {
+      return undefined;
     }
-    
-    throw error;
-  }
+    return validatorFactory(dependencyValue)();
+  };
 }
 
 /**
- * Validates a journey-specific environment configuration
+ * Creates a validator that transforms the result of another validator
  * 
- * @param journeyName - The name of the journey (health, care, plan)
- * @param validators - An object mapping variable names to validator functions
- * @throws Error if any validations fail, with a detailed error message
- * 
- * @example
- * // Validate environment variables for the health journey
- * validateJourneyEnvironment('health', {
- *   HEALTH_API_KEY: createApiKeyValidator('HEALTH_API_KEY'),
- *   HEALTH_SERVICE_URL: createUrlValidator('HEALTH_SERVICE_URL'),
- *   HEALTH_FEATURES: createFeatureFlagsValidator('HEALTH_FEATURES')
- * });
+ * @param validator - Base validator function
+ * @param transform - Function to transform the validated value
+ * @returns Transformed validator function
  */
-export function validateJourneyEnvironment(
-  journeyName: 'health' | 'care' | 'plan',
-  validators: Record<string, () => any>
-): Record<string, any> {
-  try {
-    return validateEnvironmentGroup(
-      validators,
-      `${journeyName.charAt(0).toUpperCase() + journeyName.slice(1)} journey environment validation`
+export function transform<T, R>(
+  validator: () => T,
+  transform: (value: T) => R
+): () => R | undefined {
+  return () => {
+    const value = validator();
+    if (value === undefined) {
+      return undefined;
+    }
+    return transform(value);
+  };
+}
+
+/**
+ * Validates that required environment variables are present for a specific environment
+ * 
+ * @param envName - Name of the NODE_ENV environment variable
+ * @param requiredVars - Map of environment names to required variables for each
+ * @returns Validation result
+ */
+export function validateRequiredEnvVars(
+  envName: string = 'NODE_ENV',
+  requiredVars: Record<string, string[]> = {}
+): boolean {
+  const currentEnv = process.env[envName] || 'development';
+  const varsToCheck = requiredVars[currentEnv] || [];
+  
+  const missingVars = varsToCheck.filter(varName => {
+    return process.env[varName] === undefined;
+  });
+  
+  if (missingVars.length > 0) {
+    throw new EnvValidationError(
+      `Missing required environment variables for ${currentEnv} environment`,
+      { [currentEnv]: missingVars.map(v => `Missing required variable: ${v}`) }
     );
-  } catch (error) {
-    if (error instanceof BatchEnvironmentValidationError) {
-      console.error(`${journeyName} journey environment validation failed:`);
-      console.error(error.getDetailedMessage());
-      
-      throw new Error(
-        `${journeyName} journey cannot start due to ${error.errors.length} environment configuration errors. ` +
-        'See logs for details.'
+  }
+  
+  return true;
+}
+
+/**
+ * Creates a secure URL validator that blocks private IP ranges
+ * 
+ * @param envName - Name of the environment variable
+ * @param options - Validation options
+ * @returns Validated secure URL
+ */
+export function validateSecureUrl(
+  envName: string,
+  options: ValidationOptions = {}
+): URL | undefined {
+  const url = validateUrl(envName, {
+    protocols: ['https:'],
+    ...options
+  });
+  
+  if (url) {
+    const hostname = url.hostname;
+    
+    // Block private IP ranges
+    if (
+      /^(10\.|172\.(1[6-9]|2[0-9]|3[0-1])\.|192\.168\.|127\.|0\.0\.0\.0|localhost)/.test(hostname) ||
+      hostname === '::1' ||
+      hostname === 'fe80::' ||
+      hostname.endsWith('.local')
+    ) {
+      throw new EnvValidationError(
+        `Insecure URL detected for ${envName}`,
+        { [envName]: ['URL points to a private or local network address, which is not allowed for security reasons'] },
+        envName
       );
     }
-    
-    throw error;
   }
+  
+  return url;
+}
+
+/**
+ * Validates a port number environment variable
+ * 
+ * @param envName - Name of the environment variable
+ * @param options - Validation options
+ * @returns Validated port number
+ */
+export function validatePort(
+  envName: string,
+  options: ValidationOptions = {}
+): number | undefined {
+  return validateNumber(envName, {
+    integer: true,
+    min: 1,
+    max: 65535,
+    errorMessage: 'Port must be an integer between 1 and 65535',
+    ...options
+  });
+}
+
+/**
+ * Validates a database connection string
+ * 
+ * @param envName - Name of the environment variable
+ * @param options - Validation options
+ * @returns Validated connection string
+ */
+export function validateDatabaseUrl(
+  envName: string,
+  options: ValidationOptions & { dialect?: 'postgres' | 'mysql' | 'mongodb' } = {}
+): string | undefined {
+  const { dialect, ...baseOptions } = options;
+  
+  let pattern: RegExp;
+  let errorMessage: string;
+  
+  switch (dialect) {
+    case 'postgres':
+      pattern = /^postgres(?:ql)?:\/\/.+:.+@.+:\d+\/.+$/;
+      errorMessage = 'Invalid PostgreSQL connection string. Format should be: postgresql://user:password@host:port/database';
+      break;
+    case 'mysql':
+      pattern = /^mysql:\/\/.+:.+@.+:\d+\/.+$/;
+      errorMessage = 'Invalid MySQL connection string. Format should be: mysql://user:password@host:port/database';
+      break;
+    case 'mongodb':
+      pattern = /^mongodb(?:\+srv)?:\/\/.+/;
+      errorMessage = 'Invalid MongoDB connection string. Format should be: mongodb://user:password@host:port/database or mongodb+srv://user:password@host/database';
+      break;
+    default:
+      pattern = /^[a-z]+:\/\/.+/;
+      errorMessage = 'Invalid database connection string. Should start with a protocol (e.g., postgresql://, mysql://, mongodb://)';
+  }
+  
+  return validateString(envName, {
+    pattern,
+    errorMessage,
+    ...baseOptions
+  });
+}
+
+/**
+ * Validates a Redis connection string
+ * 
+ * @param envName - Name of the environment variable
+ * @param options - Validation options
+ * @returns Validated Redis connection string
+ */
+export function validateRedisUrl(
+  envName: string,
+  options: ValidationOptions = {}
+): string | undefined {
+  return validateString(envName, {
+    pattern: /^redis:\/\/.+/,
+    errorMessage: 'Invalid Redis connection string. Format should be: redis://[[user]:password@]host[:port][/database]',
+    ...options
+  });
+}
+
+/**
+ * Validates a Kafka connection string
+ * 
+ * @param envName - Name of the environment variable
+ * @param options - Validation options
+ * @returns Validated Kafka connection string
+ */
+export function validateKafkaUrl(
+  envName: string,
+  options: ValidationOptions = {}
+): string | undefined {
+  return validateString(envName, {
+    pattern: /^(kafka:\/\/|\w+:\d+(,\w+:\d+)*)/,
+    errorMessage: 'Invalid Kafka connection string. Format should be: kafka://host:port or host:port,host:port',
+    ...options
+  });
+}
+
+/**
+ * Validates an API key environment variable
+ * 
+ * @param envName - Name of the environment variable
+ * @param options - Validation options
+ * @returns Validated API key
+ */
+export function validateApiKey(
+  envName: string,
+  options: ValidationOptions & { minLength?: number; pattern?: RegExp } = {}
+): string | undefined {
+  const { minLength = 16, pattern, ...baseOptions } = options;
+  
+  return validateString(envName, {
+    minLength,
+    pattern: pattern || /^[A-Za-z0-9_\-]+$/,
+    errorMessage: `API key must be at least ${minLength} characters long and contain only alphanumeric characters, underscores, and hyphens`,
+    ...baseOptions
+  });
+}
+
+/**
+ * Validates a JWT secret environment variable
+ * 
+ * @param envName - Name of the environment variable
+ * @param options - Validation options
+ * @returns Validated JWT secret
+ */
+export function validateJwtSecret(
+  envName: string,
+  options: ValidationOptions = {}
+): string | undefined {
+  return validateString(envName, {
+    minLength: 32,
+    errorMessage: 'JWT secret must be at least 32 characters long for security',
+    ...options
+  });
+}
+
+/**
+ * Validates an environment name
+ * 
+ * @param envName - Name of the environment variable
+ * @param options - Validation options
+ * @returns Validated environment name
+ */
+export function validateEnvironment(
+  envName: string = 'NODE_ENV',
+  options: ValidationOptions & { allowedValues?: string[] } = {}
+): string | undefined {
+  const { allowedValues = ['development', 'test', 'staging', 'production'], ...baseOptions } = options;
+  
+  return validateEnum(envName, allowedValues as [string, ...string[]], {
+    defaultValue: 'development',
+    ...baseOptions
+  });
+}
+
+/**
+ * Validates a log level environment variable
+ * 
+ * @param envName - Name of the environment variable
+ * @param options - Validation options
+ * @returns Validated log level
+ */
+export function validateLogLevel(
+  envName: string,
+  options: ValidationOptions & { allowedValues?: string[] } = {}
+): string | undefined {
+  const { allowedValues = ['error', 'warn', 'info', 'http', 'verbose', 'debug', 'silly'], ...baseOptions } = options;
+  
+  return validateEnum(envName, allowedValues as [string, ...string[]], {
+    defaultValue: 'info',
+    ...baseOptions
+  });
 }

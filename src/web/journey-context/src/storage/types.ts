@@ -1,8 +1,9 @@
 /**
- * @file types.ts
- * @description TypeScript interfaces and types for storage operations and data structures
- * persisted by journey context across the application. Provides type safety for
- * storing and retrieving journey-specific data with standardized error handling.
+ * @file Types for storage operations in the journey context package
+ * 
+ * This file defines TypeScript interfaces and types for storage operations
+ * and the data structures persisted by journey context across the application.
+ * It provides type safety for all storage operations with standardized error handling.
  */
 
 /**
@@ -33,51 +34,36 @@ export interface StorageError {
  * Error codes for storage operations
  */
 export enum StorageErrorCode {
+  /** Storage is not available */
+  STORAGE_UNAVAILABLE = 'STORAGE_UNAVAILABLE',
   /** Item not found in storage */
-  NOT_FOUND = 'NOT_FOUND',
+  ITEM_NOT_FOUND = 'ITEM_NOT_FOUND',
+  /** Error parsing stored data */
+  PARSE_ERROR = 'PARSE_ERROR',
+  /** Error serializing data for storage */
+  SERIALIZE_ERROR = 'SERIALIZE_ERROR',
+  /** Storage quota exceeded */
+  QUOTA_EXCEEDED = 'QUOTA_EXCEEDED',
   /** Permission denied for storage operation */
   PERMISSION_DENIED = 'PERMISSION_DENIED',
-  /** Storage is full */
-  STORAGE_FULL = 'STORAGE_FULL',
-  /** Invalid data format */
-  INVALID_FORMAT = 'INVALID_FORMAT',
-  /** Storage is not available */
-  UNAVAILABLE = 'UNAVAILABLE',
   /** Unknown error */
-  UNKNOWN = 'UNKNOWN',
+  UNKNOWN_ERROR = 'UNKNOWN_ERROR',
 }
 
 /**
- * Base interface for all storage operations
+ * Storage keys used by the journey context
  */
-export interface StorageOperations {
-  /**
-   * Get an item from storage
-   * @param key The key to retrieve
-   */
-  getItem<T>(key: string): Promise<StorageResult<T>>;
-
-  /**
-   * Set an item in storage
-   * @param key The key to set
-   * @param value The value to store
-   */
-  setItem<T>(key: string, value: T): Promise<StorageResult<void>>;
-
-  /**
-   * Remove an item from storage
-   * @param key The key to remove
-   */
-  removeItem(key: string): Promise<StorageResult<void>>;
-
-  /**
-   * Clear all items from storage
-   */
-  clear(): Promise<StorageResult<void>>;
+export enum StorageKey {
+  /** Key for storing journey preferences */
+  JOURNEY_PREFERENCES = 'austa_journey_preferences',
+  /** Key for storing authentication session */
+  AUTH_SESSION = 'austa_auth_session',
+  /** Key for storing user settings */
+  USER_SETTINGS = 'austa_user_settings',
 }
 
 /**
- * Available journey IDs in the application
+ * Journey IDs supported by the application
  */
 export enum JourneyId {
   /** Health journey */
@@ -89,20 +75,11 @@ export enum JourneyId {
 }
 
 /**
- * User journey preferences stored between sessions
+ * Base interface for all journey preferences
  */
-export interface JourneyPreferences {
-  /** The last active journey selected by the user */
+export interface JourneyPreferencesBase {
+  /** The last active journey */
   lastActiveJourney: JourneyId;
-  /** Journey-specific preferences */
-  journeySettings: {
-    /** Health journey preferences */
-    [JourneyId.HEALTH]: HealthJourneyPreferences;
-    /** Care journey preferences */
-    [JourneyId.CARE]: CareJourneyPreferences;
-    /** Plan journey preferences */
-    [JourneyId.PLAN]: PlanJourneyPreferences;
-  };
   /** Timestamp when preferences were last updated */
   lastUpdated: number;
 }
@@ -111,55 +88,39 @@ export interface JourneyPreferences {
  * Health journey specific preferences
  */
 export interface HealthJourneyPreferences {
-  /** User's preferred units of measurement */
-  preferredUnits: {
-    /** Weight unit preference */
-    weight: 'kg' | 'lb';
-    /** Height unit preference */
-    height: 'cm' | 'ft';
-    /** Temperature unit preference */
-    temperature: 'celsius' | 'fahrenheit';
-  };
-  /** User's health goals visibility preferences */
-  goalsVisibility: {
-    /** Whether to show completed goals */
-    showCompleted: boolean;
-    /** Whether to show goals on dashboard */
-    showOnDashboard: boolean;
-  };
-  /** Connected device preferences */
-  devices: {
-    /** IDs of favorite devices */
-    favorites: string[];
-    /** Whether to sync automatically */
-    autoSync: boolean;
-  };
+  /** Whether to show health metrics on dashboard */
+  showMetricsOnDashboard: boolean;
+  /** User's preferred health metric units (metric/imperial) */
+  preferredUnits: 'metric' | 'imperial';
+  /** IDs of connected health devices */
+  connectedDeviceIds: string[];
+  /** User's health goals */
+  healthGoals: {
+    /** Goal ID */
+    id: string;
+    /** Whether the goal is active */
+    active: boolean;
+  }[];
 }
 
 /**
  * Care journey specific preferences
  */
 export interface CareJourneyPreferences {
-  /** Appointment notification preferences */
+  /** Whether to show upcoming appointments on dashboard */
+  showAppointmentsOnDashboard: boolean;
+  /** User's preferred healthcare providers */
+  preferredProviderIds: string[];
+  /** Notification preferences for appointments */
   appointmentNotifications: {
-    /** Whether to receive reminders */
-    enableReminders: boolean;
-    /** How many hours before appointment to send reminder */
-    reminderHours: number;
-  };
-  /** Provider preferences */
-  providers: {
-    /** IDs of favorite providers */
-    favorites: string[];
-    /** Default search radius in kilometers */
-    defaultSearchRadius: number;
-  };
-  /** Telemedicine preferences */
-  telemedicine: {
-    /** Whether to use video by default */
-    defaultVideoEnabled: boolean;
-    /** Whether to use audio by default */
-    defaultAudioEnabled: boolean;
+    /** Whether to enable email notifications */
+    email: boolean;
+    /** Whether to enable SMS notifications */
+    sms: boolean;
+    /** Whether to enable push notifications */
+    push: boolean;
+    /** How many minutes before appointment to send reminder */
+    reminderMinutesBefore: number;
   };
 }
 
@@ -167,31 +128,57 @@ export interface CareJourneyPreferences {
  * Plan journey specific preferences
  */
 export interface PlanJourneyPreferences {
-  /** Claim submission preferences */
-  claims: {
-    /** Whether to save draft claims */
-    saveDrafts: boolean;
-    /** Default reimbursement method */
-    defaultReimbursementMethod: 'bankAccount' | 'creditCard' | 'check';
-  };
-  /** Document preferences */
-  documents: {
-    /** Whether to automatically download documents */
-    autoDownload: boolean;
-    /** Default document sort order */
-    defaultSortOrder: 'newest' | 'oldest' | 'name';
-  };
-  /** Coverage display preferences */
-  coverage: {
-    /** Whether to show monetary values */
-    showMonetaryValues: boolean;
-    /** Whether to show utilization percentages */
-    showUtilizationPercentages: boolean;
-  };
+  /** Whether to show recent claims on dashboard */
+  showClaimsOnDashboard: boolean;
+  /** Whether to show coverage information on dashboard */
+  showCoverageOnDashboard: boolean;
+  /** User's preferred document format for statements */
+  preferredDocumentFormat: 'pdf' | 'html';
 }
 
 /**
- * Authentication session data stored between app launches
+ * Complete journey preferences object
+ */
+export interface JourneyPreferences extends JourneyPreferencesBase {
+  /** Health journey preferences */
+  health: HealthJourneyPreferences;
+  /** Care journey preferences */
+  care: CareJourneyPreferences;
+  /** Plan journey preferences */
+  plan: PlanJourneyPreferences;
+}
+
+/**
+ * Default journey preferences
+ */
+export const DEFAULT_JOURNEY_PREFERENCES: JourneyPreferences = {
+  lastActiveJourney: JourneyId.HEALTH,
+  lastUpdated: Date.now(),
+  health: {
+    showMetricsOnDashboard: true,
+    preferredUnits: 'metric',
+    connectedDeviceIds: [],
+    healthGoals: [],
+  },
+  care: {
+    showAppointmentsOnDashboard: true,
+    preferredProviderIds: [],
+    appointmentNotifications: {
+      email: true,
+      sms: true,
+      push: true,
+      reminderMinutesBefore: 60,
+    },
+  },
+  plan: {
+    showClaimsOnDashboard: true,
+    showCoverageOnDashboard: true,
+    preferredDocumentFormat: 'pdf',
+  },
+};
+
+/**
+ * Authentication session data
  */
 export interface AuthSession {
   /** JWT access token */
@@ -200,78 +187,73 @@ export interface AuthSession {
   refreshToken: string;
   /** When the access token expires (timestamp) */
   expiresAt: number;
-  /** User ID associated with this session */
+  /** User ID */
   userId: string;
-  /** When the user last authenticated (timestamp) */
-  lastAuthenticated: number;
-  /** Whether the user has completed MFA */
-  mfaCompleted: boolean;
+  /** User's roles */
+  roles: string[];
+  /** Whether the session is active */
+  isActive: boolean;
 }
 
 /**
- * User settings stored between sessions
+ * User settings data
  */
 export interface UserSettings {
-  /** User interface preferences */
-  ui: {
-    /** Theme preference */
-    theme: 'light' | 'dark' | 'system';
-    /** Font size preference */
-    fontSize: 'small' | 'medium' | 'large';
-    /** Whether to reduce animations */
-    reduceAnimations: boolean;
-  };
-  /** Notification preferences */
-  notifications: {
-    /** Whether push notifications are enabled */
-    pushEnabled: boolean;
-    /** Whether email notifications are enabled */
-    emailEnabled: boolean;
-    /** Whether SMS notifications are enabled */
-    smsEnabled: boolean;
-    /** Types of notifications to receive */
-    types: {
-      /** Appointment reminders */
-      appointments: boolean;
-      /** Achievement notifications */
-      achievements: boolean;
-      /** Health goal reminders */
-      healthGoals: boolean;
-      /** Claim status updates */
-      claimUpdates: boolean;
-    };
-  };
-  /** Privacy preferences */
-  privacy: {
-    /** Whether to allow analytics */
-    allowAnalytics: boolean;
-    /** Whether to allow crash reporting */
-    allowCrashReporting: boolean;
-    /** Whether to store session data */
-    storeSessionData: boolean;
-  };
-  /** Language preference */
-  language: 'en' | 'pt';
+  /** User's preferred language */
+  language: 'pt-BR' | 'en-US';
+  /** User's preferred theme */
+  theme: 'light' | 'dark' | 'system';
+  /** Whether to enable analytics */
+  analyticsEnabled: boolean;
+  /** Whether to enable notifications */
+  notificationsEnabled: boolean;
+  /** Whether to use biometric authentication when available */
+  useBiometricAuth: boolean;
+  /** Whether to enable gamification features */
+  gamificationEnabled: boolean;
 }
 
 /**
- * Storage keys used by the journey context
+ * Default user settings
  */
-export enum StorageKey {
-  /** Key for journey preferences */
-  JOURNEY_PREFERENCES = 'journey_preferences',
-  /** Key for authentication session */
-  AUTH_SESSION = 'auth_session',
-  /** Key for user settings */
-  USER_SETTINGS = 'user_settings',
-}
+export const DEFAULT_USER_SETTINGS: UserSettings = {
+  language: 'pt-BR',
+  theme: 'system',
+  analyticsEnabled: true,
+  notificationsEnabled: true,
+  useBiometricAuth: false,
+  gamificationEnabled: true,
+};
 
 /**
  * Storage adapter interface for platform-specific implementations
  */
-export interface StorageAdapter extends StorageOperations {
-  /** Whether the storage is ready to use */
-  isReady(): Promise<boolean>;
-  /** Initialize the storage adapter */
-  initialize(): Promise<void>;
+export interface StorageAdapter {
+  /**
+   * Get an item from storage
+   * @param key Storage key
+   * @returns Promise resolving to storage result
+   */
+  getItem<T>(key: StorageKey): Promise<StorageResult<T>>;
+
+  /**
+   * Set an item in storage
+   * @param key Storage key
+   * @param value Value to store
+   * @returns Promise resolving to storage result
+   */
+  setItem<T>(key: StorageKey, value: T): Promise<StorageResult<T>>;
+
+  /**
+   * Remove an item from storage
+   * @param key Storage key
+   * @returns Promise resolving to storage result
+   */
+  removeItem(key: StorageKey): Promise<StorageResult<void>>;
+
+  /**
+   * Clear all storage
+   * @returns Promise resolving to storage result
+   */
+  clear(): Promise<StorageResult<void>>;
 }

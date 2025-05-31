@@ -1,36 +1,33 @@
 /**
- * Utility functions for object transformation used across journey services for data mapping,
- * filtering, and restructuring. These utilities standardize common object manipulations
- * and ensure consistent behavior throughout the application while maintaining immutability.
+ * Object transformation utilities for data mapping, filtering, and restructuring.
+ * These utilities are used across journey services to standardize common object manipulations
+ * while maintaining immutability.
  */
 
 /**
- * Creates a new object with only the specified properties from the source object.
+ * Picks specified properties from an object and returns a new object with only those properties.
  * 
  * @template T - The type of the source object
- * @template K - The type of keys to pick (must be keys of T)
+ * @template K - The type of the keys to pick (must be keys of T)
  * @param {T} obj - The source object
- * @param {K[]} keys - Array of keys to pick from the source object
- * @returns {Pick<T, K>} A new object containing only the specified properties
- * @throws {Error} If the input is not an object or if keys is not an array
+ * @param {K[]} keys - Array of keys to pick from the object
+ * @returns {Pick<T, K>} A new object containing only the picked properties
+ * @throws {Error} If the input is not an object or keys is not an array
  * 
  * @example
- * // Returns { name: 'John', age: 30 }
- * pick({ name: 'John', age: 30, address: '123 Main St' }, ['name', 'age']);
+ * const user = { id: 1, name: 'John', email: 'john@example.com', role: 'admin' };
+ * const userBasic = pick(user, ['id', 'name']); // { id: 1, name: 'John' }
  */
-export const pick = <T extends object, K extends keyof T>(
-  obj: T,
-  keys: K[]
-): Pick<T, K> => {
-  if (obj === null || typeof obj !== 'object') {
-    throw new Error('Input must be an object');
+export const pick = <T extends object, K extends keyof T>(obj: T, keys: K[]): Pick<T, K> => {
+  if (!obj || typeof obj !== 'object' || Array.isArray(obj)) {
+    throw new Error('Input must be a non-null object');
   }
-
+  
   if (!Array.isArray(keys)) {
     throw new Error('Keys must be an array');
   }
 
-  return keys.reduce<Pick<T, K>>((result, key) => {
+  return keys.reduce((result, key) => {
     if (Object.prototype.hasOwnProperty.call(obj, key)) {
       result[key] = obj[key];
     }
@@ -39,296 +36,245 @@ export const pick = <T extends object, K extends keyof T>(
 };
 
 /**
- * Creates a new object excluding the specified properties from the source object.
+ * Omits specified properties from an object and returns a new object without those properties.
  * 
  * @template T - The type of the source object
- * @template K - The type of keys to omit (must be keys of T)
+ * @template K - The type of the keys to omit (must be keys of T)
  * @param {T} obj - The source object
- * @param {K[]} keys - Array of keys to exclude from the source object
- * @returns {Omit<T, K>} A new object without the specified properties
- * @throws {Error} If the input is not an object or if keys is not an array
+ * @param {K[]} keys - Array of keys to omit from the object
+ * @returns {Omit<T, K>} A new object containing all properties except the omitted ones
+ * @throws {Error} If the input is not an object or keys is not an array
  * 
  * @example
- * // Returns { address: '123 Main St' }
- * omit({ name: 'John', age: 30, address: '123 Main St' }, ['name', 'age']);
+ * const user = { id: 1, name: 'John', email: 'john@example.com', password: 'secret' };
+ * const safeUser = omit(user, ['password']); // { id: 1, name: 'John', email: 'john@example.com' }
  */
-export const omit = <T extends object, K extends keyof T>(
-  obj: T,
-  keys: K[]
-): Omit<T, K> => {
-  if (obj === null || typeof obj !== 'object') {
-    throw new Error('Input must be an object');
+export const omit = <T extends object, K extends keyof T>(obj: T, keys: K[]): Omit<T, K> => {
+  if (!obj || typeof obj !== 'object' || Array.isArray(obj)) {
+    throw new Error('Input must be a non-null object');
   }
-
+  
   if (!Array.isArray(keys)) {
     throw new Error('Keys must be an array');
   }
 
   const keysSet = new Set(keys);
-  const result = {} as Omit<T, K>;
-
-  // More efficient than using reduce for large objects
-  for (const key in obj) {
-    if (Object.prototype.hasOwnProperty.call(obj, key) && !keysSet.has(key as K)) {
-      (result as any)[key] = obj[key];
+  return Object.entries(obj).reduce((result, [key, value]) => {
+    if (!keysSet.has(key as K)) {
+      result[key as keyof Omit<T, K>] = value as any;
     }
-  }
-
-  return result;
+    return result;
+  }, {} as Omit<T, K>);
 };
 
 /**
- * Creates a new object with the same keys but transformed values based on a mapping function.
+ * Maps the values of an object using a transformation function while keeping the same keys.
  * 
  * @template T - The type of the source object
- * @template V - The type of the transformed values
+ * @template R - The type of the transformed values
  * @param {T} obj - The source object
- * @param {(value: T[keyof T], key: string, obj: T) => V} fn - Function to transform each value
- * @returns {Record<keyof T, V>} A new object with transformed values
- * @throws {Error} If the input is not an object or if the mapping function is not provided
+ * @param {(value: T[keyof T], key: string, obj: T) => R} fn - Transformation function applied to each value
+ * @returns {Record<keyof T, R>} A new object with the same keys but transformed values
+ * @throws {Error} If the input is not an object or fn is not a function
  * 
  * @example
- * // Returns { name: 'JOHN', age: '30 years' }
- * mapValues({ name: 'John', age: 30 }, (value, key) => {
- *   return key === 'name' ? value.toUpperCase() : `${value} years`;
- * });
+ * const prices = { apple: 1.25, banana: 0.75, orange: 1.00 };
+ * const discountedPrices = mapValues(prices, price => price * 0.9); // { apple: 1.125, banana: 0.675, orange: 0.9 }
  */
-export const mapValues = <T extends object, V>(
+export const mapValues = <T extends object, R>(
   obj: T,
-  fn: (value: T[keyof T], key: string, obj: T) => V
-): Record<keyof T, V> => {
-  if (obj === null || typeof obj !== 'object') {
-    throw new Error('Input must be an object');
+  fn: (value: T[keyof T], key: string, obj: T) => R
+): Record<keyof T, R> => {
+  if (!obj || typeof obj !== 'object' || Array.isArray(obj)) {
+    throw new Error('Input must be a non-null object');
   }
-
+  
   if (typeof fn !== 'function') {
-    throw new Error('Mapping function must be provided');
+    throw new Error('Transformation function must be provided');
   }
 
-  const result = {} as Record<keyof T, V>;
-
-  for (const key in obj) {
-    if (Object.prototype.hasOwnProperty.call(obj, key)) {
-      result[key as keyof T] = fn(obj[key as keyof T], key, obj);
-    }
-  }
-
-  return result;
+  return Object.entries(obj).reduce((result, [key, value]) => {
+    result[key as keyof T] = fn(value as T[keyof T], key, obj);
+    return result;
+  }, {} as Record<keyof T, R>);
 };
 
 /**
- * Creates a new object with only the keys that pass a predicate function.
+ * Filters an object by its keys based on a predicate function.
  * 
  * @template T - The type of the source object
  * @param {T} obj - The source object
  * @param {(key: string, value: T[keyof T], obj: T) => boolean} predicate - Function to test each key-value pair
- * @returns {Partial<T>} A new object with only the key-value pairs that passed the predicate
- * @throws {Error} If the input is not an object or if the predicate is not a function
+ * @returns {Partial<T>} A new object containing only the key-value pairs that passed the test
+ * @throws {Error} If the input is not an object or predicate is not a function
  * 
  * @example
- * // Returns { age: 30 }
- * filterKeys({ name: 'John', age: 30, address: null }, (key, value) => value !== null);
+ * const data = { name: 'John', age: 30, email: '', phone: null };
+ * const nonEmptyData = filterKeys(data, (_, value) => value !== '' && value !== null); // { name: 'John', age: 30 }
  */
 export const filterKeys = <T extends object>(
   obj: T,
   predicate: (key: string, value: T[keyof T], obj: T) => boolean
 ): Partial<T> => {
-  if (obj === null || typeof obj !== 'object') {
-    throw new Error('Input must be an object');
+  if (!obj || typeof obj !== 'object' || Array.isArray(obj)) {
+    throw new Error('Input must be a non-null object');
   }
-
+  
   if (typeof predicate !== 'function') {
-    throw new Error('Predicate must be a function');
+    throw new Error('Predicate function must be provided');
   }
 
-  const result = {} as Partial<T>;
-
-  for (const key in obj) {
-    if (
-      Object.prototype.hasOwnProperty.call(obj, key) &&
-      predicate(key, obj[key as keyof T], obj)
-    ) {
-      result[key as keyof T] = obj[key as keyof T];
+  return Object.entries(obj).reduce((result, [key, value]) => {
+    if (predicate(key, value as T[keyof T], obj)) {
+      result[key as keyof T] = value as T[keyof T];
     }
-  }
-
-  return result;
+    return result;
+  }, {} as Partial<T>);
 };
 
 /**
- * Renames keys in an object based on a mapping object.
+ * Creates a deep clone of an object, creating new instances of nested objects and arrays.
  * 
- * @template T - The type of the source object
- * @template R - The type of the renamed keys mapping
- * @param {T} obj - The source object
- * @param {Record<keyof T & string, string>} keysMap - Object mapping original keys to new keys
- * @returns {Record<string, unknown>} A new object with renamed keys
- * @throws {Error} If the input is not an object or if keysMap is not an object
+ * @template T - The type of the object to clone
+ * @param {T} obj - The object to clone
+ * @returns {T} A deep clone of the input object
+ * @throws {Error} If the input cannot be cloned (e.g., contains functions, symbols, etc.)
  * 
  * @example
- * // Returns { firstName: 'John', userAge: 30 }
- * renameKeys({ name: 'John', age: 30 }, { name: 'firstName', age: 'userAge' });
+ * const original = { user: { name: 'John', scores: [10, 20] } };
+ * const clone = deepClone(original); // Creates a completely new object with the same structure and values
  */
-export const renameKeys = <T extends object, R extends Record<keyof T & string, string>>(
-  obj: T,
-  keysMap: R
-): Record<string, unknown> => {
-  if (obj === null || typeof obj !== 'object') {
-    throw new Error('Input must be an object');
+export const deepClone = <T>(obj: T): T => {
+  if (obj === null || obj === undefined) {
+    return obj;
   }
 
-  if (keysMap === null || typeof keysMap !== 'object') {
-    throw new Error('Keys map must be an object');
+  // Handle primitive types
+  if (typeof obj !== 'object') {
+    return obj;
   }
 
-  const result: Record<string, unknown> = {};
+  // Handle Date objects
+  if (obj instanceof Date) {
+    return new Date(obj.getTime()) as unknown as T;
+  }
 
-  for (const key in obj) {
-    if (Object.prototype.hasOwnProperty.call(obj, key)) {
-      const newKey = Object.prototype.hasOwnProperty.call(keysMap, key)
-        ? keysMap[key as keyof T & string]
-        : key;
-      result[newKey] = obj[key as keyof T];
+  // Handle Array objects
+  if (Array.isArray(obj)) {
+    return obj.map(item => deepClone(item)) as unknown as T;
+  }
+
+  // Handle plain objects
+  if (Object.getPrototypeOf(obj) === Object.prototype) {
+    const result = {} as Record<string, any>;
+    for (const key in obj) {
+      if (Object.prototype.hasOwnProperty.call(obj, key)) {
+        result[key] = deepClone((obj as Record<string, any>)[key]);
+      }
     }
+    return result as T;
   }
 
-  return result;
+  throw new Error(`Cannot clone object of type ${Object.prototype.toString.call(obj)}`);
 };
 
 /**
- * Flattens a nested object structure into a single-level object with path-based keys.
+ * Merges multiple objects together, with later objects overriding properties from earlier ones.
+ * Only performs a shallow merge at each level.
  * 
- * @param {Record<string, any>} obj - The nested object to flatten
- * @param {string} [prefix=''] - The prefix to use for keys (used in recursion)
- * @param {string} [delimiter='.'] - The delimiter to use between path segments
- * @returns {Record<string, any>} A flattened object with path-based keys
+ * @template T - The type of the merged object
+ * @param {...object[]} objects - Objects to merge
+ * @returns {T} A new object with merged properties
+ * @throws {Error} If any input is not an object
+ * 
+ * @example
+ * const defaults = { theme: 'light', fontSize: 12 };
+ * const userPrefs = { theme: 'dark' };
+ * const settings = merge(defaults, userPrefs); // { theme: 'dark', fontSize: 12 }
+ */
+export const merge = <T extends object>(...objects: object[]): T => {
+  if (objects.some(obj => obj === null || typeof obj !== 'object')) {
+    throw new Error('All inputs must be non-null objects');
+  }
+
+  return objects.reduce((result, obj) => {
+    return { ...result, ...obj };
+  }, {}) as T;
+};
+
+/**
+ * Groups an array of items by a key or a function that returns a key.
+ * 
+ * @template T - The type of items in the array
+ * @template K - The type of the grouping key
+ * @param {T[]} array - The array to group
+ * @param {((item: T) => K) | keyof T} keyOrFn - Property name or function to get the grouping key
+ * @returns {Record<string, T[]>} An object with keys as group names and values as arrays of items
+ * @throws {Error} If the input is not an array
+ * 
+ * @example
+ * const users = [
+ *   { id: 1, role: 'admin', name: 'John' },
+ *   { id: 2, role: 'user', name: 'Jane' },
+ *   { id: 3, role: 'admin', name: 'Mike' }
+ * ];
+ * const usersByRole = groupBy(users, 'role');
+ * // { admin: [{ id: 1, role: 'admin', name: 'John' }, { id: 3, role: 'admin', name: 'Mike' }], 
+ * //   user: [{ id: 2, role: 'user', name: 'Jane' }] }
+ */
+export const groupBy = <T, K extends string | number | symbol>(
+  array: T[],
+  keyOrFn: ((item: T) => K) | keyof T
+): Record<string, T[]> => {
+  if (!Array.isArray(array)) {
+    throw new Error('Input must be an array');
+  }
+
+  const getKey = typeof keyOrFn === 'function'
+    ? keyOrFn as (item: T) => K
+    : (item: T) => item[keyOrFn as keyof T] as unknown as K;
+
+  return array.reduce((result, item) => {
+    const key = String(getKey(item));
+    if (!result[key]) {
+      result[key] = [];
+    }
+    result[key].push(item);
+    return result;
+  }, {} as Record<string, T[]>);
+};
+
+/**
+ * Flattens a nested object structure into a single-level object with dot-notation keys.
+ * 
+ * @template T - The type of the nested object
+ * @param {T} obj - The nested object to flatten
+ * @param {string} [prefix=''] - The prefix to use for keys (used internally for recursion)
+ * @returns {Record<string, any>} A flattened object with dot-notation keys
  * @throws {Error} If the input is not an object
  * 
  * @example
- * // Returns { 'user.name': 'John', 'user.address.city': 'New York', 'user.address.zip': '10001' }
- * flattenObject({
- *   user: {
- *     name: 'John',
- *     address: {
- *       city: 'New York',
- *       zip: '10001'
- *     }
- *   }
- * });
+ * const nested = { user: { name: 'John', address: { city: 'New York', zip: '10001' } } };
+ * const flat = flatten(nested);
+ * // { 'user.name': 'John', 'user.address.city': 'New York', 'user.address.zip': '10001' }
  */
-export const flattenObject = (
-  obj: Record<string, any>,
-  prefix: string = '',
-  delimiter: string = '.'
+export const flatten = <T extends object>(
+  obj: T,
+  prefix: string = ''
 ): Record<string, any> => {
-  if (obj === null || typeof obj !== 'object') {
-    throw new Error('Input must be an object');
+  if (!obj || typeof obj !== 'object' || Array.isArray(obj)) {
+    throw new Error('Input must be a non-null object');
   }
 
-  const result: Record<string, any> = {};
-
-  for (const key in obj) {
-    if (Object.prototype.hasOwnProperty.call(obj, key)) {
-      const newKey = prefix ? `${prefix}${delimiter}${key}` : key;
-      
-      if (
-        obj[key] !== null &&
-        typeof obj[key] === 'object' &&
-        !Array.isArray(obj[key]) &&
-        Object.keys(obj[key]).length > 0
-      ) {
-        // Recursively flatten nested objects
-        Object.assign(result, flattenObject(obj[key], newKey, delimiter));
-      } else {
-        // Add leaf values directly
-        result[newKey] = obj[key];
-      }
+  return Object.entries(obj).reduce((result, [key, value]) => {
+    const newKey = prefix ? `${prefix}.${key}` : key;
+    
+    if (value && typeof value === 'object' && !Array.isArray(value) && Object.keys(value).length > 0) {
+      Object.assign(result, flatten(value as object, newKey));
+    } else {
+      result[newKey] = value;
     }
-  }
-
-  return result;
-};
-
-/**
- * Transforms an object by applying a transformation function to each key-value pair.
- * Unlike mapValues, this function allows transforming both keys and values.
- * 
- * @template T - The type of the source object
- * @template R - The type of the result object
- * @param {T} obj - The source object
- * @param {(key: string, value: any, obj: T) => [string, any]} transformFn - Function to transform each key-value pair
- * @returns {R} A new object with transformed keys and values
- * @throws {Error} If the input is not an object or if transformFn is not a function
- * 
- * @example
- * // Returns { 'NAME': 'JOHN', 'AGE': 30 }
- * transformObject({ name: 'John', age: 30 }, (key, value) => [
- *   key.toUpperCase(),
- *   typeof value === 'string' ? value.toUpperCase() : value
- * ]);
- */
-export const transformObject = <T extends object, R extends object>(
-  obj: T,
-  transformFn: (key: string, value: any, obj: T) => [string, any]
-): R => {
-  if (obj === null || typeof obj !== 'object') {
-    throw new Error('Input must be an object');
-  }
-
-  if (typeof transformFn !== 'function') {
-    throw new Error('Transform function must be provided');
-  }
-
-  const result = {} as R;
-
-  for (const key in obj) {
-    if (Object.prototype.hasOwnProperty.call(obj, key)) {
-      const [newKey, newValue] = transformFn(key, obj[key as keyof T], obj);
-      if (newKey !== undefined && newKey !== null) {
-        (result as any)[newKey] = newValue;
-      }
-    }
-  }
-
-  return result;
-};
-
-/**
- * Converts an object's values to a specific type using a conversion function.
- * Useful for ensuring consistent value types across an object.
- * 
- * @template T - The type of the source object
- * @template V - The type to convert values to
- * @param {Record<keyof T, any>} obj - The source object
- * @param {(value: any, key: string) => V} convertFn - Function to convert each value
- * @returns {Record<keyof T, V>} A new object with converted values
- * @throws {Error} If the input is not an object or if convertFn is not a function
- * 
- * @example
- * // Returns { count: 5, total: 10, average: 2 }
- * convertValues({ count: '5', total: 10, average: '2.0' }, value => 
- *   typeof value === 'string' ? parseInt(value, 10) : value
- * );
- */
-export const convertValues = <T extends object, V>(
-  obj: T,
-  convertFn: (value: any, key: string) => V
-): Record<keyof T, V> => {
-  if (obj === null || typeof obj !== 'object') {
-    throw new Error('Input must be an object');
-  }
-
-  if (typeof convertFn !== 'function') {
-    throw new Error('Conversion function must be provided');
-  }
-
-  const result = {} as Record<keyof T, V>;
-
-  for (const key in obj) {
-    if (Object.prototype.hasOwnProperty.call(obj, key)) {
-      result[key as keyof T] = convertFn(obj[key as keyof T], key);
-    }
-  }
-
-  return result;
+    
+    return result;
+  }, {} as Record<string, any>);
 };

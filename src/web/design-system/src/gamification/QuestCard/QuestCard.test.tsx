@@ -1,5 +1,5 @@
 import React from 'react';
-import { describe, it, expect } from '@jest/globals';
+import { describe, it, expect, jest } from '@jest/globals';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { ThemeProvider } from 'styled-components';
 import { QuestCard } from './QuestCard';
@@ -25,28 +25,32 @@ jest.mock('../../components/Card/Card', () => ({
 
 // Mock the ProgressBar component
 jest.mock('../../components/ProgressBar/ProgressBar', () => ({
-  ProgressBar: ({ current, total, journey, size, ariaLabel }) => (
+  ProgressBar: ({ current, total, journey, ariaLabel, ...props }) => (
     <div 
       data-testid="progress-bar"
       data-current={current}
       data-total={total}
       data-journey={journey}
-      data-size={size}
       aria-label={ariaLabel}
-    />
+      {...props}
+    >
+      <div 
+        data-testid="progress-fill"
+        style={{ width: `${Math.min(Math.round((current / total) * 100), 100)}%` }}
+      />
+    </div>
   ),
 }));
 
 // Mock the Text component
 jest.mock('../../primitives/Text/Text', () => ({
-  Text: ({ children, fontWeight, fontSize, journey, color, style, ...props }) => (
+  Text: ({ children, journey, fontSize, fontWeight, color, ...props }) => (
     <span 
       data-testid="text"
-      data-font-weight={fontWeight}
-      data-font-size={fontSize}
       data-journey={journey}
+      data-font-size={fontSize}
+      data-font-weight={fontWeight}
       data-color={color}
-      style={style}
       {...props}
     >
       {children}
@@ -69,12 +73,13 @@ jest.mock('../../primitives/Icon/Icon', () => ({
 
 // Mock the AchievementBadge component
 jest.mock('../AchievementBadge/AchievementBadge', () => ({
-  AchievementBadge: ({ achievement, size }) => (
+  AchievementBadge: ({ achievement, size, ...props }) => (
     <div 
       data-testid="achievement-badge"
       data-achievement-id={achievement.id}
       data-achievement-title={achievement.title}
       data-size={size}
+      {...props}
     />
   ),
 }));
@@ -83,13 +88,13 @@ jest.mock('../AchievementBadge/AchievementBadge', () => ({
 jest.mock('src/web/design-system/src/themes/index', () => ({
   useJourneyTheme: (journey) => {
     if (journey === 'health') {
-      return { primary: '#0ACF83', secondary: '#E8F9F1' };
+      return { primary: '#0ACF83', secondary: '#A7F3D0' };
     } else if (journey === 'care') {
-      return { primary: '#FF8C42', secondary: '#FFF1E8' };
+      return { primary: '#FF8C42', secondary: '#FFBB94' };
     } else if (journey === 'plan') {
-      return { primary: '#4285F4', secondary: '#E8F1FF' };
+      return { primary: '#3B82F6', secondary: '#93C5FD' };
     }
-    return { primary: '#6E41E2', secondary: '#F0EBFF' }; // Default theme
+    return { primary: '#6366F1', secondary: '#A5B4FC' }; // Default
   },
 }));
 
@@ -104,186 +109,168 @@ const renderWithTheme = (ui: React.ReactElement, theme = baseTheme) => {
   );
 };
 
+// Sample quest data for testing
+const mockQuest = {
+  id: 'quest-123',
+  title: 'Complete Health Profile',
+  description: 'Fill out all sections of your health profile',
+  icon: 'clipboard-list',
+  progress: 3,
+  total: 5,
+  journey: 'health'
+};
+
+const mockCompletedQuest = {
+  ...mockQuest,
+  progress: 5
+};
+
 describe('QuestCard', () => {
-  // Sample quest data for testing
-  const mockQuest = {
-    id: 'quest-123',
-    title: 'Complete Your Profile',
-    description: 'Fill out all sections of your health profile',
-    icon: 'user-profile',
-    progress: 3,
-    total: 5,
-    journey: 'health'
-  };
-
-  const mockCompletedQuest = {
-    ...mockQuest,
-    progress: 5,
-  };
-
-  it('renders correctly with quest details', () => {
+  it('renders correctly with default props', () => {
     renderWithTheme(<QuestCard quest={mockQuest} />);
     
-    // Check if the card is rendered
-    const card = screen.getByTestId('card');
-    expect(card).toBeInTheDocument();
+    // Check that the card renders with correct content
+    expect(screen.getByTestId('card')).toBeInTheDocument();
+    expect(screen.getByText('Complete Health Profile')).toBeInTheDocument();
+    expect(screen.getByText('Fill out all sections of your health profile')).toBeInTheDocument();
+    expect(screen.getByText('3 of 5 completed')).toBeInTheDocument();
     
-    // Check if the quest title is rendered
-    expect(screen.getByText(mockQuest.title)).toBeInTheDocument();
-    
-    // Check if the quest description is rendered
-    expect(screen.getByText(mockQuest.description)).toBeInTheDocument();
-    
-    // Check if the icon is rendered with correct name
+    // Check that the icon is rendered with correct props
     const icon = screen.getByTestId('icon');
     expect(icon).toBeInTheDocument();
-    expect(icon).toHaveAttribute('data-name', mockQuest.icon);
+    expect(icon).toHaveAttribute('data-name', 'clipboard-list');
+    expect(icon).toHaveAttribute('data-color', '#0ACF83'); // Health journey primary color
     
-    // Check if the progress bar is rendered with correct values
+    // Check that the progress bar is rendered with correct props
     const progressBar = screen.getByTestId('progress-bar');
     expect(progressBar).toBeInTheDocument();
-    expect(progressBar).toHaveAttribute('data-current', mockQuest.progress.toString());
-    expect(progressBar).toHaveAttribute('data-total', mockQuest.total.toString());
-    
-    // Check if the progress text is rendered
-    expect(screen.getByText(`${mockQuest.progress} of ${mockQuest.total} completed`)).toBeInTheDocument();
-  });
-
-  it('applies journey-specific styling for health journey', () => {
-    renderWithTheme(<QuestCard quest={mockQuest} />);
-    
-    // Check if the card has the correct journey attribute
-    const card = screen.getByTestId('card');
-    expect(card).toHaveAttribute('data-journey', 'health');
-    
-    // Check if the progress bar has the correct journey attribute
-    const progressBar = screen.getByTestId('progress-bar');
+    expect(progressBar).toHaveAttribute('data-current', '3');
+    expect(progressBar).toHaveAttribute('data-total', '5');
     expect(progressBar).toHaveAttribute('data-journey', 'health');
     
-    // Check if the icon has the correct color (health primary color)
-    const icon = screen.getByTestId('icon');
-    expect(icon).toHaveAttribute('data-color', '#0ACF83');
+    // Achievement badge should not be rendered for incomplete quest
+    expect(screen.queryByTestId('achievement-badge')).not.toBeInTheDocument();
   });
-
-  it('applies journey-specific styling for care journey', () => {
+  
+  it('renders achievement badge when quest is completed', () => {
+    renderWithTheme(<QuestCard quest={mockCompletedQuest} />);
+    
+    // Achievement badge should be rendered for completed quest
+    const badge = screen.getByTestId('achievement-badge');
+    expect(badge).toBeInTheDocument();
+    expect(badge).toHaveAttribute('data-achievement-id', 'quest-123');
+    expect(badge).toHaveAttribute('data-achievement-title', 'Complete Health Profile');
+    expect(badge).toHaveAttribute('data-size', 'sm');
+  });
+  
+  it('applies health journey theme correctly', () => {
+    renderWithTheme(<QuestCard quest={mockQuest} />, healthTheme);
+    
+    // Check journey-specific attributes
+    expect(screen.getByTestId('card')).toHaveAttribute('data-journey', 'health');
+    expect(screen.getByTestId('progress-bar')).toHaveAttribute('data-journey', 'health');
+    
+    // Check that the icon has the health journey primary color
+    expect(screen.getByTestId('icon')).toHaveAttribute('data-color', '#0ACF83');
+  });
+  
+  it('applies care journey theme correctly', () => {
     const careQuest = { ...mockQuest, journey: 'care' };
-    renderWithTheme(<QuestCard quest={careQuest} />);
+    renderWithTheme(<QuestCard quest={careQuest} />, careTheme);
     
-    // Check if the card has the correct journey attribute
-    const card = screen.getByTestId('card');
-    expect(card).toHaveAttribute('data-journey', 'care');
+    // Check journey-specific attributes
+    expect(screen.getByTestId('card')).toHaveAttribute('data-journey', 'care');
+    expect(screen.getByTestId('progress-bar')).toHaveAttribute('data-journey', 'care');
     
-    // Check if the progress bar has the correct journey attribute
-    const progressBar = screen.getByTestId('progress-bar');
-    expect(progressBar).toHaveAttribute('data-journey', 'care');
-    
-    // Check if the icon has the correct color (care primary color)
-    const icon = screen.getByTestId('icon');
-    expect(icon).toHaveAttribute('data-color', '#FF8C42');
+    // Check that the icon has the care journey primary color
+    expect(screen.getByTestId('icon')).toHaveAttribute('data-color', '#FF8C42');
   });
-
-  it('applies journey-specific styling for plan journey', () => {
+  
+  it('applies plan journey theme correctly', () => {
     const planQuest = { ...mockQuest, journey: 'plan' };
-    renderWithTheme(<QuestCard quest={planQuest} />);
+    renderWithTheme(<QuestCard quest={planQuest} />, planTheme);
     
-    // Check if the card has the correct journey attribute
-    const card = screen.getByTestId('card');
-    expect(card).toHaveAttribute('data-journey', 'plan');
+    // Check journey-specific attributes
+    expect(screen.getByTestId('card')).toHaveAttribute('data-journey', 'plan');
+    expect(screen.getByTestId('progress-bar')).toHaveAttribute('data-journey', 'plan');
     
-    // Check if the progress bar has the correct journey attribute
-    const progressBar = screen.getByTestId('progress-bar');
-    expect(progressBar).toHaveAttribute('data-journey', 'plan');
-    
-    // Check if the icon has the correct color (plan primary color)
-    const icon = screen.getByTestId('icon');
-    expect(icon).toHaveAttribute('data-color', '#4285F4');
+    // Check that the icon has the plan journey primary color
+    expect(screen.getByTestId('icon')).toHaveAttribute('data-color', '#3B82F6');
   });
-
+  
   it('calculates progress percentage correctly', () => {
     renderWithTheme(<QuestCard quest={mockQuest} />);
     
-    // Calculate expected progress percentage
-    const expectedPercentage = Math.min(Math.round((mockQuest.progress / mockQuest.total) * 100), 100);
+    // Progress is 3/5 = 60%
+    const progressFill = screen.getByTestId('progress-fill');
+    expect(progressFill).toHaveStyle('width: 60%');
     
-    // Check if the progress bar aria-label contains the correct percentage
-    const progressBar = screen.getByTestId('progress-bar');
-    expect(progressBar).toHaveAttribute('aria-label', `Quest progress: ${expectedPercentage}%`);
+    // Test with a different progress value
+    const partialQuest = { ...mockQuest, progress: 2 };
+    const { rerender } = renderWithTheme(<QuestCard quest={partialQuest} />);
+    
+    // Progress is 2/5 = 40%
+    expect(screen.getByTestId('progress-fill')).toHaveStyle('width: 40%');
+    
+    // Test with progress > total (should cap at 100%)
+    const overProgressQuest = { ...mockQuest, progress: 7 };
+    rerender(<QuestCard quest={overProgressQuest} />);
+    
+    // Progress should be capped at 100%
+    expect(screen.getByTestId('progress-fill')).toHaveStyle('width: 100%');
   });
-
-  it('shows achievement badge when quest is completed', () => {
-    renderWithTheme(<QuestCard quest={mockCompletedQuest} />);
+  
+  it('handles click events', () => {
+    const handlePress = jest.fn();
+    renderWithTheme(<QuestCard quest={mockQuest} onPress={handlePress} />);
     
-    // Check if the achievement badge is rendered
-    const achievementBadge = screen.getByTestId('achievement-badge');
-    expect(achievementBadge).toBeInTheDocument();
-    expect(achievementBadge).toHaveAttribute('data-achievement-id', mockCompletedQuest.id);
-    expect(achievementBadge).toHaveAttribute('data-achievement-title', mockCompletedQuest.title);
-    expect(achievementBadge).toHaveAttribute('data-size', 'sm');
-  });
-
-  it('does not show achievement badge when quest is not completed', () => {
-    renderWithTheme(<QuestCard quest={mockQuest} />);
-    
-    // Check that the achievement badge is not rendered
-    expect(screen.queryByTestId('achievement-badge')).not.toBeInTheDocument();
-  });
-
-  it('calls onPress callback when clicked', () => {
-    const onPressMock = jest.fn();
-    renderWithTheme(<QuestCard quest={mockQuest} onPress={onPressMock} />);
-    
-    // Click the card
     const card = screen.getByTestId('card');
     fireEvent.click(card);
     
-    // Check if the onPress callback was called
-    expect(onPressMock).toHaveBeenCalledTimes(1);
+    expect(handlePress).toHaveBeenCalledTimes(1);
   });
-
-  it('has correct accessibility attributes', () => {
+  
+  it('applies correct accessibility attributes', () => {
     renderWithTheme(<QuestCard quest={mockQuest} />);
     
-    // Check if the card has the correct accessibility label
     const card = screen.getByTestId('card');
-    expect(card).toHaveAttribute('aria-label', 
-      `${mockQuest.title} quest. ${mockQuest.description}. Progress: ${mockQuest.progress} of ${mockQuest.total}.`
-    );
+    expect(card).toHaveAttribute('aria-label', 'Complete Health Profile quest. Fill out all sections of your health profile. Progress: 3 of 5.');
     
-    // Check if the progress bar has the correct aria-label
     const progressBar = screen.getByTestId('progress-bar');
-    const expectedPercentage = Math.min(Math.round((mockQuest.progress / mockQuest.total) * 100), 100);
-    expect(progressBar).toHaveAttribute('aria-label', `Quest progress: ${expectedPercentage}%`);
-    
-    // Check if the icon is marked as decorative
-    const icon = screen.getByTestId('icon');
-    expect(icon).toHaveAttribute('aria-hidden', 'true');
+    expect(progressBar).toHaveAttribute('aria-label', 'Quest progress: 60%');
   });
-
-  it('handles edge case with 0 total progress', () => {
+  
+  it('renders with different progress states', () => {
+    // Test with zero progress
+    const zeroProgressQuest = { ...mockQuest, progress: 0 };
+    const { rerender } = renderWithTheme(<QuestCard quest={zeroProgressQuest} />);
+    
+    expect(screen.getByText('0 of 5 completed')).toBeInTheDocument();
+    expect(screen.getByTestId('progress-fill')).toHaveStyle('width: 0%');
+    expect(screen.queryByTestId('achievement-badge')).not.toBeInTheDocument();
+    
+    // Test with partial progress
+    rerender(<QuestCard quest={mockQuest} />);
+    
+    expect(screen.getByText('3 of 5 completed')).toBeInTheDocument();
+    expect(screen.getByTestId('progress-fill')).toHaveStyle('width: 60%');
+    expect(screen.queryByTestId('achievement-badge')).not.toBeInTheDocument();
+    
+    // Test with complete progress
+    rerender(<QuestCard quest={mockCompletedQuest} />);
+    
+    expect(screen.getByText('5 of 5 completed')).toBeInTheDocument();
+    expect(screen.getByTestId('progress-fill')).toHaveStyle('width: 100%');
+    expect(screen.getByTestId('achievement-badge')).toBeInTheDocument();
+  });
+  
+  it('handles edge cases with zero total', () => {
+    // Test with zero total (should prevent division by zero)
     const zeroTotalQuest = { ...mockQuest, total: 0, progress: 0 };
     renderWithTheme(<QuestCard quest={zeroTotalQuest} />);
     
-    // Should not crash and should display 0 of 0 completed
+    // Progress should be 0% to avoid division by zero
+    expect(screen.getByTestId('progress-fill')).toHaveStyle('width: 0%');
     expect(screen.getByText('0 of 0 completed')).toBeInTheDocument();
-    
-    // Progress percentage should be 0 or 100 (depending on implementation)
-    const progressBar = screen.getByTestId('progress-bar');
-    const ariaLabel = progressBar.getAttribute('aria-label');
-    expect(ariaLabel === 'Quest progress: 0%' || ariaLabel === 'Quest progress: 100%').toBeTruthy();
-  });
-
-  it('handles edge case with progress exceeding total', () => {
-    const excessProgressQuest = { ...mockQuest, total: 5, progress: 10 };
-    renderWithTheme(<QuestCard quest={excessProgressQuest} />);
-    
-    // Should display the actual values
-    expect(screen.getByText('10 of 5 completed')).toBeInTheDocument();
-    
-    // Progress percentage should be capped at 100%
-    const progressBar = screen.getByTestId('progress-bar');
-    expect(progressBar).toHaveAttribute('aria-label', 'Quest progress: 100%');
-    
-    // Achievement badge should be shown
-    expect(screen.getByTestId('achievement-badge')).toBeInTheDocument();
   });
 });

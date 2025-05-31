@@ -1,42 +1,44 @@
 /**
- * Touchable component styles for the AUSTA SuperApp
- * Provides consistent touchable behavior across web and mobile platforms
- * with appropriate visual feedback and accessibility features
+ * Touchable.styles.ts
  * 
- * @package @design-system/primitives
+ * Defines the styled component for the Touchable primitive, one of the five foundational
+ * primitives in the AUSTA SuperApp design system. This component provides consistent
+ * touch behavior across web and mobile platforms with appropriate visual feedback.
+ * 
  * @version 2.0.0
  */
 
 import styled, { css } from 'styled-components';
 import { TouchableOpacity, Platform } from 'react-native';
-import { TouchableStyleProps } from '@austa/interfaces/components';
-import { animation } from '../../../tokens/animation';
+import { animation } from '../../tokens/animation';
+import { TouchableProps } from '@austa/interfaces/components/primitives.types';
 
 /**
  * StyledTouchableOpacity provides a consistent touchable component that works across platforms
  * with appropriate visual feedback and styling.
  * 
- * Features:
- * - Cross-platform compatibility (web and mobile)
- * - Consistent visual feedback for all interactive states
- * - Accessibility-friendly focus styles for keyboard navigation
- * - Support for disabled state with visual indication
- * - Configurable width behavior
+ * @component
+ * @param {TouchableProps} props - Component props
+ * @param {boolean} props.fullWidth - Makes the touchable expand to fill its container width
+ * @param {boolean} props.disabled - Disables the touchable and applies a visual indication
  * 
  * @example
- * ```tsx
- * import { StyledTouchableOpacity } from '@design-system/primitives/components/Touchable';
- * 
- * <StyledTouchableOpacity 
- *   fullWidth 
- *   activeOpacity={0.7} 
- *   onPress={() => console.log('Pressed!')}
- * >
+ * // Basic usage
+ * <StyledTouchableOpacity onPress={() => console.log('Pressed')}>
  *   <Text>Press me</Text>
  * </StyledTouchableOpacity>
- * ```
+ * 
+ * @example
+ * // Full width button with disabled state
+ * <StyledTouchableOpacity 
+ *   fullWidth 
+ *   disabled={isLoading}
+ *   onPress={handleSubmit}
+ * >
+ *   <Text>{isLoading ? 'Loading...' : 'Submit'}</Text>
+ * </StyledTouchableOpacity>
  */
-export const StyledTouchableOpacity = styled(TouchableOpacity)<TouchableStyleProps>`
+export const StyledTouchableOpacity = styled(TouchableOpacity)<TouchableProps>`
   /* Base styles */
   align-items: center;
   justify-content: center;
@@ -51,7 +53,7 @@ export const StyledTouchableOpacity = styled(TouchableOpacity)<TouchableStylePro
   /* Platform-specific styles */
   ${props => Platform.OS === 'web' && css`
     cursor: ${props.disabled ? 'not-allowed' : 'pointer'};
-    transition: opacity ${animation.duration.fast}ms ${animation.easing.easeOut};
+    transition: opacity ${animation.duration.normal} ${animation.easing.easeOut};
     outline: none;
     
     ${!props.disabled && css`
@@ -70,12 +72,14 @@ export const StyledTouchableOpacity = styled(TouchableOpacity)<TouchableStylePro
       outline: 2px solid transparent;
       outline-offset: 2px;
     }
-    
-    /* Ensure keyboard focus is visible even when using high contrast mode */
+
+    /* High contrast mode support for better accessibility */
     @media (forced-colors: active) {
       &:focus-visible {
-        outline: 2px solid HighlightText;
+        outline: 2px solid CanvasText;
       }
     }
   `}
 `;
+
+export default StyledTouchableOpacity;

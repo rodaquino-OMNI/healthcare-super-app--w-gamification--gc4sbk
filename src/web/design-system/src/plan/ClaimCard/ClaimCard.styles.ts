@@ -62,8 +62,9 @@ export const ClaimCardFooter = styled(Box)`
 
 /**
  * The text component for displaying the claim status.
- * Uses different colors based on the status for clear visual indication.
- * Includes enhanced accessibility support with proper contrast ratios.
+ * Uses different colors based on the status with improved accessibility.
+ * 
+ * @param status - The current status of the claim from ClaimStatus type
  */
 export const ClaimStatusText = styled(Text)<{ status: ClaimStatus }>`
   font-weight: ${tokens.typography.fontWeight.medium};
@@ -75,39 +76,31 @@ export const ClaimStatusText = styled(Text)<{ status: ClaimStatus }>`
   ${({ status }) => {
     switch (status) {
       case 'approved':
+      case 'partially_approved':
         return `
           color: ${tokens.colors.semantic.success};
-          background-color: rgba(0, 200, 83, 0.15);
-          /* Enhanced contrast for accessibility */
-          font-weight: ${tokens.typography.fontWeight.semibold};
+          background-color: ${tokens.colors.semantic.success_token._10};
         `;
       case 'denied':
         return `
           color: ${tokens.colors.semantic.error};
-          background-color: rgba(255, 59, 48, 0.15);
-          /* Enhanced contrast for accessibility */
-          font-weight: ${tokens.typography.fontWeight.semibold};
+          background-color: ${tokens.colors.semantic.error_token._10};
         `;
       case 'pending':
         return `
           color: ${tokens.colors.journeys.plan.primary};
-          background-color: rgba(58, 134, 255, 0.15);
-          /* Enhanced contrast for accessibility */
-          font-weight: ${tokens.typography.fontWeight.semibold};
+          background-color: ${tokens.colors.journeys.plan.primary_token._10};
         `;
-      case 'inReview':
+      case 'in_review':
         return `
           color: ${tokens.colors.journeys.plan.accent};
-          background-color: rgba(0, 87, 231, 0.15);
-          /* Enhanced contrast for accessibility */
-          font-weight: ${tokens.typography.fontWeight.semibold};
+          background-color: ${tokens.colors.journeys.plan.accent_token._10};
         `;
-      case 'moreInfo':
+      case 'additional_info_required':
+      case 'appealed':
         return `
           color: ${tokens.colors.semantic.warning};
-          background-color: rgba(255, 214, 0, 0.15);
-          /* Enhanced contrast for accessibility */
-          font-weight: ${tokens.typography.fontWeight.semibold};
+          background-color: ${tokens.colors.semantic.warning_token._10};
         `;
       default:
         return '';

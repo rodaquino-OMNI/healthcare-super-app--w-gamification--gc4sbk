@@ -1,19 +1,37 @@
 /**
- * @file ProgressBar component entry point
- * @description Exports the ProgressBar component and its types for use in the application
+ * ProgressBar Component
+ * 
+ * A progress bar component that visualizes progress with journey-specific theming.
+ * This component supports different sizes, journey contexts, and level markers.
+ * 
  * @module components/ProgressBar
  */
 
 // Import the component implementation from local file
-import { ProgressBar } from './ProgressBar';
+import { ProgressBar as ProgressBarComponent } from './ProgressBar';
 
-// Import the type definition from the shared interfaces package
+// Import the props interface from the shared interfaces package
 import type { ProgressBarProps } from '@austa/interfaces/components';
 
-// Re-export the component and its types
-export { ProgressBar };
+/**
+ * ProgressBar Component
+ * 
+ * @example
+ * ```tsx
+ * <ProgressBar 
+ *   current={75} 
+ *   total={100} 
+ *   journey="health" 
+ *   size="md" 
+ *   showLevels={true}
+ *   levelMarkers={[25, 50, 75]}
+ * />
+ * ```
+ */
+export const ProgressBar = ProgressBarComponent;
+
+// Re-export the props interface for consumers
 export type { ProgressBarProps };
 
-// Default export for compatibility with older import patterns
-// while maintaining tree-shaking compatibility
+// Default export for dynamic imports
 export default ProgressBar;

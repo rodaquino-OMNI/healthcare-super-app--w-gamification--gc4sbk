@@ -1,81 +1,83 @@
 import { JwtPayload } from '@austa/interfaces/auth';
 
 /**
- * Core interface for all authentication providers in the system.
- * Establishes a consistent contract that all authentication mechanisms must implement,
- * enabling uniform authentication handling across services.
+ * Generic interface for all authentication providers in the AUSTA SuperApp.
+ * This interface establishes a consistent contract that all authentication
+ * mechanisms must implement, enabling uniform authentication handling across services.
  * 
- * @template TUser The user entity type
- * @template TCredentials The credentials type used for authentication
- * @template TTokenPayload The token payload type, defaults to JwtPayload
+ * @typeParam TUser - The user model type that the provider will work with
+ * @typeParam TCredentials - The credentials type used for authentication
  */
-export interface IAuthProvider<
-  TUser extends Record<string, any>,
-  TCredentials extends Record<string, any>,
-  TTokenPayload extends Record<string, any> = JwtPayload
-> {
+export interface AuthProvider<TUser, TCredentials = { email: string; password: string }> {
   /**
-   * Validates user credentials and returns the authenticated user
+   * Validates user credentials and returns the authenticated user if valid.
    * 
-   * @param credentials User credentials (username/password, API key, etc.)
-   * @returns Promise resolving to the authenticated user or null if authentication fails
+   * @param credentials - The credentials to validate (typically email/password)
+   * @returns A promise that resolves to the authenticated user or null if credentials are invalid
+   * @throws AppException with appropriate error code if validation fails
    */
   validateCredentials(credentials: TCredentials): Promise<TUser | null>;
 
   /**
-   * Validates a token and returns the associated user
+   * Validates a JWT token and returns the associated user if valid.
    * 
-   * @param token Authentication token (JWT, session token, etc.)
-   * @returns Promise resolving to the authenticated user or null if validation fails
+   * @param payload - The decoded JWT payload to validate
+   * @returns A promise that resolves to the authenticated user or null if token is invalid
+   * @throws AppException with appropriate error code if validation fails
    */
-  validateToken(token: string): Promise<TUser | null>;
+  validateToken(payload: JwtPayload): Promise<TUser | null>;
 
   /**
-   * Retrieves a user by their unique identifier
+   * Retrieves a user by their unique identifier.
    * 
-   * @param id User identifier
-   * @returns Promise resolving to the user or null if not found
+   * @param userId - The unique identifier of the user to retrieve
+   * @returns A promise that resolves to the user if found, or null if not found
+   * @throws AppException with appropriate error code if retrieval fails
    */
-  getUserById(id: string): Promise<TUser | null>;
+  findUserById(userId: string): Promise<TUser | null>;
 
   /**
-   * Generates a token for the authenticated user
+   * Retrieves a user by their email address.
    * 
-   * @param user Authenticated user
-   * @param expiresIn Token expiration time in seconds (optional)
-   * @returns Promise resolving to the generated token
+   * @param email - The email address of the user to retrieve
+   * @returns A promise that resolves to the user if found, or null if not found
+   * @throws AppException with appropriate error code if retrieval fails
    */
-  generateToken(user: TUser, expiresIn?: number): Promise<string>;
+  findUserByEmail(email: string): Promise<TUser | null>;
 
   /**
-   * Decodes a token and returns its payload without validation
+   * Creates a new access token for the authenticated user.
    * 
-   * @param token Authentication token
-   * @returns Promise resolving to the decoded token payload or null if decoding fails
+   * @param user - The user for whom to create the token
+   * @returns A promise that resolves to the generated access token
+   * @throws AppException with appropriate error code if token creation fails
    */
-  decodeToken(token: string): Promise<TTokenPayload | null>;
+  createAccessToken(user: TUser): Promise<string>;
 
   /**
-   * Extracts the token from the request
+   * Creates a new refresh token for the authenticated user.
    * 
-   * @param request HTTP request object
-   * @returns Extracted token or null if not found
+   * @param user - The user for whom to create the token
+   * @returns A promise that resolves to the generated refresh token
+   * @throws AppException with appropriate error code if token creation fails
    */
-  extractTokenFromRequest(request: any): string | null;
+  createRefreshToken(user: TUser): Promise<string>;
 
   /**
-   * Revokes a token, making it invalid for future authentication
+   * Validates a refresh token and returns a new access token if valid.
    * 
-   * @param token Authentication token to revoke
-   * @returns Promise resolving to true if revocation was successful, false otherwise
+   * @param refreshToken - The refresh token to validate
+   * @returns A promise that resolves to a new access token if the refresh token is valid, or null if invalid
+   * @throws AppException with appropriate error code if validation fails
    */
-  revokeToken(token: string): Promise<boolean>;
+  refreshAccessToken(refreshToken: string): Promise<string | null>;
 
   /**
-   * Refreshes an existing token and returns a new one
+   * Revokes all active tokens for a user (used for logout or security purposes).
    * 
-   * @param refreshToken Refresh token
-   * @returns Promise resolving to the new access token or null if refresh fails
+   * @param userId - The unique identifier of the user whose tokens should be revoked
+   * @returns A promise that resolves when the operation is complete
+   * @throws AppException with appropriate error code if revocation fails
    */
-  refreshToken(refreshToken: string): Promise<string | null>;
+  revokeTokens(userId: string): Promise<void>;
 }

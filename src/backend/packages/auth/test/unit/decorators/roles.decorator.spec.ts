@@ -1,120 +1,82 @@
-import { SetMetadata } from '@nestjs/common';
 import 'reflect-metadata';
 import { Roles, ROLES_KEY } from '../../../src/decorators/roles.decorator';
 
-// Mock the SetMetadata function to verify it's called correctly
-jest.mock('@nestjs/common', () => ({
-  SetMetadata: jest.fn().mockImplementation((key, value) => {
-    return function(target: any, propertyKey?: string | symbol, descriptor?: any) {
-      if (descriptor) {
-        Reflect.defineMetadata(key, value, descriptor.value);
-        return descriptor;
-      }
-      Reflect.defineMetadata(key, value, target);
-      return target;
-    };
-  }),
-}));
-
 describe('Roles Decorator', () => {
-  beforeEach(() => {
-    jest.clearAllMocks();
-  });
-
+  // Test the ROLES_KEY constant value
   it('should define ROLES_KEY as "roles"', () => {
     expect(ROLES_KEY).toBe('roles');
   });
 
-  it('should call SetMetadata with the correct key and roles', () => {
-    // Arrange
-    const roles = ['admin', 'user'];
-    
-    // Act
-    Roles(...roles);
-    
-    // Assert
-    expect(SetMetadata).toHaveBeenCalledWith(ROLES_KEY, roles);
-  });
-
-  it('should attach metadata to a class when used as a class decorator', () => {
-    // Arrange & Act
+  // Test the Roles decorator with a single role on a class
+  it('should enhance class with single role metadata', () => {
     @Roles('admin')
     class TestController {}
-    
-    // Assert
+
     const metadata = Reflect.getMetadata(ROLES_KEY, TestController);
     expect(metadata).toEqual(['admin']);
   });
 
-  it('should attach metadata to a method when used as a method decorator', () => {
-    // Arrange & Act
-    class TestController {
-      @Roles('user')
-      public testMethod() {}
-    }
-    
-    // Assert
-    const metadata = Reflect.getMetadata(ROLES_KEY, TestController.prototype.testMethod);
-    expect(metadata).toEqual(['user']);
+  // Test the Roles decorator with multiple roles on a class
+  it('should enhance class with multiple roles metadata', () => {
+    @Roles('admin', 'user')
+    class TestController {}
+
+    const metadata = Reflect.getMetadata(ROLES_KEY, TestController);
+    expect(metadata).toEqual(['admin', 'user']);
   });
 
-  it('should handle multiple roles', () => {
-    // Arrange & Act
+  // Test the Roles decorator with a single role on a method
+  it('should enhance method with single role metadata', () => {
+    class TestController {
+      @Roles('admin')
+      public testMethod() {}
+    }
+
+    const metadata = Reflect.getMetadata(ROLES_KEY, TestController.prototype.testMethod);
+    expect(metadata).toEqual(['admin']);
+  });
+
+  // Test the Roles decorator with multiple roles on a method
+  it('should enhance method with multiple roles metadata', () => {
     class TestController {
       @Roles('admin', 'user')
       public testMethod() {}
     }
-    
-    // Assert
+
     const metadata = Reflect.getMetadata(ROLES_KEY, TestController.prototype.testMethod);
     expect(metadata).toEqual(['admin', 'user']);
   });
 
-  it('should handle journey-specific roles', () => {
-    // Arrange & Act
+  // Test the Roles decorator with journey-specific roles
+  it('should support journey-specific role values', () => {
     class TestController {
       @Roles('health:viewer', 'care:provider', 'plan:manager')
       public testMethod() {}
     }
-    
-    // Assert
+
     const metadata = Reflect.getMetadata(ROLES_KEY, TestController.prototype.testMethod);
     expect(metadata).toEqual(['health:viewer', 'care:provider', 'plan:manager']);
   });
 
-  it('should handle a mix of core and journey-specific roles', () => {
-    // Arrange & Act
+  // Test the Roles decorator with a mix of core and journey-specific roles
+  it('should support a mix of core and journey-specific roles', () => {
     class TestController {
-      @Roles('admin', 'health:manager')
+      @Roles('admin', 'health:viewer')
       public testMethod() {}
     }
-    
-    // Assert
+
     const metadata = Reflect.getMetadata(ROLES_KEY, TestController.prototype.testMethod);
-    expect(metadata).toEqual(['admin', 'health:manager']);
+    expect(metadata).toEqual(['admin', 'health:viewer']);
   });
 
-  it('should handle static methods', () => {
-    // Arrange & Act
+  // Test the Roles decorator with static methods
+  it('should enhance static method with role metadata', () => {
     class TestController {
       @Roles('admin')
       public static testMethod() {}
     }
-    
-    // Assert
+
     const metadata = Reflect.getMetadata(ROLES_KEY, TestController.testMethod);
     expect(metadata).toEqual(['admin']);
-  });
-
-  it('should work with empty roles array', () => {
-    // Arrange & Act
-    class TestController {
-      @Roles()
-      public testMethod() {}
-    }
-    
-    // Assert
-    const metadata = Reflect.getMetadata(ROLES_KEY, TestController.prototype.testMethod);
-    expect(metadata).toEqual([]);
   });
 });

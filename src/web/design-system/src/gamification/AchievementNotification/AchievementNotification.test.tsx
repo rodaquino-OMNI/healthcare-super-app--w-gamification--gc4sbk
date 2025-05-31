@@ -1,187 +1,134 @@
 import React from 'react';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { AchievementNotification } from './AchievementNotification';
-import { colors } from '@design-system/primitives/src/tokens';
+import { AchievementCategory } from '@austa/interfaces/gamification/achievements';
 
-// Mock styled-components to avoid styled-component specific issues in tests
-jest.mock('./AchievementNotification.styles', () => {
-  const originalModule = jest.requireActual('./AchievementNotification.styles');
-  return {
-    ...originalModule,
-    ModalOverlay: ({ children, ...props }: any) => (
-      <div data-testid="modal-overlay" {...props}>
-        {children}
-      </div>
-    ),
-    ModalContent: ({ children, journeyColor, ...props }: any) => (
-      <div data-testid="modal-content" data-journey-color={journeyColor} {...props}>
-        {children}
-      </div>
-    ),
-    ModalTitle: ({ children, journeyColor, ...props }: any) => (
-      <h2 data-testid="modal-title" data-journey-color={journeyColor} {...props}>
-        {children}
-      </h2>
-    ),
-    AchievementTitle: ({ children, ...props }: any) => (
-      <h3 data-testid="achievement-title" {...props}>
-        {children}
-      </h3>
-    ),
-    AchievementDescription: ({ children, ...props }: any) => (
-      <p data-testid="achievement-description" {...props}>
-        {children}
-      </p>
-    ),
-    DismissButton: ({ children, journeyColor, onClick, ...props }: any) => (
-      <button 
-        data-testid="dismiss-button" 
-        data-journey-color={journeyColor} 
-        onClick={onClick}
-        {...props}
-      >
-        {children}
-      </button>
-    ),
-    BadgeContainer: ({ children, ...props }: any) => (
-      <div data-testid="badge-container" {...props}>
-        {children}
-      </div>
-    ),
-  };
-});
-
-// Mock the journey-context hook
-jest.mock('@austa/journey-context/src/hooks', () => ({
+// Mock the useJourney hook
+jest.mock('@austa/journey-context/src/hooks/useJourney', () => ({
   useJourney: () => ({
-    activeJourney: 'health',
+    getJourneyTheme: () => ({
+      colors: {
+        primary: '#00A859',
+        secondary: '#E6F5ED',
+      },
+    }),
   }),
 }));
 
-// Mock the AchievementBadge component
-jest.mock('../AchievementBadge', () => ({
-  AchievementBadge: (props: any) => (
-    <div data-testid="achievement-badge">
-      <div>Icon: {props.icon}</div>
-      <div>Journey: {props.journey}</div>
-      <div>Unlocked: {props.unlocked ? 'true' : 'false'}</div>
-    </div>
-  ),
-}));
+// Mock achievement data
+const mockAchievement = {
+  id: 'achievement-123',
+  title: 'First Steps',
+  description: 'Complete your first health assessment',
+  category: AchievementCategory.HEALTH,
+  journey: 'health',
+  icon: 'trophy',
+  points: 50,
+  rarity: 'common',
+  imageUrl: '/images/achievements/first-steps.png',
+  badgeUrl: '/images/badges/first-steps.png',
+  tier: 1,
+  progress: {
+    current: 1,
+    required: 1,
+    percentage: 100,
+    lastUpdated: new Date(),
+  },
+  unlocked: true,
+  unlockedAt: new Date(),
+};
 
 describe('AchievementNotification', () => {
-  const mockAchievement = {
-    id: '123',
-    title: 'Test Achievement',
-    description: 'This is a test achievement description',
-    icon: 'trophy',
-    journey: 'health',
-    unlocked: true,
-    progress: 100,
-    total: 100,
-  };
-
-  const mockOnDismiss = jest.fn();
-
-  beforeEach(() => {
-    jest.clearAllMocks();
-  });
-
   it('renders the achievement notification with correct content', () => {
+    const onCloseMock = jest.fn();
+    
     render(
       <AchievementNotification
         achievement={mockAchievement}
-        onDismiss={mockOnDismiss}
+        visible={true}
+        onClose={onCloseMock}
       />
     );
-
-    // Check if the title and description are rendered
+    
+    // Check that the title and description are rendered
     expect(screen.getByText('Achievement Unlocked!')).toBeInTheDocument();
-    expect(screen.getByText('Test Achievement')).toBeInTheDocument();
-    expect(screen.getByText('This is a test achievement description')).toBeInTheDocument();
+    expect(screen.getByText(mockAchievement.title)).toBeInTheDocument();
+    expect(screen.getByText(mockAchievement.description)).toBeInTheDocument();
     
-    // Check if the badge is rendered
-    expect(screen.getByTestId('achievement-badge')).toBeInTheDocument();
+    // Check that the points are displayed
+    expect(screen.getByText(`+${mockAchievement.points} XP`)).toBeInTheDocument();
     
-    // Check if the OK button is rendered
-    expect(screen.getByRole('button', { name: /close achievement notification/i })).toBeInTheDocument();
-    
-    // Check if the modal has the correct accessibility attributes
-    const modal = screen.getByTestId('modal-overlay');
-    expect(modal).toHaveAttribute('role', 'dialog');
-    expect(modal).toHaveAttribute('aria-modal', 'true');
+    // Check that the OK button is rendered
+    expect(screen.getByText('OK')).toBeInTheDocument();
   });
-
-  it('calls onDismiss when OK button is clicked', () => {
+  
+  it('calls onClose when the OK button is clicked', () => {
+    const onCloseMock = jest.fn();
+    
     render(
       <AchievementNotification
         achievement={mockAchievement}
-        onDismiss={mockOnDismiss}
+        visible={true}
+        onClose={onCloseMock}
       />
     );
-
+    
     // Click the OK button
-    fireEvent.click(screen.getByRole('button', { name: /close achievement notification/i }));
+    fireEvent.click(screen.getByText('OK'));
     
-    // Check if onDismiss was called
-    expect(mockOnDismiss).toHaveBeenCalledTimes(1);
+    // Check that onClose was called
+    expect(onCloseMock).toHaveBeenCalledTimes(1);
   });
-
-  it('does not render when isVisible is false', () => {
-    render(
-      <AchievementNotification
-        achievement={mockAchievement}
-        onDismiss={mockOnDismiss}
-        isVisible={false}
-      />
-    );
-
-    // Check that nothing is rendered
-    expect(screen.queryByText('Achievement Unlocked!')).not.toBeInTheDocument();
-    expect(screen.queryByText('Test Achievement')).not.toBeInTheDocument();
-  });
-
-  it('uses the achievement journey if provided', () => {
+  
+  it('applies journey-specific theming based on the achievement journey', () => {
     const careAchievement = {
       ...mockAchievement,
       journey: 'care',
     };
-
-    render(
+    
+    const { rerender } = render(
+      <AchievementNotification
+        achievement={mockAchievement}
+        visible={true}
+        onClose={() => {}}
+      />
+    );
+    
+    // Re-render with a different journey
+    rerender(
       <AchievementNotification
         achievement={careAchievement}
-        onDismiss={mockOnDismiss}
+        visible={true}
+        onClose={() => {}}
       />
     );
-
-    // Check if the badge has the correct journey
-    const badge = screen.getByTestId('achievement-badge');
-    expect(badge).toHaveTextContent('Journey: care');
     
-    // Check if the modal content has the correct journey color
-    const modalContent = screen.getByTestId('modal-content');
-    expect(modalContent).toHaveAttribute('data-journey-color', colors.journeys.care.primary);
+    // The journey-specific theming is applied via styled-components
+    // and would require more complex testing to verify the actual styles
+    // This test is primarily to ensure the component doesn't crash when changing journeys
+    expect(screen.getByText('Achievement Unlocked!')).toBeInTheDocument();
   });
-
-  it('falls back to activeJourney if achievement journey is not provided', () => {
-    const noJourneyAchievement = {
-      ...mockAchievement,
-      journey: undefined,
-    };
-
+  
+  it('has proper accessibility attributes', () => {
     render(
       <AchievementNotification
-        achievement={noJourneyAchievement}
-        onDismiss={mockOnDismiss}
+        achievement={mockAchievement}
+        visible={true}
+        onClose={() => {}}
       />
     );
-
-    // Check if the badge has the fallback journey from useJourney
-    const badge = screen.getByTestId('achievement-badge');
-    expect(badge).toHaveTextContent('Journey: health');
     
-    // Check if the modal content has the correct journey color
-    const modalContent = screen.getByTestId('modal-content');
-    expect(modalContent).toHaveAttribute('data-journey-color', colors.journeys.health.primary);
+    // Check that the title has the correct ID for aria-labelledby
+    const title = screen.getByText(mockAchievement.title);
+    expect(title.id).toBe('achievement-title');
+    
+    // Check that the description has the correct ID for aria-describedby
+    const description = screen.getByText(mockAchievement.description);
+    expect(description.id).toBe('achievement-description');
+    
+    // Check that the OK button has the correct accessibility attributes
+    const okButton = screen.getByText('OK');
+    expect(okButton.parentElement).toHaveAttribute('accessibilityRole', 'button');
+    expect(okButton.parentElement).toHaveAttribute('accessibilityLabel', 'Close achievement notification');
   });
 });

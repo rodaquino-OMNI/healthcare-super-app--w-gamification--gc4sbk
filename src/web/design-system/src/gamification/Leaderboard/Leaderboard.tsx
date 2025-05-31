@@ -1,9 +1,8 @@
 import React from 'react';
-import { Box, Text } from '@design-system/primitives';
-import { Card } from '../../components/Card';
-import { AchievementBadge } from '../AchievementBadge';
+import { Card } from '../../components/Card/Card';
+import { AchievementBadge } from '../AchievementBadge/AchievementBadge';
 import { LeaderboardProps } from '@austa/interfaces/gamification';
-import { useJourneyContext } from '@austa/journey-context/hooks';
+import { useJourney } from '@austa/journey-context/hooks';
 import {
   LeaderboardContainer,
   LeaderboardHeader,
@@ -19,20 +18,23 @@ import {
 /**
  * A component that displays a leaderboard with user rankings.
  * This component is part of the gamification system and shows users ranked by score or XP.
- * Supports journey-specific theming and highlights the current user.
+ * It supports journey-specific theming and highlights the current user.
  */
 export const Leaderboard: React.FC<LeaderboardProps> = ({
   leaderboardData,
-  journey: propJourney
+  journey: journeyProp
 }) => {
   // Use journey context to get current journey if not explicitly provided
-  const { currentJourney } = useJourneyContext();
-  const journey = propJourney || currentJourney;
+  const { journeyId } = useJourney();
+  const journey = journeyProp || journeyId;
 
   return (
-    <Card journey={journey}>
+    <Card 
+      journey={journey}
+      accessibilityLabel="Leaderboard showing user rankings"
+    >
       <LeaderboardHeader>
-        <LeaderboardTitle>Classificação</LeaderboardTitle>
+        <LeaderboardTitle journey={journey}>Classificação</LeaderboardTitle>
       </LeaderboardHeader>
       
       <LeaderboardList aria-label="Leaderboard rankings">
@@ -40,10 +42,15 @@ export const Leaderboard: React.FC<LeaderboardProps> = ({
           <LeaderboardItem 
             key={item.userId}
             isCurrentUser={item.isCurrentUser}
-            journey={journey}
+            rank={item.rank}
             aria-label={`Rank ${item.rank}, ${item.username}, Score ${item.score}`}
           >
-            <Rank aria-hidden="true">{item.rank}</Rank>
+            <Rank 
+              rank={item.rank} 
+              aria-hidden="true"
+            >
+              {item.rank}
+            </Rank>
             
             <UserInfo>
               <Username>{item.username}</Username>
@@ -55,12 +62,16 @@ export const Leaderboard: React.FC<LeaderboardProps> = ({
                     journey
                   }}
                   size="sm"
-                  aria-label={`${item.username}'s achievement: ${item.achievement.title}`}
                 />
               )}
             </UserInfo>
             
-            <Score aria-label={`${item.score} XP`}>{item.score} XP</Score>
+            <Score 
+              journey={journey}
+              aria-label={`${item.score} experience points`}
+            >
+              {item.score} XP
+            </Score>
           </LeaderboardItem>
         ))}
       </LeaderboardList>

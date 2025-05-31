@@ -1,368 +1,411 @@
 /**
  * Gamification API Interfaces
  * 
- * This file defines the API interfaces for the gamification system in the AUSTA SuperApp.
- * It includes request/response types for achievements, quests, rewards, and game profiles,
- * enabling type-safe interaction with the gamification engine across all journeys.
+ * This file defines the API interfaces for the AUSTA SuperApp gamification system.
+ * It includes request and response types for achievements, quests, rewards, game profiles,
+ * leaderboards, and event tracking.
+ * 
+ * These interfaces ensure type safety for all gamification operations and enable
+ * cross-journey achievement tracking and event-based gamification engine integration.
  */
 
-import { Achievement, GameProfile, Quest, Reward } from '../../../web/shared/types/gamification.types';
-import { PaginationParams, SortParams, FilterParams } from './request.types';
-import { PaginatedResponse, ApiResponse } from './response.types';
-
-// Re-export base types for convenience
-export { Achievement, GameProfile, Quest, Reward };
+import { Achievement, GameProfile, Quest, Reward } from '../../shared/types/gamification.types';
 
 /**
- * Supported journey types for gamification events
+ * Base pagination parameters for list requests
  */
-export enum GamificationJourney {
-  HEALTH = 'health',
-  CARE = 'care',
-  PLAN = 'plan',
-  GLOBAL = 'global'
+export interface PaginationParams {
+  /** Page number (1-based) */
+  page: number;
+  /** Number of items per page */
+  limit: number;
 }
 
 /**
- * Supported event types for gamification tracking
+ * Base pagination metadata for list responses
  */
-export enum GamificationEventType {
-  // Health journey events
-  HEALTH_METRIC_RECORDED = 'health_metric_recorded',
-  HEALTH_GOAL_CREATED = 'health_goal_created',
-  HEALTH_GOAL_ACHIEVED = 'health_goal_achieved',
-  DEVICE_CONNECTED = 'device_connected',
-  DAILY_STEPS_GOAL_MET = 'daily_steps_goal_met',
-  HEALTH_INSIGHT_VIEWED = 'health_insight_viewed',
-  
-  // Care journey events
-  APPOINTMENT_BOOKED = 'appointment_booked',
-  APPOINTMENT_ATTENDED = 'appointment_attended',
-  MEDICATION_TRACKED = 'medication_tracked',
-  TELEMEDICINE_SESSION_COMPLETED = 'telemedicine_session_completed',
-  CARE_PLAN_CREATED = 'care_plan_created',
-  CARE_PLAN_STEP_COMPLETED = 'care_plan_step_completed',
-  
-  // Plan journey events
-  CLAIM_SUBMITTED = 'claim_submitted',
-  BENEFIT_USED = 'benefit_used',
-  PLAN_SELECTED = 'plan_selected',
-  DOCUMENT_UPLOADED = 'document_uploaded',
-  
-  // Global events
-  PROFILE_COMPLETED = 'profile_completed',
-  DAILY_LOGIN = 'daily_login',
-  FEATURE_USED = 'feature_used',
-  FEEDBACK_PROVIDED = 'feedback_provided'
+export interface PaginationMeta {
+  /** Current page number */
+  currentPage: number;
+  /** Total number of pages */
+  totalPages: number;
+  /** Number of items per page */
+  itemsPerPage: number;
+  /** Total number of items */
+  totalItems: number;
 }
 
 /**
- * Base interface for all gamification event payloads
+ * Base paginated response structure
  */
-export interface GamificationEventPayload {
-  userId: string;
-  timestamp: string;
-  journey: GamificationJourney;
-  metadata?: Record<string, any>;
+export interface PaginatedResponse<T> {
+  /** Array of items */
+  items: T[];
+  /** Pagination metadata */
+  meta: PaginationMeta;
 }
+
+// ===== Achievement API Interfaces =====
 
 /**
- * Health journey event payloads
+ * Request parameters for fetching achievements
  */
-export interface HealthMetricRecordedPayload extends GamificationEventPayload {
-  metricType: string;
-  value: number;
-  unit: string;
-}
-
-export interface HealthGoalCreatedPayload extends GamificationEventPayload {
-  goalId: string;
-  metricType: string;
-  targetValue: number;
-}
-
-export interface HealthGoalAchievedPayload extends GamificationEventPayload {
-  goalId: string;
-  metricType: string;
-  achievedValue: number;
-}
-
-export interface DeviceConnectedPayload extends GamificationEventPayload {
-  deviceType: string;
-  deviceId: string;
-}
-
-/**
- * Care journey event payloads
- */
-export interface AppointmentBookedPayload extends GamificationEventPayload {
-  appointmentId: string;
-  providerId: string;
-  specialtyType: string;
-}
-
-export interface MedicationTrackedPayload extends GamificationEventPayload {
-  medicationId: string;
-  adherenceStreak: number;
-}
-
-export interface TelemedicineSessionCompletedPayload extends GamificationEventPayload {
-  sessionId: string;
-  providerId: string;
-  durationMinutes: number;
-}
-
-/**
- * Plan journey event payloads
- */
-export interface ClaimSubmittedPayload extends GamificationEventPayload {
-  claimId: string;
-  claimType: string;
-  claimAmount: number;
-}
-
-export interface BenefitUsedPayload extends GamificationEventPayload {
-  benefitId: string;
-  benefitType: string;
-}
-
-/**
- * Request to track a gamification event
- */
-export interface TrackGamificationEventRequest {
-  eventType: GamificationEventType;
-  payload: GamificationEventPayload;
-}
-
-/**
- * Response from tracking a gamification event
- */
-export interface TrackGamificationEventResponse {
-  eventId: string;
-  processed: boolean;
-  unlockedAchievements?: Achievement[];
-  completedQuests?: Quest[];
-  earnedRewards?: Reward[];
-  xpEarned?: number;
-  levelUp?: boolean;
-  newLevel?: number;
-}
-
-/**
- * Request to get user achievements
- */
-export interface GetUserAchievementsRequest extends PaginationParams, SortParams, FilterParams {
-  userId: string;
-  journey?: GamificationJourney;
+export interface GetAchievementsRequest extends PaginationParams {
+  /** Filter by journey (optional) */
+  journey?: string;
+  /** Filter by unlocked status (optional) */
   unlocked?: boolean;
-  inProgress?: boolean;
 }
 
 /**
- * Response containing user achievements
+ * Response for fetching achievements
  */
-export type GetUserAchievementsResponse = PaginatedResponse<Achievement>;
+export interface GetAchievementsResponse extends PaginatedResponse<Achievement> {}
 
 /**
- * Request to get user quests
+ * Request parameters for fetching a single achievement
  */
-export interface GetUserQuestsRequest extends PaginationParams, SortParams, FilterParams {
-  userId: string;
-  journey?: GamificationJourney;
+export interface GetAchievementRequest {
+  /** Achievement ID */
+  id: string;
+}
+
+/**
+ * Response for fetching a single achievement
+ */
+export interface GetAchievementResponse {
+  /** Achievement data */
+  achievement: Achievement;
+}
+
+/**
+ * Request parameters for tracking achievement progress
+ */
+export interface TrackAchievementProgressRequest {
+  /** Achievement ID */
+  achievementId: string;
+  /** Progress increment amount */
+  progressIncrement: number;
+}
+
+/**
+ * Response for tracking achievement progress
+ */
+export interface TrackAchievementProgressResponse {
+  /** Updated achievement data */
+  achievement: Achievement;
+  /** Whether the achievement was newly unlocked */
+  newlyUnlocked: boolean;
+  /** Experience points earned (if any) */
+  xpEarned: number;
+}
+
+// ===== Quest API Interfaces =====
+
+/**
+ * Request parameters for fetching quests
+ */
+export interface GetQuestsRequest extends PaginationParams {
+  /** Filter by journey (optional) */
+  journey?: string;
+  /** Filter by completion status (optional) */
   completed?: boolean;
+  /** Filter by active status (optional) */
   active?: boolean;
-  expiringSoon?: boolean;
 }
 
 /**
- * Response containing user quests
+ * Response for fetching quests
  */
-export type GetUserQuestsResponse = PaginatedResponse<Quest>;
+export interface GetQuestsResponse extends PaginatedResponse<Quest> {}
 
 /**
- * Request to get user rewards
+ * Request parameters for fetching a single quest
  */
-export interface GetUserRewardsRequest extends PaginationParams, SortParams, FilterParams {
-  userId: string;
-  journey?: GamificationJourney;
-  claimed?: boolean;
-  available?: boolean;
-  expiresAfter?: string;
-  expiresBefore?: string;
+export interface GetQuestRequest {
+  /** Quest ID */
+  id: string;
 }
 
 /**
- * Response containing user rewards
+ * Response for fetching a single quest
  */
-export type GetUserRewardsResponse = PaginatedResponse<Reward>;
+export interface GetQuestResponse {
+  /** Quest data */
+  quest: Quest;
+}
 
 /**
- * Request to claim a reward
+ * Request parameters for tracking quest progress
+ */
+export interface TrackQuestProgressRequest {
+  /** Quest ID */
+  questId: string;
+  /** Progress increment amount */
+  progressIncrement: number;
+}
+
+/**
+ * Response for tracking quest progress
+ */
+export interface TrackQuestProgressResponse {
+  /** Updated quest data */
+  quest: Quest;
+  /** Whether the quest was newly completed */
+  newlyCompleted: boolean;
+  /** Experience points earned (if any) */
+  xpEarned: number;
+}
+
+// ===== Reward API Interfaces =====
+
+/**
+ * Request parameters for fetching rewards
+ */
+export interface GetRewardsRequest extends PaginationParams {
+  /** Filter by journey (optional) */
+  journey?: string;
+}
+
+/**
+ * Response for fetching rewards
+ */
+export interface GetRewardsResponse extends PaginatedResponse<Reward> {}
+
+/**
+ * Request parameters for fetching a single reward
+ */
+export interface GetRewardRequest {
+  /** Reward ID */
+  id: string;
+}
+
+/**
+ * Response for fetching a single reward
+ */
+export interface GetRewardResponse {
+  /** Reward data */
+  reward: Reward;
+}
+
+/**
+ * Request parameters for claiming a reward
  */
 export interface ClaimRewardRequest {
-  userId: string;
+  /** Reward ID */
   rewardId: string;
 }
 
 /**
- * Response from claiming a reward
+ * Response for claiming a reward
  */
 export interface ClaimRewardResponse {
-  success: boolean;
+  /** Claimed reward data */
   reward: Reward;
-  claimedAt: string;
-  expiresAt?: string;
+  /** Success status */
+  success: boolean;
+  /** Error message (if any) */
+  error?: string;
 }
 
+// ===== Game Profile API Interfaces =====
+
 /**
- * Request to get a user's game profile
+ * Request parameters for fetching the user's game profile
  */
 export interface GetGameProfileRequest {
-  userId: string;
+  /** Include achievements (optional) */
   includeAchievements?: boolean;
+  /** Include quests (optional) */
   includeQuests?: boolean;
-  includeRewards?: boolean;
 }
 
 /**
- * Response containing a user's game profile
+ * Response for fetching the user's game profile
  */
-export interface GetGameProfileResponse extends ApiResponse {
+export interface GetGameProfileResponse {
+  /** Game profile data */
   profile: GameProfile;
 }
 
 /**
- * Request to get leaderboard data
- */
-export interface GetLeaderboardRequest extends PaginationParams {
-  journey?: GamificationJourney;
-  timeframe?: 'daily' | 'weekly' | 'monthly' | 'allTime';
-  userId?: string; // To get the user's position in the leaderboard
-  radius?: number; // Number of users to include above and below the specified user
-}
-
-/**
- * Leaderboard entry representing a user's position
- */
-export interface LeaderboardEntry {
-  userId: string;
-  username: string;
-  avatarUrl?: string;
-  rank: number;
-  score: number;
-  level: number;
-  isCurrentUser: boolean;
-}
-
-/**
- * Response containing leaderboard data
- */
-export interface GetLeaderboardResponse extends ApiResponse {
-  entries: LeaderboardEntry[];
-  userRank?: number; // The rank of the requested user (if userId was provided)
-  totalParticipants: number;
-}
-
-/**
- * Request to update a user's game profile
+ * Request parameters for updating the user's game profile
  */
 export interface UpdateGameProfileRequest {
-  userId: string;
+  /** Display name (optional) */
   displayName?: string;
-  avatarId?: string;
-  preferences?: {
-    notifyOnAchievements?: boolean;
-    notifyOnLevelUp?: boolean;
-    notifyOnQuestCompletion?: boolean;
-    showOnLeaderboard?: boolean;
-  };
+  /** Avatar URL (optional) */
+  avatarUrl?: string;
 }
 
 /**
- * Response from updating a user's game profile
+ * Response for updating the user's game profile
  */
-export interface UpdateGameProfileResponse extends ApiResponse {
+export interface UpdateGameProfileResponse {
+  /** Updated game profile data */
   profile: GameProfile;
 }
 
-/**
- * Request to get achievement details
- */
-export interface GetAchievementDetailsRequest {
-  achievementId: string;
-  userId?: string; // Optional: to include user-specific progress
-}
+// ===== Leaderboard API Interfaces =====
 
 /**
- * Response containing achievement details
+ * Leaderboard entry structure
  */
-export interface GetAchievementDetailsResponse extends ApiResponse {
-  achievement: Achievement;
-  userProgress?: {
-    progress: number;
-    total: number;
-    unlocked: boolean;
-    unlockedAt?: string;
-  };
-  globalStats?: {
-    unlockPercentage: number; // Percentage of users who have unlocked this achievement
-    averageTimeToUnlock: number; // Average time (in days) to unlock this achievement
-  };
-}
-
-/**
- * Request to get quest details
- */
-export interface GetQuestDetailsRequest {
-  questId: string;
-  userId?: string; // Optional: to include user-specific progress
-}
-
-/**
- * Response containing quest details
- */
-export interface GetQuestDetailsResponse extends ApiResponse {
-  quest: Quest;
-  userProgress?: {
-    progress: number;
-    total: number;
-    completed: boolean;
-    completedAt?: string;
-    expiresAt?: string;
-  };
-  globalStats?: {
-    completionPercentage: number; // Percentage of users who have completed this quest
-    averageTimeToComplete: number; // Average time (in days) to complete this quest
-  };
-}
-
-/**
- * Request to get a user's XP history
- */
-export interface GetXpHistoryRequest extends PaginationParams {
+export interface LeaderboardEntry {
+  /** User ID */
   userId: string;
-  startDate?: string;
-  endDate?: string;
-  journey?: GamificationJourney;
+  /** User display name */
+  displayName: string;
+  /** User avatar URL */
+  avatarUrl?: string;
+  /** User's rank on the leaderboard */
+  rank: number;
+  /** User's score (XP, points, etc.) */
+  score: number;
+  /** User's level */
+  level: number;
 }
 
 /**
- * XP history entry
+ * Request parameters for fetching leaderboard data
  */
-export interface XpHistoryEntry {
+export interface GetLeaderboardRequest extends PaginationParams {
+  /** Leaderboard type (global, journey-specific, etc.) */
+  type: 'global' | 'health' | 'care' | 'plan';
+  /** Time period for the leaderboard */
+  period: 'daily' | 'weekly' | 'monthly' | 'allTime';
+}
+
+/**
+ * Response for fetching leaderboard data
+ */
+export interface GetLeaderboardResponse extends PaginatedResponse<LeaderboardEntry> {
+  /** Current user's rank (if on the leaderboard) */
+  currentUserRank?: number;
+}
+
+/**
+ * Request parameters for fetching the user's rank
+ */
+export interface GetUserRankRequest {
+  /** Leaderboard type */
+  type: 'global' | 'health' | 'care' | 'plan';
+  /** Time period */
+  period: 'daily' | 'weekly' | 'monthly' | 'allTime';
+}
+
+/**
+ * Response for fetching the user's rank
+ */
+export interface GetUserRankResponse {
+  /** User's rank */
+  rank: number;
+  /** User's score */
+  score: number;
+  /** Total number of users on the leaderboard */
+  totalUsers: number;
+}
+
+// ===== Event Tracking Interfaces =====
+
+/**
+ * Base event structure for gamification events
+ */
+export interface GamificationEvent {
+  /** Event type */
+  eventType: string;
+  /** User ID */
+  userId: string;
+  /** Timestamp of the event */
   timestamp: string;
-  amount: number;
-  source: string;
-  eventType: GamificationEventType;
-  journey: GamificationJourney;
-  description: string;
+  /** Journey associated with the event */
+  journey: 'health' | 'care' | 'plan' | 'global';
+  /** Additional event data */
+  data: Record<string, any>;
 }
 
 /**
- * Response containing a user's XP history
+ * Health journey event types
  */
-export interface GetXpHistoryResponse extends PaginatedResponse<XpHistoryEntry> {
-  totalXp: number;
-  currentLevel: number;
-  xpToNextLevel: number;
+export enum HealthEventType {
+  METRIC_RECORDED = 'health.metric.recorded',
+  GOAL_CREATED = 'health.goal.created',
+  GOAL_ACHIEVED = 'health.goal.achieved',
+  DEVICE_CONNECTED = 'health.device.connected',
+  HEALTH_CHECK_COMPLETED = 'health.check.completed',
+}
+
+/**
+ * Care journey event types
+ */
+export enum CareEventType {
+  APPOINTMENT_SCHEDULED = 'care.appointment.scheduled',
+  APPOINTMENT_ATTENDED = 'care.appointment.attended',
+  MEDICATION_TRACKED = 'care.medication.tracked',
+  TELEMEDICINE_COMPLETED = 'care.telemedicine.completed',
+  SYMPTOM_CHECKED = 'care.symptom.checked',
+}
+
+/**
+ * Plan journey event types
+ */
+export enum PlanEventType {
+  CLAIM_SUBMITTED = 'plan.claim.submitted',
+  BENEFIT_USED = 'plan.benefit.used',
+  PLAN_REVIEWED = 'plan.plan.reviewed',
+  DOCUMENT_UPLOADED = 'plan.document.uploaded',
+  COVERAGE_CHECKED = 'plan.coverage.checked',
+}
+
+/**
+ * Request parameters for tracking a gamification event
+ */
+export interface TrackEventRequest {
+  /** Event data */
+  event: GamificationEvent;
+}
+
+/**
+ * Response for tracking a gamification event
+ */
+export interface TrackEventResponse {
+  /** Success status */
+  success: boolean;
+  /** Event ID (for reference) */
+  eventId: string;
+  /** Triggered achievements (if any) */
+  triggeredAchievements?: Achievement[];
+  /** Triggered quest progress (if any) */
+  triggeredQuestProgress?: {
+    questId: string;
+    progressIncrement: number;
+    newProgress: number;
+    completed: boolean;
+  }[];
+  /** Experience points earned (if any) */
+  xpEarned: number;
+}
+
+/**
+ * Request parameters for tracking multiple gamification events in batch
+ */
+export interface TrackEventBatchRequest {
+  /** Array of events */
+  events: GamificationEvent[];
+}
+
+/**
+ * Response for tracking multiple gamification events in batch
+ */
+export interface TrackEventBatchResponse {
+  /** Success status */
+  success: boolean;
+  /** Number of events processed */
+  processedCount: number;
+  /** Number of events failed */
+  failedCount: number;
+  /** Array of event IDs */
+  eventIds: string[];
+  /** Experience points earned (if any) */
+  xpEarned: number;
 }

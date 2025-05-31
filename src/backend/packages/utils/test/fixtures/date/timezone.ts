@@ -1,373 +1,198 @@
 /**
- * Test fixtures for timezone utilities
+ * Test fixtures for timezone utilities (getLocalTimezone)
  * These fixtures ensure consistent timezone handling across the application,
- * critical for a healthcare platform serving users in different regions.
+ * which is critical for a healthcare platform serving users in different regions.
  */
 
 /**
- * Interface for timezone test fixtures
+ * Dates with known timezone offsets for predictable testing
+ * Each date is set to noon in its respective timezone to avoid DST edge cases
  */
-export interface TimezoneFixture {
-  date: Date;
-  expectedFormat: string;
-  description: string;
-}
+export const fixedOffsetDates = {
+  // UTC+0 (Greenwich Mean Time)
+  utc: new Date('2023-06-15T12:00:00Z'),
+  
+  // UTC-3 (São Paulo, Brazil - standard time)
+  saoPaulo: new Date('2023-06-15T12:00:00-03:00'),
+  
+  // UTC-5 (Eastern Standard Time - non-DST period)
+  newYorkWinter: new Date('2023-01-15T12:00:00-05:00'),
+  
+  // UTC-4 (Eastern Daylight Time - DST period)
+  newYorkSummer: new Date('2023-07-15T12:00:00-04:00'),
+  
+  // UTC+1 (Central European Time - non-DST period)
+  parisWinter: new Date('2023-01-15T12:00:00+01:00'),
+  
+  // UTC+2 (Central European Summer Time - DST period)
+  parisSummer: new Date('2023-07-15T12:00:00+02:00'),
+  
+  // UTC+9 (Japan Standard Time - no DST)
+  tokyo: new Date('2023-06-15T12:00:00+09:00'),
+  
+  // UTC+5:30 (India Standard Time - no DST, non-whole hour offset)
+  mumbai: new Date('2023-06-15T12:00:00+05:30'),
+  
+  // UTC+12 (New Zealand Standard Time - non-DST period)
+  aucklandWinter: new Date('2023-06-15T12:00:00+12:00'),
+  
+  // UTC+13 (New Zealand Daylight Time - DST period)
+  aucklandSummer: new Date('2023-01-15T12:00:00+13:00'),
+};
 
 /**
- * Interface for timezone offset test fixtures
+ * DST transition dates for testing timezone handling during shifts
+ * These dates are set exactly at the DST transition points
  */
-export interface TimezoneOffsetFixture {
-  date: Date;
-  offsetMinutes: number;
-  expectedFormat: string;
-  description: string;
-}
-
-/**
- * Standard timezone fixtures with known offsets
- * These fixtures provide predictable timezone strings for testing
- */
-export const standardTimezoneFixtures: TimezoneOffsetFixture[] = [
-  {
-    description: 'UTC+0 (Greenwich Mean Time)',
-    date: new Date('2023-06-15T12:00:00Z'),
-    offsetMinutes: 0,
-    expectedFormat: '+00:00'
-  },
-  {
-    description: 'UTC+1 (Central European Time)',
-    date: new Date('2023-06-15T12:00:00Z'),
-    offsetMinutes: 60,
-    expectedFormat: '+01:00'
-  },
-  {
-    description: 'UTC-5 (Eastern Standard Time)',
-    date: new Date('2023-06-15T12:00:00Z'),
-    offsetMinutes: -300,
-    expectedFormat: '-05:00'
-  },
-  {
-    description: 'UTC+5:30 (Indian Standard Time)',
-    date: new Date('2023-06-15T12:00:00Z'),
-    offsetMinutes: 330,
-    expectedFormat: '+05:30'
-  },
-  {
-    description: 'UTC+9 (Japan Standard Time)',
-    date: new Date('2023-06-15T12:00:00Z'),
-    offsetMinutes: 540,
-    expectedFormat: '+09:00'
-  },
-  {
-    description: 'UTC-3 (Brasília Time)',
-    date: new Date('2023-06-15T12:00:00Z'),
-    offsetMinutes: -180,
-    expectedFormat: '-03:00'
-  },
-  {
-    description: 'UTC+12 (New Zealand Standard Time)',
-    date: new Date('2023-06-15T12:00:00Z'),
-    offsetMinutes: 720,
-    expectedFormat: '+12:00'
-  },
-  {
-    description: 'UTC-12 (Baker Island Time)',
-    date: new Date('2023-06-15T12:00:00Z'),
-    offsetMinutes: -720,
-    expectedFormat: '-12:00'
-  },
-  {
-    description: 'UTC+13 (Samoa Standard Time)',
-    date: new Date('2023-06-15T12:00:00Z'),
-    offsetMinutes: 780,
-    expectedFormat: '+13:00'
-  },
-  {
-    description: 'UTC+5:45 (Nepal Time)',
-    date: new Date('2023-06-15T12:00:00Z'),
-    offsetMinutes: 345,
-    expectedFormat: '+05:45'
-  }
-];
-
-/**
- * DST transition fixtures for testing timezone handling during shifts
- * These fixtures test the behavior of timezone functions during Daylight Saving Time transitions
- */
-export const dstTransitionFixtures: TimezoneFixture[] = [
-  // Brazil DST transitions (when applicable)
-  {
-    description: 'Brazil - Before DST start (when applicable)',
-    date: new Date('2023-10-14T23:59:59-03:00'),
-    expectedFormat: '-03:00'
-  },
-  {
-    description: 'Brazil - After DST start (when applicable)',
-    date: new Date('2023-10-15T00:00:01-02:00'),
-    expectedFormat: '-02:00'
-  },
-  {
-    description: 'Brazil - Before DST end (when applicable)',
-    date: new Date('2024-02-17T23:59:59-02:00'),
-    expectedFormat: '-02:00'
-  },
-  {
-    description: 'Brazil - After DST end (when applicable)',
-    date: new Date('2024-02-18T00:00:01-03:00'),
-    expectedFormat: '-03:00'
+export const dstTransitionDates = {
+  // North America DST transitions for 2023
+  northAmerica: {
+    // Spring forward (2:00 AM → 3:00 AM)
+    springForward: new Date('2023-03-12T02:00:00-05:00'),
+    // One hour after spring forward
+    afterSpringForward: new Date('2023-03-12T03:00:00-04:00'),
+    // Fall back (2:00 AM → 1:00 AM)
+    fallBack: new Date('2023-11-05T02:00:00-04:00'),
+    // One hour after fall back
+    afterFallBack: new Date('2023-11-05T01:00:00-05:00'),
   },
   
-  // US DST transitions
-  {
-    description: 'US - Before DST start',
-    date: new Date('2023-03-12T01:59:59-05:00'),
-    expectedFormat: '-05:00'
-  },
-  {
-    description: 'US - After DST start',
-    date: new Date('2023-03-12T03:00:01-04:00'),
-    expectedFormat: '-04:00'
-  },
-  {
-    description: 'US - Before DST end',
-    date: new Date('2023-11-05T01:59:59-04:00'),
-    expectedFormat: '-04:00'
-  },
-  {
-    description: 'US - After DST end',
-    date: new Date('2023-11-05T01:00:01-05:00'),
-    expectedFormat: '-05:00'
+  // Europe DST transitions for 2023
+  europe: {
+    // Spring forward (2:00 AM → 3:00 AM)
+    springForward: new Date('2023-03-26T02:00:00+01:00'),
+    // One hour after spring forward
+    afterSpringForward: new Date('2023-03-26T03:00:00+02:00'),
+    // Fall back (3:00 AM → 2:00 AM)
+    fallBack: new Date('2023-10-29T03:00:00+02:00'),
+    // One hour after fall back
+    afterFallBack: new Date('2023-10-29T02:00:00+01:00'),
   },
   
-  // European DST transitions
-  {
-    description: 'Europe - Before DST start',
-    date: new Date('2023-03-26T01:59:59+01:00'),
-    expectedFormat: '+01:00'
+  // Southern Hemisphere DST transitions for 2023 (e.g., Australia)
+  southernHemisphere: {
+    // Fall back (3:00 AM → 2:00 AM)
+    fallBack: new Date('2023-04-02T03:00:00+11:00'),
+    // One hour after fall back
+    afterFallBack: new Date('2023-04-02T02:00:00+10:00'),
+    // Spring forward (2:00 AM → 3:00 AM)
+    springForward: new Date('2023-10-01T02:00:00+10:00'),
+    // One hour after spring forward
+    afterSpringForward: new Date('2023-10-01T03:00:00+11:00'),
   },
-  {
-    description: 'Europe - After DST start',
-    date: new Date('2023-03-26T03:00:01+02:00'),
-    expectedFormat: '+02:00'
-  },
-  {
-    description: 'Europe - Before DST end',
-    date: new Date('2023-10-29T02:59:59+02:00'),
-    expectedFormat: '+02:00'
-  },
-  {
-    description: 'Europe - After DST end',
-    date: new Date('2023-10-29T02:00:01+01:00'),
-    expectedFormat: '+01:00'
-  }
-];
+};
+
+/**
+ * Expected timezone string formats for validation
+ * These match the format returned by getLocalTimezone(): "+HH:MM" or "-HH:MM"
+ */
+export const expectedTimezoneFormats = {
+  // Whole hour offsets
+  utc: '+00:00',
+  est: '-05:00',
+  edt: '-04:00',
+  cet: '+01:00',
+  cest: '+02:00',
+  jst: '+09:00',
+  nzst: '+12:00',
+  nzdt: '+13:00',
+  
+  // Non-whole hour offsets
+  ist: '+05:30',  // India
+  npt: '+05:45',  // Nepal
+  acst: '+09:30',  // Australian Central Standard Time
+  
+  // Negative non-whole hour offsets
+  nfnt: '-03:30',  // Newfoundland Time
+};
 
 /**
  * Global timezone fixtures for testing international scenarios
- * These fixtures represent major global timezones for comprehensive testing
+ * Each entry contains a location name, its standard offset, and whether it observes DST
  */
-export const globalTimezoneFixtures: TimezoneFixture[] = [
-  // Americas
-  {
-    description: 'São Paulo, Brazil (BRT)',
-    date: new Date('2023-06-15T12:00:00-03:00'),
-    expectedFormat: '-03:00'
-  },
-  {
-    description: 'New York, USA (EST/EDT)',
-    date: new Date('2023-06-15T12:00:00-04:00'), // EDT (summer time)
-    expectedFormat: '-04:00'
-  },
-  {
-    description: 'Los Angeles, USA (PST/PDT)',
-    date: new Date('2023-06-15T12:00:00-07:00'), // PDT (summer time)
-    expectedFormat: '-07:00'
-  },
-  {
-    description: 'Mexico City, Mexico (CST/CDT)',
-    date: new Date('2023-06-15T12:00:00-05:00'), // CDT (summer time)
-    expectedFormat: '-05:00'
-  },
-  
-  // Europe
-  {
-    description: 'London, UK (GMT/BST)',
-    date: new Date('2023-06-15T12:00:00+01:00'), // BST (summer time)
-    expectedFormat: '+01:00'
-  },
-  {
-    description: 'Paris, France (CET/CEST)',
-    date: new Date('2023-06-15T12:00:00+02:00'), // CEST (summer time)
-    expectedFormat: '+02:00'
-  },
-  {
-    description: 'Moscow, Russia (MSK)',
-    date: new Date('2023-06-15T12:00:00+03:00'),
-    expectedFormat: '+03:00'
-  },
-  
-  // Asia
-  {
-    description: 'Dubai, UAE (GST)',
-    date: new Date('2023-06-15T12:00:00+04:00'),
-    expectedFormat: '+04:00'
-  },
-  {
-    description: 'Mumbai, India (IST)',
-    date: new Date('2023-06-15T12:00:00+05:30'),
-    expectedFormat: '+05:30'
-  },
-  {
-    description: 'Singapore (SGT)',
-    date: new Date('2023-06-15T12:00:00+08:00'),
-    expectedFormat: '+08:00'
-  },
-  {
-    description: 'Tokyo, Japan (JST)',
-    date: new Date('2023-06-15T12:00:00+09:00'),
-    expectedFormat: '+09:00'
-  },
-  
-  // Oceania
-  {
-    description: 'Sydney, Australia (AEST/AEDT)',
-    date: new Date('2023-06-15T12:00:00+10:00'), // AEST (winter time in June)
-    expectedFormat: '+10:00'
-  },
-  {
-    description: 'Auckland, New Zealand (NZST/NZDT)',
-    date: new Date('2023-06-15T12:00:00+12:00'), // NZST (winter time in June)
-    expectedFormat: '+12:00'
-  }
+export const globalTimezones = [
+  { location: 'São Paulo, Brazil', standardOffset: '-03:00', observesDst: false },
+  { location: 'New York, USA', standardOffset: '-05:00', observesDst: true },
+  { location: 'London, UK', standardOffset: '+00:00', observesDst: true },
+  { location: 'Paris, France', standardOffset: '+01:00', observesDst: true },
+  { location: 'Cairo, Egypt', standardOffset: '+02:00', observesDst: false },
+  { location: 'Mumbai, India', standardOffset: '+05:30', observesDst: false },
+  { location: 'Tokyo, Japan', standardOffset: '+09:00', observesDst: false },
+  { location: 'Sydney, Australia', standardOffset: '+10:00', observesDst: true },
+  { location: 'Auckland, New Zealand', standardOffset: '+12:00', observesDst: true },
 ];
 
 /**
- * Edge case timezone fixtures for testing unusual scenarios
+ * Special test cases for timezone edge scenarios
  */
-export const edgeCaseTimezoneFixtures: TimezoneFixture[] = [
-  {
-    description: 'International Date Line West',
-    date: new Date('2023-06-15T12:00:00-12:00'),
-    expectedFormat: '-12:00'
+export const specialTimezoneTestCases = {
+  // International Date Line crossing
+  dateLineCrossing: {
+    // Baker Island (UTC-12)
+    west: new Date('2023-06-15T12:00:00-12:00'),
+    // Line Islands, Kiribati (UTC+14)
+    east: new Date('2023-06-15T12:00:00+14:00'),
   },
-  {
-    description: 'International Date Line East',
-    date: new Date('2023-06-15T12:00:00+14:00'),
-    expectedFormat: '+14:00'
-  },
-  {
-    description: 'Chatham Islands, New Zealand (CHAST)',
-    date: new Date('2023-06-15T12:00:00+12:45'),
-    expectedFormat: '+12:45'
-  },
-  {
-    description: 'Nepal (NPT)',
-    date: new Date('2023-06-15T12:00:00+05:45'),
-    expectedFormat: '+05:45'
-  },
-  {
-    description: 'Cocos Islands (CCT)',
-    date: new Date('2023-06-15T12:00:00+06:30'),
-    expectedFormat: '+06:30'
-  },
-  {
-    description: 'Marquesas Islands (MART)',
-    date: new Date('2023-06-15T12:00:00-09:30'),
-    expectedFormat: '-09:30'
-  }
-];
-
-/**
- * Timezone format validation fixtures
- * These fixtures test the format of timezone strings returned by getLocalTimezone
- */
-export const timezoneFormatValidationFixtures: {
-  format: string;
-  isValid: boolean;
-  description: string;
-}[] = [
-  {
-    description: 'Valid format with positive offset',
-    format: '+05:30',
-    isValid: true
-  },
-  {
-    description: 'Valid format with negative offset',
-    format: '-07:00',
-    isValid: true
-  },
-  {
-    description: 'Valid format with zero offset',
-    format: '+00:00',
-    isValid: true
-  },
-  {
-    description: 'Invalid format - missing plus/minus sign',
-    format: '05:30',
-    isValid: false
-  },
-  {
-    description: 'Invalid format - missing colon',
-    format: '+0530',
-    isValid: false
-  },
-  {
-    description: 'Invalid format - incorrect hour padding',
-    format: '+5:30',
-    isValid: false
-  },
-  {
-    description: 'Invalid format - incorrect minute padding',
-    format: '+05:3',
-    isValid: false
-  },
-  {
-    description: 'Invalid format - out of range hours',
-    format: '+25:00',
-    isValid: false
-  },
-  {
-    description: 'Invalid format - out of range minutes',
-    format: '+05:75',
-    isValid: false
-  }
-];
-
-/**
- * Helper function to mock timezone offset for testing
- * This function can be used to simulate different timezone offsets in tests
- * 
- * @param offsetMinutes - The timezone offset in minutes
- * @returns A mocked Date object with the specified timezone offset
- */
-export const createDateWithOffset = (offsetMinutes: number): Date => {
-  const date = new Date();
   
-  // Store the original getTimezoneOffset method
-  const originalGetTimezoneOffset = Date.prototype.getTimezoneOffset;
+  // Extreme timezone offsets
+  extremeOffsets: {
+    // Westernmost timezone (UTC-12)
+    westernmost: new Date('2023-06-15T12:00:00-12:00'),
+    // Easternmost timezone (UTC+14)
+    easternmost: new Date('2023-06-15T12:00:00+14:00'),
+  },
   
-  // Mock the getTimezoneOffset method to return our desired offset
-  Date.prototype.getTimezoneOffset = function() {
-    return -offsetMinutes; // Note: getTimezoneOffset returns the opposite sign of the timezone
-  };
-  
-  // Create a new date with our mocked timezone offset
-  const mockedDate = new Date(date);
-  
-  // Restore the original method to avoid affecting other tests
-  Date.prototype.getTimezoneOffset = originalGetTimezoneOffset;
-  
-  return mockedDate;
+  // Historical timezone changes
+  // For testing with systems that may have historical timezone data
+  historicalChanges: {
+    // Before Brazil eliminated DST in 2019
+    brazilBeforeDstElimination: new Date('2018-10-21T00:00:00-02:00'),
+    // After Brazil eliminated DST
+    brazilAfterDstElimination: new Date('2019-10-20T00:00:00-03:00'),
+  },
 };
 
 /**
- * Comprehensive test fixtures for the getLocalTimezone function
+ * Test cases for invalid or problematic dates
+ * These should be handled gracefully by timezone functions
  */
-export const getLocalTimezoneFixtures = {
-  standardTimezoneFixtures,
-  dstTransitionFixtures,
-  globalTimezoneFixtures,
-  edgeCaseTimezoneFixtures,
-  timezoneFormatValidationFixtures,
-  createDateWithOffset
-};
+export const invalidTimezoneTestCases = [
+  null,
+  undefined,
+  '',
+  'not-a-date',
+  '2023-13-45', // Invalid month and day
+  {}, // Invalid object
+  new Date('Invalid Date'),
+];
+
+/**
+ * Timezone offset calculation test cases
+ * For testing functions that calculate timezone differences
+ */
+export const timezoneOffsetCalculations = [
+  {
+    description: 'São Paulo to New York (non-DST)',
+    fromTimezone: '-03:00',
+    toTimezone: '-05:00',
+    expectedHourDifference: -2, // São Paulo is 2 hours ahead of New York
+  },
+  {
+    description: 'Tokyo to London (non-DST)',
+    fromTimezone: '+09:00',
+    toTimezone: '+00:00',
+    expectedHourDifference: 9, // Tokyo is 9 hours ahead of London
+  },
+  {
+    description: 'Sydney to Los Angeles (both in DST)',
+    fromTimezone: '+11:00', // Sydney in DST
+    toTimezone: '-07:00', // LA in DST
+    expectedHourDifference: 18, // Sydney is 18 hours ahead of LA
+  },
+  {
+    description: 'Mumbai to São Paulo (no DST)',
+    fromTimezone: '+05:30',
+    toTimezone: '-03:00',
+    expectedHourDifference: 8.5, // Mumbai is 8.5 hours ahead of São Paulo
+  },
+];

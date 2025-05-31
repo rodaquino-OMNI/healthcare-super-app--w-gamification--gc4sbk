@@ -1,17 +1,16 @@
 /**
  * Authentication Component Interfaces
  * 
- * This file defines TypeScript interfaces for authentication-related UI components
- * in the AUSTA SuperApp, including Login, Register, ForgotPassword, and MFA screens.
- * These interfaces ensure consistent prop structures for authentication components
- * while providing type safety for form data, validation states, and authentication callbacks.
+ * Defines TypeScript interfaces for authentication-related UI components in the AUSTA SuperApp,
+ * including Login, Register, ForgotPassword, and MFA screens. These interfaces ensure consistent
+ * prop structures for authentication components while providing type safety for form data,
+ * validation states, and authentication callbacks.
  */
 
-import { AuthSession } from '../auth/session.types';
-import { AuthState } from '../auth/state.types';
+import { ReactNode } from 'react';
 
 /**
- * Common validation state interface for authentication forms
+ * Common validation state for authentication forms
  */
 export interface AuthValidationState {
   /**
@@ -32,7 +31,9 @@ export interface AuthValidationState {
   /**
    * Field-specific error messages
    */
-  fieldErrors: Record<string, string>;
+  fieldErrors: {
+    [fieldName: string]: string;
+  };
 }
 
 /**
@@ -42,15 +43,15 @@ export interface AuthCallbacks {
   /**
    * Callback for successful authentication
    */
-  onSuccess: (session: AuthSession) => void;
+  onSuccess?: () => void;
   
   /**
    * Callback for authentication failure
    */
-  onError: (error: Error) => void;
+  onError?: (error: Error) => void;
   
   /**
-   * Callback for canceling the authentication process
+   * Callback for form cancellation
    */
   onCancel?: () => void;
 }
@@ -60,7 +61,7 @@ export interface AuthCallbacks {
  */
 export interface LoginFormData {
   /**
-   * User email address
+   * User email or username
    */
   email: string;
   
@@ -78,21 +79,16 @@ export interface LoginFormData {
 /**
  * Login component props interface
  */
-export interface LoginComponentProps {
+export interface LoginProps extends AuthCallbacks {
   /**
    * Initial form data
    */
   initialValues?: Partial<LoginFormData>;
   
   /**
-   * Current validation state
+   * Validation state for the login form
    */
   validationState?: AuthValidationState;
-  
-  /**
-   * Authentication callbacks
-   */
-  callbacks: AuthCallbacks;
   
   /**
    * Whether to show social login options
@@ -100,19 +96,29 @@ export interface LoginComponentProps {
   showSocialLogin?: boolean;
   
   /**
-   * Navigation callback to registration screen
+   * Custom login form header
+   */
+  header?: ReactNode;
+  
+  /**
+   * Custom login form footer
+   */
+  footer?: ReactNode;
+  
+  /**
+   * Callback for form submission
+   */
+  onSubmit: (data: LoginFormData) => Promise<void>;
+  
+  /**
+   * Callback for navigating to registration
    */
   onRegisterClick?: () => void;
   
   /**
-   * Navigation callback to forgot password screen
+   * Callback for navigating to forgot password
    */
   onForgotPasswordClick?: () => void;
-  
-  /**
-   * Journey-specific theme to apply
-   */
-  journeyTheme?: 'health' | 'care' | 'plan';
 }
 
 /**
@@ -120,7 +126,7 @@ export interface LoginComponentProps {
  */
 export interface RegisterFormData {
   /**
-   * User email address
+   * User email
    */
   email: string;
   
@@ -132,7 +138,7 @@ export interface RegisterFormData {
   /**
    * Password confirmation
    */
-  passwordConfirmation: string;
+  confirmPassword: string;
   
   /**
    * User's first name
@@ -150,34 +156,24 @@ export interface RegisterFormData {
   dateOfBirth?: string;
   
   /**
-   * User's phone number
-   */
-  phoneNumber?: string;
-  
-  /**
    * Whether the user accepts the terms and conditions
    */
   acceptTerms: boolean;
 }
 
 /**
- * Register component props interface
+ * Registration component props interface
  */
-export interface RegisterComponentProps {
+export interface RegisterProps extends AuthCallbacks {
   /**
    * Initial form data
    */
   initialValues?: Partial<RegisterFormData>;
   
   /**
-   * Current validation state
+   * Validation state for the registration form
    */
   validationState?: AuthValidationState;
-  
-  /**
-   * Authentication callbacks
-   */
-  callbacks: AuthCallbacks;
   
   /**
    * Whether to show social registration options
@@ -185,14 +181,34 @@ export interface RegisterComponentProps {
   showSocialRegistration?: boolean;
   
   /**
-   * Navigation callback to login screen
+   * Custom registration form header
+   */
+  header?: ReactNode;
+  
+  /**
+   * Custom registration form footer
+   */
+  footer?: ReactNode;
+  
+  /**
+   * Callback for form submission
+   */
+  onSubmit: (data: RegisterFormData) => Promise<void>;
+  
+  /**
+   * Callback for navigating to login
    */
   onLoginClick?: () => void;
   
   /**
-   * Journey-specific theme to apply
+   * URL to terms and conditions
    */
-  journeyTheme?: 'health' | 'care' | 'plan';
+  termsUrl?: string;
+  
+  /**
+   * URL to privacy policy
+   */
+  privacyUrl?: string;
 }
 
 /**
@@ -200,9 +216,44 @@ export interface RegisterComponentProps {
  */
 export interface ForgotPasswordFormData {
   /**
-   * User email address
+   * User email
    */
   email: string;
+}
+
+/**
+ * Forgot password component props interface
+ */
+export interface ForgotPasswordProps extends AuthCallbacks {
+  /**
+   * Initial form data
+   */
+  initialValues?: Partial<ForgotPasswordFormData>;
+  
+  /**
+   * Validation state for the forgot password form
+   */
+  validationState?: AuthValidationState;
+  
+  /**
+   * Custom forgot password form header
+   */
+  header?: ReactNode;
+  
+  /**
+   * Custom forgot password form footer
+   */
+  footer?: ReactNode;
+  
+  /**
+   * Callback for form submission
+   */
+  onSubmit: (data: ForgotPasswordFormData) => Promise<void>;
+  
+  /**
+   * Callback for navigating to login
+   */
+  onLoginClick?: () => void;
 }
 
 /**
@@ -217,91 +268,61 @@ export interface ResetPasswordFormData {
   /**
    * Password confirmation
    */
-  passwordConfirmation: string;
+  confirmPassword: string;
   
   /**
-   * Reset token received via email
+   * Reset token from email
    */
   token: string;
 }
 
 /**
- * Forgot password component props interface
- */
-export interface ForgotPasswordComponentProps {
-  /**
-   * Initial form data
-   */
-  initialValues?: Partial<ForgotPasswordFormData>;
-  
-  /**
-   * Current validation state
-   */
-  validationState?: AuthValidationState;
-  
-  /**
-   * Callback for successful password reset request
-   */
-  onRequestSuccess: () => void;
-  
-  /**
-   * Callback for password reset request failure
-   */
-  onRequestError: (error: Error) => void;
-  
-  /**
-   * Navigation callback to login screen
-   */
-  onLoginClick?: () => void;
-  
-  /**
-   * Journey-specific theme to apply
-   */
-  journeyTheme?: 'health' | 'care' | 'plan';
-}
-
-/**
  * Reset password component props interface
  */
-export interface ResetPasswordComponentProps {
+export interface ResetPasswordProps extends AuthCallbacks {
   /**
    * Initial form data
    */
   initialValues?: Partial<ResetPasswordFormData>;
   
   /**
-   * Current validation state
+   * Validation state for the reset password form
    */
   validationState?: AuthValidationState;
   
   /**
-   * Callback for successful password reset
+   * Custom reset password form header
    */
-  onResetSuccess: () => void;
+  header?: ReactNode;
   
   /**
-   * Callback for password reset failure
+   * Custom reset password form footer
    */
-  onResetError: (error: Error) => void;
+  footer?: ReactNode;
   
   /**
-   * Navigation callback to login screen
+   * Callback for form submission
+   */
+  onSubmit: (data: ResetPasswordFormData) => Promise<void>;
+  
+  /**
+   * Callback for navigating to login
    */
   onLoginClick?: () => void;
-  
-  /**
-   * Journey-specific theme to apply
-   */
-  journeyTheme?: 'health' | 'care' | 'plan';
 }
 
 /**
- * Multi-factor authentication method type
+ * MFA verification method types
  */
-export type MFAMethod = 'sms' | 'email' | 'authenticator';
+export enum MFAMethod {
+  SMS = 'sms',
+  EMAIL = 'email',
+  AUTHENTICATOR = 'authenticator',
+  RECOVERY_CODE = 'recovery_code'
+}
 
 /**
- * Multi-factor authentication form data interface
+ * MFA verification form data interface
  */
 export interface MFAFormData {
   /**
@@ -310,29 +331,29 @@ export interface MFAFormData {
   code: string;
   
   /**
-   * Selected MFA method
+   * Selected verification method
    */
   method: MFAMethod;
+  
+  /**
+   * Whether to remember this device
+   */
+  rememberDevice?: boolean;
 }
 
 /**
- * Multi-factor authentication component props interface
+ * MFA verification component props interface
  */
-export interface MFAComponentProps {
+export interface MFAProps extends AuthCallbacks {
   /**
    * Initial form data
    */
   initialValues?: Partial<MFAFormData>;
   
   /**
-   * Current validation state
+   * Validation state for the MFA form
    */
   validationState?: AuthValidationState;
-  
-  /**
-   * Authentication callbacks
-   */
-  callbacks: AuthCallbacks;
   
   /**
    * Available MFA methods for the user
@@ -340,42 +361,127 @@ export interface MFAComponentProps {
   availableMethods: MFAMethod[];
   
   /**
-   * Callback to resend verification code
+   * Custom MFA form header
    */
-  onResendCode: (method: MFAMethod) => Promise<void>;
+  header?: ReactNode;
   
   /**
-   * Callback to change MFA method
+   * Custom MFA form footer
    */
-  onChangeMethod: (method: MFAMethod) => void;
+  footer?: ReactNode;
   
   /**
-   * Journey-specific theme to apply
+   * Callback for form submission
    */
-  journeyTheme?: 'health' | 'care' | 'plan';
+  onSubmit: (data: MFAFormData) => Promise<void>;
+  
+  /**
+   * Callback for requesting a new verification code
+   */
+  onResendCode?: (method: MFAMethod) => Promise<void>;
+  
+  /**
+   * Callback for changing the verification method
+   */
+  onChangeMethod?: (method: MFAMethod) => void;
+  
+  /**
+   * Callback for navigating to login
+   */
+  onLoginClick?: () => void;
+  
+  /**
+   * Time remaining for the current verification code (in seconds)
+   */
+  codeExpiresIn?: number;
 }
 
 /**
- * Authentication container component props interface
+ * MFA setup form data interface
  */
-export interface AuthContainerProps {
+export interface MFASetupFormData {
   /**
-   * Current authentication state
+   * Verification code entered by the user
    */
-  authState: AuthState;
+  code: string;
   
   /**
-   * Children components
+   * Selected verification method to set up
    */
-  children: React.ReactNode;
+  method: MFAMethod;
   
   /**
-   * Whether to show the loading state
+   * Phone number for SMS verification
    */
-  showLoading?: boolean;
+  phoneNumber?: string;
   
   /**
-   * Journey-specific theme to apply
+   * Email for email verification
    */
-  journeyTheme?: 'health' | 'care' | 'plan';
+  email?: string;
+}
+
+/**
+ * MFA setup component props interface
+ */
+export interface MFASetupProps extends AuthCallbacks {
+  /**
+   * Initial form data
+   */
+  initialValues?: Partial<MFASetupFormData>;
+  
+  /**
+   * Validation state for the MFA setup form
+   */
+  validationState?: AuthValidationState;
+  
+  /**
+   * Available MFA methods for setup
+   */
+  availableMethods: MFAMethod[];
+  
+  /**
+   * Custom MFA setup form header
+   */
+  header?: ReactNode;
+  
+  /**
+   * Custom MFA setup form footer
+   */
+  footer?: ReactNode;
+  
+  /**
+   * Callback for form submission
+   */
+  onSubmit: (data: MFASetupFormData) => Promise<void>;
+  
+  /**
+   * Callback for requesting a new verification code
+   */
+  onResendCode?: (method: MFAMethod) => Promise<void>;
+  
+  /**
+   * Callback for changing the verification method
+   */
+  onChangeMethod?: (method: MFAMethod) => void;
+  
+  /**
+   * QR code data URL for authenticator app setup
+   */
+  authenticatorQrCode?: string;
+  
+  /**
+   * Secret key for manual authenticator app setup
+   */
+  authenticatorSecret?: string;
+  
+  /**
+   * Recovery codes for the user
+   */
+  recoveryCodes?: string[];
+  
+  /**
+   * Callback for skipping MFA setup
+   */
+  onSkip?: () => void;
 }

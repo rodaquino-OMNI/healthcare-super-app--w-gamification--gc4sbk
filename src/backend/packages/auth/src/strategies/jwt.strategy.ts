@@ -1,26 +1,21 @@
-/**
- * @file jwt.strategy.ts
- * @description Passport strategy for authenticating users based on JWT tokens.
- * Validates tokens and extracts user information from the payload.
- * Implements Redis-backed token blacklisting for improved security.
- */
-
 import { ExtractJwt, Strategy } from 'passport-jwt';
 import { Injectable, Inject, UnauthorizedException } from '@nestjs/common';
 import { PassportStrategy } from '@nestjs/passport';
 import { ConfigService } from '@nestjs/config';
 
-// Use standardized import paths with TypeScript path aliases
-import { ITokenPayload, ITokenValidationOptions } from '@austa/interfaces/auth';
-import { IUser } from '@austa/interfaces/auth';
+// Import from @austa/interfaces package for shared interfaces
+import { JwtPayload, UserResponseDto } from '@austa/interfaces/auth';
 
-// Import the JWT provider for token blacklisting
+// Import from providers for JWT and Redis integration
 import { JwtRedisProvider } from '../providers/jwt/jwt-redis.provider';
+
+// Import from @austa/errors for standardized error handling
+import { AuthenticationError } from '@austa/errors/categories';
 
 /**
  * Passport strategy for authenticating users based on JWT tokens.
- * Validates tokens and extracts user information from the payload.
- * Implements Redis-backed token blacklisting for improved security.
+ * This enhanced version includes Redis-backed token blacklisting and
+ * improved session management with standardized error handling.
  */
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
@@ -28,10 +23,12 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
    * Initializes the JWT strategy with configuration options.
    * 
    * @param configService Service to access JWT configuration values
-   * @param jwtRedisProvider Provider for JWT token validation and blacklist checking
+   * @param userService Service to retrieve user information
+   * @param jwtRedisProvider Provider for JWT operations with Redis integration
    */
   constructor(
     private configService: ConfigService,
+    @Inject('USER_SERVICE') private userService: any,
     private jwtRedisProvider: JwtRedisProvider,
   ) {
     super({
@@ -40,7 +37,6 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       secretOrKey: configService.get<string>('JWT_SECRET'),
       audience: configService.get<string>('JWT_AUDIENCE'),
       issuer: configService.get<string>('JWT_ISSUER'),
-      passReqToCallback: true, // Pass request to callback for additional validation
     });
   }
 
@@ -48,53 +44,65 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
    * Validates the JWT payload and returns the user object.
    * This method is called by Passport.js after the token is decoded.
    * 
-   * Performs additional validation:
-   * 1. Checks if the token is blacklisted in Redis
-   * 2. Validates required claims in the token
-   * 3. Verifies token integrity and signature
+   * Enhanced with Redis token blacklist checking and improved error handling.
    * 
-   * @param request The HTTP request object
    * @param payload The decoded JWT payload
    * @returns The user object if the token is valid
-   * @throws UnauthorizedException if the token is invalid or blacklisted
+   * @throws AuthenticationError if token is invalid or blacklisted
    */
-  async validate(request: any, payload: ITokenPayload): Promise<Partial<IUser>> {
+  async validate(payload: JwtPayload): Promise<UserResponseDto> {
     try {
-      // Extract the token from the Authorization header
-      const token = ExtractJwt.fromAuthHeaderAsBearerToken()(request);
-      
-      // Check if the token is blacklisted in Redis
-      const isBlacklisted = await this.jwtRedisProvider.isTokenBlacklisted(token);
+      // Check if token is blacklisted in Redis
+      const isBlacklisted = await this.jwtRedisProvider.isTokenBlacklisted(payload.jti);
       if (isBlacklisted) {
-        throw new UnauthorizedException('Token has been revoked');
+        throw new AuthenticationError(
+          'Token has been revoked',
+          'REVOKED_TOKEN',
+          { tokenId: payload.jti }
+        );
       }
 
-      // Validate token with additional options
-      const validationOptions: ITokenValidationOptions = {
-        requiredClaims: ['sub', 'email', 'iat', 'exp'],
-        audience: this.configService.get<string>('JWT_AUDIENCE'),
-        issuer: this.configService.get<string>('JWT_ISSUER'),
-      };
-
-      // Perform additional validation beyond the basic JWT verification
-      await this.jwtRedisProvider.validateToken(token, validationOptions);
-
-      // Return a user object with properties from the payload
-      // This will be attached to the request as req.user
-      return {
-        id: payload.sub,
-        email: payload.email,
-        name: payload.name,
-        // Do not include password or other sensitive fields
-      };
+      // Extract the user ID from the payload
+      const userId = payload.sub;
+      
+      // Call the UserService to find the user by ID
+      const user = await this.userService.findById(userId);
+      
+      // If the user doesn't exist, throw an authentication error
+      if (!user) {
+        throw new AuthenticationError(
+          'User not found',
+          'INVALID_USER',
+          { userId }
+        );
+      }
+      
+      // Verify token session if session tracking is enabled
+      if (payload.sid) {
+        const isValidSession = await this.jwtRedisProvider.validateSession(payload.sid, userId);
+        if (!isValidSession) {
+          throw new AuthenticationError(
+            'Invalid session',
+            'INVALID_SESSION',
+            { sessionId: payload.sid }
+          );
+        }
+      }
+      
+      // Return the user object
+      return user;
     } catch (error) {
-      // Use standardized error classification
-      if (error instanceof UnauthorizedException) {
+      // If it's already an AuthenticationError, rethrow it
+      if (error instanceof AuthenticationError) {
         throw error;
       }
       
-      // Convert other errors to UnauthorizedException with appropriate message
-      throw new UnauthorizedException('Invalid token');
+      // Otherwise, wrap in a standardized AuthenticationError
+      throw new AuthenticationError(
+        'Failed to authenticate token',
+        'TOKEN_VALIDATION_FAILED',
+        { originalError: error.message }
+      );
     }
   }
 }

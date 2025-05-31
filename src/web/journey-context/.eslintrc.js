@@ -1,89 +1,46 @@
 /**
- * ESLint configuration for @austa/journey-context package
- * This configuration enforces code quality, consistency, and best practices
- * for the journey context management system used across web and mobile platforms.
+ * ESLint configuration for the @austa/journey-context package
+ * This configuration extends the root ESLint configuration while adding
+ * package-specific rules and settings for React and TypeScript.
  */
 module.exports = {
-  parser: '@typescript-eslint/parser',
+  extends: ['../../.eslintrc.js'],
   parserOptions: {
-    project: 'tsconfig.json',
-    sourceType: 'module',
-    ecmaVersion: 2021,
-    ecmaFeatures: {
-      jsx: true
-    }
-  },
-  plugins: [
-    '@typescript-eslint/eslint-plugin',
-    'prettier',
-    'import',
-    'react',
-    'react-hooks',
-    'react-native'
-  ],
-  extends: [
-    'eslint:recommended',
-    'plugin:@typescript-eslint/recommended',
-    'plugin:@typescript-eslint/recommended-requiring-type-checking',
-    'plugin:react/recommended',
-    'plugin:react-hooks/recommended',
-    'plugin:prettier/recommended',
-    'plugin:import/errors',
-    'plugin:import/warnings',
-    'plugin:import/typescript',
-    '../.eslintrc.js'
-  ],
-  root: false,
-  env: {
-    browser: true,
-    node: true,
-    jest: true,
-    es2021: true
+    project: './tsconfig.json',
+    tsconfigRootDir: __dirname,
   },
   settings: {
-    react: {
-      version: 'detect'
-    },
     'import/resolver': {
       typescript: {
-        alwaysTryTypes: true,
-        project: 'tsconfig.json'
+        project: './tsconfig.json',
       },
       node: {
-        extensions: ['.js', '.jsx', '.ts', '.tsx']
-      }
-    }
+        extensions: ['.js', '.jsx', '.ts', '.tsx'],
+      },
+    },
+    react: {
+      version: 'detect',
+    },
   },
-  ignorePatterns: [
-    '.eslintrc.js',
-    '**/*.js',
-    'node_modules',
-    'dist',
-    'coverage'
-  ],
   rules: {
-    // Override rules from the root configuration as needed
-    '@typescript-eslint/explicit-function-return-type': [
-      'error',
-      {
-        allowExpressions: true,
-        allowTypedFunctionExpressions: true
-      }
-    ],
-    '@typescript-eslint/explicit-module-boundary-types': 'error',
-    '@typescript-eslint/no-explicit-any': 'warn',
+    // React specific rules
+    'react/prop-types': 'off', // We use TypeScript for prop validation
+    'react/react-in-jsx-scope': 'off', // Not needed with React 17+
+    'react-hooks/rules-of-hooks': 'error', // Enforce Rules of Hooks
+    'react-hooks/exhaustive-deps': 'warn', // Verify the list of dependencies for Hooks
+
+    // TypeScript specific rules
+    '@typescript-eslint/explicit-module-boundary-types': 'error', // Require explicit return types on functions and class methods
+    '@typescript-eslint/no-explicit-any': 'warn', // Discourage the use of 'any' type
     '@typescript-eslint/no-unused-vars': [
       'error',
       {
         argsIgnorePattern: '^_',
-        varsIgnorePattern: '^_'
-      }
+        varsIgnorePattern: '^_',
+      },
     ],
-    // Journey-context specific rules
-    'react/prop-types': 'off',
-    'react/react-in-jsx-scope': 'off',
-    'react-hooks/rules-of-hooks': 'error',
-    'react-hooks/exhaustive-deps': 'warn',
+
+    // Import rules
     'import/order': [
       'error',
       {
@@ -91,67 +48,46 @@ module.exports = {
           'builtin',
           'external',
           'internal',
-          ['parent', 'sibling', 'index']
-        ],
-        pathGroups: [
-          {
-            pattern: '@austa/**',
-            group: 'internal',
-            position: 'before'
-          },
-          {
-            pattern: '@design-system/**',
-            group: 'internal',
-            position: 'before'
-          }
+          ['parent', 'sibling', 'index'],
         ],
         'newlines-between': 'always',
         alphabetize: {
           order: 'asc',
-          caseInsensitive: true
-        }
-      }
+          caseInsensitive: true,
+        },
+      },
     ],
     'import/no-duplicates': 'error',
+
+    // General code quality rules
+    'max-len': [
+      'error',
+      {
+        code: 100,
+        ignoreUrls: true,
+        ignoreStrings: true,
+        ignoreTemplateLiterals: true,
+        ignoreRegExpLiterals: true,
+      },
+    ],
     'no-console': [
       'warn',
       {
-        allow: ['warn', 'error']
-      }
+        allow: ['warn', 'error'],
+      },
     ],
-    'no-duplicate-imports': 'error',
-    'no-return-await': 'error',
     'eqeqeq': ['error', 'always'],
     'curly': ['error', 'all'],
-    'prefer-const': 'error'
+    'prefer-const': 'error',
   },
   overrides: [
     {
       files: ['*.spec.ts', '*.spec.tsx', '*.test.ts', '*.test.tsx'],
       rules: {
         '@typescript-eslint/no-explicit-any': 'off',
-        '@typescript-eslint/explicit-function-return-type': 'off'
-      }
+        '@typescript-eslint/explicit-function-return-type': 'off',
+        '@typescript-eslint/explicit-module-boundary-types': 'off',
+      },
     },
-    {
-      // Rules specific to React Native platform code
-      files: ['src/adapters/mobile/**/*.ts', 'src/adapters/mobile/**/*.tsx'],
-      rules: {
-        // React Native specific rules
-        'react-native/no-unused-styles': 'error',
-        'react-native/split-platform-components': 'error',
-        'react-native/no-inline-styles': 'warn',
-        'react-native/no-color-literals': 'warn',
-        'react-native/no-raw-text': 'error',
-        'react-native/no-single-element-style-arrays': 'error'
-      }
-    },
-    {
-      // Rules specific to Web platform code
-      files: ['src/adapters/web/**/*.ts', 'src/adapters/web/**/*.tsx'],
-      rules: {
-        // Web-specific rules can be added here
-      }
-    }
-  ]
+  ],
 };

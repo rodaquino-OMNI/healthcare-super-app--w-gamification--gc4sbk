@@ -1,8 +1,7 @@
 import styled from 'styled-components';
+import { Box, Text } from '@design-system/primitives';
 import { Card } from '@austa/design-system/components/Card';
-import { Box } from '@design-system/primitives';
-import { Text } from '@design-system/primitives';
-import { ConnectionStatusProps } from '@austa/interfaces/health';
+import { ConnectionState } from '@austa/interfaces/health';
 
 /**
  * The main container for the DeviceCard component, extending the Card component
@@ -41,12 +40,25 @@ export const DeviceName = styled(Text)`
 `;
 
 /**
+ * Props for the ConnectionStatus component
+ */
+interface ConnectionStatusProps {
+  status: ConnectionState;
+}
+
+/**
  * Styled component for the connection status text with conditional styling based on connection state
  */
 export const ConnectionStatus = styled(Text)<ConnectionStatusProps>`
   font-size: ${props => props.theme.typography.fontSize.sm};
   font-weight: ${props => props.theme.typography.fontWeight.medium};
-  color: ${props => props.connected ? props.theme.colors.semantic.success : props.theme.colors.semantic.error};
+  color: ${props => 
+    props.status === ConnectionState.CONNECTED 
+      ? props.theme.colors.semantic.success 
+      : props.status === ConnectionState.SYNCING 
+        ? props.theme.colors.semantic.info
+        : props.theme.colors.semantic.error
+  };
   display: flex;
   align-items: center;
   

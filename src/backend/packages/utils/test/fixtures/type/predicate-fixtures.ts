@@ -1,904 +1,852 @@
 /**
- * Test fixtures for TypeScript type predicates that enable type narrowing in conditional blocks.
+ * @file Test fixtures for TypeScript type predicates that enable type narrowing in conditional blocks.
  * 
- * Includes union types, discriminated unions, and generic data structures that require proper
- * type narrowing. These fixtures are essential for testing type predicate functions that improve
- * type safety throughout the codebase, especially when working with complex data structures
- * common in cross-journey operations.
+ * This file provides a comprehensive set of test fixtures for validating type predicate functions
+ * that improve type safety throughout the codebase. These fixtures include discriminated unions,
+ * generic class instances, property-based type narrowing scenarios, and complex nested object
+ * structures that are common in cross-journey operations.
  */
 
-import { FilterDto, PaginationDto, SortDto } from '@austa/interfaces/common/dto';
+import { EventJourney, EventType } from '@austa/interfaces/gamification';
 
-// ===== Basic Type Predicate Fixtures =====
+// ===== Basic Type Fixtures =====
 
 /**
- * Fixtures for testing isDefined predicate
+ * Collection of primitive values for basic type predicate testing.
  */
-export const definedFixtures = {
-  defined: [
-    'string',
-    0,
-    false,
-    {},
-    [],
-    null, // Note: null is defined (not undefined)
-    () => {},
-    new Date(),
-  ],
-  undefined: [
-    undefined,
-  ],
+export const primitiveFixtures = {
+  string: 'test string',
+  emptyString: '',
+  number: 42,
+  zero: 0,
+  negativeNumber: -10,
+  boolean: true,
+  falsyBoolean: false,
+  nullValue: null,
+  undefinedValue: undefined,
+  date: new Date(),
+  invalidDate: new Date('invalid date'),
+  symbol: Symbol('test'),
+  bigint: BigInt(9007199254740991),
+  array: [1, 2, 3],
+  emptyArray: [],
+  object: { key: 'value' },
+  emptyObject: {},
+  function: () => {},
+  asyncFunction: async () => {},
+  promise: Promise.resolve(),
+  nan: NaN,
+  infinity: Infinity,
+  regExp: /test/,
 };
 
-/**
- * Fixtures for testing isNotNull predicate
- */
-export const notNullFixtures = {
-  notNull: [
-    'string',
-    0,
-    false,
-    {},
-    [],
-    undefined, // Note: undefined is not null
-    () => {},
-    new Date(),
-  ],
-  null: [
-    null,
-  ],
-};
+// ===== Discriminated Union Fixtures =====
 
 /**
- * Fixtures for testing isNotUndefined predicate
+ * Base interface for message types with a discriminator.
  */
-export const notUndefinedFixtures = {
-  notUndefined: [
-    'string',
-    0,
-    false,
-    {},
-    [],
-    null, // Note: null is not undefined
-    () => {},
-    new Date(),
-  ],
-  undefined: [
-    undefined,
-  ],
-};
-
-// ===== Array Type Predicate Fixtures =====
-
-/**
- * Fixtures for testing isNonEmptyArray predicate
- */
-export const nonEmptyArrayFixtures = {
-  nonEmpty: [
-    [1, 2, 3],
-    ['a', 'b', 'c'],
-    [{}],
-    [null],
-    [undefined],
-    [[]], // Array containing an empty array
-    [0],
-    [false],
-    [new Date()],
-  ],
-  empty: [
-    [],
-  ],
-  notArray: [
-    null,
-    undefined,
-    'string',
-    0,
-    false,
-    {},
-    () => {},
-    new Date(),
-    { length: 1 }, // Object with length property
-  ],
-};
-
-/**
- * Fixtures for testing isArrayOfLength predicate
- */
-export const arrayOfLengthFixtures = {
-  lengths: {
-    0: [],
-    1: [1],
-    2: [1, 2],
-    3: [1, 2, 3],
-    5: [1, 2, 3, 4, 5],
-  },
-  notArray: [
-    null,
-    undefined,
-    'string',
-    0,
-    false,
-    {},
-    () => {},
-    new Date(),
-    { length: 3 }, // Object with length property
-  ],
-};
-
-/**
- * Fixtures for testing isArrayOf predicate
- */
-export const arrayOfFixtures = {
-  strings: {
-    valid: [
-      ['a', 'b', 'c'],
-      [''],
-      ['hello', 'world'],
-    ],
-    invalid: [
-      [1, 2, 3],
-      ['a', 1, 'b'],
-      [null],
-      [undefined],
-      [{}],
-      [() => {}],
-      [new Date()],
-    ],
-  },
-  numbers: {
-    valid: [
-      [1, 2, 3],
-      [0],
-      [-1, 0, 1],
-      [3.14, 2.71],
-    ],
-    invalid: [
-      ['1', '2', '3'],
-      [1, '2', 3],
-      [null],
-      [undefined],
-      [{}],
-      [() => {}],
-      [new Date()],
-    ],
-  },
-  booleans: {
-    valid: [
-      [true, false],
-      [true],
-      [false],
-      [true, true, false],
-    ],
-    invalid: [
-      [1, 0],
-      ['true', 'false'],
-      [true, 1, false],
-      [null],
-      [undefined],
-      [{}],
-      [() => {}],
-      [new Date()],
-    ],
-  },
-  objects: {
-    valid: [
-      [{}, {}],
-      [{ a: 1 }, { b: 2 }],
-      [{ name: 'John' }],
-    ],
-    invalid: [
-      [1, 2, 3],
-      ['a', 'b', 'c'],
-      [{}, 1, {}],
-      [null],
-      [undefined],
-      [() => {}],
-      [new Date()],
-    ],
-  },
-  notArray: [
-    null,
-    undefined,
-    'string',
-    0,
-    false,
-    {},
-    () => {},
-    new Date(),
-  ],
-};
-
-// ===== Object Type Predicate Fixtures =====
-
-/**
- * Fixtures for testing hasProperty predicate
- */
-export const hasPropertyFixtures = {
-  objects: [
-    { name: 'John', age: 30 },
-    { id: 1, items: [1, 2, 3] },
-    { visible: false, enabled: true },
-    { nested: { key: 'value' } },
-    { '': 'empty key' }, // Object with empty string key
-    { [Symbol('key')]: 'symbol key' }, // Object with Symbol key
-  ],
-  properties: {
-    existing: [
-      'name',
-      'age',
-      'id',
-      'items',
-      'visible',
-      'enabled',
-      'nested',
-      '',
-    ],
-    nonExisting: [
-      'address',
-      'email',
-      'phone',
-      'firstName',
-      'lastName',
-      'nonExistent',
-      'undefined',
-      'null',
-    ],
-  },
-  notObjects: [
-    null,
-    undefined,
-    'string',
-    0,
-    false,
-    [],
-    () => {},
-    new Date(),
-  ],
-};
-
-/**
- * Fixtures for testing hasPropertyOfType predicate
- */
-export const hasPropertyOfTypeFixtures = {
-  objects: {
-    withStringProps: [
-      { name: 'John', title: 'Developer' },
-      { id: '123', code: 'ABC' },
-      { message: 'Hello', error: '' },
-    ],
-    withNumberProps: [
-      { age: 30, count: 5 },
-      { id: 123, total: 99.99 },
-      { index: 0, value: -1 },
-    ],
-    withBooleanProps: [
-      { active: true, visible: false },
-      { enabled: true, deleted: false },
-      { isAdmin: true, isVerified: true },
-    ],
-    withObjectProps: [
-      { user: { name: 'John' }, settings: { theme: 'dark' } },
-      { metadata: {}, config: { timeout: 1000 } },
-      { address: { city: 'New York' }, contact: { email: 'test@example.com' } },
-    ],
-    withArrayProps: [
-      { items: [1, 2, 3], tags: ['a', 'b', 'c'] },
-      { users: [], products: [{ id: 1 }] },
-      { history: [new Date()], selection: [true, false] },
-    ],
-    withFunctionProps: [
-      { onClick: () => {}, onChange: () => {} },
-      { validate: () => true, format: (s: string) => s.toUpperCase() },
-      { calculate: () => 0, transform: () => ({}) },
-    ],
-    withDateProps: [
-      { created: new Date(), updated: new Date() },
-      { birthdate: new Date('2000-01-01'), expiry: new Date('2025-12-31') },
-      { start: new Date(), end: new Date() },
-    ],
-    withMixedProps: [
-      { name: 'John', age: 30, active: true, tags: ['user'] },
-      { id: 1, title: 'Post', published: false, author: { name: 'Jane' } },
-      { count: 5, message: 'Hello', valid: true, data: null },
-    ],
-    withNullableProps: [
-      { name: 'John', address: null },
-      { id: 1, parent: null },
-      { user: null, settings: { theme: 'dark' } },
-    ],
-    withUndefinedProps: [
-      { name: 'John', address: undefined },
-      { id: 1, parent: undefined },
-      { user: undefined, settings: { theme: 'dark' } },
-    ],
-  },
-  notObjects: [
-    null,
-    undefined,
-    'string',
-    0,
-    false,
-    [],
-    () => {},
-    new Date(),
-  ],
-};
-
-/**
- * Fixtures for testing hasProperties predicate
- */
-export const hasPropertiesFixtures = {
-  objects: [
-    { name: 'John', age: 30, email: 'john@example.com' },
-    { id: 1, title: 'Post', content: 'Lorem ipsum', author: 'Jane' },
-    { x: 10, y: 20, z: 30, type: 'point' },
-    { firstName: 'John', lastName: 'Doe', fullName: 'John Doe' },
-    { visible: true, enabled: false, active: true, deleted: false },
-  ],
-  propertyGroups: {
-    user: ['name', 'age', 'email'],
-    post: ['id', 'title', 'content', 'author'],
-    point: ['x', 'y', 'z', 'type'],
-    name: ['firstName', 'lastName', 'fullName'],
-    flags: ['visible', 'enabled', 'active', 'deleted'],
-    mixed: ['name', 'id', 'visible', 'x'],
-    nonExistent: ['address', 'phone', 'city', 'country'],
-    partiallyExistent: ['name', 'address', 'age', 'phone'],
-  },
-  notObjects: [
-    null,
-    undefined,
-    'string',
-    0,
-    false,
-    [],
-    () => {},
-    new Date(),
-  ],
-};
-
-// ===== Class Instance Type Predicate Fixtures =====
-
-/**
- * Sample classes for testing instance predicates
- */
-class BaseClass {
-  constructor(public id: number) {}
+export interface BaseMessage {
+  id: string;
+  timestamp: string;
+  type: string; // Discriminator field
 }
 
-class ChildClass extends BaseClass {
-  constructor(id: number, public name: string) {
-    super(id);
+/**
+ * Text message type for discriminated union testing.
+ */
+export interface TextMessage extends BaseMessage {
+  type: 'text';
+  content: string;
+  sender: string;
+}
+
+/**
+ * Image message type for discriminated union testing.
+ */
+export interface ImageMessage extends BaseMessage {
+  type: 'image';
+  imageUrl: string;
+  dimensions: { width: number; height: number };
+  caption?: string;
+}
+
+/**
+ * Video message type for discriminated union testing.
+ */
+export interface VideoMessage extends BaseMessage {
+  type: 'video';
+  videoUrl: string;
+  duration: number;
+  thumbnail?: string;
+}
+
+/**
+ * Union type of all message types.
+ */
+export type Message = TextMessage | ImageMessage | VideoMessage;
+
+/**
+ * Collection of message fixtures for discriminated union testing.
+ */
+export const messageFixtures: Record<string, Message> = {
+  textMessage: {
+    id: '1',
+    timestamp: '2023-01-01T12:00:00Z',
+    type: 'text',
+    content: 'Hello, world!',
+    sender: 'user1',
+  },
+  imageMessage: {
+    id: '2',
+    timestamp: '2023-01-01T12:05:00Z',
+    type: 'image',
+    imageUrl: 'https://example.com/image.jpg',
+    dimensions: { width: 800, height: 600 },
+    caption: 'Beautiful landscape',
+  },
+  videoMessage: {
+    id: '3',
+    timestamp: '2023-01-01T12:10:00Z',
+    type: 'video',
+    videoUrl: 'https://example.com/video.mp4',
+    duration: 120,
+    thumbnail: 'https://example.com/thumbnail.jpg',
+  },
+};
+
+// ===== Gamification Event Fixtures =====
+
+/**
+ * Base interface for gamification events with a discriminator.
+ */
+export interface BaseEvent {
+  eventId: string;
+  userId: string;
+  journey: EventJourney;
+  type: EventType; // Discriminator field
+  createdAt: string;
+}
+
+/**
+ * Health metric event for discriminated union testing.
+ */
+export interface HealthMetricEvent extends BaseEvent {
+  type: EventType.HEALTH_METRIC_RECORDED;
+  payload: {
+    metricType: string;
+    value: number;
+    unit: string;
+    source: string;
+    isWithinHealthyRange?: boolean;
+  };
+}
+
+/**
+ * Appointment event for discriminated union testing.
+ */
+export interface AppointmentEvent extends BaseEvent {
+  type: EventType.APPOINTMENT_BOOKED;
+  payload: {
+    appointmentId: string;
+    appointmentType: string;
+    providerId: string;
+    isFirstAppointment?: boolean;
+  };
+}
+
+/**
+ * Achievement event for discriminated union testing.
+ */
+export interface AchievementEvent extends BaseEvent {
+  type: EventType.ACHIEVEMENT_UNLOCKED;
+  payload: {
+    achievementId: string;
+    achievementTitle: string;
+    achievementDescription: string;
+    xpEarned: number;
+    relatedJourney?: EventJourney;
+  };
+}
+
+/**
+ * Union type of all event types.
+ */
+export type GameEvent = HealthMetricEvent | AppointmentEvent | AchievementEvent;
+
+/**
+ * Collection of event fixtures for discriminated union testing.
+ */
+export const eventFixtures: Record<string, GameEvent> = {
+  healthMetricEvent: {
+    eventId: '1',
+    userId: 'user1',
+    journey: EventJourney.HEALTH,
+    type: EventType.HEALTH_METRIC_RECORDED,
+    createdAt: '2023-01-01T12:00:00Z',
+    payload: {
+      metricType: 'blood_pressure',
+      value: 120,
+      unit: 'mmHg',
+      source: 'manual',
+      isWithinHealthyRange: true,
+    },
+  },
+  appointmentEvent: {
+    eventId: '2',
+    userId: 'user1',
+    journey: EventJourney.CARE,
+    type: EventType.APPOINTMENT_BOOKED,
+    createdAt: '2023-01-01T12:05:00Z',
+    payload: {
+      appointmentId: 'appt1',
+      appointmentType: 'checkup',
+      providerId: 'provider1',
+      isFirstAppointment: true,
+    },
+  },
+  achievementEvent: {
+    eventId: '3',
+    userId: 'user1',
+    journey: EventJourney.CROSS_JOURNEY,
+    type: EventType.ACHIEVEMENT_UNLOCKED,
+    createdAt: '2023-01-01T12:10:00Z',
+    payload: {
+      achievementId: 'achievement1',
+      achievementTitle: 'First Steps',
+      achievementDescription: 'Complete your first health assessment',
+      xpEarned: 100,
+      relatedJourney: EventJourney.HEALTH,
+    },
+  },
+};
+
+// ===== Class Hierarchy Fixtures =====
+
+/**
+ * Base class for testing class hierarchy type predicates.
+ */
+export class BaseEntity {
+  constructor(public id: string, public createdAt: Date) {}
+}
+
+/**
+ * User entity class for testing class hierarchy type predicates.
+ */
+export class UserEntity extends BaseEntity {
+  constructor(
+    id: string,
+    createdAt: Date,
+    public name: string,
+    public email: string,
+    public roles: string[]
+  ) {
+    super(id, createdAt);
   }
 }
 
-class SiblingClass extends BaseClass {
-  constructor(id: number, public type: string) {
-    super(id);
+/**
+ * Product entity class for testing class hierarchy type predicates.
+ */
+export class ProductEntity extends BaseEntity {
+  constructor(
+    id: string,
+    createdAt: Date,
+    public name: string,
+    public price: number,
+    public category: string
+  ) {
+    super(id, createdAt);
   }
 }
 
-class UnrelatedClass {
-  constructor(public value: any) {}
+/**
+ * Order entity class for testing class hierarchy type predicates.
+ */
+export class OrderEntity extends BaseEntity {
+  constructor(
+    id: string,
+    createdAt: Date,
+    public userId: string,
+    public items: Array<{ productId: string; quantity: number }>,
+    public total: number
+  ) {
+    super(id, createdAt);
+  }
 }
 
 /**
- * Fixtures for testing isInstanceOf predicate
+ * Collection of entity instances for class hierarchy type predicate testing.
  */
-export const instanceOfFixtures = {
-  instances: {
-    date: new Date(),
-    error: new Error('Test error'),
-    map: new Map<string, any>(),
-    set: new Set<any>(),
-    regexp: new RegExp('.*'),
-    promise: Promise.resolve(),
-    baseClass: new BaseClass(1),
-    childClass: new ChildClass(2, 'Child'),
-    siblingClass: new SiblingClass(3, 'Sibling'),
-    unrelatedClass: new UnrelatedClass('test'),
-  },
-  constructors: {
-    Date,
-    Error,
-    Map,
-    Set,
-    RegExp,
-    Promise,
-    BaseClass,
-    ChildClass,
-    SiblingClass,
-    UnrelatedClass,
-  },
-  primitives: [
-    null,
-    undefined,
-    'string',
-    0,
-    false,
-    [],
-    {},
-    () => {},
-  ],
-};
-
-/**
- * Fixtures for testing isInstanceOfAny predicate
- */
-export const instanceOfAnyFixtures = {
-  instances: {
-    date: new Date(),
-    error: new Error('Test error'),
-    map: new Map<string, any>(),
-    set: new Set<any>(),
-    regexp: new RegExp('.*'),
-    promise: Promise.resolve(),
-    baseClass: new BaseClass(1),
-    childClass: new ChildClass(2, 'Child'),
-    siblingClass: new SiblingClass(3, 'Sibling'),
-    unrelatedClass: new UnrelatedClass('test'),
-  },
-  constructorGroups: {
-    dateAndError: [Date, Error],
-    collections: [Map, Set],
-    baseAndChild: [BaseClass, ChildClass],
-    allClasses: [BaseClass, ChildClass, SiblingClass, UnrelatedClass],
-    unrelated: [UnrelatedClass],
-    mixed: [Date, BaseClass, Promise],
-  },
-  primitives: [
-    null,
-    undefined,
-    'string',
-    0,
-    false,
-    [],
-    {},
-    () => {},
-  ],
-};
-
-// ===== Journey-Specific Type Predicate Fixtures =====
-
-/**
- * Fixtures for testing isFilterDto predicate
- */
-export const filterDtoFixtures = {
-  valid: [
-    { where: { id: 1 } },
-    { include: { user: true } },
-    { select: { name: true, email: true } },
-    { where: { name: 'John' }, include: { posts: true } },
-    { where: { active: true }, select: { id: true, name: true } },
-    { include: { profile: true }, select: { id: true } },
-    { where: { id: { gt: 10 } }, include: { comments: { select: { text: true } } } },
-  ] as FilterDto[],
-  invalid: [
-    {},
-    { sort: { id: 'asc' } },
-    { page: 1, limit: 10 },
-    { filter: { name: 'John' } },
-    { query: 'search term' },
-    null,
-    undefined,
-    'string',
-    0,
-    false,
-    [],
-    () => {},
+export const entityFixtures = {
+  user: new UserEntity(
+    'user1',
     new Date(),
-  ],
-};
-
-/**
- * Fixtures for testing isPaginationDto predicate
- */
-export const paginationDtoFixtures = {
-  valid: [
-    { page: 1, limit: 10 },
-    { page: 0, limit: 50 },
-    { page: 5, limit: 100 },
-    { cursor: 'abc123' },
-    { cursor: null },
-    { page: 1, limit: 10, cursor: 'abc123' }, // Mixed (should still be valid)
-  ] as PaginationDto[],
-  invalid: [
-    {},
-    { page: 1 }, // Missing limit
-    { limit: 10 }, // Missing page
-    { offset: 10, limit: 10 }, // Wrong property name
-    { page: 'a', limit: 10 }, // Invalid page type
-    { page: 1, limit: 'a' }, // Invalid limit type
-    { cursor: 123 }, // Invalid cursor type
-    { where: { id: 1 } },
-    { include: { user: true } },
-    { select: { name: true } },
-    null,
-    undefined,
-    'string',
-    0,
-    false,
-    [],
-    () => {},
+    'John Doe',
+    'john@example.com',
+    ['user']
+  ),
+  admin: new UserEntity(
+    'admin1',
     new Date(),
-  ],
-};
-
-/**
- * Fixtures for testing isSortDto predicate
- */
-export const sortDtoFixtures = {
-  valid: [
-    { orderBy: { id: 'asc' } },
-    { orderBy: { name: 'desc' } },
-    { orderBy: { createdAt: 'asc', id: 'desc' } },
-    { orderBy: { score: { sort: 'desc', nulls: 'last' } } },
-    { orderBy: { name: 'asc', age: { sort: 'desc', nulls: 'first' } } },
-  ] as SortDto[],
-  invalid: [
-    {},
-    { orderBy: null },
-    { orderBy: undefined },
-    { orderBy: 'asc' }, // String instead of object
-    { orderBy: [] }, // Array instead of object
-    { sort: { id: 'asc' } }, // Wrong property name
-    { order: { id: 'asc' } }, // Wrong property name
-    { where: { id: 1 } },
-    { include: { user: true } },
-    { select: { name: true } },
-    { page: 1, limit: 10 },
-    null,
-    undefined,
-    'string',
-    0,
-    false,
-    [],
-    () => {},
+    'Admin User',
+    'admin@example.com',
+    ['user', 'admin']
+  ),
+  product: new ProductEntity(
+    'product1',
     new Date(),
-  ],
+    'Test Product',
+    99.99,
+    'electronics'
+  ),
+  order: new OrderEntity(
+    'order1',
+    new Date(),
+    'user1',
+    [{ productId: 'product1', quantity: 2 }],
+    199.98
+  ),
+  baseEntity: new BaseEntity('base1', new Date()),
 };
 
-// ===== Union Type Predicate Fixtures =====
+// ===== Property-Based Type Narrowing Fixtures =====
 
 /**
- * Fixtures for testing isOneOf predicate
+ * Interface for objects with optional properties for property-based type narrowing testing.
  */
-export const oneOfFixtures = {
-  validValues: {
-    strings: ['health', 'care', 'plan'] as const,
-    numbers: [1, 2, 3, 4, 5] as const,
-    mixed: ['draft', 'pending', 'approved', 'rejected', 1, 2, 3] as const,
-    empty: [] as const,
+export interface ConfigObject {
+  name: string;
+  enabled?: boolean;
+  timeout?: number;
+  retries?: number;
+  options?: {
+    debug?: boolean;
+    logLevel?: string;
+    maxItems?: number;
+  };
+  metadata?: Record<string, unknown>;
+}
+
+/**
+ * Collection of config objects for property-based type narrowing testing.
+ */
+export const configFixtures: Record<string, ConfigObject> = {
+  minimal: {
+    name: 'minimal-config',
   },
-  testValues: {
-    strings: {
-      valid: ['health', 'care', 'plan'],
-      invalid: ['invalid', 'unknown', 'other', '', 'HEALTH', 'Care'],
-    },
-    numbers: {
-      valid: [1, 2, 3, 4, 5],
-      invalid: [0, 6, -1, 1.5, NaN, Infinity],
-    },
-    mixed: {
-      valid: ['draft', 'pending', 'approved', 'rejected', 1, 2, 3],
-      invalid: ['invalid', 0, 4, 'DRAFT', 'Pending'],
+  basic: {
+    name: 'basic-config',
+    enabled: true,
+    timeout: 5000,
+  },
+  withRetries: {
+    name: 'retry-config',
+    enabled: true,
+    timeout: 3000,
+    retries: 3,
+  },
+  withOptions: {
+    name: 'options-config',
+    enabled: true,
+    timeout: 5000,
+    options: {
+      debug: true,
+      logLevel: 'info',
+      maxItems: 100,
     },
   },
-  nonMatchingTypes: [
-    null,
-    undefined,
-    {},
-    [],
-    () => {},
-    new Date(),
-  ],
+  complete: {
+    name: 'complete-config',
+    enabled: true,
+    timeout: 5000,
+    retries: 3,
+    options: {
+      debug: true,
+      logLevel: 'debug',
+      maxItems: 100,
+    },
+    metadata: {
+      createdBy: 'test',
+      version: '1.0.0',
+      tags: ['test', 'config'],
+    },
+  },
 };
 
-/**
- * Fixtures for testing isOneOfType predicate
- */
-export const oneOfTypeFixtures = {
-  values: {
-    stringOrNumber: [
-      'string',
-      123,
-      '',
-      0,
-      -1,
-      'hello',
-    ],
-    booleanOrDate: [
-      true,
-      false,
-      new Date(),
-      new Date(0),
-    ],
-    objectOrArray: [
-      {},
-      { a: 1 },
-      [],
-      [1, 2, 3],
-    ],
-  },
-  nonMatchingTypes: [
-    null,
-    undefined,
-    Symbol('test'),
-    () => {},
-  ],
-};
-
-// ===== Discriminated Union Type Predicate Fixtures =====
+// ===== Nested Object Structure Fixtures =====
 
 /**
- * Type definitions for discriminated union testing
+ * Interface for user profile with nested structures for thorough type checking.
  */
-type Circle = { kind: 'circle'; radius: number };
-type Rectangle = { kind: 'rectangle'; width: number; height: number };
-type Triangle = { kind: 'triangle'; base: number; height: number };
-type Shape = Circle | Rectangle | Triangle;
-
-type HealthEvent = { type: 'health'; metricId: string; value: number };
-type CareEvent = { type: 'care'; appointmentId: string; status: string };
-type PlanEvent = { type: 'plan'; claimId: string; amount: number };
-type JourneyEvent = HealthEvent | CareEvent | PlanEvent;
-
-type SuccessResponse = { status: 'success'; data: any };
-type ErrorResponse = { status: 'error'; message: string; code: number };
-type LoadingResponse = { status: 'loading' };
-type ApiResponse = SuccessResponse | ErrorResponse | LoadingResponse;
+export interface UserProfile {
+  id: string;
+  name: string;
+  email: string;
+  preferences?: {
+    theme: 'light' | 'dark' | 'system';
+    notifications: {
+      email: boolean;
+      push: boolean;
+      sms?: boolean;
+      frequency?: 'immediate' | 'daily' | 'weekly';
+    };
+    language?: string;
+  };
+  healthData?: {
+    metrics?: Array<{
+      type: string;
+      value: number;
+      unit: string;
+      recordedAt: string;
+    }>;
+    goals?: Array<{
+      id: string;
+      type: string;
+      target: number;
+      unit: string;
+      progress: number;
+      completed: boolean;
+    }>;
+  };
+  careData?: {
+    appointments?: Array<{
+      id: string;
+      providerId: string;
+      date: string;
+      status: 'scheduled' | 'completed' | 'cancelled';
+      notes?: string;
+    }>;
+    medications?: Array<{
+      id: string;
+      name: string;
+      dosage: string;
+      frequency: string;
+      startDate: string;
+      endDate?: string;
+    }>;
+  };
+  planData?: {
+    planId?: string;
+    coverage?: {
+      type: string;
+      startDate: string;
+      endDate: string;
+      benefits: Array<{
+        id: string;
+        name: string;
+        description: string;
+        limit?: number;
+        used?: number;
+      }>;
+    };
+    claims?: Array<{
+      id: string;
+      amount: number;
+      date: string;
+      status: 'submitted' | 'processing' | 'approved' | 'rejected';
+      documents?: string[];
+    }>;
+  };
+  gamification?: {
+    level: number;
+    xp: number;
+    achievements?: string[];
+    quests?: Array<{
+      id: string;
+      progress: number;
+      completed: boolean;
+    }>;
+  };
+}
 
 /**
- * Fixtures for testing hasDiscriminator predicate
+ * Collection of user profile fixtures with varying levels of completeness.
  */
-export const discriminatorFixtures = {
-  shapes: {
-    circle: { kind: 'circle', radius: 5 } as Circle,
-    rectangle: { kind: 'rectangle', width: 10, height: 20 } as Rectangle,
-    triangle: { kind: 'triangle', base: 10, height: 15 } as Triangle,
-    invalidShape: { kind: 'oval', radius: 5, width: 10 } as any,
-  },
-  journeyEvents: {
-    health: { type: 'health', metricId: 'weight', value: 70 } as HealthEvent,
-    care: { type: 'care', appointmentId: 'apt123', status: 'confirmed' } as CareEvent,
-    plan: { type: 'plan', claimId: 'clm456', amount: 100 } as PlanEvent,
-    invalidEvent: { type: 'notification', message: 'New message' } as any,
-  },
-  apiResponses: {
-    success: { status: 'success', data: { id: 1, name: 'John' } } as SuccessResponse,
-    error: { status: 'error', message: 'Not found', code: 404 } as ErrorResponse,
-    loading: { status: 'loading' } as LoadingResponse,
-    invalidResponse: { status: 'pending' } as any,
-  },
-  discriminators: {
-    shape: 'kind',
-    journeyEvent: 'type',
-    apiResponse: 'status',
-  },
-  discriminatorValues: {
-    shape: ['circle', 'rectangle', 'triangle'],
-    journeyEvent: ['health', 'care', 'plan'],
-    apiResponse: ['success', 'error', 'loading'],
-  },
-  nonObjects: [
-    null,
-    undefined,
-    'string',
-    0,
-    false,
-    [],
-    () => {},
-    new Date(),
-  ],
-};
-
-// ===== Complex Nested Object Structures =====
-
-/**
- * Complex nested object structures for thorough type checking
- */
-export const complexObjectFixtures = {
-  userProfile: {
-    id: 123,
+export const userProfileFixtures: Record<string, UserProfile> = {
+  minimal: {
+    id: 'user1',
     name: 'John Doe',
     email: 'john@example.com',
-    active: true,
-    roles: ['user', 'admin'],
+  },
+  withPreferences: {
+    id: 'user2',
+    name: 'Jane Smith',
+    email: 'jane@example.com',
     preferences: {
       theme: 'dark',
-      notifications: true,
-      language: 'en',
-    },
-    address: {
-      street: '123 Main St',
-      city: 'New York',
-      country: 'USA',
-      coordinates: {
-        lat: 40.7128,
-        lng: -74.006,
+      notifications: {
+        email: true,
+        push: false,
       },
+      language: 'en-US',
     },
-    stats: {
-      loginCount: 42,
-      lastLogin: new Date(),
-      devices: [
-        { type: 'mobile', os: 'iOS', lastUsed: new Date() },
-        { type: 'desktop', os: 'Windows', lastUsed: new Date() },
+  },
+  withHealthData: {
+    id: 'user3',
+    name: 'Bob Johnson',
+    email: 'bob@example.com',
+    healthData: {
+      metrics: [
+        {
+          type: 'weight',
+          value: 75.5,
+          unit: 'kg',
+          recordedAt: '2023-01-01T12:00:00Z',
+        },
+        {
+          type: 'blood_pressure',
+          value: 120,
+          unit: 'mmHg',
+          recordedAt: '2023-01-01T12:00:00Z',
+        },
+      ],
+      goals: [
+        {
+          id: 'goal1',
+          type: 'steps',
+          target: 10000,
+          unit: 'steps',
+          progress: 7500,
+          completed: false,
+        },
       ],
     },
   },
-  journeyData: {
-    userId: 123,
-    journeys: {
-      health: {
-        active: true,
-        metrics: [
-          { id: 'weight', value: 70, unit: 'kg', timestamp: new Date() },
-          { id: 'height', value: 175, unit: 'cm', timestamp: new Date() },
-        ],
-        goals: [
-          { type: 'weight', target: 65, deadline: new Date(), progress: 0.7 },
-          { type: 'steps', target: 10000, deadline: new Date(), progress: 0.5 },
-        ],
-        devices: [
-          { id: 'dev1', type: 'smartwatch', connected: true, lastSync: new Date() },
-        ],
-      },
-      care: {
-        active: true,
-        appointments: [
-          { id: 'apt1', provider: 'Dr. Smith', date: new Date(), status: 'confirmed' },
-          { id: 'apt2', provider: 'Dr. Jones', date: new Date(), status: 'pending' },
-        ],
-        medications: [
-          { id: 'med1', name: 'Aspirin', dosage: '100mg', frequency: 'daily' },
-        ],
-        conditions: [
-          { id: 'cond1', name: 'Hypertension', diagnosed: new Date(), severity: 'moderate' },
-        ],
-      },
-      plan: {
-        active: true,
-        coverage: {
-          id: 'cov1',
-          type: 'premium',
-          startDate: new Date(),
-          endDate: new Date(),
-          limits: {
-            annual: 10000,
-            dental: 2000,
-            vision: 1000,
-          },
+  withCareData: {
+    id: 'user4',
+    name: 'Alice Brown',
+    email: 'alice@example.com',
+    careData: {
+      appointments: [
+        {
+          id: 'appt1',
+          providerId: 'provider1',
+          date: '2023-02-15T14:30:00Z',
+          status: 'scheduled',
         },
-        claims: [
-          { id: 'clm1', amount: 500, date: new Date(), status: 'approved', category: 'medical' },
-          { id: 'clm2', amount: 200, date: new Date(), status: 'pending', category: 'dental' },
-        ],
-        beneficiaries: [
-          { id: 'ben1', name: 'Jane Doe', relationship: 'spouse' },
+      ],
+      medications: [
+        {
+          id: 'med1',
+          name: 'Medication A',
+          dosage: '10mg',
+          frequency: 'daily',
+          startDate: '2023-01-01',
+          endDate: '2023-03-01',
+        },
+      ],
+    },
+  },
+  withPlanData: {
+    id: 'user5',
+    name: 'Charlie Davis',
+    email: 'charlie@example.com',
+    planData: {
+      planId: 'plan1',
+      coverage: {
+        type: 'premium',
+        startDate: '2023-01-01',
+        endDate: '2023-12-31',
+        benefits: [
+          {
+            id: 'benefit1',
+            name: 'Annual Checkup',
+            description: 'Free annual checkup',
+            limit: 1,
+            used: 0,
+          },
+          {
+            id: 'benefit2',
+            name: 'Prescription Coverage',
+            description: '80% coverage for prescriptions',
+            limit: 5000,
+            used: 1200,
+          },
         ],
       },
+      claims: [
+        {
+          id: 'claim1',
+          amount: 500,
+          date: '2023-02-10',
+          status: 'approved',
+          documents: ['doc1.pdf', 'doc2.pdf'],
+        },
+      ],
     },
+  },
+  withGamification: {
+    id: 'user6',
+    name: 'Eva Green',
+    email: 'eva@example.com',
     gamification: {
       level: 5,
-      points: 1250,
-      achievements: [
-        { id: 'ach1', name: 'First Login', earned: new Date(), points: 50 },
-        { id: 'ach2', name: 'Complete Profile', earned: new Date(), points: 100 },
-      ],
+      xp: 2500,
+      achievements: ['achievement1', 'achievement2', 'achievement3'],
       quests: [
-        { id: 'q1', name: 'Daily Exercise', progress: 0.8, deadline: new Date(), reward: 200 },
+        {
+          id: 'quest1',
+          progress: 0.75,
+          completed: false,
+        },
+        {
+          id: 'quest2',
+          progress: 1,
+          completed: true,
+        },
       ],
-      leaderboard: {
-        position: 42,
-        total: 1000,
-        nearby: [
-          { userId: 121, name: 'User A', points: 1300, position: 40 },
-          { userId: 122, name: 'User B', points: 1275, position: 41 },
-          { userId: 123, name: 'John Doe', points: 1250, position: 42 },
-          { userId: 124, name: 'User C', points: 1225, position: 43 },
+    },
+  },
+  complete: {
+    id: 'user7',
+    name: 'Frank White',
+    email: 'frank@example.com',
+    preferences: {
+      theme: 'system',
+      notifications: {
+        email: true,
+        push: true,
+        sms: true,
+        frequency: 'daily',
+      },
+      language: 'en-US',
+    },
+    healthData: {
+      metrics: [
+        {
+          type: 'weight',
+          value: 80,
+          unit: 'kg',
+          recordedAt: '2023-01-01T12:00:00Z',
+        },
+      ],
+      goals: [
+        {
+          id: 'goal1',
+          type: 'steps',
+          target: 10000,
+          unit: 'steps',
+          progress: 10000,
+          completed: true,
+        },
+      ],
+    },
+    careData: {
+      appointments: [
+        {
+          id: 'appt1',
+          providerId: 'provider1',
+          date: '2023-02-15T14:30:00Z',
+          status: 'completed',
+          notes: 'Regular checkup, everything looks good.',
+        },
+      ],
+      medications: [
+        {
+          id: 'med1',
+          name: 'Medication A',
+          dosage: '10mg',
+          frequency: 'daily',
+          startDate: '2023-01-01',
+        },
+      ],
+    },
+    planData: {
+      planId: 'plan1',
+      coverage: {
+        type: 'premium',
+        startDate: '2023-01-01',
+        endDate: '2023-12-31',
+        benefits: [
+          {
+            id: 'benefit1',
+            name: 'Annual Checkup',
+            description: 'Free annual checkup',
+            limit: 1,
+            used: 1,
+          },
         ],
       },
-    },
-  },
-  apiRequest: {
-    endpoint: '/api/users',
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': 'Bearer token123',
-    },
-    body: {
-      name: 'John Doe',
-      email: 'john@example.com',
-      journeyPreferences: {
-        health: { enabled: true, shareData: false },
-        care: { enabled: true, notifications: true },
-        plan: { enabled: false },
-      },
-    },
-    options: {
-      timeout: 5000,
-      retry: {
-        count: 3,
-        delay: 1000,
-        backoff: 'exponential',
-      },
-      cache: {
-        enabled: false,
-      },
-    },
-  },
-  eventData: {
-    id: 'evt123',
-    timestamp: new Date(),
-    source: 'health-service',
-    type: 'metric-recorded',
-    version: '1.0',
-    payload: {
-      userId: 123,
-      metricId: 'weight',
-      value: 70,
-      unit: 'kg',
-      device: {
-        id: 'dev1',
-        type: 'smartwatch',
-        manufacturer: 'FitCo',
-      },
-      metadata: {
-        location: {
-          lat: 40.7128,
-          lng: -74.006,
+      claims: [
+        {
+          id: 'claim1',
+          amount: 500,
+          date: '2023-02-10',
+          status: 'approved',
+          documents: ['doc1.pdf'],
         },
-        app: {
-          version: '2.1.0',
-          platform: 'iOS',
-        },
-      },
+      ],
     },
-    context: {
-      correlationId: 'corr456',
-      sessionId: 'sess789',
-      requestId: 'req101112',
+    gamification: {
+      level: 10,
+      xp: 5000,
+      achievements: ['achievement1', 'achievement2', 'achievement3'],
+      quests: [
+        {
+          id: 'quest1',
+          progress: 1,
+          completed: true,
+        },
+      ],
     },
   },
 };
 
+// ===== Tuple Type Fixtures =====
+
 /**
- * Combined fixtures export for easier importing
+ * Type for coordinate tuples.
  */
-export const predicateFixtures = {
-  // Basic Type Predicates
-  defined: definedFixtures,
-  notNull: notNullFixtures,
-  notUndefined: notUndefinedFixtures,
-  
-  // Array Type Predicates
-  nonEmptyArray: nonEmptyArrayFixtures,
-  arrayOfLength: arrayOfLengthFixtures,
-  arrayOf: arrayOfFixtures,
-  
-  // Object Type Predicates
-  hasProperty: hasPropertyFixtures,
-  hasPropertyOfType: hasPropertyOfTypeFixtures,
-  hasProperties: hasPropertiesFixtures,
-  
-  // Class Instance Type Predicates
-  instanceOf: instanceOfFixtures,
-  instanceOfAny: instanceOfAnyFixtures,
-  
-  // Journey-Specific Type Predicates
-  filterDto: filterDtoFixtures,
-  paginationDto: paginationDtoFixtures,
-  sortDto: sortDtoFixtures,
-  
-  // Union Type Predicates
-  oneOf: oneOfFixtures,
-  oneOfType: oneOfTypeFixtures,
-  
-  // Discriminated Union Type Predicates
-  discriminator: discriminatorFixtures,
-  
-  // Complex Objects
-  complexObjects: complexObjectFixtures,
+export type Coordinate = [number, number];
+
+/**
+ * Type for RGB color tuples.
+ */
+export type RgbColor = [number, number, number];
+
+/**
+ * Type for RGBA color tuples.
+ */
+export type RgbaColor = [number, number, number, number];
+
+/**
+ * Type for key-value pair tuples.
+ */
+export type KeyValuePair<K, V> = [K, V];
+
+/**
+ * Collection of tuple fixtures for tuple type predicate testing.
+ */
+export const tupleFixtures = {
+  coordinate: [10, 20] as Coordinate,
+  invalidCoordinate: [10, 20, 30],
+  rgbColor: [255, 128, 0] as RgbColor,
+  rgbaColor: [255, 128, 0, 0.5] as RgbaColor,
+  stringNumberPair: ['key', 42] as KeyValuePair<string, number>,
+  numberBooleanPair: [42, true] as KeyValuePair<number, boolean>,
+  nestedTuple: [[1, 2], [3, 4]] as [Coordinate, Coordinate],
+  mixedTuple: ['user', 42, true] as [string, number, boolean],
+};
+
+// ===== Record Type Fixtures =====
+
+/**
+ * Type for string-to-string record.
+ */
+export type StringRecord = Record<string, string>;
+
+/**
+ * Type for string-to-number record.
+ */
+export type NumberRecord = Record<string, number>;
+
+/**
+ * Type for string-to-boolean record.
+ */
+export type BooleanRecord = Record<string, boolean>;
+
+/**
+ * Type for string-to-any record.
+ */
+export type MixedRecord = Record<string, any>;
+
+/**
+ * Collection of record fixtures for record type predicate testing.
+ */
+export const recordFixtures = {
+  stringRecord: {
+    name: 'John',
+    email: 'john@example.com',
+    address: '123 Main St',
+  } as StringRecord,
+  numberRecord: {
+    age: 30,
+    height: 180,
+    weight: 75,
+  } as NumberRecord,
+  booleanRecord: {
+    isActive: true,
+    isAdmin: false,
+    hasSubscription: true,
+  } as BooleanRecord,
+  mixedRecord: {
+    name: 'John',
+    age: 30,
+    isActive: true,
+    metadata: { key: 'value' },
+  } as MixedRecord,
+  emptyRecord: {} as Record<string, unknown>,
+  invalidStringRecord: {
+    name: 'John',
+    age: 30, // Not a string
+  },
+};
+
+// ===== Function Type Fixtures =====
+
+/**
+ * Type for a function that takes a string and returns a string.
+ */
+export type StringTransformer = (input: string) => string;
+
+/**
+ * Type for a function that takes a number and returns a boolean.
+ */
+export type NumberValidator = (input: number) => boolean;
+
+/**
+ * Type for an async function that takes a string and returns a Promise<boolean>.
+ */
+export type AsyncValidator = (input: string) => Promise<boolean>;
+
+/**
+ * Type for an event handler function.
+ */
+export type EventHandler = (event: string, data: unknown) => void;
+
+/**
+ * Collection of function fixtures for function type predicate testing.
+ */
+export const functionFixtures = {
+  stringTransformer: ((input: string) => input.toUpperCase()) as StringTransformer,
+  numberValidator: ((input: number) => input > 0) as NumberValidator,
+  asyncValidator: ((input: string) => Promise.resolve(input.length > 0)) as AsyncValidator,
+  eventHandler: ((event: string, data: unknown) => console.log(event, data)) as EventHandler,
+  arrowFunction: () => true,
+  functionDeclaration: function() { return true; },
+  asyncArrowFunction: async () => true,
+  asyncFunctionDeclaration: async function() { return true; },
+  generatorFunction: function* () { yield 1; },
+  invalidFunction: 'not a function',
+};
+
+// ===== Promise Type Fixtures =====
+
+/**
+ * Collection of promise fixtures for promise type predicate testing.
+ */
+export const promiseFixtures = {
+  resolvedPromise: Promise.resolve('success'),
+  rejectedPromise: Promise.reject(new Error('failure')),
+  pendingPromise: new Promise(() => {}),
+  promiseWithThen: { then: () => {} },
+  promiseWithThenAndCatch: { then: () => {}, catch: () => {} },
+  notAPromise: { then: 'not a function' },
+};
+
+// ===== Array Type Fixtures =====
+
+/**
+ * Collection of array fixtures for array type predicate testing.
+ */
+export const arrayFixtures = {
+  stringArray: ['a', 'b', 'c'],
+  numberArray: [1, 2, 3],
+  booleanArray: [true, false, true],
+  mixedArray: ['a', 1, true],
+  objectArray: [{ id: 1 }, { id: 2 }],
+  nestedArray: [[1, 2], [3, 4]],
+  emptyArray: [],
+  arrayLike: { 0: 'a', 1: 'b', length: 2 },
+  invalidStringArray: ['a', 'b', 1], // Not all strings
 };

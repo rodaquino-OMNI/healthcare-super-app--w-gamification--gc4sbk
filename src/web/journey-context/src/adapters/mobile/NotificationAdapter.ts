@@ -1,689 +1,510 @@
 /**
- * @file NotificationAdapter.ts
- * @description Mobile-specific notification adapter that handles push notifications,
- * local notifications, and notification persistence in React Native.
+ * Mobile-specific notification adapter for the AUSTA SuperApp
+ * 
+ * This adapter handles push notifications, local notifications, and notification persistence
+ * in React Native. It provides methods for registering device tokens, handling notification
+ * permissions, and processing both foreground and background notifications in the mobile environment.
+ * 
+ * @module @austa/journey-context/adapters/mobile/NotificationAdapter
  */
 
 import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import PushNotification, { Importance } from 'react-native-push-notification';
-import PushNotificationIOS from '@react-native-community/push-notification-ios';
-import { PermissionsAndroid } from 'react-native';
-
-import {
-  Notification,
-  NotificationFilter,
-  NotificationCount,
-  NotificationStatus,
+import * as Device from 'expo-device';
+import * as Notifications from 'expo-notifications';
+import Constants from 'expo-constants';
+import { 
+  Notification, 
+  NotificationChannel, 
+  NotificationPriority, 
+  NotificationStatus, 
   NotificationType,
-  NotificationChannel,
-  NotificationPriority,
-  SendNotificationRequest
-} from '@austa/interfaces/notification/types';
+  NotificationPreference,
+  JourneyNotificationPreference,
+  createNotification,
+  shouldDeliverThroughChannel
+} from '@austa/interfaces/notification';
 
-// Storage keys
-const NOTIFICATION_STORAGE_KEY = '@austa/notifications';
-const DEVICE_TOKEN_STORAGE_KEY = '@austa/device_token';
-const NOTIFICATION_PERMISSION_KEY = '@austa/notification_permission';
-
-// Channel IDs for Android
-const CHANNEL_IDS = {
-  DEFAULT: 'austa_default_channel',
-  HEALTH: 'austa_health_channel',
-  CARE: 'austa_care_channel',
-  PLAN: 'austa_plan_channel',
-  ACHIEVEMENT: 'austa_achievement_channel'
+// Storage keys for notifications and preferences
+const STORAGE_KEYS = {
+  NOTIFICATIONS: '@austa/notifications',
+  DEVICE_TOKEN: '@austa/device_token',
+  EXPO_TOKEN: '@austa/expo_token',
+  NOTIFICATION_PREFERENCES: '@austa/notification_preferences',
+  JOURNEY_PREFERENCES: '@austa/journey_notification_preferences',
 };
 
+// Default notification handler configuration
+Notifications.setNotificationHandler({
+  handleNotification: async (notification) => {
+    // Determine how to handle notifications based on priority
+    const priority = notification.request.content.data?.priority as NotificationPriority || NotificationPriority.MEDIUM;
+    
+    return {
+      shouldShowAlert: true,
+      shouldPlaySound: priority === NotificationPriority.HIGH || priority === NotificationPriority.CRITICAL,
+      shouldSetBadge: true,
+      // Priority-based presentation options
+      shouldShowBanner: priority !== NotificationPriority.LOW,
+      shouldShowList: true,
+    };
+  },
+});
+
 /**
- * Interface for the notification adapter methods
+ * Interface for the notification adapter configuration
  */
-export interface NotificationAdapter {
-  /**
-   * Retrieves notifications for a user
-   * @param userId - The ID of the user
-   * @returns A promise that resolves to an array of notifications
-   */
-  getNotifications: (userId: string) => Promise<Notification[]>;
-  
-  /**
-   * Marks a notification as read
-   * @param notificationId - The ID of the notification to mark as read
-   * @returns A promise that resolves when the operation is complete
-   */
-  markNotificationAsRead: (notificationId: string) => Promise<void>;
-  
-  /**
-   * Deletes a notification
-   * @param notificationId - The ID of the notification to delete
-   * @returns A promise that resolves when the operation is complete
-   */
-  deleteNotification: (notificationId: string) => Promise<void>;
-  
-  /**
-   * Gets notification counts by status
-   * @param userId - The ID of the user
-   * @returns A promise that resolves to notification counts
-   */
-  getNotificationCounts: (userId: string) => Promise<NotificationCount>;
-  
-  /**
-   * Filters notifications based on criteria
-   * @param userId - The ID of the user
-   * @param filter - The filter criteria
-   * @returns A promise that resolves to filtered notifications
-   */
-  filterNotifications: (userId: string, filter: NotificationFilter) => Promise<Notification[]>;
-
-  /**
-   * Registers the device for push notifications
-   * @returns A promise that resolves with the device token
-   */
-  registerForPushNotifications: () => Promise<string | null>;
-
-  /**
-   * Requests permission for push notifications
-   * @returns A promise that resolves with the permission status
-   */
-  requestNotificationPermission: () => Promise<boolean>;
-
-  /**
-   * Schedules a local notification
-   * @param notification - The notification to schedule
-   * @returns A promise that resolves when the operation is complete
-   */
-  scheduleLocalNotification: (notification: SendNotificationRequest) => Promise<void>;
-
-  /**
-   * Initializes the notification adapter
-   * @param onNotificationReceived - Callback for when a notification is received
-   * @param onNotificationOpened - Callback for when a notification is opened
-   * @returns A promise that resolves when initialization is complete
-   */
-  initialize: (
-    onNotificationReceived: (notification: Notification) => void,
-    onNotificationOpened: (notification: Notification) => void
-  ) => Promise<void>;
-
-  /**
-   * Cleans up the notification adapter resources
-   * @returns A promise that resolves when cleanup is complete
-   */
-  cleanup: () => Promise<void>;
+export interface NotificationAdapterConfig {
+  /** User ID for the current user */
+  userId: string;
+  /** Optional project ID for Expo notifications */
+  projectId?: string;
+  /** Whether to enable debug logging */
+  debug?: boolean;
 }
 
 /**
- * Mobile implementation of the notification adapter
+ * Mobile-specific notification adapter for handling push notifications,
+ * local notifications, and notification persistence in React Native.
  */
-class MobileNotificationAdapter implements NotificationAdapter {
+export class NotificationAdapter {
+  private userId: string;
+  private projectId?: string;
+  private debug: boolean;
   private deviceToken: string | null = null;
-  private onNotificationReceivedCallback: ((notification: Notification) => void) | null = null;
-  private onNotificationOpenedCallback: ((notification: Notification) => void) | null = null;
-  private isInitialized = false;
-
+  private expoPushToken: string | null = null;
+  private notificationReceivedListener: any = null;
+  private notificationResponseListener: any = null;
+  private tokenRefreshListener: any = null;
+  private notificationPermissionStatus: Notifications.PermissionStatus | null = null;
+  
   /**
-   * Initializes the notification adapter
-   * @param onNotificationReceived - Callback for when a notification is received
-   * @param onNotificationOpened - Callback for when a notification is opened
-   * @returns A promise that resolves when initialization is complete
+   * Creates a new instance of the NotificationAdapter
+   * @param config Configuration options for the adapter
    */
-  public async initialize(
-    onNotificationReceived: (notification: Notification) => void,
-    onNotificationOpened: (notification: Notification) => void
-  ): Promise<void> {
-    if (this.isInitialized) {
-      return;
-    }
-
-    this.onNotificationReceivedCallback = onNotificationReceived;
-    this.onNotificationOpenedCallback = onNotificationOpened;
-
-    // Create notification channels for Android
-    if (Platform.OS === 'android') {
-      this.createNotificationChannels();
-    }
-
-    // Configure push notifications
-    PushNotification.configure({
-      // Called when a remote or local notification is opened or received
-      onNotification: (notification) => {
-        console.log('NOTIFICATION:', notification);
-
-        // Convert to our notification format
-        const austaNofication = this.convertToAustaNotification(notification);
-
-        // Call the appropriate callback based on whether the notification was opened or received
-        if (notification.userInteraction) {
-          if (this.onNotificationOpenedCallback) {
-            this.onNotificationOpenedCallback(austaNofication);
-          }
-        } else {
-          if (this.onNotificationReceivedCallback) {
-            this.onNotificationReceivedCallback(austaNofication);
-          }
-        }
-
-        // Store the notification in AsyncStorage
-        this.storeNotification(austaNofication);
-
-        // Required on iOS only
-        notification.finish(PushNotificationIOS.FetchResult.NoData);
-      },
-
-      // Called when the device token is generated or refreshed
-      onRegister: async (token) => {
-        console.log('DEVICE TOKEN:', token);
-        this.deviceToken = token.token;
-
-        // Store the token in AsyncStorage for later use
-        try {
-          await AsyncStorage.setItem(DEVICE_TOKEN_STORAGE_KEY, token.token);
-        } catch (error) {
-          console.error('Error storing device token:', error);
-        }
-      },
-
-      // Called when registration fails
-      onRegistrationError: (error) => {
-        console.error('Registration error:', error.message, error);
-      },
-
-      // Android only: GCM or FCM Sender ID
-      senderID: '256218572662',
-
-      // iOS only: permission options
-      permissions: {
-        alert: true,
-        badge: true,
-        sound: true,
-      },
-
-      // Should the initial notification be popped automatically
-      popInitialNotification: true,
-
-      // Request permissions at initialization
-      requestPermissions: false, // We'll handle this manually
-    });
-
-    // Try to load the device token from AsyncStorage
+  constructor(config: NotificationAdapterConfig) {
+    this.userId = config.userId;
+    this.projectId = config.projectId;
+    this.debug = config.debug || false;
+    
+    // Initialize the adapter
+    this.initialize();
+  }
+  
+  /**
+   * Initializes the notification adapter by loading stored tokens and setting up listeners
+   */
+  private async initialize(): Promise<void> {
     try {
-      const storedToken = await AsyncStorage.getItem(DEVICE_TOKEN_STORAGE_KEY);
-      if (storedToken) {
-        this.deviceToken = storedToken;
+      // Load stored tokens
+      await this.loadStoredTokens();
+      
+      // Set up notification listeners
+      this.setupNotificationListeners();
+      
+      // Log initialization if debug is enabled
+      if (this.debug) {
+        console.log('[NotificationAdapter] Initialized with user ID:', this.userId);
       }
     } catch (error) {
-      console.error('Error loading device token:', error);
+      console.error('[NotificationAdapter] Initialization error:', error);
     }
-
-    this.isInitialized = true;
   }
-
+  
   /**
-   * Creates notification channels for Android
+   * Loads stored device and Expo tokens from AsyncStorage
    */
-  private createNotificationChannels(): void {
-    // Default channel
-    PushNotification.createChannel(
-      {
-        channelId: CHANNEL_IDS.DEFAULT,
-        channelName: 'Default Channel',
-        channelDescription: 'Default notification channel',
-        importance: Importance.DEFAULT,
-        vibrate: true,
-      },
-      (created) => console.log(`Default channel created: ${created}`)
-    );
-
-    // Health journey channel
-    PushNotification.createChannel(
-      {
-        channelId: CHANNEL_IDS.HEALTH,
-        channelName: 'Health Notifications',
-        channelDescription: 'Notifications for the Health journey',
-        importance: Importance.HIGH,
-        vibrate: true,
-      },
-      (created) => console.log(`Health channel created: ${created}`)
-    );
-
-    // Care journey channel
-    PushNotification.createChannel(
-      {
-        channelId: CHANNEL_IDS.CARE,
-        channelName: 'Care Notifications',
-        channelDescription: 'Notifications for the Care journey',
-        importance: Importance.HIGH,
-        vibrate: true,
-      },
-      (created) => console.log(`Care channel created: ${created}`)
-    );
-
-    // Plan journey channel
-    PushNotification.createChannel(
-      {
-        channelId: CHANNEL_IDS.PLAN,
-        channelName: 'Plan Notifications',
-        channelDescription: 'Notifications for the Plan journey',
-        importance: Importance.DEFAULT,
-        vibrate: true,
-      },
-      (created) => console.log(`Plan channel created: ${created}`)
-    );
-
-    // Achievement channel
-    PushNotification.createChannel(
-      {
-        channelId: CHANNEL_IDS.ACHIEVEMENT,
-        channelName: 'Achievement Notifications',
-        channelDescription: 'Notifications for achievements and rewards',
-        importance: Importance.DEFAULT,
-        vibrate: true,
-        playSound: true,
-        soundName: 'achievement',
-      },
-      (created) => console.log(`Achievement channel created: ${created}`)
-    );
+  private async loadStoredTokens(): Promise<void> {
+    try {
+      const deviceToken = await AsyncStorage.getItem(STORAGE_KEYS.DEVICE_TOKEN);
+      const expoPushToken = await AsyncStorage.getItem(STORAGE_KEYS.EXPO_TOKEN);
+      
+      this.deviceToken = deviceToken;
+      this.expoPushToken = expoPushToken;
+      
+      if (this.debug) {
+        console.log('[NotificationAdapter] Loaded stored tokens:', { deviceToken, expoPushToken });
+      }
+    } catch (error) {
+      console.error('[NotificationAdapter] Error loading stored tokens:', error);
+    }
   }
-
+  
   /**
-   * Cleans up the notification adapter resources
-   * @returns A promise that resolves when cleanup is complete
+   * Sets up listeners for notification events
    */
-  public async cleanup(): Promise<void> {
-    // Unregister event listeners
-    PushNotification.unregister();
-    this.onNotificationReceivedCallback = null;
-    this.onNotificationOpenedCallback = null;
-    this.isInitialized = false;
+  private setupNotificationListeners(): void {
+    // Listen for incoming notifications
+    this.notificationReceivedListener = Notifications.addNotificationReceivedListener(
+      this.handleNotificationReceived.bind(this)
+    );
+    
+    // Listen for user interaction with notifications
+    this.notificationResponseListener = Notifications.addNotificationResponseReceivedListener(
+      this.handleNotificationResponse.bind(this)
+    );
+    
+    // Listen for token refresh events
+    this.tokenRefreshListener = Notifications.addPushTokenListener(
+      this.handleTokenRefresh.bind(this)
+    );
+    
+    if (this.debug) {
+      console.log('[NotificationAdapter] Notification listeners set up');
+    }
   }
-
+  
   /**
-   * Requests permission for push notifications
-   * @returns A promise that resolves with the permission status
+   * Handles incoming notifications
+   * @param notification The received notification
+   */
+  private async handleNotificationReceived(notification: Notifications.Notification): Promise<void> {
+    try {
+      if (this.debug) {
+        console.log('[NotificationAdapter] Notification received:', notification);
+      }
+      
+      // Convert Expo notification to our app's notification format
+      const appNotification = this.convertExpoNotification(notification);
+      
+      // Store the notification for offline access
+      await this.storeNotification(appNotification);
+      
+      // Process any actions required by the notification
+      await this.processNotificationActions(appNotification);
+    } catch (error) {
+      console.error('[NotificationAdapter] Error handling received notification:', error);
+    }
+  }
+  
+  /**
+   * Handles user responses to notifications
+   * @param response The notification response
+   */
+  private async handleNotificationResponse(response: Notifications.NotificationResponse): Promise<void> {
+    try {
+      if (this.debug) {
+        console.log('[NotificationAdapter] Notification response:', response);
+      }
+      
+      const notification = response.notification;
+      const appNotification = this.convertExpoNotification(notification);
+      
+      // Mark the notification as read
+      await this.markNotificationAsRead(appNotification.id);
+      
+      // Process any actions based on the user's response
+      const actionId = response.actionIdentifier;
+      if (actionId !== Notifications.DEFAULT_ACTION_IDENTIFIER) {
+        // Handle custom actions
+        await this.processNotificationActionResponse(appNotification, actionId);
+      }
+    } catch (error) {
+      console.error('[NotificationAdapter] Error handling notification response:', error);
+    }
+  }
+  
+  /**
+   * Handles token refresh events
+   * @param token The new token
+   */
+  private async handleTokenRefresh(token: Notifications.DevicePushToken | Notifications.ExpoPushToken): Promise<void> {
+    try {
+      if (this.debug) {
+        console.log('[NotificationAdapter] Token refreshed:', token);
+      }
+      
+      // Update the stored token
+      if (token.type === 'ios' || token.type === 'android') {
+        this.deviceToken = token.data;
+        await AsyncStorage.setItem(STORAGE_KEYS.DEVICE_TOKEN, token.data);
+      } else if (token.type === 'expo') {
+        this.expoPushToken = token.data;
+        await AsyncStorage.setItem(STORAGE_KEYS.EXPO_TOKEN, token.data);
+      }
+      
+      // Register the new token with the backend
+      await this.registerTokenWithBackend();
+    } catch (error) {
+      console.error('[NotificationAdapter] Error handling token refresh:', error);
+    }
+  }
+  
+  /**
+   * Converts an Expo notification to our app's notification format
+   * @param expoNotification The Expo notification to convert
+   * @returns The converted notification
+   */
+  private convertExpoNotification(expoNotification: Notifications.Notification): Notification {
+    const { request, date } = expoNotification;
+    const { content } = request;
+    const { title, body, data } = content;
+    
+    // Extract notification data from the payload
+    const notificationType = data?.type as NotificationType || NotificationType.SYSTEM;
+    const notificationPriority = data?.priority as NotificationPriority || NotificationPriority.MEDIUM;
+    const notificationId = data?.id as string || request.identifier;
+    
+    // Create a notification object using our app's format
+    return createNotification({
+      id: notificationId,
+      userId: this.userId,
+      type: notificationType,
+      title: title || '',
+      body: body || '',
+      channel: NotificationChannel.PUSH,
+      priority: notificationPriority,
+      data: data as Record<string, unknown>,
+      createdAt: new Date(date),
+      updatedAt: new Date(date),
+    });
+  }
+  
+  /**
+   * Processes any actions required by the notification
+   * @param notification The notification to process
+   */
+  private async processNotificationActions(notification: Notification): Promise<void> {
+    // Implementation depends on specific notification types and required actions
+    // This is a placeholder for journey-specific notification processing
+    switch (notification.type) {
+      case NotificationType.ACHIEVEMENT:
+        // Process achievement notifications
+        break;
+      case NotificationType.APPOINTMENT:
+        // Process appointment notifications
+        break;
+      case NotificationType.HEALTH_METRIC:
+        // Process health metric notifications
+        break;
+      case NotificationType.CLAIM_STATUS:
+        // Process claim status notifications
+        break;
+      default:
+        // Default processing for other notification types
+        break;
+    }
+  }
+  
+  /**
+   * Processes a user's response to a notification action
+   * @param notification The notification that was acted upon
+   * @param actionId The identifier of the action that was taken
+   */
+  private async processNotificationActionResponse(notification: Notification, actionId: string): Promise<void> {
+    // Implementation depends on specific notification types and actions
+    // This is a placeholder for journey-specific action handling
+    if (this.debug) {
+      console.log('[NotificationAdapter] Processing action response:', { notification, actionId });
+    }
+    
+    // Handle different actions based on notification type
+    switch (notification.type) {
+      case NotificationType.APPOINTMENT:
+        // Handle appointment actions (confirm, reschedule, cancel)
+        break;
+      case NotificationType.MEDICATION:
+        // Handle medication actions (taken, snooze, skip)
+        break;
+      case NotificationType.CLAIM_STATUS:
+        // Handle claim actions (view, upload, appeal)
+        break;
+      default:
+        // Default handling for other notification types
+        break;
+    }
+  }
+  
+  /**
+   * Registers the device token with the backend
+   */
+  private async registerTokenWithBackend(): Promise<void> {
+    try {
+      if (!this.deviceToken && !this.expoPushToken) {
+        if (this.debug) {
+          console.log('[NotificationAdapter] No tokens available to register with backend');
+        }
+        return;
+      }
+      
+      // TODO: Implement API call to register token with backend
+      // This would typically involve a call to the notification service API
+      if (this.debug) {
+        console.log('[NotificationAdapter] Registering token with backend:', {
+          deviceToken: this.deviceToken,
+          expoPushToken: this.expoPushToken,
+        });
+      }
+    } catch (error) {
+      console.error('[NotificationAdapter] Error registering token with backend:', error);
+    }
+  }
+  
+  /**
+   * Requests permission to send notifications to the user
+   * @returns The permission status
    */
   public async requestNotificationPermission(): Promise<boolean> {
     try {
-      // Check if we already have permission
-      const storedPermission = await AsyncStorage.getItem(NOTIFICATION_PERMISSION_KEY);
-      if (storedPermission === 'granted') {
-        return true;
-      }
-
-      // Request permission based on platform
-      if (Platform.OS === 'ios') {
-        const permission = await PushNotificationIOS.requestPermissions({
-          alert: true,
-          badge: true,
-          sound: true,
-        });
-
-        const granted = permission.alert && permission.badge && permission.sound;
-        if (granted) {
-          await AsyncStorage.setItem(NOTIFICATION_PERMISSION_KEY, 'granted');
+      if (!Device.isDevice) {
+        if (this.debug) {
+          console.log('[NotificationAdapter] Running on simulator, skipping permission request');
         }
-        return granted;
-      } else if (Platform.OS === 'android') {
-        // For Android 13+ (API level 33+), we need to request the permission
-        if (Platform.Version >= 33) {
-          const granted = await PermissionsAndroid.request(
-            PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS,
-            {
-              title: 'Notification Permission',
-              message: 'AUSTA SuperApp needs permission to send you notifications',
-              buttonNeutral: 'Ask Me Later',
-              buttonNegative: 'Cancel',
-              buttonPositive: 'OK',
-            }
-          );
-
-          const permissionGranted = granted === PermissionsAndroid.RESULTS.GRANTED;
-          if (permissionGranted) {
-            await AsyncStorage.setItem(NOTIFICATION_PERMISSION_KEY, 'granted');
-          }
-          return permissionGranted;
-        }
-
-        // For Android < 13, permissions are granted at install time
-        await AsyncStorage.setItem(NOTIFICATION_PERMISSION_KEY, 'granted');
-        return true;
+        return false;
       }
-
-      return false;
+      
+      const { status: existingStatus } = await Notifications.getPermissionsAsync();
+      let finalStatus = existingStatus;
+      
+      // Only ask for permission if not already granted
+      if (existingStatus !== 'granted') {
+        const { status } = await Notifications.requestPermissionsAsync();
+        finalStatus = status;
+      }
+      
+      this.notificationPermissionStatus = finalStatus;
+      
+      if (this.debug) {
+        console.log('[NotificationAdapter] Notification permission status:', finalStatus);
+      }
+      
+      return finalStatus === 'granted';
     } catch (error) {
-      console.error('Error requesting notification permission:', error);
+      console.error('[NotificationAdapter] Error requesting notification permission:', error);
       return false;
     }
   }
-
+  
   /**
-   * Registers the device for push notifications
-   * @returns A promise that resolves with the device token
+   * Registers for push notifications and obtains device tokens
+   * @returns The Expo push token if successful, null otherwise
    */
   public async registerForPushNotifications(): Promise<string | null> {
     try {
-      // Request permission first
-      const permissionGranted = await this.requestNotificationPermission();
-      if (!permissionGranted) {
-        console.warn('Push notification permission not granted');
+      // Check if running on a physical device
+      if (!Device.isDevice) {
+        if (this.debug) {
+          console.log('[NotificationAdapter] Push notifications not supported in simulator');
+        }
         return null;
       }
-
-      // If we already have a token, return it
-      if (this.deviceToken) {
-        return this.deviceToken;
+      
+      // Request permission if not already granted
+      const permissionGranted = await this.requestNotificationPermission();
+      if (!permissionGranted) {
+        if (this.debug) {
+          console.log('[NotificationAdapter] Notification permission not granted');
+        }
+        return null;
       }
-
-      // Try to load from AsyncStorage
-      const storedToken = await AsyncStorage.getItem(DEVICE_TOKEN_STORAGE_KEY);
-      if (storedToken) {
-        this.deviceToken = storedToken;
-        return storedToken;
-      }
-
-      // If we don't have a token yet, wait for the onRegister callback
-      // This is a bit of a hack, but it works
-      return new Promise((resolve) => {
-        const checkInterval = setInterval(async () => {
-          const token = await AsyncStorage.getItem(DEVICE_TOKEN_STORAGE_KEY);
-          if (token) {
-            clearInterval(checkInterval);
-            this.deviceToken = token;
-            resolve(token);
-          }
-        }, 1000);
-
-        // Timeout after 10 seconds
-        setTimeout(() => {
-          clearInterval(checkInterval);
-          resolve(null);
-        }, 10000);
+      
+      // Get the Expo push token
+      const tokenData = await Notifications.getExpoPushTokenAsync({
+        projectId: this.projectId,
       });
+      
+      // Store the tokens
+      this.expoPushToken = tokenData.data;
+      await AsyncStorage.setItem(STORAGE_KEYS.EXPO_TOKEN, tokenData.data);
+      
+      // Get the device push token (iOS or Android)
+      const devicePushToken = await Notifications.getDevicePushTokenAsync();
+      if (devicePushToken.type === 'ios' || devicePushToken.type === 'android') {
+        this.deviceToken = devicePushToken.data;
+        await AsyncStorage.setItem(STORAGE_KEYS.DEVICE_TOKEN, devicePushToken.data);
+      }
+      
+      // Register the tokens with the backend
+      await this.registerTokenWithBackend();
+      
+      if (this.debug) {
+        console.log('[NotificationAdapter] Registered for push notifications:', {
+          expoPushToken: tokenData.data,
+          devicePushToken: devicePushToken.data,
+        });
+      }
+      
+      return tokenData.data;
     } catch (error) {
-      console.error('Error registering for push notifications:', error);
+      console.error('[NotificationAdapter] Error registering for push notifications:', error);
       return null;
     }
   }
-
+  
   /**
-   * Schedules a local notification
-   * @param notification - The notification to schedule
-   * @returns A promise that resolves when the operation is complete
+   * Schedules a local notification to be delivered at a specific time
+   * @param notification The notification to schedule
+   * @param trigger The trigger for when to show the notification
+   * @returns The notification identifier if successful, null otherwise
    */
-  public async scheduleLocalNotification(notification: SendNotificationRequest): Promise<void> {
+  public async scheduleLocalNotification(
+    notification: Omit<Notification, 'id' | 'status' | 'channel' | 'createdAt' | 'updatedAt'>,
+    trigger: Notifications.NotificationTriggerInput = null
+  ): Promise<string | null> {
     try {
-      // Determine the appropriate channel ID based on notification type
-      let channelId = CHANNEL_IDS.DEFAULT;
-      switch (notification.type) {
-        case NotificationType.HEALTH_GOAL:
-        case NotificationType.HEALTH_METRIC:
-          channelId = CHANNEL_IDS.HEALTH;
-          break;
-        case NotificationType.APPOINTMENT:
-        case NotificationType.MEDICATION:
-          channelId = CHANNEL_IDS.CARE;
-          break;
-        case NotificationType.CLAIM_STATUS:
-        case NotificationType.BENEFIT_REMINDER:
-          channelId = CHANNEL_IDS.PLAN;
-          break;
-        case NotificationType.ACHIEVEMENT:
-        case NotificationType.LEVEL_UP:
-          channelId = CHANNEL_IDS.ACHIEVEMENT;
-          break;
-      }
-
-      // Convert priority to Android/iOS compatible format
-      let priority = 'default';
-      switch (notification.priority) {
-        case NotificationPriority.LOW:
-          priority = 'low';
-          break;
-        case NotificationPriority.MEDIUM:
-          priority = 'default';
-          break;
-        case NotificationPriority.HIGH:
-          priority = 'high';
-          break;
-        case NotificationPriority.CRITICAL:
-          priority = 'max';
-          break;
-      }
-
-      // Schedule the notification
-      PushNotification.localNotification({
-        channelId,
+      // Create the notification content
+      const notificationContent: Notifications.NotificationContentInput = {
         title: notification.title,
-        message: notification.body,
-        priority,
-        userInfo: {
-          id: Math.random().toString(36).substring(2, 15),
-          userId: notification.userId,
+        body: notification.body,
+        data: {
+          ...notification.data,
           type: notification.type,
-          data: notification.data,
-          createdAt: new Date().toISOString(),
+          priority: notification.priority,
+          userId: notification.userId,
         },
-      });
-    } catch (error) {
-      console.error('Error scheduling local notification:', error);
-      throw error;
-    }
-  }
-
-  /**
-   * Retrieves notifications for a user
-   * @param userId - The ID of the user
-   * @returns A promise that resolves to an array of notifications
-   */
-  public async getNotifications(userId: string): Promise<Notification[]> {
-    try {
-      // Try to get notifications from AsyncStorage
-      const storedNotifications = await this.getStoredNotifications();
+      };
       
-      // Filter notifications for the specified user
-      return storedNotifications.filter(notification => notification.userId === userId);
-    } catch (error) {
-      console.error('Error getting notifications:', error);
-      return [];
-    }
-  }
-
-  /**
-   * Marks a notification as read
-   * @param notificationId - The ID of the notification to mark as read
-   * @returns A promise that resolves when the operation is complete
-   */
-  public async markNotificationAsRead(notificationId: string): Promise<void> {
-    try {
-      // Get stored notifications
-      const storedNotifications = await this.getStoredNotifications();
-      
-      // Find and update the notification
-      const updatedNotifications = storedNotifications.map(notification => {
-        if (notification.id === notificationId) {
-          return {
-            ...notification,
-            status: NotificationStatus.READ,
-            readAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString()
-          };
-        }
-        return notification;
+      // Schedule the notification
+      const notificationId = await Notifications.scheduleNotificationAsync({
+        content: notificationContent,
+        trigger,
       });
       
-      // Save the updated notifications
-      await AsyncStorage.setItem(NOTIFICATION_STORAGE_KEY, JSON.stringify(updatedNotifications));
-      
-      // Update badge count on app icon
-      this.updateBadgeCount();
-    } catch (error) {
-      console.error('Error marking notification as read:', error);
-      throw error;
-    }
-  }
-
-  /**
-   * Deletes a notification
-   * @param notificationId - The ID of the notification to delete
-   * @returns A promise that resolves when the operation is complete
-   */
-  public async deleteNotification(notificationId: string): Promise<void> {
-    try {
-      // Get stored notifications
-      const storedNotifications = await this.getStoredNotifications();
-      
-      // Filter out the notification to delete
-      const updatedNotifications = storedNotifications.filter(
-        notification => notification.id !== notificationId
-      );
-      
-      // Save the updated notifications
-      await AsyncStorage.setItem(NOTIFICATION_STORAGE_KEY, JSON.stringify(updatedNotifications));
-      
-      // Update badge count on app icon
-      this.updateBadgeCount();
-    } catch (error) {
-      console.error('Error deleting notification:', error);
-      throw error;
-    }
-  }
-
-  /**
-   * Gets notification counts by status
-   * @param userId - The ID of the user
-   * @returns A promise that resolves to notification counts
-   */
-  public async getNotificationCounts(userId: string): Promise<NotificationCount> {
-    try {
-      // Get notifications for the user
-      const notifications = await this.getNotifications(userId);
-      
-      // Count total and unread notifications
-      const total = notifications.length;
-      const unread = notifications.filter(
-        notification => notification.status === NotificationStatus.DELIVERED || 
-                        notification.status === NotificationStatus.SENT
-      ).length;
-      
-      // Count by type
-      const byType: Record<NotificationType, number> = {} as Record<NotificationType, number>;
-      
-      notifications.forEach(notification => {
-        const type = notification.type;
-        byType[type] = (byType[type] || 0) + 1;
-      });
-      
-      return { total, unread, byType };
-    } catch (error) {
-      console.error('Error getting notification counts:', error);
-      return { total: 0, unread: 0, byType: {} };
-    }
-  }
-
-  /**
-   * Filters notifications based on criteria
-   * @param userId - The ID of the user
-   * @param filter - The filter criteria
-   * @returns A promise that resolves to filtered notifications
-   */
-  public async filterNotifications(userId: string, filter: NotificationFilter): Promise<Notification[]> {
-    try {
-      // Get all notifications for the user
-      const notifications = await this.getNotifications(userId);
-      
-      // Apply filters
-      return notifications.filter(notification => {
-        // Filter by types
-        if (filter.types && filter.types.length > 0 && !filter.types.includes(notification.type)) {
-          return false;
-        }
-        
-        // Filter by status
-        if (filter.status && notification.status !== filter.status) {
-          return false;
-        }
-        
-        // Filter by channel
-        if (filter.channel && notification.channel !== filter.channel) {
-          return false;
-        }
-        
-        // Filter by read status
-        if (filter.read !== undefined) {
-          const isRead = notification.status === NotificationStatus.READ;
-          if (filter.read !== isRead) {
-            return false;
-          }
-        }
-        
-        // Filter by date range
-        if (filter.startDate) {
-          const startDate = new Date(filter.startDate).getTime();
-          const notificationDate = new Date(notification.createdAt).getTime();
-          if (notificationDate < startDate) {
-            return false;
-          }
-        }
-        
-        if (filter.endDate) {
-          const endDate = new Date(filter.endDate).getTime();
-          const notificationDate = new Date(notification.createdAt).getTime();
-          if (notificationDate > endDate) {
-            return false;
-          }
-        }
-        
-        return true;
-      });
-    } catch (error) {
-      console.error('Error filtering notifications:', error);
-      return [];
-    }
-  }
-
-  /**
-   * Updates the badge count on the app icon
-   */
-  private async updateBadgeCount(): Promise<void> {
-    try {
-      // Get all stored notifications
-      const storedNotifications = await this.getStoredNotifications();
-      
-      // Count unread notifications
-      const unreadCount = storedNotifications.filter(
-        notification => notification.status === NotificationStatus.DELIVERED || 
-                        notification.status === NotificationStatus.SENT
-      ).length;
-      
-      // Update badge count
-      PushNotification.setApplicationIconBadgeNumber(unreadCount);
-    } catch (error) {
-      console.error('Error updating badge count:', error);
-    }
-  }
-
-  /**
-   * Gets all stored notifications from AsyncStorage
-   * @returns A promise that resolves to an array of notifications
-   */
-  private async getStoredNotifications(): Promise<Notification[]> {
-    try {
-      const storedData = await AsyncStorage.getItem(NOTIFICATION_STORAGE_KEY);
-      if (!storedData) {
-        return [];
+      if (this.debug) {
+        console.log('[NotificationAdapter] Scheduled local notification:', {
+          id: notificationId,
+          notification,
+          trigger,
+        });
       }
       
-      return JSON.parse(storedData) as Notification[];
+      // Create and store the notification in our local storage
+      const appNotification = createNotification({
+        ...notification,
+        id: notificationId,
+        channel: NotificationChannel.IN_APP,
+      });
+      
+      await this.storeNotification(appNotification);
+      
+      return notificationId;
     } catch (error) {
-      console.error('Error getting stored notifications:', error);
-      return [];
+      console.error('[NotificationAdapter] Error scheduling local notification:', error);
+      return null;
     }
   }
-
+  
   /**
-   * Stores a notification in AsyncStorage
-   * @param notification - The notification to store
+   * Cancels a scheduled local notification
+   * @param notificationId The ID of the notification to cancel
    */
-  private async storeNotification(notification: Notification): Promise<void> {
+  public async cancelLocalNotification(notificationId: string): Promise<void> {
+    try {
+      await Notifications.cancelScheduledNotificationAsync(notificationId);
+      
+      if (this.debug) {
+        console.log('[NotificationAdapter] Cancelled local notification:', notificationId);
+      }
+    } catch (error) {
+      console.error('[NotificationAdapter] Error cancelling local notification:', error);
+    }
+  }
+  
+  /**
+   * Stores a notification in AsyncStorage for offline access
+   * @param notification The notification to store
+   */
+  public async storeNotification(notification: Notification): Promise<void> {
     try {
       // Get existing notifications
       const storedNotifications = await this.getStoredNotifications();
@@ -694,53 +515,317 @@ class MobileNotificationAdapter implements NotificationAdapter {
       if (existingIndex >= 0) {
         // Update existing notification
         storedNotifications[existingIndex] = {
+          ...storedNotifications[existingIndex],
           ...notification,
-          updatedAt: new Date().toISOString()
+          updatedAt: new Date(),
         };
       } else {
         // Add new notification
         storedNotifications.push(notification);
       }
       
-      // Store updated notifications
-      await AsyncStorage.setItem(NOTIFICATION_STORAGE_KEY, JSON.stringify(storedNotifications));
+      // Sort notifications by priority and date
+      const sortedNotifications = this.sortNotificationsByPriorityAndDate(storedNotifications);
       
-      // Update badge count
-      this.updateBadgeCount();
+      // Store the updated notifications
+      await AsyncStorage.setItem(STORAGE_KEYS.NOTIFICATIONS, JSON.stringify(sortedNotifications));
+      
+      if (this.debug) {
+        console.log('[NotificationAdapter] Stored notification:', notification);
+      }
     } catch (error) {
-      console.error('Error storing notification:', error);
+      console.error('[NotificationAdapter] Error storing notification:', error);
     }
   }
-
+  
   /**
-   * Converts a push notification to our Notification format
-   * @param pushNotification - The push notification to convert
-   * @returns The converted notification
+   * Retrieves all stored notifications from AsyncStorage
+   * @returns An array of stored notifications
    */
-  private convertToAustaNotification(pushNotification: any): Notification {
-    // Extract data from the notification
-    const { id, userId, type, title, message, data } = pushNotification.data || pushNotification.userInfo || {};
-    
-    // Create a new notification object
-    const notification: Notification = {
-      id: id || Math.random().toString(36).substring(2, 15),
-      userId: userId || '',
-      type: type || NotificationType.SYSTEM,
-      title: title || pushNotification.title || '',
-      body: message || pushNotification.message || '',
-      channel: NotificationChannel.PUSH,
-      status: pushNotification.userInteraction ? NotificationStatus.READ : NotificationStatus.DELIVERED,
-      priority: NotificationPriority.MEDIUM,
-      data: data || undefined,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      readAt: pushNotification.userInteraction ? new Date().toISOString() : undefined
-    };
-    
-    return notification;
+  public async getStoredNotifications(): Promise<Notification[]> {
+    try {
+      const notificationsJson = await AsyncStorage.getItem(STORAGE_KEYS.NOTIFICATIONS);
+      
+      if (!notificationsJson) {
+        return [];
+      }
+      
+      const notifications = JSON.parse(notificationsJson) as Notification[];
+      
+      // Convert date strings back to Date objects
+      return notifications.map(notification => ({
+        ...notification,
+        createdAt: new Date(notification.createdAt),
+        updatedAt: new Date(notification.updatedAt),
+      }));
+    } catch (error) {
+      console.error('[NotificationAdapter] Error getting stored notifications:', error);
+      return [];
+    }
+  }
+  
+  /**
+   * Sorts notifications by priority (high to low) and date (newest first)
+   * @param notifications The notifications to sort
+   * @returns The sorted notifications
+   */
+  private sortNotificationsByPriorityAndDate(notifications: Notification[]): Notification[] {
+    return [...notifications].sort((a, b) => {
+      // First sort by priority (critical > high > medium > low)
+      const priorityOrder = {
+        [NotificationPriority.CRITICAL]: 0,
+        [NotificationPriority.HIGH]: 1,
+        [NotificationPriority.MEDIUM]: 2,
+        [NotificationPriority.LOW]: 3,
+      };
+      
+      const priorityDiff = priorityOrder[a.priority] - priorityOrder[b.priority];
+      
+      if (priorityDiff !== 0) {
+        return priorityDiff;
+      }
+      
+      // Then sort by date (newest first)
+      return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+    });
+  }
+  
+  /**
+   * Marks a notification as read
+   * @param notificationId The ID of the notification to mark as read
+   */
+  public async markNotificationAsRead(notificationId: string): Promise<void> {
+    try {
+      // Get existing notifications
+      const notifications = await this.getStoredNotifications();
+      
+      // Find the notification to update
+      const notificationIndex = notifications.findIndex(n => n.id === notificationId);
+      
+      if (notificationIndex >= 0) {
+        // Update the notification status
+        notifications[notificationIndex] = {
+          ...notifications[notificationIndex],
+          status: NotificationStatus.READ,
+          updatedAt: new Date(),
+        };
+        
+        // Store the updated notifications
+        await AsyncStorage.setItem(STORAGE_KEYS.NOTIFICATIONS, JSON.stringify(notifications));
+        
+        if (this.debug) {
+          console.log('[NotificationAdapter] Marked notification as read:', notificationId);
+        }
+      }
+    } catch (error) {
+      console.error('[NotificationAdapter] Error marking notification as read:', error);
+    }
+  }
+  
+  /**
+   * Deletes a notification from storage
+   * @param notificationId The ID of the notification to delete
+   */
+  public async deleteNotification(notificationId: string): Promise<void> {
+    try {
+      // Get existing notifications
+      const notifications = await this.getStoredNotifications();
+      
+      // Filter out the notification to delete
+      const updatedNotifications = notifications.filter(n => n.id !== notificationId);
+      
+      // Store the updated notifications
+      await AsyncStorage.setItem(STORAGE_KEYS.NOTIFICATIONS, JSON.stringify(updatedNotifications));
+      
+      if (this.debug) {
+        console.log('[NotificationAdapter] Deleted notification:', notificationId);
+      }
+    } catch (error) {
+      console.error('[NotificationAdapter] Error deleting notification:', error);
+    }
+  }
+  
+  /**
+   * Gets the notification preferences for the current user
+   * @returns The user's notification preferences
+   */
+  public async getNotificationPreferences(): Promise<NotificationPreference | null> {
+    try {
+      const preferencesJson = await AsyncStorage.getItem(STORAGE_KEYS.NOTIFICATION_PREFERENCES);
+      
+      if (!preferencesJson) {
+        return null;
+      }
+      
+      const preferences = JSON.parse(preferencesJson) as NotificationPreference;
+      
+      // Convert date strings back to Date objects
+      return {
+        ...preferences,
+        updatedAt: new Date(preferences.updatedAt),
+      };
+    } catch (error) {
+      console.error('[NotificationAdapter] Error getting notification preferences:', error);
+      return null;
+    }
+  }
+  
+  /**
+   * Saves notification preferences for the current user
+   * @param preferences The notification preferences to save
+   */
+  public async saveNotificationPreferences(preferences: Omit<NotificationPreference, 'updatedAt'>): Promise<void> {
+    try {
+      const updatedPreferences: NotificationPreference = {
+        ...preferences,
+        updatedAt: new Date(),
+      };
+      
+      await AsyncStorage.setItem(STORAGE_KEYS.NOTIFICATION_PREFERENCES, JSON.stringify(updatedPreferences));
+      
+      if (this.debug) {
+        console.log('[NotificationAdapter] Saved notification preferences:', updatedPreferences);
+      }
+    } catch (error) {
+      console.error('[NotificationAdapter] Error saving notification preferences:', error);
+    }
+  }
+  
+  /**
+   * Gets the journey-specific notification preferences for the current user
+   * @param journeyId The journey ID
+   * @returns The journey-specific notification preferences
+   */
+  public async getJourneyNotificationPreferences(journeyId: 'health' | 'care' | 'plan'): Promise<JourneyNotificationPreference | null> {
+    try {
+      const preferencesJson = await AsyncStorage.getItem(`${STORAGE_KEYS.JOURNEY_PREFERENCES}_${journeyId}`);
+      
+      if (!preferencesJson) {
+        return null;
+      }
+      
+      const preferences = JSON.parse(preferencesJson) as JourneyNotificationPreference;
+      
+      // Convert date strings back to Date objects
+      return {
+        ...preferences,
+        updatedAt: new Date(preferences.updatedAt),
+      };
+    } catch (error) {
+      console.error('[NotificationAdapter] Error getting journey notification preferences:', error);
+      return null;
+    }
+  }
+  
+  /**
+   * Saves journey-specific notification preferences for the current user
+   * @param journeyId The journey ID
+   * @param preferences The journey-specific notification preferences to save
+   */
+  public async saveJourneyNotificationPreferences(
+    journeyId: 'health' | 'care' | 'plan',
+    preferences: Omit<JourneyNotificationPreference, 'userId' | 'journeyId' | 'updatedAt'>
+  ): Promise<void> {
+    try {
+      const updatedPreferences: JourneyNotificationPreference = {
+        ...preferences,
+        userId: this.userId,
+        journeyId,
+        updatedAt: new Date(),
+      };
+      
+      await AsyncStorage.setItem(
+        `${STORAGE_KEYS.JOURNEY_PREFERENCES}_${journeyId}`,
+        JSON.stringify(updatedPreferences)
+      );
+      
+      if (this.debug) {
+        console.log('[NotificationAdapter] Saved journey notification preferences:', {
+          journeyId,
+          preferences: updatedPreferences,
+        });
+      }
+    } catch (error) {
+      console.error('[NotificationAdapter] Error saving journey notification preferences:', error);
+    }
+  }
+  
+  /**
+   * Gets the badge count for the app icon
+   * @returns The current badge count
+   */
+  public async getBadgeCount(): Promise<number> {
+    try {
+      return await Notifications.getBadgeCountAsync();
+    } catch (error) {
+      console.error('[NotificationAdapter] Error getting badge count:', error);
+      return 0;
+    }
+  }
+  
+  /**
+   * Sets the badge count for the app icon
+   * @param count The badge count to set
+   */
+  public async setBadgeCount(count: number): Promise<void> {
+    try {
+      await Notifications.setBadgeCountAsync(count);
+      
+      if (this.debug) {
+        console.log('[NotificationAdapter] Set badge count:', count);
+      }
+    } catch (error) {
+      console.error('[NotificationAdapter] Error setting badge count:', error);
+    }
+  }
+  
+  /**
+   * Gets the last notification response that was received
+   * @returns The last notification response
+   */
+  public async getLastNotificationResponse(): Promise<Notifications.NotificationResponse | null> {
+    try {
+      return await Notifications.getLastNotificationResponseAsync();
+    } catch (error) {
+      console.error('[NotificationAdapter] Error getting last notification response:', error);
+      return null;
+    }
+  }
+  
+  /**
+   * Cleans up the adapter by removing listeners
+   */
+  public cleanup(): void {
+    try {
+      // Remove notification listeners
+      if (this.notificationReceivedListener) {
+        this.notificationReceivedListener.remove();
+      }
+      
+      if (this.notificationResponseListener) {
+        this.notificationResponseListener.remove();
+      }
+      
+      if (this.tokenRefreshListener) {
+        this.tokenRefreshListener.remove();
+      }
+      
+      if (this.debug) {
+        console.log('[NotificationAdapter] Cleaned up notification listeners');
+      }
+    } catch (error) {
+      console.error('[NotificationAdapter] Error cleaning up:', error);
+    }
   }
 }
 
-// Create and export the singleton instance
-const mobileNotificationAdapter = new MobileNotificationAdapter();
-export default mobileNotificationAdapter;
+/**
+ * Creates a notification adapter for the mobile platform
+ * @param config Configuration options for the adapter
+ * @returns A new NotificationAdapter instance
+ */
+export function createMobileNotificationAdapter(config: NotificationAdapterConfig): NotificationAdapter {
+  return new NotificationAdapter(config);
+}
+
+export default NotificationAdapter;

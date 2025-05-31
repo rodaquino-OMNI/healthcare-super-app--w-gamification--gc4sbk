@@ -1,683 +1,1208 @@
 /**
  * Validation Test Helpers
  * 
- * Provides utilities for testing validation functions and schemas across the AUSTA SuperApp.
- * These helpers facilitate testing of schema validation, object validation, and type-specific
- * validation functions across all journey services.
+ * Provides test helper functions for validation utilities, including:
+ * - Generators for valid and invalid data structures
+ * - Schema testing helpers
+ * - Assertion utilities for validation testing
+ * - Helpers for testing common validators (emails, URLs, phone numbers)
+ * 
+ * These helpers facilitate testing of schema validation, object validation,
+ * and type-specific validation functions across all journey services.
  */
 
-import { z } from 'zod';
-import { validate, validateSync, ValidationError } from 'class-validator';
-import { plainToInstance } from 'class-transformer';
-
-// Import fixtures for test data generation
-import {
-  validEmails,
-  invalidEmails,
-} from '../fixtures/validation/email-validation.fixtures';
-
-import {
-  validCPFs,
-  invalidCPFs,
-} from '../fixtures/validation/cpf-validation.fixtures';
-
-import {
-  validDates,
-  invalidDates,
-} from '../fixtures/validation/date-validation.fixtures';
-
-import {
-  validPasswords,
-  invalidPasswords,
-} from '../fixtures/validation/password-validation.fixtures';
-
-import {
-  securityVectors,
-} from '../fixtures/validation/input-sanitization.fixtures';
+import { z, ZodType, ZodError } from 'zod';
+import { ValidationResult } from '../../src/validation';
+import { randomUtils } from './common.helpers';
 
 /**
- * Types for validation testing
+ * Interface for test data generation options
  */
-export type ValidationTestCase<T> = {
-  value: T;
+export interface TestDataOptions {
+  /** Whether to include valid data in the result */
+  includeValid?: boolean;
+  /** Whether to include invalid data in the result */
+  includeInvalid?: boolean;
+  /** Number of valid examples to generate */
+  validCount?: number;
+  /** Number of invalid examples to generate */
+  invalidCount?: number;
+  /** Journey context for journey-specific test data */
+  journeyContext?: 'health' | 'care' | 'plan';
+}
+
+/**
+ * Interface for test data generation result
+ */
+export interface TestData<T> {
+  /** Valid test data examples */
+  valid: T[];
+  /** Invalid test data examples */
+  invalid: T[];
+  /** Description of the test data */
   description: string;
-  shouldPass: boolean;
-  expectedErrors?: string[];
-};
-
-export type SchemaValidationResult<T> = {
-  success: boolean;
-  value?: T;
-  errors?: z.ZodError | ValidationError[];
-};
-
-/**
- * Data generators for validation testing
- */
-
-/**
- * Generates a set of test cases for email validation
- * @param includeCustom - Whether to include custom test cases
- * @param customValid - Additional valid email test cases
- * @param customInvalid - Additional invalid email test cases
- * @returns Array of email validation test cases
- */
-export function generateEmailTestCases(
-  includeCustom = false,
-  customValid: string[] = [],
-  customInvalid: string[] = []
-): ValidationTestCase<string>[] {
-  const standardValid = validEmails.map(email => ({
-    value: email,
-    description: `Valid email: ${email}`,
-    shouldPass: true
-  }));
-
-  const standardInvalid = invalidEmails.map(email => ({
-    value: email,
-    description: `Invalid email: ${email}`,
-    shouldPass: false,
-    expectedErrors: ['Invalid email format']
-  }));
-
-  const additionalValid = customValid.map(email => ({
-    value: email,
-    description: `Custom valid email: ${email}`,
-    shouldPass: true
-  }));
-
-  const additionalInvalid = customInvalid.map(email => ({
-    value: email,
-    description: `Custom invalid email: ${email}`,
-    shouldPass: false,
-    expectedErrors: ['Invalid email format']
-  }));
-
-  return [
-    ...standardValid,
-    ...standardInvalid,
-    ...(includeCustom ? additionalValid : []),
-    ...(includeCustom ? additionalInvalid : [])
-  ];
 }
 
 /**
- * Generates a set of test cases for CPF validation
- * @param includeCustom - Whether to include custom test cases
- * @param customValid - Additional valid CPF test cases
- * @param customInvalid - Additional invalid CPF test cases
- * @returns Array of CPF validation test cases
+ * Interface for schema test options
  */
-export function generateCPFTestCases(
-  includeCustom = false,
-  customValid: string[] = [],
-  customInvalid: string[] = []
-): ValidationTestCase<string>[] {
-  const standardValid = validCPFs.map(cpf => ({
-    value: cpf,
-    description: `Valid CPF: ${cpf}`,
-    shouldPass: true
-  }));
-
-  const standardInvalid = invalidCPFs.map(cpf => ({
-    value: cpf,
-    description: `Invalid CPF: ${cpf}`,
-    shouldPass: false,
-    expectedErrors: ['Invalid CPF format']
-  }));
-
-  const additionalValid = customValid.map(cpf => ({
-    value: cpf,
-    description: `Custom valid CPF: ${cpf}`,
-    shouldPass: true
-  }));
-
-  const additionalInvalid = customInvalid.map(cpf => ({
-    value: cpf,
-    description: `Custom invalid CPF: ${cpf}`,
-    shouldPass: false,
-    expectedErrors: ['Invalid CPF format']
-  }));
-
-  return [
-    ...standardValid,
-    ...standardInvalid,
-    ...(includeCustom ? additionalValid : []),
-    ...(includeCustom ? additionalInvalid : [])
-  ];
+export interface SchemaTestOptions {
+  /** Description of the test */
+  description?: string;
+  /** Whether to log validation errors */
+  logErrors?: boolean;
+  /** Custom error handler */
+  onError?: (error: ZodError) => void;
 }
 
 /**
- * Generates a set of test cases for date validation
- * @param includeCustom - Whether to include custom test cases
- * @param customValid - Additional valid date test cases
- * @param customInvalid - Additional invalid date test cases
- * @returns Array of date validation test cases
+ * Generates test data for string validation
+ * 
+ * @param type The type of string data to generate
+ * @param options Options for test data generation
+ * @returns Test data for string validation
+ * 
+ * @example
+ * ```ts
+ * // Generate test data for email validation
+ * const emailTestData = generateStringTestData('email');
+ * 
+ * // Test a validator with the generated data
+ * emailTestData.valid.forEach(email => {
+ *   expect(isValidEmail(email)).toBe(true);
+ * });
+ * 
+ * emailTestData.invalid.forEach(email => {
+ *   expect(isValidEmail(email)).toBe(false);
+ * });
+ * ```
  */
-export function generateDateTestCases(
-  includeCustom = false,
-  customValid: string[] = [],
-  customInvalid: string[] = []
-): ValidationTestCase<string>[] {
-  const standardValid = validDates.map(date => ({
-    value: date,
-    description: `Valid date: ${date}`,
-    shouldPass: true
-  }));
-
-  const standardInvalid = invalidDates.map(date => ({
-    value: date,
-    description: `Invalid date: ${date}`,
-    shouldPass: false,
-    expectedErrors: ['Invalid date format']
-  }));
-
-  const additionalValid = customValid.map(date => ({
-    value: date,
-    description: `Custom valid date: ${date}`,
-    shouldPass: true
-  }));
-
-  const additionalInvalid = customInvalid.map(date => ({
-    value: date,
-    description: `Custom invalid date: ${date}`,
-    shouldPass: false,
-    expectedErrors: ['Invalid date format']
-  }));
-
-  return [
-    ...standardValid,
-    ...standardInvalid,
-    ...(includeCustom ? additionalValid : []),
-    ...(includeCustom ? additionalInvalid : [])
-  ];
-}
-
-/**
- * Generates a set of test cases for URL validation
- * @param includeCustom - Whether to include custom test cases
- * @param customValid - Additional valid URL test cases
- * @param customInvalid - Additional invalid URL test cases
- * @returns Array of URL validation test cases
- */
-export function generateURLTestCases(
-  includeCustom = false,
-  customValid: string[] = [],
-  customInvalid: string[] = []
-): ValidationTestCase<string>[] {
-  const standardValid = [
-    'https://austa.com.br',
-    'http://austa.com.br/path',
-    'https://sub.austa.com.br/path?query=value',
-    'https://austa.com.br:8080',
-    'http://localhost:3000',
-    'https://192.168.1.1',
-  ].map(url => ({
-    value: url,
-    description: `Valid URL: ${url}`,
-    shouldPass: true
-  }));
-
-  const standardInvalid = [
-    'not-a-url',
-    'ftp://austa.com.br', // Assuming we only want http/https
-    'http:/austa.com.br', // Missing slash
-    'https://', // Incomplete
-    'www.austa.com.br', // Missing protocol
-    'javascript:alert(1)', // Potential XSS
-    'data:text/html,<script>alert(1)</script>', // Data URL
-  ].map(url => ({
-    value: url,
-    description: `Invalid URL: ${url}`,
-    shouldPass: false,
-    expectedErrors: ['Invalid URL format']
-  }));
-
-  const additionalValid = customValid.map(url => ({
-    value: url,
-    description: `Custom valid URL: ${url}`,
-    shouldPass: true
-  }));
-
-  const additionalInvalid = customInvalid.map(url => ({
-    value: url,
-    description: `Custom invalid URL: ${url}`,
-    shouldPass: false,
-    expectedErrors: ['Invalid URL format']
-  }));
-
-  return [
-    ...standardValid,
-    ...standardInvalid,
-    ...(includeCustom ? additionalValid : []),
-    ...(includeCustom ? additionalInvalid : [])
-  ];
-}
-
-/**
- * Generates a set of test cases for phone number validation
- * @param includeCustom - Whether to include custom test cases
- * @param customValid - Additional valid phone number test cases
- * @param customInvalid - Additional invalid phone number test cases
- * @returns Array of phone number validation test cases
- */
-export function generatePhoneNumberTestCases(
-  includeCustom = false,
-  customValid: string[] = [],
-  customInvalid: string[] = []
-): ValidationTestCase<string>[] {
-  // Brazilian phone number formats
-  const standardValid = [
-    '+55 11 98765-4321',
-    '+55 (11) 98765-4321',
-    '+5511987654321',
-    '11 98765-4321',
-    '(11) 98765-4321',
-    '11987654321',
-    '11 9876-54321', // Landline
-    '(11) 9876-5432', // Landline
-  ].map(phone => ({
-    value: phone,
-    description: `Valid phone number: ${phone}`,
-    shouldPass: true
-  }));
-
-  const standardInvalid = [
-    '987654321', // Too short
-    '+55 111 98765-4321', // Invalid area code
-    '+55 11 9876-4321', // Too short
-    '11 9876', // Too short
-    'not-a-phone',
-    '+55 11 abcde-fghi',
-  ].map(phone => ({
-    value: phone,
-    description: `Invalid phone number: ${phone}`,
-    shouldPass: false,
-    expectedErrors: ['Invalid phone number format']
-  }));
-
-  const additionalValid = customValid.map(phone => ({
-    value: phone,
-    description: `Custom valid phone number: ${phone}`,
-    shouldPass: true
-  }));
-
-  const additionalInvalid = customInvalid.map(phone => ({
-    value: phone,
-    description: `Custom invalid phone number: ${phone}`,
-    shouldPass: false,
-    expectedErrors: ['Invalid phone number format']
-  }));
-
-  return [
-    ...standardValid,
-    ...standardInvalid,
-    ...(includeCustom ? additionalValid : []),
-    ...(includeCustom ? additionalInvalid : [])
-  ];
-}
-
-/**
- * Generates a set of test cases for password validation
- * @param includeCustom - Whether to include custom test cases
- * @param customValid - Additional valid password test cases
- * @param customInvalid - Additional invalid password test cases
- * @returns Array of password validation test cases
- */
-export function generatePasswordTestCases(
-  includeCustom = false,
-  customValid: string[] = [],
-  customInvalid: string[] = []
-): ValidationTestCase<string>[] {
-  const standardValid = validPasswords.map(password => ({
-    value: password,
-    description: `Valid password: ${password.substring(0, 3)}...`,
-    shouldPass: true
-  }));
-
-  const standardInvalid = invalidPasswords.map(password => ({
-    value: password,
-    description: `Invalid password: ${password.substring(0, 3)}...`,
-    shouldPass: false,
-    expectedErrors: ['Invalid password format']
-  }));
-
-  const additionalValid = customValid.map(password => ({
-    value: password,
-    description: `Custom valid password: ${password.substring(0, 3)}...`,
-    shouldPass: true
-  }));
-
-  const additionalInvalid = customInvalid.map(password => ({
-    value: password,
-    description: `Custom invalid password: ${password.substring(0, 3)}...`,
-    shouldPass: false,
-    expectedErrors: ['Invalid password format']
-  }));
-
-  return [
-    ...standardValid,
-    ...standardInvalid,
-    ...(includeCustom ? additionalValid : []),
-    ...(includeCustom ? additionalInvalid : [])
-  ];
-}
-
-/**
- * Generates a set of test cases for security validation (XSS, SQL injection, etc.)
- * @returns Array of security validation test cases
- */
-export function generateSecurityTestCases(): ValidationTestCase<string>[] {
-  return securityVectors.map(vector => ({
-    value: vector.input,
-    description: `Security vector (${vector.type}): ${vector.description}`,
-    shouldPass: false,
-    expectedErrors: ['Potential security vulnerability detected']
-  }));
-}
-
-/**
- * Generates a set of test cases for numeric range validation
- * @param min - Minimum value (inclusive)
- * @param max - Maximum value (inclusive)
- * @returns Array of numeric range validation test cases
- */
-export function generateNumericRangeTestCases(
-  min: number,
-  max: number
-): ValidationTestCase<number>[] {
-  return [
-    // Valid cases
-    {
-      value: min,
-      description: `Minimum boundary value: ${min}`,
-      shouldPass: true
-    },
-    {
-      value: max,
-      description: `Maximum boundary value: ${max}`,
-      shouldPass: true
-    },
-    {
-      value: Math.floor((min + max) / 2),
-      description: `Middle value: ${Math.floor((min + max) / 2)}`,
-      shouldPass: true
-    },
-    // Invalid cases
-    {
-      value: min - 1,
-      description: `Below minimum: ${min - 1}`,
-      shouldPass: false,
-      expectedErrors: [`Value must be at least ${min}`]
-    },
-    {
-      value: max + 1,
-      description: `Above maximum: ${max + 1}`,
-      shouldPass: false,
-      expectedErrors: [`Value must be at most ${max}`]
-    },
-    {
-      value: NaN,
-      description: 'Not a number: NaN',
-      shouldPass: false,
-      expectedErrors: ['Value must be a number']
-    }
-  ];
-}
-
-/**
- * Generates a set of test cases for string length validation
- * @param minLength - Minimum length (inclusive)
- * @param maxLength - Maximum length (inclusive)
- * @returns Array of string length validation test cases
- */
-export function generateStringLengthTestCases(
-  minLength: number,
-  maxLength: number
-): ValidationTestCase<string>[] {
-  const generateString = (length: number): string => 'a'.repeat(length);
-  
-  return [
-    // Valid cases
-    {
-      value: generateString(minLength),
-      description: `Minimum length string: ${minLength} chars`,
-      shouldPass: true
-    },
-    {
-      value: generateString(maxLength),
-      description: `Maximum length string: ${maxLength} chars`,
-      shouldPass: true
-    },
-    {
-      value: generateString(Math.floor((minLength + maxLength) / 2)),
-      description: `Middle length string: ${Math.floor((minLength + maxLength) / 2)} chars`,
-      shouldPass: true
-    },
-    // Invalid cases
-    {
-      value: generateString(minLength - 1),
-      description: `Too short string: ${minLength - 1} chars`,
-      shouldPass: false,
-      expectedErrors: [`String must be at least ${minLength} characters long`]
-    },
-    {
-      value: generateString(maxLength + 1),
-      description: `Too long string: ${maxLength + 1} chars`,
-      shouldPass: false,
-      expectedErrors: [`String must be at most ${maxLength} characters long`]
-    },
-    {
-      value: '',
-      description: 'Empty string',
-      shouldPass: minLength === 0,
-      expectedErrors: minLength === 0 ? undefined : [`String must be at least ${minLength} characters long`]
-    }
-  ];
-}
-
-/**
- * Utilities for testing Zod schemas
- */
-
-/**
- * Tests a Zod schema with a set of test cases
- * @param schema - Zod schema to test
- * @param testCases - Array of test cases
- * @returns Array of validation results
- */
-export function testZodSchema<T>(
-  schema: z.ZodType<T>,
-  testCases: ValidationTestCase<unknown>[]
-): SchemaValidationResult<T>[] {
-  return testCases.map(testCase => {
-    const result = schema.safeParse(testCase.value);
-    return {
-      success: result.success,
-      value: result.success ? result.data : undefined,
-      errors: !result.success ? result.error : undefined
-    };
-  });
-}
-
-/**
- * Asserts that a Zod schema validation result matches the expected outcome
- * @param result - Schema validation result
- * @param testCase - Test case with expected outcome
- */
-export function assertZodResult<T>(
-  result: SchemaValidationResult<T>,
-  testCase: ValidationTestCase<unknown>
-): void {
-  if (testCase.shouldPass) {
-    expect(result.success).toBe(true);
-    expect(result.value).toBeDefined();
-    expect(result.errors).toBeUndefined();
-  } else {
-    expect(result.success).toBe(false);
-    expect(result.value).toBeUndefined();
-    expect(result.errors).toBeDefined();
-    
-    if (testCase.expectedErrors && testCase.expectedErrors.length > 0) {
-      const errorMessages = result.errors instanceof z.ZodError
-        ? result.errors.errors.map(err => err.message)
-        : [];
-      
-      testCase.expectedErrors.forEach(expectedError => {
-        expect(errorMessages.some(msg => msg.includes(expectedError))).toBe(true);
-      });
-    }
-  }
-}
-
-/**
- * Utilities for testing class-validator validations
- */
-
-/**
- * Tests class-validator validation with a set of test cases
- * @param classType - Class type with validation decorators
- * @param testCases - Array of test cases
- * @returns Promise resolving to array of validation results
- */
-export async function testClassValidation<T extends object>(
-  classType: new () => T,
-  testCases: ValidationTestCase<Partial<T>>[]
-): Promise<SchemaValidationResult<T>[]> {
-  const results: SchemaValidationResult<T>[] = [];
-  
-  for (const testCase of testCases) {
-    const instance = plainToInstance(classType, testCase.value);
-    const errors = await validate(instance);
-    
-    results.push({
-      success: errors.length === 0,
-      value: errors.length === 0 ? instance : undefined,
-      errors: errors.length > 0 ? errors : undefined
-    });
-  }
-  
-  return results;
-}
-
-/**
- * Tests class-validator validation synchronously with a set of test cases
- * @param classType - Class type with validation decorators
- * @param testCases - Array of test cases
- * @returns Array of validation results
- */
-export function testClassValidationSync<T extends object>(
-  classType: new () => T,
-  testCases: ValidationTestCase<Partial<T>>[]
-): SchemaValidationResult<T>[] {
-  return testCases.map(testCase => {
-    const instance = plainToInstance(classType, testCase.value);
-    const errors = validateSync(instance);
-    
-    return {
-      success: errors.length === 0,
-      value: errors.length === 0 ? instance : undefined,
-      errors: errors.length > 0 ? errors : undefined
-    };
-  });
-}
-
-/**
- * Asserts that a class-validator validation result matches the expected outcome
- * @param result - Validation result
- * @param testCase - Test case with expected outcome
- */
-export function assertClassValidatorResult<T>(
-  result: SchemaValidationResult<T>,
-  testCase: ValidationTestCase<unknown>
-): void {
-  if (testCase.shouldPass) {
-    expect(result.success).toBe(true);
-    expect(result.value).toBeDefined();
-    expect(result.errors).toBeUndefined();
-  } else {
-    expect(result.success).toBe(false);
-    expect(result.value).toBeUndefined();
-    expect(result.errors).toBeDefined();
-    
-    if (testCase.expectedErrors && testCase.expectedErrors.length > 0 && result.errors) {
-      const errorMessages = Array.isArray(result.errors)
-        ? result.errors.flatMap(err => Object.values(err.constraints || {}))
-        : [];
-      
-      testCase.expectedErrors.forEach(expectedError => {
-        expect(errorMessages.some(msg => msg.includes(expectedError))).toBe(true);
-      });
-    }
-  }
-}
-
-/**
- * General validation testing utilities
- */
-
-/**
- * Creates a test suite for a validation function
- * @param validationFn - Function that performs validation
- * @param testCases - Array of test cases
- * @param options - Test options
- */
-export function createValidationTestSuite<T>(
-  validationFn: (value: T) => boolean,
-  testCases: ValidationTestCase<T>[],
-  options: {
-    suiteName?: string;
-    testNamePrefix?: string;
-  } = {}
-): void {
+export function generateStringTestData(
+  type: 'email' | 'url' | 'cpf' | 'cnpj' | 'phone' | 'cep' | 'rg' | 'uuid' | 'alphanumeric' | 'alphabetic' | 'numeric' | 'password',
+  options: TestDataOptions = {}
+): TestData<string> {
   const {
-    suiteName = 'Validation function',
-    testNamePrefix = 'should validate'
+    includeValid = true,
+    includeInvalid = true,
+    validCount = 5,
+    invalidCount = 5,
+    journeyContext,
   } = options;
   
-  describe(suiteName, () => {
-    testCases.forEach(testCase => {
-      test(`${testNamePrefix} ${testCase.description}`, () => {
-        const result = validationFn(testCase.value);
-        expect(result).toBe(testCase.shouldPass);
-      });
-    });
-  });
+  const result: TestData<string> = {
+    valid: [],
+    invalid: [],
+    description: `Test data for ${type} validation`,
+  };
+  
+  if (includeValid) {
+    result.valid = generateValidStrings(type, validCount, journeyContext);
+  }
+  
+  if (includeInvalid) {
+    result.invalid = generateInvalidStrings(type, invalidCount, journeyContext);
+  }
+  
+  return result;
 }
 
 /**
- * Creates a test suite for a validation function that returns errors
- * @param validationFn - Function that performs validation and returns errors
- * @param testCases - Array of test cases
- * @param options - Test options
+ * Generates valid string examples for the specified type
+ * 
+ * @param type The type of string to generate
+ * @param count The number of examples to generate
+ * @param journeyContext Optional journey context
+ * @returns An array of valid string examples
  */
-export function createValidationWithErrorsTestSuite<T, E>(
-  validationFn: (value: T) => { isValid: boolean; errors: E[] },
-  testCases: ValidationTestCase<T>[],
-  options: {
-    suiteName?: string;
-    testNamePrefix?: string;
-    errorMessageExtractor?: (error: E) => string;
+function generateValidStrings(
+  type: string,
+  count: number,
+  journeyContext?: 'health' | 'care' | 'plan'
+): string[] {
+  const examples: string[] = [];
+  
+  for (let i = 0; i < count; i++) {
+    switch (type) {
+      case 'email':
+        if (journeyContext === 'health') {
+          examples.push(`saude${i}@exemplo.com.br`);
+        } else if (journeyContext === 'care') {
+          examples.push(`cuidados${i}@exemplo.com.br`);
+        } else if (journeyContext === 'plan') {
+          examples.push(`plano${i}@exemplo.com.br`);
+        } else {
+          examples.push(`user${i}@example.com`);
+          examples.push(`usuario${i}@exemplo.com.br`);
+        }
+        break;
+      case 'url':
+        examples.push(`https://example.com/path${i}`);
+        examples.push(`https://exemplo.com.br/caminho${i}`);
+        break;
+      case 'cpf':
+        // Use the randomUtils.cpf() function from common.helpers.ts
+        examples.push(randomUtils.cpf());
+        break;
+      case 'cnpj':
+        // Generate valid CNPJ
+        examples.push(generateValidCNPJ());
+        break;
+      case 'phone':
+        examples.push(`+5511987654${i.toString().padStart(3, '0')}`);
+        examples.push(`(11) 98765-4${i.toString().padStart(3, '0')}`);
+        break;
+      case 'cep':
+        examples.push(`01311-00${i}`);
+        examples.push(`0131100${i}`);
+        break;
+      case 'rg':
+        examples.push(`12.345.678-${i}`);
+        examples.push(`12345678${i}`);
+        break;
+      case 'uuid':
+        examples.push(`123e4567-e89b-12d3-a456-42661417400${i}`);
+        break;
+      case 'alphanumeric':
+        examples.push(`abc123${i}`);
+        break;
+      case 'alphabetic':
+        examples.push(`abcDEF${i}`);
+        break;
+      case 'numeric':
+        examples.push(`12345${i}`);
+        break;
+      case 'password':
+        examples.push(`StrongP@ss${i}123`);
+        break;
+      default:
+        examples.push(`example${i}`);
+    }
+  }
+  
+  return examples;
+}
+
+/**
+ * Generates invalid string examples for the specified type
+ * 
+ * @param type The type of string to generate
+ * @param count The number of examples to generate
+ * @param journeyContext Optional journey context
+ * @returns An array of invalid string examples
+ */
+function generateInvalidStrings(
+  type: string,
+  count: number,
+  journeyContext?: 'health' | 'care' | 'plan'
+): string[] {
+  const examples: string[] = [];
+  
+  // Common invalid examples for all types
+  const commonInvalid = ['', ' ', null, undefined, '   '];
+  
+  // Add type-specific invalid examples
+  const typeSpecificInvalid: Record<string, string[]> = {
+    'email': [
+      'invalid',
+      'user@',
+      '@example.com',
+      'user@example',
+      'user@.com',
+      'user@example..com',
+    ],
+    'url': [
+      'invalid',
+      'http://',
+      'example.com',
+      'http://localhost',
+      'ftp://example.com',
+      'http://.com',
+    ],
+    'cpf': [
+      '123.456.789-00', // Invalid verification digits
+      '111.111.111-11', // Repeated digits
+      '123.456.789',    // Incomplete
+      '123456789012',   // Too long
+      'abc.def.ghi-jk',  // Non-numeric
+    ],
+    'cnpj': [
+      '12.345.678/0001-00', // Invalid verification digits
+      '11.111.111/1111-11', // Repeated digits
+      '12.345.678/0001',    // Incomplete
+      '123456789012345',    // Too long
+      'ab.cde.fgh/ijkl-mn',  // Non-numeric
+    ],
+    'phone': [
+      '123',              // Too short
+      '1234567890123456', // Too long
+      '+1234',            // Invalid country code
+      '(11) 1234-567',    // Incomplete
+      'abc-def-ghij',      // Non-numeric
+    ],
+    'cep': [
+      '1234',         // Too short
+      '123456789',     // Too long
+      '00000-000',     // Invalid (all zeros)
+      'abcde-fgh',      // Non-numeric
+    ],
+    'rg': [
+      '123',          // Too short
+      '12345678901',   // Too long
+      'abc.def.ghi-j',  // Non-numeric
+    ],
+    'uuid': [
+      '123e4567-e89b-12d3-a456', // Incomplete
+      '123e4567-e89b-X2d3-a456-426614174000', // Invalid character
+      '123e4567e89b12d3a456426614174000', // Missing hyphens
+    ],
+    'alphanumeric': [
+      'abc-123',  // Contains non-alphanumeric
+      'abc_123',  // Contains underscore
+      'abc 123',  // Contains space
+    ],
+    'alphabetic': [
+      'abc123',   // Contains numbers
+      'abc-def',  // Contains hyphen
+      'abc def',  // Contains space
+    ],
+    'numeric': [
+      'abc123',   // Contains letters
+      '123-456',  // Contains hyphen
+      '123 456',  // Contains space
+    ],
+    'password': [
+      'password',      // No uppercase, number, or special char
+      'Password',      // No number or special char
+      'Password1',     // No special char
+      'Pass@',         // Too short
+    ],
+  };
+  
+  // Add common invalid examples first
+  examples.push(...commonInvalid.slice(0, Math.min(count, commonInvalid.length)));
+  
+  // Add type-specific invalid examples
+  if (typeSpecificInvalid[type]) {
+    examples.push(...typeSpecificInvalid[type].slice(0, count - examples.length));
+  }
+  
+  // If we still need more examples, generate random invalid strings
+  while (examples.length < count) {
+    examples.push(`invalid_${type}_${randomUtils.string(5)}`);
+  }
+  
+  return examples;
+}
+
+/**
+ * Generates a valid CNPJ (Brazilian company ID)
+ * 
+ * @returns A valid CNPJ string
+ */
+function generateValidCNPJ(): string {
+  // Generate 12 random digits
+  const digits: number[] = [];
+  for (let i = 0; i < 12; i++) {
+    digits.push(randomUtils.integer(0, 9));
+  }
+  
+  // Calculate first verification digit
+  let sum = 0;
+  let weight = 5;
+  for (let i = 0; i < 12; i++) {
+    sum += digits[i] * weight;
+    weight = weight === 2 ? 9 : weight - 1;
+  }
+  let remainder = sum % 11;
+  const digit1 = remainder < 2 ? 0 : 11 - remainder;
+  digits.push(digit1);
+  
+  // Calculate second verification digit
+  sum = 0;
+  weight = 6;
+  for (let i = 0; i < 13; i++) {
+    sum += digits[i] * weight;
+    weight = weight === 2 ? 9 : weight - 1;
+  }
+  remainder = sum % 11;
+  const digit2 = remainder < 2 ? 0 : 11 - remainder;
+  digits.push(digit2);
+  
+  // Format CNPJ
+  const cnpj = digits.join('');
+  return `${cnpj.substring(0, 2)}.${cnpj.substring(2, 5)}.${cnpj.substring(5, 8)}/${cnpj.substring(8, 12)}-${cnpj.substring(12)}`;
+}
+
+/**
+ * Generates test data for number validation
+ * 
+ * @param type The type of number data to generate
+ * @param options Options for test data generation
+ * @returns Test data for number validation
+ * 
+ * @example
+ * ```ts
+ * // Generate test data for integer validation
+ * const integerTestData = generateNumberTestData('integer');
+ * 
+ * // Test a validator with the generated data
+ * integerTestData.valid.forEach(num => {
+ *   expect(isInteger(num)).toBe(true);
+ * });
+ * ```
+ */
+export function generateNumberTestData(
+  type: 'integer' | 'float' | 'positive' | 'negative' | 'range' | 'percentage' | 'currency',
+  options: TestDataOptions & {
+    min?: number;
+    max?: number;
   } = {}
-): void {
+): TestData<number> {
   const {
-    suiteName = 'Validation function with errors',
-    testNamePrefix = 'should validate',
-    errorMessageExtractor = (error: E) => String(error)
+    includeValid = true,
+    includeInvalid = true,
+    validCount = 5,
+    invalidCount = 5,
+    min = 0,
+    max = 100,
+    journeyContext,
   } = options;
   
-  describe(suiteName, () => {
-    testCases.forEach(testCase => {
-      test(`${testNamePrefix} ${testCase.description}`, () => {
-        const result = validationFn(testCase.value);
-        expect(result.isValid).toBe(testCase.shouldPass);
+  const result: TestData<number> = {
+    valid: [],
+    invalid: [],
+    description: `Test data for ${type} validation`,
+  };
+  
+  if (includeValid) {
+    result.valid = generateValidNumbers(type, validCount, { min, max, journeyContext });
+  }
+  
+  if (includeInvalid) {
+    result.invalid = generateInvalidNumbers(type, invalidCount, { min, max, journeyContext });
+  }
+  
+  return result;
+}
+
+/**
+ * Generates valid number examples for the specified type
+ * 
+ * @param type The type of number to generate
+ * @param count The number of examples to generate
+ * @param options Additional options
+ * @returns An array of valid number examples
+ */
+function generateValidNumbers(
+  type: string,
+  count: number,
+  options: {
+    min?: number;
+    max?: number;
+    journeyContext?: 'health' | 'care' | 'plan';
+  } = {}
+): number[] {
+  const { min = 0, max = 100, journeyContext } = options;
+  const examples: number[] = [];
+  
+  for (let i = 0; i < count; i++) {
+    switch (type) {
+      case 'integer':
+        examples.push(randomUtils.integer(min, max));
+        break;
+      case 'float':
+        examples.push(min + (Math.random() * (max - min)));
+        break;
+      case 'positive':
+        examples.push(randomUtils.integer(1, max));
+        break;
+      case 'negative':
+        examples.push(randomUtils.integer(-max, -1));
+        break;
+      case 'range':
+        examples.push(randomUtils.integer(min, max));
+        break;
+      case 'percentage':
+        examples.push(randomUtils.integer(0, 100));
+        break;
+      case 'currency':
+        // Generate currency values with 2 decimal places
+        examples.push(Math.round(randomUtils.integer(min * 100, max * 100)) / 100);
+        break;
+      default:
+        examples.push(randomUtils.integer(min, max));
+    }
+  }
+  
+  return examples;
+}
+
+/**
+ * Generates invalid number examples for the specified type
+ * 
+ * @param type The type of number to generate
+ * @param count The number of examples to generate
+ * @param options Additional options
+ * @returns An array of invalid number examples
+ */
+function generateInvalidNumbers(
+  type: string,
+  count: number,
+  options: {
+    min?: number;
+    max?: number;
+    journeyContext?: 'health' | 'care' | 'plan';
+  } = {}
+): number[] {
+  const { min = 0, max = 100, journeyContext } = options;
+  const examples: number[] = [];
+  
+  // Type-specific invalid examples
+  switch (type) {
+    case 'integer':
+      examples.push(min + 0.5, max + 0.5);
+      break;
+    case 'float':
+      // For float validation, NaN and Infinity are invalid
+      examples.push(NaN, Infinity, -Infinity);
+      break;
+    case 'positive':
+      examples.push(0, -1, -10, -randomUtils.integer(1, 100));
+      break;
+    case 'negative':
+      examples.push(0, 1, 10, randomUtils.integer(1, 100));
+      break;
+    case 'range':
+      examples.push(min - 1, max + 1, min - 10, max + 10);
+      break;
+    case 'percentage':
+      examples.push(-1, 101, 200, -50);
+      break;
+    case 'currency':
+      // Invalid currency values (negative or too many decimal places)
+      examples.push(-0.01, -10, 0.001, 0.999);
+      break;
+    default:
+      examples.push(NaN, Infinity, -Infinity);
+  }
+  
+  // Ensure we have enough examples
+  while (examples.length < count) {
+    // Add more invalid examples based on type
+    switch (type) {
+      case 'integer':
+        examples.push(Math.random() + randomUtils.integer(max + 1, max + 100));
+        break;
+      case 'positive':
+        examples.push(-randomUtils.integer(1, 1000));
+        break;
+      case 'negative':
+        examples.push(randomUtils.integer(1, 1000));
+        break;
+      case 'range':
+        examples.push(min - randomUtils.integer(1, 100), max + randomUtils.integer(1, 100));
+        break;
+      default:
+        examples.push(NaN);
+    }
+  }
+  
+  return examples.slice(0, count);
+}
+
+/**
+ * Generates test data for date validation
+ * 
+ * @param type The type of date data to generate
+ * @param options Options for test data generation
+ * @returns Test data for date validation
+ * 
+ * @example
+ * ```ts
+ * // Generate test data for future date validation
+ * const futureTestData = generateDateTestData('future');
+ * 
+ * // Test a validator with the generated data
+ * futureTestData.valid.forEach(date => {
+ *   expect(isFutureDate(date)).toBe(true);
+ * });
+ * ```
+ */
+export function generateDateTestData(
+  type: 'past' | 'future' | 'range' | 'businessDay' | 'weekend' | 'holiday' | 'today',
+  options: TestDataOptions & {
+    referenceDate?: Date;
+    startDate?: Date;
+    endDate?: Date;
+  } = {}
+): TestData<Date> {
+  const {
+    includeValid = true,
+    includeInvalid = true,
+    validCount = 5,
+    invalidCount = 5,
+    referenceDate = new Date(),
+    startDate = new Date(referenceDate.getTime() - 30 * 24 * 60 * 60 * 1000), // 30 days before reference
+    endDate = new Date(referenceDate.getTime() + 30 * 24 * 60 * 60 * 1000),   // 30 days after reference
+    journeyContext,
+  } = options;
+  
+  const result: TestData<Date> = {
+    valid: [],
+    invalid: [],
+    description: `Test data for ${type} date validation`,
+  };
+  
+  if (includeValid) {
+    result.valid = generateValidDates(type, validCount, { referenceDate, startDate, endDate, journeyContext });
+  }
+  
+  if (includeInvalid) {
+    result.invalid = generateInvalidDates(type, invalidCount, { referenceDate, startDate, endDate, journeyContext });
+  }
+  
+  return result;
+}
+
+/**
+ * Generates valid date examples for the specified type
+ * 
+ * @param type The type of date to generate
+ * @param count The number of examples to generate
+ * @param options Additional options
+ * @returns An array of valid date examples
+ */
+function generateValidDates(
+  type: string,
+  count: number,
+  options: {
+    referenceDate?: Date;
+    startDate?: Date;
+    endDate?: Date;
+    journeyContext?: 'health' | 'care' | 'plan';
+  } = {}
+): Date[] {
+  const {
+    referenceDate = new Date(),
+    startDate = new Date(referenceDate.getTime() - 30 * 24 * 60 * 60 * 1000),
+    endDate = new Date(referenceDate.getTime() + 30 * 24 * 60 * 60 * 1000),
+    journeyContext,
+  } = options;
+  
+  const examples: Date[] = [];
+  
+  // Helper to check if a date is a weekend
+  const isWeekend = (date: Date): boolean => {
+    const day = date.getDay();
+    return day === 0 || day === 6; // 0 = Sunday, 6 = Saturday
+  };
+  
+  // Helper to check if a date is a business day (not weekend, not holiday)
+  const isBusinessDay = (date: Date): boolean => {
+    // This is a simplified check - in a real implementation, we would also check holidays
+    return !isWeekend(date);
+  };
+  
+  // Helper to generate a random date between two dates
+  const randomDateBetween = (start: Date, end: Date): Date => {
+    return new Date(start.getTime() + Math.random() * (end.getTime() - start.getTime()));
+  };
+  
+  // Generate dates based on type
+  for (let i = 0; i < count; i++) {
+    let date: Date;
+    
+    switch (type) {
+      case 'past':
+        // Generate a date in the past
+        date = randomDateBetween(new Date(1970, 0, 1), referenceDate);
+        break;
+      case 'future':
+        // Generate a date in the future
+        date = randomDateBetween(referenceDate, new Date(2050, 11, 31));
+        break;
+      case 'range':
+        // Generate a date within the specified range
+        date = randomDateBetween(startDate, endDate);
+        break;
+      case 'businessDay':
+        // Generate a business day
+        do {
+          date = randomDateBetween(startDate, endDate);
+        } while (!isBusinessDay(date));
+        break;
+      case 'weekend':
+        // Generate a weekend day
+        do {
+          date = randomDateBetween(startDate, endDate);
+        } while (!isWeekend(date));
+        break;
+      case 'holiday':
+        // For simplicity, we'll use some common Brazilian holidays
+        // In a real implementation, this would be more comprehensive
+        const holidays = [
+          new Date(referenceDate.getFullYear(), 0, 1),   // New Year's Day
+          new Date(referenceDate.getFullYear(), 3, 21),  // Tiradentes Day
+          new Date(referenceDate.getFullYear(), 4, 1),   // Labor Day
+          new Date(referenceDate.getFullYear(), 8, 7),   // Independence Day
+          new Date(referenceDate.getFullYear(), 9, 12),  // Our Lady of Aparecida
+          new Date(referenceDate.getFullYear(), 10, 2),  // All Souls' Day
+          new Date(referenceDate.getFullYear(), 10, 15), // Republic Proclamation Day
+          new Date(referenceDate.getFullYear(), 11, 25), // Christmas Day
+        ];
+        date = holidays[i % holidays.length];
+        break;
+      case 'today':
+        // Use the reference date with slight variations
+        date = new Date(referenceDate);
+        date.setHours(i * 2); // Vary the hours to get different instances
+        break;
+      default:
+        date = randomDateBetween(startDate, endDate);
+    }
+    
+    examples.push(date);
+  }
+  
+  return examples;
+}
+
+/**
+ * Generates invalid date examples for the specified type
+ * 
+ * @param type The type of date to generate
+ * @param count The number of examples to generate
+ * @param options Additional options
+ * @returns An array of invalid date examples
+ */
+function generateInvalidDates(
+  type: string,
+  count: number,
+  options: {
+    referenceDate?: Date;
+    startDate?: Date;
+    endDate?: Date;
+    journeyContext?: 'health' | 'care' | 'plan';
+  } = {}
+): Date[] {
+  const {
+    referenceDate = new Date(),
+    startDate = new Date(referenceDate.getTime() - 30 * 24 * 60 * 60 * 1000),
+    endDate = new Date(referenceDate.getTime() + 30 * 24 * 60 * 60 * 1000),
+    journeyContext,
+  } = options;
+  
+  const examples: Date[] = [];
+  
+  // Helper to check if a date is a weekend
+  const isWeekend = (date: Date): boolean => {
+    const day = date.getDay();
+    return day === 0 || day === 6; // 0 = Sunday, 6 = Saturday
+  };
+  
+  // Helper to check if a date is a business day (not weekend, not holiday)
+  const isBusinessDay = (date: Date): boolean => {
+    // This is a simplified check - in a real implementation, we would also check holidays
+    return !isWeekend(date);
+  };
+  
+  // Helper to generate a random date between two dates
+  const randomDateBetween = (start: Date, end: Date): Date => {
+    return new Date(start.getTime() + Math.random() * (end.getTime() - start.getTime()));
+  };
+  
+  // Generate invalid dates based on type
+  for (let i = 0; i < count; i++) {
+    let date: Date;
+    
+    switch (type) {
+      case 'past':
+        // Future dates are invalid for past validation
+        date = new Date(referenceDate.getTime() + (i + 1) * 24 * 60 * 60 * 1000);
+        break;
+      case 'future':
+        // Past dates are invalid for future validation
+        date = new Date(referenceDate.getTime() - (i + 1) * 24 * 60 * 60 * 1000);
+        break;
+      case 'range':
+        // Dates outside the range are invalid
+        if (i % 2 === 0) {
+          date = new Date(startDate.getTime() - (i + 1) * 24 * 60 * 60 * 1000);
+        } else {
+          date = new Date(endDate.getTime() + (i + 1) * 24 * 60 * 60 * 1000);
+        }
+        break;
+      case 'businessDay':
+        // Weekend days are invalid for business day validation
+        do {
+          date = randomDateBetween(startDate, endDate);
+        } while (!isWeekend(date)); // We want weekend days (invalid business days)
+        break;
+      case 'weekend':
+        // Business days are invalid for weekend validation
+        do {
+          date = randomDateBetween(startDate, endDate);
+        } while (!isBusinessDay(date)); // We want business days (invalid weekend days)
+        break;
+      case 'holiday':
+        // For simplicity, we'll use some days that are definitely not holidays
+        date = new Date(referenceDate.getFullYear(), 0, 2 + i);  // January 2-6 (not holidays)
+        break;
+      case 'today':
+        // Dates other than today are invalid
+        if (i % 2 === 0) {
+          date = new Date(referenceDate.getTime() - (i + 1) * 24 * 60 * 60 * 1000);
+        } else {
+          date = new Date(referenceDate.getTime() + (i + 1) * 24 * 60 * 60 * 1000);
+        }
+        break;
+      default:
+        // Invalid date object
+        date = new Date('invalid date');
+    }
+    
+    examples.push(date);
+  }
+  
+  return examples;
+}
+
+/**
+ * Generates test data for object validation
+ * 
+ * @param schema The schema to use for validation
+ * @param options Options for test data generation
+ * @returns Test data for object validation
+ * 
+ * @example
+ * ```ts
+ * // Define a schema
+ * const userSchema = z.object({
+ *   id: z.string().uuid(),
+ *   name: z.string().min(2),
+ *   email: z.string().email(),
+ *   age: z.number().int().positive(),
+ * });
+ * 
+ * // Generate test data
+ * const userData = generateObjectTestData(userSchema);
+ * 
+ * // Test validation
+ * userData.valid.forEach(user => {
+ *   expect(userSchema.safeParse(user).success).toBe(true);
+ * });
+ * ```
+ */
+export function generateObjectTestData<T extends Record<string, any>>(
+  schema: ZodType<T>,
+  options: TestDataOptions & {
+    baseObject?: Partial<T>;
+    invalidFields?: Array<keyof T>;
+  } = {}
+): TestData<T> {
+  const {
+    includeValid = true,
+    includeInvalid = true,
+    validCount = 3,
+    invalidCount = 3,
+    baseObject = {},
+    invalidFields = [],
+    journeyContext,
+  } = options;
+  
+  const result: TestData<T> = {
+    valid: [],
+    invalid: [],
+    description: 'Test data for object validation',
+  };
+  
+  if (includeValid) {
+    result.valid = generateValidObjects(schema, validCount, { baseObject, journeyContext });
+  }
+  
+  if (includeInvalid) {
+    result.invalid = generateInvalidObjects(schema, invalidCount, { baseObject, invalidFields, journeyContext });
+  }
+  
+  return result;
+}
+
+/**
+ * Generates valid object examples for the specified schema
+ * 
+ * @param schema The schema to use for validation
+ * @param count The number of examples to generate
+ * @param options Additional options
+ * @returns An array of valid object examples
+ */
+function generateValidObjects<T extends Record<string, any>>(
+  schema: ZodType<T>,
+  count: number,
+  options: {
+    baseObject?: Partial<T>;
+    journeyContext?: 'health' | 'care' | 'plan';
+  } = {}
+): T[] {
+  const { baseObject = {}, journeyContext } = options;
+  const examples: T[] = [];
+  
+  // Extract schema shape to determine field types
+  // Note: This is a simplified approach and may not work for all schema types
+  const schemaShape = (schema as any)._def?.shape || {};
+  
+  for (let i = 0; i < count; i++) {
+    const obj: Record<string, any> = { ...baseObject };
+    
+    // Generate values for each field based on its type
+    for (const [key, fieldSchema] of Object.entries(schemaShape)) {
+      if (key in obj) continue; // Skip if already in baseObject
+      
+      const fieldType = getZodFieldType(fieldSchema);
+      obj[key] = generateValueForType(fieldType, key, i, journeyContext);
+    }
+    
+    // Validate and add to examples if valid
+    const result = schema.safeParse(obj);
+    if (result.success) {
+      examples.push(result.data);
+    } else {
+      // If validation failed, try to fix the object
+      const fixedObj = fixObjectForSchema(obj, schema, result.error);
+      const fixedResult = schema.safeParse(fixedObj);
+      if (fixedResult.success) {
+        examples.push(fixedResult.data);
+      }
+    }
+  }
+  
+  // If we couldn't generate enough valid examples, fill with the base object
+  while (examples.length < count) {
+    const fillerObj = { ...baseObject, _filler: randomUtils.string(10) };
+    examples.push(fillerObj as T);
+  }
+  
+  return examples;
+}
+
+/**
+ * Generates invalid object examples for the specified schema
+ * 
+ * @param schema The schema to use for validation
+ * @param count The number of examples to generate
+ * @param options Additional options
+ * @returns An array of invalid object examples
+ */
+function generateInvalidObjects<T extends Record<string, any>>(
+  schema: ZodType<T>,
+  count: number,
+  options: {
+    baseObject?: Partial<T>;
+    invalidFields?: Array<keyof T>;
+    journeyContext?: 'health' | 'care' | 'plan';
+  } = {}
+): T[] {
+  const { baseObject = {}, invalidFields = [], journeyContext } = options;
+  const examples: T[] = [];
+  
+  // Extract schema shape to determine field types
+  const schemaShape = (schema as any)._def?.shape || {};
+  
+  for (let i = 0; i < count; i++) {
+    const obj: Record<string, any> = { ...baseObject };
+    
+    // Generate values for each field based on its type
+    for (const [key, fieldSchema] of Object.entries(schemaShape)) {
+      if (key in obj) continue; // Skip if already in baseObject
+      
+      const fieldType = getZodFieldType(fieldSchema);
+      obj[key] = generateValueForType(fieldType, key, i, journeyContext);
+    }
+    
+    // Make one or more fields invalid
+    const fieldsToInvalidate = invalidFields.length > 0 
+      ? invalidFields 
+      : Object.keys(schemaShape).slice(0, 1 + (i % 3)); // Invalidate 1-3 fields
+    
+    for (const field of fieldsToInvalidate) {
+      const fieldSchema = schemaShape[field];
+      if (!fieldSchema) continue;
+      
+      const fieldType = getZodFieldType(fieldSchema);
+      obj[field] = generateInvalidValueForType(fieldType, String(field), i);
+    }
+    
+    examples.push(obj as T);
+  }
+  
+  return examples;
+}
+
+/**
+ * Gets the field type from a Zod schema
+ * 
+ * @param fieldSchema The Zod field schema
+ * @returns The field type as a string
+ */
+function getZodFieldType(fieldSchema: any): string {
+  if (!fieldSchema) return 'unknown';
+  
+  // Check for common Zod types
+  if (fieldSchema._def?.typeName === 'ZodString') return 'string';
+  if (fieldSchema._def?.typeName === 'ZodNumber') return 'number';
+  if (fieldSchema._def?.typeName === 'ZodBoolean') return 'boolean';
+  if (fieldSchema._def?.typeName === 'ZodDate') return 'date';
+  if (fieldSchema._def?.typeName === 'ZodArray') return 'array';
+  if (fieldSchema._def?.typeName === 'ZodObject') return 'object';
+  if (fieldSchema._def?.typeName === 'ZodEnum') return 'enum';
+  if (fieldSchema._def?.typeName === 'ZodUnion') return 'union';
+  if (fieldSchema._def?.typeName === 'ZodOptional') {
+    return getZodFieldType(fieldSchema._def?.innerType);
+  }
+  if (fieldSchema._def?.typeName === 'ZodNullable') {
+    return getZodFieldType(fieldSchema._def?.innerType);
+  }
+  
+  return 'unknown';
+}
+
+/**
+ * Generates a value for the specified type
+ * 
+ * @param type The field type
+ * @param fieldName The field name
+ * @param index The index for generating unique values
+ * @param journeyContext Optional journey context
+ * @returns A value of the specified type
+ */
+function generateValueForType(
+  type: string,
+  fieldName: string,
+  index: number,
+  journeyContext?: 'health' | 'care' | 'plan'
+): any {
+  switch (type) {
+    case 'string':
+      // Generate string based on field name
+      if (fieldName.includes('email')) {
+        return generateValidStrings('email', 1, journeyContext)[0];
+      }
+      if (fieldName.includes('url')) {
+        return generateValidStrings('url', 1)[0];
+      }
+      if (fieldName.includes('cpf')) {
+        return generateValidStrings('cpf', 1)[0];
+      }
+      if (fieldName.includes('cnpj')) {
+        return generateValidStrings('cnpj', 1)[0];
+      }
+      if (fieldName.includes('phone')) {
+        return generateValidStrings('phone', 1)[0];
+      }
+      if (fieldName.includes('cep')) {
+        return generateValidStrings('cep', 1)[0];
+      }
+      if (fieldName.includes('password')) {
+        return generateValidStrings('password', 1)[0];
+      }
+      if (fieldName.includes('id') || fieldName === 'id') {
+        return `id-${randomUtils.string(8)}`;
+      }
+      return `${fieldName}-${index}-${randomUtils.string(5)}`;
+    
+    case 'number':
+      // Generate number based on field name
+      if (fieldName.includes('age')) {
+        return randomUtils.integer(18, 80);
+      }
+      if (fieldName.includes('price') || fieldName.includes('amount')) {
+        return Math.round(randomUtils.integer(100, 10000)) / 100; // Currency-like
+      }
+      if (fieldName.includes('percentage')) {
+        return randomUtils.integer(0, 100);
+      }
+      return randomUtils.integer(1, 1000);
+    
+    case 'boolean':
+      return randomUtils.boolean();
+    
+    case 'date':
+      return new Date(Date.now() - randomUtils.integer(0, 365) * 24 * 60 * 60 * 1000);
+    
+    case 'array':
+      return Array.from({ length: randomUtils.integer(1, 3) }, (_, i) => 
+        `item-${index}-${i}-${randomUtils.string(3)}`
+      );
+    
+    case 'object':
+      return { 
+        id: `id-${randomUtils.string(8)}`,
+        name: `name-${index}-${randomUtils.string(5)}`,
+      };
+    
+    case 'enum':
+      return ['ACTIVE', 'INACTIVE', 'PENDING'][randomUtils.integer(0, 2)];
+    
+    case 'union':
+      // For union types, return a string as a safe default
+      return `union-${index}-${randomUtils.string(5)}`;
+    
+    default:
+      return `unknown-${index}-${randomUtils.string(5)}`;
+  }
+}
+
+/**
+ * Generates an invalid value for the specified type
+ * 
+ * @param type The field type
+ * @param fieldName The field name
+ * @param index The index for generating unique values
+ * @returns An invalid value for the specified type
+ */
+function generateInvalidValueForType(type: string, fieldName: string, index: number): any {
+  switch (type) {
+    case 'string':
+      // Generate invalid string based on field name
+      if (fieldName.includes('email')) {
+        return generateInvalidStrings('email', 1)[0];
+      }
+      if (fieldName.includes('url')) {
+        return generateInvalidStrings('url', 1)[0];
+      }
+      if (fieldName.includes('cpf')) {
+        return generateInvalidStrings('cpf', 1)[0];
+      }
+      if (fieldName.includes('cnpj')) {
+        return generateInvalidStrings('cnpj', 1)[0];
+      }
+      if (fieldName.includes('phone')) {
+        return generateInvalidStrings('phone', 1)[0];
+      }
+      if (fieldName.includes('cep')) {
+        return generateInvalidStrings('cep', 1)[0];
+      }
+      if (fieldName.includes('password')) {
+        return generateInvalidStrings('password', 1)[0];
+      }
+      // For other string fields, return a number (type mismatch)
+      return index;
+    
+    case 'number':
+      // For number fields, return a string (type mismatch)
+      return `not-a-number-${index}`;
+    
+    case 'boolean':
+      // For boolean fields, return a string (type mismatch)
+      return `not-a-boolean-${index}`;
+    
+    case 'date':
+      // For date fields, return an invalid date string
+      return 'not-a-date';
+    
+    case 'array':
+      // For array fields, return a non-array
+      return `not-an-array-${index}`;
+    
+    case 'object':
+      // For object fields, return a non-object
+      return `not-an-object-${index}`;
+    
+    case 'enum':
+      // For enum fields, return an invalid enum value
+      return `INVALID_ENUM_VALUE_${index}`;
+    
+    case 'union':
+      // For union types, return null (assuming null is not part of the union)
+      return null;
+    
+    default:
+      return null;
+  }
+}
+
+/**
+ * Attempts to fix an object to make it valid for a schema
+ * 
+ * @param obj The object to fix
+ * @param schema The schema to validate against
+ * @param error The validation error
+ * @returns A fixed object that should pass validation
+ */
+function fixObjectForSchema<T extends Record<string, any>>(
+  obj: Record<string, any>,
+  schema: ZodType<T>,
+  error: ZodError
+): Record<string, any> {
+  const fixedObj = { ...obj };
+  
+  // Extract schema shape to determine field types
+  const schemaShape = (schema as any)._def?.shape || {};
+  
+  // Fix each error
+  for (const issue of error.issues) {
+    const path = issue.path.join('.');
+    const fieldName = issue.path[0]?.toString() || '';
+    const fieldSchema = schemaShape[fieldName];
+    
+    if (!fieldSchema) continue;
+    
+    const fieldType = getZodFieldType(fieldSchema);
+    
+    // Generate a valid value for this field
+    fixedObj[fieldName] = generateValueForType(fieldType, fieldName, 0);
+  }
+  
+  return fixedObj;
+}
+
+/**
+ * Tests a schema with the provided test data
+ * 
+ * @param schema The schema to test
+ * @param testData The test data to use
+ * @param options Test options
+ * 
+ * @example
+ * ```ts
+ * // Define a schema
+ * const emailSchema = z.string().email();
+ * 
+ * // Generate test data
+ * const emailTestData = generateStringTestData('email');
+ * 
+ * // Test the schema
+ * testSchema(emailSchema, emailTestData);
+ * ```
+ */
+export function testSchema<T>(
+  schema: ZodType<T>,
+  testData: TestData<any>,
+  options: SchemaTestOptions = {}
+): void {
+  const { description = 'Schema validation', logErrors = false, onError } = options;
+  
+  describe(description, () => {
+    it('should validate valid data', () => {
+      testData.valid.forEach((data, index) => {
+        const result = schema.safeParse(data);
+        if (!result.success && logErrors) {
+          console.error(`Validation failed for valid data at index ${index}:`, data);
+          console.error('Errors:', result.error.format());
+        }
+        expect(result.success).toBe(true);
+      });
+    });
+    
+    it('should reject invalid data', () => {
+      testData.invalid.forEach((data, index) => {
+        const result = schema.safeParse(data);
+        if (result.success && logErrors) {
+          console.error(`Validation succeeded for invalid data at index ${index}:`, data);
+        }
+        expect(result.success).toBe(false);
         
-        if (!testCase.shouldPass && testCase.expectedErrors && testCase.expectedErrors.length > 0) {
-          const errorMessages = result.errors.map(errorMessageExtractor);
-          
-          testCase.expectedErrors.forEach(expectedError => {
-            expect(errorMessages.some(msg => msg.includes(expectedError))).toBe(true);
-          });
+        if (!result.success && onError) {
+          onError(result.error);
         }
       });
     });
@@ -685,121 +1210,424 @@ export function createValidationWithErrorsTestSuite<T, E>(
 }
 
 /**
- * Generates a random valid value based on the validation type
- * @param type - Type of validation
- * @returns A random valid value for the specified validation type
+ * Tests a validator function with the provided test data
+ * 
+ * @param validator The validator function to test
+ * @param testData The test data to use
+ * @param options Test options
+ * 
+ * @example
+ * ```ts
+ * // Define a validator function
+ * const isValidEmail = (email: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+ * 
+ * // Generate test data
+ * const emailTestData = generateStringTestData('email');
+ * 
+ * // Test the validator
+ * testValidator(isValidEmail, emailTestData);
+ * ```
  */
-export function generateRandomValidValue(
-  type: 'email' | 'cpf' | 'date' | 'url' | 'phone' | 'password'
-): string {
-  const getRandomItem = <T>(items: T[]): T => {
-    return items[Math.floor(Math.random() * items.length)];
-  };
+export function testValidator<T>(
+  validator: (value: T) => boolean,
+  testData: TestData<T>,
+  options: SchemaTestOptions = {}
+): void {
+  const { description = 'Validator function' } = options;
   
-  switch (type) {
-    case 'email':
-      return getRandomItem(validEmails);
-    case 'cpf':
-      return getRandomItem(validCPFs);
-    case 'date':
-      return getRandomItem(validDates);
-    case 'url':
-      return getRandomItem([
-        'https://austa.com.br',
-        'http://austa.com.br/path',
-        'https://sub.austa.com.br/path?query=value'
-      ]);
-    case 'phone':
-      return getRandomItem([
-        '+55 11 98765-4321',
-        '(11) 98765-4321',
-        '11987654321'
-      ]);
-    case 'password':
-      return getRandomItem(validPasswords);
-    default:
-      throw new Error(`Unsupported validation type: ${type}`);
-  }
+  describe(description, () => {
+    it('should validate valid data', () => {
+      testData.valid.forEach((data, index) => {
+        const result = validator(data);
+        expect(result).toBe(true);
+      });
+    });
+    
+    it('should reject invalid data', () => {
+      testData.invalid.forEach((data, index) => {
+        const result = validator(data);
+        expect(result).toBe(false);
+      });
+    });
+  });
 }
 
 /**
- * Generates a random invalid value based on the validation type
- * @param type - Type of validation
- * @returns A random invalid value for the specified validation type
+ * Tests a validator function that returns a ValidationResult
+ * 
+ * @param validator The validator function to test
+ * @param testData The test data to use
+ * @param options Test options
+ * 
+ * @example
+ * ```ts
+ * // Define a validator function that returns a ValidationResult
+ * const validateEmail = (email: string): ValidationResult => ({
+ *   valid: /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email),
+ *   message: 'Invalid email format',
+ *   value: email
+ * });
+ * 
+ * // Generate test data
+ * const emailTestData = generateStringTestData('email');
+ * 
+ * // Test the validator
+ * testDetailedValidator(validateEmail, emailTestData);
+ * ```
  */
-export function generateRandomInvalidValue(
-  type: 'email' | 'cpf' | 'date' | 'url' | 'phone' | 'password'
-): string {
-  const getRandomItem = <T>(items: T[]): T => {
-    return items[Math.floor(Math.random() * items.length)];
-  };
+export function testDetailedValidator<T>(
+  validator: (value: T) => ValidationResult,
+  testData: TestData<T>,
+  options: SchemaTestOptions = {}
+): void {
+  const { description = 'Detailed validator function' } = options;
   
-  switch (type) {
-    case 'email':
-      return getRandomItem(invalidEmails);
-    case 'cpf':
-      return getRandomItem(invalidCPFs);
-    case 'date':
-      return getRandomItem(invalidDates);
-    case 'url':
-      return getRandomItem([
-        'not-a-url',
-        'ftp://austa.com.br',
-        'http:/austa.com.br',
-        'javascript:alert(1)'
-      ]);
-    case 'phone':
-      return getRandomItem([
-        '987654321',
-        '+55 111 98765-4321',
-        'not-a-phone'
-      ]);
-    case 'password':
-      return getRandomItem(invalidPasswords);
-    default:
-      throw new Error(`Unsupported validation type: ${type}`);
-  }
+  describe(description, () => {
+    it('should validate valid data', () => {
+      testData.valid.forEach((data, index) => {
+        const result = validator(data);
+        expect(result.valid).toBe(true);
+        expect(result.value).toEqual(data);
+      });
+    });
+    
+    it('should reject invalid data', () => {
+      testData.invalid.forEach((data, index) => {
+        const result = validator(data);
+        expect(result.valid).toBe(false);
+        expect(result.message).toBeTruthy();
+        expect(result.value).toEqual(data);
+      });
+    });
+  });
 }
 
 /**
- * Creates a mock object with valid values for testing
- * @param template - Template object with validation types as values
- * @returns An object with random valid values based on the template
+ * Assertion utilities for validation testing
  */
-export function createValidMockObject<T extends Record<string, 'email' | 'cpf' | 'date' | 'url' | 'phone' | 'password' | string | number | boolean>>(
-  template: T
-): { [K in keyof T]: string | number | boolean } {
-  const result: Record<string, string | number | boolean> = {};
+export const validationAssertions = {
+  /**
+   * Asserts that a value passes validation with a validator function
+   * 
+   * @param value The value to validate
+   * @param validator The validator function
+   * @param message Optional assertion message
+   * 
+   * @example
+   * ```ts
+   * test('should validate email', () => {
+   *   validationAssertions.toPassValidation('user@example.com', isValidEmail);
+   * });
+   * ```
+   */
+  toPassValidation<T>(value: T, validator: (value: T) => boolean, message?: string): void {
+    const result = validator(value);
+    expect(result).toBe(true, message || `Expected ${value} to pass validation`);
+  },
   
-  for (const [key, value] of Object.entries(template)) {
-    if (typeof value === 'string' && ['email', 'cpf', 'date', 'url', 'phone', 'password'].includes(value)) {
-      result[key] = generateRandomValidValue(value as 'email' | 'cpf' | 'date' | 'url' | 'phone' | 'password');
+  /**
+   * Asserts that a value fails validation with a validator function
+   * 
+   * @param value The value to validate
+   * @param validator The validator function
+   * @param message Optional assertion message
+   * 
+   * @example
+   * ```ts
+   * test('should reject invalid email', () => {
+   *   validationAssertions.toFailValidation('invalid', isValidEmail);
+   * });
+   * ```
+   */
+  toFailValidation<T>(value: T, validator: (value: T) => boolean, message?: string): void {
+    const result = validator(value);
+    expect(result).toBe(false, message || `Expected ${value} to fail validation`);
+  },
+  
+  /**
+   * Asserts that a value passes validation with a validator function that returns a ValidationResult
+   * 
+   * @param value The value to validate
+   * @param validator The validator function
+   * @param message Optional assertion message
+   * 
+   * @example
+   * ```ts
+   * test('should validate email', () => {
+   *   validationAssertions.toPassDetailedValidation('user@example.com', validateEmail);
+   * });
+   * ```
+   */
+  toPassDetailedValidation<T>(value: T, validator: (value: T) => ValidationResult, message?: string): void {
+    const result = validator(value);
+    expect(result.valid).toBe(true, message || `Expected ${value} to pass validation`);
+    expect(result.value).toEqual(value);
+  },
+  
+  /**
+   * Asserts that a value fails validation with a validator function that returns a ValidationResult
+   * 
+   * @param value The value to validate
+   * @param validator The validator function
+   * @param expectedMessage Optional expected error message
+   * @param message Optional assertion message
+   * 
+   * @example
+   * ```ts
+   * test('should reject invalid email', () => {
+   *   validationAssertions.toFailDetailedValidation('invalid', validateEmail, 'Invalid email format');
+   * });
+   * ```
+   */
+  toFailDetailedValidation<T>(
+    value: T,
+    validator: (value: T) => ValidationResult,
+    expectedMessage?: string | RegExp,
+    message?: string
+  ): void {
+    const result = validator(value);
+    expect(result.valid).toBe(false, message || `Expected ${value} to fail validation`);
+    expect(result.value).toEqual(value);
+    
+    if (expectedMessage) {
+      if (expectedMessage instanceof RegExp) {
+        expect(result.message).toMatch(expectedMessage);
+      } else {
+        expect(result.message).toContain(expectedMessage);
+      }
     } else {
-      result[key] = value;
+      expect(result.message).toBeTruthy();
     }
-  }
+  },
   
-  return result as { [K in keyof T]: string | number | boolean };
+  /**
+   * Asserts that a value passes validation with a Zod schema
+   * 
+   * @param value The value to validate
+   * @param schema The Zod schema
+   * @param message Optional assertion message
+   * 
+   * @example
+   * ```ts
+   * test('should validate user', () => {
+   *   const userSchema = z.object({ name: z.string(), age: z.number() });
+   *   validationAssertions.toPassSchemaValidation({ name: 'Test', age: 30 }, userSchema);
+   * });
+   * ```
+   */
+  toPassSchemaValidation<T>(value: unknown, schema: ZodType<T>, message?: string): void {
+    const result = schema.safeParse(value);
+    if (!result.success) {
+      console.error('Validation errors:', result.error.format());
+    }
+    expect(result.success).toBe(true, message || `Expected ${JSON.stringify(value)} to pass schema validation`);
+  },
+  
+  /**
+   * Asserts that a value fails validation with a Zod schema
+   * 
+   * @param value The value to validate
+   * @param schema The Zod schema
+   * @param expectedPath Optional expected error path
+   * @param message Optional assertion message
+   * 
+   * @example
+   * ```ts
+   * test('should reject invalid user', () => {
+   *   const userSchema = z.object({ name: z.string(), age: z.number() });
+   *   validationAssertions.toFailSchemaValidation({ name: 'Test', age: 'thirty' }, userSchema, 'age');
+   * });
+   * ```
+   */
+  toFailSchemaValidation<T>(
+    value: unknown,
+    schema: ZodType<T>,
+    expectedPath?: string,
+    message?: string
+  ): void {
+    const result = schema.safeParse(value);
+    expect(result.success).toBe(false, message || `Expected ${JSON.stringify(value)} to fail schema validation`);
+    
+    if (!result.success && expectedPath) {
+      const errors = result.error.format();
+      expect(errors[expectedPath]).toBeDefined(`Expected error at path '${expectedPath}'`);
+    }
+  },
+};
+
+/**
+ * Creates a mock validator function for testing
+ * 
+ * @param validValues Values that should pass validation
+ * @param options Options for the mock validator
+ * @returns A mock validator function
+ * 
+ * @example
+ * ```ts
+ * test('should use mock validator', () => {
+ *   const mockEmailValidator = createMockValidator(['user@example.com', 'test@test.com']);
+ *   
+ *   expect(mockEmailValidator('user@example.com')).toBe(true);
+ *   expect(mockEmailValidator('invalid')).toBe(false);
+ * });
+ * ```
+ */
+export function createMockValidator<T>(
+  validValues: T[],
+  options: {
+    alwaysValid?: boolean;
+    alwaysInvalid?: boolean;
+    implementation?: (value: T) => boolean;
+  } = {}
+): jest.Mock<boolean, [T]> {
+  const { alwaysValid, alwaysInvalid, implementation } = options;
+  
+  const mockFn = jest.fn((value: T): boolean => {
+    if (alwaysValid) return true;
+    if (alwaysInvalid) return false;
+    if (implementation) return implementation(value);
+    return validValues.includes(value);
+  });
+  
+  return mockFn;
 }
 
 /**
- * Creates a mock object with invalid values for testing
- * @param template - Template object with validation types as values and keys to invalidate
- * @param keysToInvalidate - Keys from the template to make invalid
- * @returns An object with random values based on the template, with specified keys having invalid values
+ * Creates a mock detailed validator function for testing
+ * 
+ * @param validValues Values that should pass validation
+ * @param options Options for the mock validator
+ * @returns A mock detailed validator function
+ * 
+ * @example
+ * ```ts
+ * test('should use mock detailed validator', () => {
+ *   const mockEmailValidator = createMockDetailedValidator(['user@example.com'], {
+ *     errorMessage: 'Invalid email format'
+ *   });
+ *   
+ *   expect(mockEmailValidator('user@example.com').valid).toBe(true);
+ *   
+ *   const result = mockEmailValidator('invalid');
+ *   expect(result.valid).toBe(false);
+ *   expect(result.message).toBe('Invalid email format');
+ * });
+ * ```
  */
-export function createInvalidMockObject<T extends Record<string, 'email' | 'cpf' | 'date' | 'url' | 'phone' | 'password' | string | number | boolean>>(
-  template: T,
-  keysToInvalidate: (keyof T)[]
-): { [K in keyof T]: string | number | boolean } {
-  const result = createValidMockObject(template);
+export function createMockDetailedValidator<T>(
+  validValues: T[],
+  options: {
+    alwaysValid?: boolean;
+    alwaysInvalid?: boolean;
+    errorMessage?: string;
+    implementation?: (value: T) => ValidationResult;
+  } = {}
+): jest.Mock<ValidationResult, [T]> {
+  const { 
+    alwaysValid, 
+    alwaysInvalid, 
+    errorMessage = 'Validation failed', 
+    implementation 
+  } = options;
   
-  for (const key of keysToInvalidate) {
-    const validationType = template[key];
-    if (typeof validationType === 'string' && ['email', 'cpf', 'date', 'url', 'phone', 'password'].includes(validationType)) {
-      result[key] = generateRandomInvalidValue(validationType as 'email' | 'cpf' | 'date' | 'url' | 'phone' | 'password');
-    }
-  }
+  const mockFn = jest.fn((value: T): ValidationResult => {
+    if (alwaysValid) return { valid: true, value };
+    if (alwaysInvalid) return { valid: false, message: errorMessage, value };
+    if (implementation) return implementation(value);
+    
+    const isValid = validValues.includes(value);
+    return isValid 
+      ? { valid: true, value } 
+      : { valid: false, message: errorMessage, value };
+  });
   
-  return result;
+  return mockFn;
 }
+
+/**
+ * Creates a mock Zod schema for testing
+ * 
+ * @param validValues Values that should pass validation
+ * @param options Options for the mock schema
+ * @returns A mock Zod schema
+ * 
+ * @example
+ * ```ts
+ * test('should use mock schema', () => {
+ *   const mockUserSchema = createMockSchema([{ name: 'Test', age: 30 }], {
+ *     errorMessage: 'Invalid user data'
+ *   });
+ *   
+ *   expect(mockUserSchema.safeParse({ name: 'Test', age: 30 }).success).toBe(true);
+ *   
+ *   const result = mockUserSchema.safeParse({ name: 'Test' });
+ *   expect(result.success).toBe(false);
+ * });
+ * ```
+ */
+export function createMockSchema<T>(
+  validValues: T[],
+  options: {
+    alwaysValid?: boolean;
+    alwaysInvalid?: boolean;
+    errorMessage?: string;
+  } = {}
+): ZodType<T> {
+  const { alwaysValid, alwaysInvalid, errorMessage = 'Validation failed' } = options;
+  
+  return {
+    _def: { typeName: 'ZodMock' },
+    
+    safeParse: (value: unknown) => {
+      if (alwaysValid) return { success: true, data: value as T };
+      if (alwaysInvalid) {
+        return {
+          success: false,
+          error: new ZodError([{
+            code: 'custom',
+            path: [],
+            message: errorMessage,
+          }]),
+        };
+      }
+      
+      const isValid = validValues.some(valid => 
+        JSON.stringify(valid) === JSON.stringify(value)
+      );
+      
+      if (isValid) {
+        return { success: true, data: value as T };
+      } else {
+        return {
+          success: false,
+          error: new ZodError([{
+            code: 'custom',
+            path: [],
+            message: errorMessage,
+          }]),
+        };
+      }
+    },
+    
+    parse: (value: unknown) => {
+      const result = (this as any).safeParse(value);
+      if (result.success) return result.data;
+      throw result.error;
+    },
+  } as unknown as ZodType<T>;
+}
+
+// Export default for convenient importing
+export default {
+  generateStringTestData,
+  generateNumberTestData,
+  generateDateTestData,
+  generateObjectTestData,
+  testSchema,
+  testValidator,
+  testDetailedValidator,
+  validationAssertions,
+  createMockValidator,
+  createMockDetailedValidator,
+  createMockSchema,
+};

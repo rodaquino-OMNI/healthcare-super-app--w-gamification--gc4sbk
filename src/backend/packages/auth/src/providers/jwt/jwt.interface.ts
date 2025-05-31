@@ -1,243 +1,202 @@
 /**
- * @file jwt.interface.ts
- * @description Defines interfaces for JWT operations including token generation, validation,
- * verification, and blacklisting. Establishes a contract that must be followed by all JWT
- * provider implementations, ensuring consistent authentication behavior across the platform.
+ * JWT Provider Interfaces
+ * 
+ * This file defines the interfaces for JWT operations including token generation,
+ * validation, verification, and blacklisting. It establishes a contract that must
+ * be followed by all JWT provider implementations, ensuring consistent authentication
+ * behavior across the platform.
  */
 
-import { IAuthProvider } from '../auth-provider.interface';
-import { ITokenPayload, ITokenValidationOptions, ITokenGenerationOptions } from '../../interfaces/token.interface';
-import { JourneyType } from '../../interfaces/role.interface';
+import { ITokenPayload, ITokenVerificationOptions } from '../../interfaces/token.interface';
 
 /**
- * Interface for JWT token blacklisting operations.
- * Defines methods for adding tokens to a blacklist and checking if tokens are blacklisted.
+ * Interface for JWT token operations
+ * Defines the contract for all JWT provider implementations
  */
-export interface IJwtBlacklist {
+export interface IJwtProvider {
   /**
-   * Adds a token to the blacklist, making it invalid for future authentication.
+   * Generates a JWT token with the provided payload
    * 
-   * @param token JWT token to blacklist
-   * @param payload Decoded token payload
-   * @returns Promise resolving to true if the token was added to the blacklist, false otherwise
+   * @param payload Data to include in the token
+   * @returns Generated JWT token string
+   * @throws Error if token generation fails
    */
-  addToBlacklist(token: string, payload: ITokenPayload): Promise<boolean>;
+  generateToken<T = any>(payload: T): Promise<string>;
 
   /**
-   * Checks if a token is blacklisted.
+   * Validates a JWT token
+   * 
+   * @param token JWT token to validate
+   * @param options Optional verification options
+   * @returns Decoded token payload if valid, null otherwise
+   * @throws Error if token validation fails with specific error types
+   */
+  validateToken<T = any>(token: string, options?: ITokenVerificationOptions): Promise<T | null>;
+
+  /**
+   * Decodes a JWT token without validation
+   * 
+   * @param token JWT token to decode
+   * @returns Decoded token payload or null if decoding fails
+   */
+  decodeToken<T = any>(token: string): T | null;
+}
+
+/**
+ * Interface for JWT token blacklisting operations
+ * Extends the base JWT provider with token invalidation capabilities
+ */
+export interface IJwtBlacklistProvider extends IJwtProvider {
+  /**
+   * Invalidates a JWT token by adding it to the blacklist
+   * 
+   * @param token JWT token to invalidate
+   * @param ttl Optional time-to-live in seconds (defaults to token's remaining lifetime)
+   * @returns True if the token was successfully blacklisted, false otherwise
+   */
+  invalidateToken(token: string, ttl?: number): Promise<boolean>;
+
+  /**
+   * Invalidates all tokens for a specific user
+   * 
+   * @param userId User ID to invalidate tokens for
+   * @param ttl Optional time-to-live in seconds
+   * @returns True if the operation was successful, false otherwise
+   */
+  invalidateAllUserTokens(userId: string, ttl?: number): Promise<boolean>;
+
+  /**
+   * Checks if a token is blacklisted
    * 
    * @param token JWT token to check
-   * @returns Promise resolving to true if the token is blacklisted, false otherwise
+   * @returns True if the token is blacklisted, false otherwise
    */
   isTokenBlacklisted(token: string): Promise<boolean>;
 
   /**
-   * Removes a token from the blacklist, making it valid again.
-   * This is primarily used for testing and administrative purposes.
+   * Clears the entire token blacklist
+   * Use with caution - this will allow all previously invalidated tokens to work again
    * 
-   * @param token JWT token to remove from the blacklist
-   * @returns Promise resolving to true if the token was removed from the blacklist, false otherwise
-   */
-  removeFromBlacklist(token: string): Promise<boolean>;
-
-  /**
-   * Clears all blacklisted tokens.
-   * This is primarily used for testing and administrative purposes.
-   * 
-   * @returns Promise resolving to true if the blacklist was cleared, false otherwise
+   * @returns True if the operation was successful, false otherwise
    */
   clearBlacklist(): Promise<boolean>;
 }
 
 /**
- * Interface for JWT token operations.
- * Extends the base authentication provider interface with JWT-specific methods.
- * 
- * @template TUser The user entity type
+ * Options for JWT token blacklisting
  */
-export interface IJwtProvider<TUser extends Record<string, any>> extends IAuthProvider<TUser, any, ITokenPayload> {
+export interface IJwtBlacklistOptions {
   /**
-   * Validates a JWT token and returns the associated payload.
-   * Performs comprehensive validation including signature, expiration, and claims.
-   * 
-   * @param token JWT token to validate
-   * @param options Additional validation options
-   * @returns Promise resolving to the validated token payload or null if validation fails
+   * Storage provider for blacklisted tokens
+   * Default is 'redis'
    */
-  validateToken(token: string, options?: ITokenValidationOptions): Promise<ITokenPayload | null>;
+  provider?: 'redis' | 'memory' | 'database';
 
   /**
-   * Generates a JWT token for the authenticated user.
-   * 
-   * @param user Authenticated user
-   * @param expiresIn Token expiration time in seconds or string (e.g., '1h', '7d')
-   * @param journeyType Optional journey context to include in the token
-   * @returns Promise resolving to the generated token
+   * Default time-to-live for blacklisted tokens in seconds
+   * If not specified, defaults to the token's remaining lifetime
    */
-  generateToken(user: TUser, expiresIn?: number | string, journeyType?: JourneyType): Promise<string>;
+  defaultTtl?: number;
 
   /**
-   * Decodes a JWT token and returns its payload without validation.
-   * This method does not verify the token signature or expiration.
-   * 
-   * @param token JWT token to decode
-   * @returns Promise resolving to the decoded token payload or null if decoding fails
+   * Redis connection options if using Redis provider
    */
-  decodeToken(token: string): Promise<ITokenPayload | null>;
+  redis?: {
+    /**
+     * Redis host
+     * @default 'localhost'
+     */
+    host?: string;
+
+    /**
+     * Redis port
+     * @default 6379
+     */
+    port?: number;
+
+    /**
+     * Redis password
+     */
+    password?: string;
+
+    /**
+     * Redis database index
+     * @default 0
+     */
+    db?: number;
+
+    /**
+     * Key prefix for Redis keys
+     * @default 'jwt:blacklist:'
+     */
+    keyPrefix?: string;
+  };
 
   /**
-   * Extracts the JWT token from the request.
-   * Supports multiple extraction methods: Authorization header, query parameter, and cookies.
-   * 
-   * @param request HTTP request object
-   * @returns Extracted token or null if not found
+   * Whether to enable automatic cleanup of expired blacklist entries
+   * @default true
    */
-  extractTokenFromRequest(request: any): string | null;
+  enableCleanup?: boolean;
 
   /**
-   * Revokes a JWT token, making it invalid for future authentication.
-   * Implementations should add the token to a blacklist or revocation list.
-   * 
-   * @param token JWT token to revoke
-   * @returns Promise resolving to true if revocation was successful, false otherwise
+   * Interval in seconds for automatic cleanup of expired blacklist entries
+   * Only applicable if enableCleanup is true
+   * @default 3600 (1 hour)
    */
-  revokeToken(token: string): Promise<boolean>;
-
-  /**
-   * Refreshes an existing token and returns a new one.
-   * 
-   * @param refreshToken Refresh token
-   * @returns Promise resolving to the new access token or null if refresh fails
-   */
-  refreshToken(refreshToken: string): Promise<string | null>;
+  cleanupInterval?: number;
 }
 
 /**
- * Interface for JWT token verification options.
- * Extends the base token validation options with JWT-specific verification options.
+ * Result of a token validation operation
  */
-export interface IJwtVerificationOptions extends ITokenValidationOptions {
+export interface ITokenValidationResult<T = any> {
   /**
-   * List of algorithms allowed for token verification.
-   * Default: ['HS256']
+   * Whether the token is valid
    */
-  algorithms?: string[];
+  isValid: boolean;
 
   /**
-   * Clock tolerance in seconds to account for server time drift.
-   * Default: 0
+   * Decoded token payload if valid
    */
-  clockTolerance?: number;
+  payload?: T;
 
   /**
-   * Whether to verify the token's subject claim.
-   * Default: false
+   * Error message if validation failed
    */
-  subject?: string;
+  error?: string;
 
   /**
-   * Whether to verify the token's JWT ID claim.
-   * Default: false
+   * Error code if validation failed
    */
-  jwtid?: string;
-
-  /**
-   * Whether to verify the token's not before claim.
-   * Default: false
-   */
-  ignoreNotBefore?: boolean;
+  errorCode?: string;
 }
 
 /**
- * Interface for JWT token generation options.
- * Extends the base token generation options with JWT-specific signing options.
+ * Token generation result
  */
-export interface IJwtSignOptions extends ITokenGenerationOptions {
+export interface ITokenGenerationResult {
   /**
-   * Whether to include a unique JWT ID in the token.
-   * Default: false
+   * Generated JWT token
    */
-  includeJwtId?: boolean;
+  token: string;
 
   /**
-   * Not before time in seconds.
-   * Default: undefined (token valid immediately)
+   * Token expiration timestamp (in seconds since epoch)
    */
-  notBefore?: number | string;
+  expiresAt: number;
 
   /**
-   * Key ID to use for signing.
-   * Default: undefined
+   * Token ID (jti claim) if generated
    */
-  keyid?: string;
-
-  /**
-   * Whether to include the issued at claim.
-   * Default: true
-   */
-  noTimestamp?: boolean;
-
-  /**
-   * Header fields to include in the token.
-   * Default: undefined
-   */
-  header?: Record<string, any>;
-
-  /**
-   * Whether to mutate the payload directly.
-   * Default: false
-   */
-  mutatePayload?: boolean;
+  tokenId?: string;
 }
 
 /**
- * Interface for JWT token refresh options.
+ * Factory function type for creating JWT providers
  */
-export interface IJwtRefreshOptions {
-  /**
-   * Whether to revoke the old token after refresh.
-   * Default: true
-   */
-  revokeOldToken?: boolean;
-
-  /**
-   * Whether to verify the refresh token before using it.
-   * Default: true
-   */
-  verifyRefreshToken?: boolean;
-
-  /**
-   * Expiration time for the new token in seconds or string (e.g., '1h', '7d').
-   * Default: undefined (use the default expiration time)
-   */
-  newTokenExpiresIn?: number | string;
-
-  /**
-   * Additional claims to include in the new token.
-   * Default: undefined
-   */
-  additionalClaims?: Record<string, any>;
-}
+export type JwtProviderFactory = () => IJwtProvider;
 
 /**
- * Interface for JWT token revocation options.
+ * Factory function type for creating JWT blacklist providers
  */
-export interface IJwtRevocationOptions {
-  /**
-   * Whether to force revocation even if the token is expired.
-   * Default: false
-   */
-  forceRevocation?: boolean;
-
-  /**
-   * Whether to revoke all tokens for the user.
-   * Default: false
-   */
-  revokeAllUserTokens?: boolean;
-
-  /**
-   * Reason for token revocation (for audit purposes).
-   * Default: undefined
-   */
-  reason?: string;
-}
+export type JwtBlacklistProviderFactory = (options?: IJwtBlacklistOptions) => IJwtBlacklistProvider;

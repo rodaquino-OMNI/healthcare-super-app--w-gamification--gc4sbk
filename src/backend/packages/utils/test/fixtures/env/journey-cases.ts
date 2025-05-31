@@ -1,425 +1,446 @@
 /**
- * Journey-specific environment variable test fixtures
+ * Test fixtures for journey-specific environment variables
  * 
- * This module provides test fixtures for journey-specific environment variables
- * covering Health, Care, and Plan journeys. These fixtures enable testing of the
- * journey-specific environment handling in env/journey.ts, ensuring that environment
- * variables are properly namespaced, prefixed, and isolated between different journey contexts.
+ * This module provides test fixtures for testing the journey-specific environment
+ * variable utilities in src/env/journey.ts. It includes test cases for Health, Care,
+ * and Plan journeys, as well as shared variables and feature flags.
  */
 
 import { JourneyType } from '../../../src/env/journey';
 
 /**
- * Mock environment variables for the Health journey
+ * Basic environment variable test cases for each journey
  */
-export const healthJourneyEnvs = {
-  // Core configuration
-  'HEALTH_NODE_ENV': 'development',
-  'HEALTH_PORT': '3001',
-  'HEALTH_API_PREFIX': 'api/v1/health',
-  'HEALTH_DATABASE_URL': 'postgresql://postgres:password@localhost:5432/austa_health',
-  'HEALTH_DATABASE_SSL': 'false',
-  
-  // Health-specific configuration
-  'HEALTH_TIMESCALE_ENABLED': 'true',
-  'HEALTH_METRICS_RETENTION_DAYS': '730',
-  'HEALTH_METRICS_AGGREGATION_ENABLED': 'true',
-  'HEALTH_METRICS_AGGREGATION_INTERVALS': 'hour,day,week,month',
-  
-  // FHIR API configuration
-  'HEALTH_FHIR_API_ENABLED': 'true',
-  'HEALTH_FHIR_API_URL': 'https://fhir.example.com/health',
-  'HEALTH_FHIR_API_AUTH_TYPE': 'oauth2',
-  'HEALTH_FHIR_API_CLIENT_ID': 'health-client-id',
-  'HEALTH_FHIR_API_CLIENT_SECRET': 'health-client-secret',
-  'HEALTH_FHIR_API_TOKEN_URL': 'https://fhir.example.com/oauth2/token',
-  
-  // Wearables configuration
-  'HEALTH_WEARABLES_SYNC_ENABLED': 'true',
-  'HEALTH_WEARABLES_SUPPORTED': 'googlefit,healthkit,fitbit',
-  'HEALTH_WEARABLES_SYNC_INTERVAL': '15',
-  'HEALTH_WEARABLES_MAX_SYNC_DAYS': '30',
-  
-  // Health Goals configuration
-  'HEALTH_HEALTH_GOALS_MAX_ACTIVE': '10',
-  
-  // Health Insights configuration
-  'HEALTH_HEALTH_INSIGHTS_ENABLED': 'true',
-  'HEALTH_HEALTH_INSIGHTS_GENERATION_INTERVAL': '24',
-  'HEALTH_HEALTH_INSIGHTS_MODELS_PATH': '/models/health',
-  
-  // Event streaming configuration
-  'HEALTH_EVENTS_KAFKA_ENABLED': 'true',
-  'HEALTH_EVENTS_KAFKA_BROKERS': 'kafka:9092',
-  'HEALTH_EVENTS_TOPIC_PREFIX': 'austa.health',
-  
-  // Redis configuration
-  'HEALTH_REDIS_URL': 'redis://localhost:6379/0',
-  'HEALTH_REDIS_TTL': '300',
-  
-  // Storage configuration
-  'HEALTH_STORAGE_S3_BUCKET': 'austa-health-dev',
-  'HEALTH_STORAGE_S3_REGION': 'sa-east-1',
-  'HEALTH_STORAGE_S3_PREFIX': 'health',
-  
-  // Feature flags
-  'HEALTH_FEATURE_WEARABLE_SYNC': 'true',
-  'HEALTH_FEATURE_HEALTH_INSIGHTS': 'true',
-  'HEALTH_FEATURE_HEALTH_INSIGHTS_PERCENTAGE': '50',
-  'HEALTH_FEATURE_FHIR_INTEGRATION': 'true',
-  'HEALTH_FEATURE_ADVANCED_METRICS': 'false'
-};
-
-/**
- * Mock environment variables for the Care journey
- */
-export const careJourneyEnvs = {
-  // Core configuration
-  'CARE_NODE_ENV': 'development',
-  'CARE_PORT': '3002',
-  'CARE_API_PREFIX': 'api/v1/care',
-  'CARE_DATABASE_URL': 'postgresql://postgres:password@localhost:5432/austa_care',
-  'CARE_DATABASE_SSL': 'false',
-  
-  // Care-specific configuration
-  'CARE_TELEMEDICINE_ENABLED': 'true',
-  'CARE_TELEMEDICINE_PROVIDER': 'agora',
-  'CARE_TELEMEDICINE_APP_ID': 'care-app-id',
-  'CARE_TELEMEDICINE_APP_CERTIFICATE': 'care-app-certificate',
-  
-  // Provider configuration
-  'CARE_PROVIDER_SEARCH_RADIUS_KM': '50',
-  'CARE_PROVIDER_MAX_RESULTS': '100',
-  'CARE_PROVIDER_CACHE_TTL': '3600',
-  
-  // Appointment configuration
-  'CARE_APPOINTMENT_REMINDER_MINUTES': '30,60,1440',
-  'CARE_APPOINTMENT_MAX_RESCHEDULE': '3',
-  'CARE_APPOINTMENT_BUFFER_MINUTES': '15',
-  
-  // Medication configuration
-  'CARE_MEDICATION_REMINDER_ENABLED': 'true',
-  'CARE_MEDICATION_REMINDER_DEFAULT_TIMES': '08:00,12:00,18:00,22:00',
-  'CARE_MEDICATION_DATABASE_URL': 'https://api.medications.example.com',
-  
-  // Symptom checker configuration
-  'CARE_SYMPTOM_CHECKER_ENABLED': 'true',
-  'CARE_SYMPTOM_CHECKER_API_URL': 'https://api.symptoms.example.com',
-  'CARE_SYMPTOM_CHECKER_API_KEY': 'care-symptom-checker-key',
-  
-  // Event streaming configuration
-  'CARE_EVENTS_KAFKA_ENABLED': 'true',
-  'CARE_EVENTS_KAFKA_BROKERS': 'kafka:9092',
-  'CARE_EVENTS_TOPIC_PREFIX': 'austa.care',
-  
-  // Redis configuration
-  'CARE_REDIS_URL': 'redis://localhost:6379/1',
-  'CARE_REDIS_TTL': '60',
-  
-  // Storage configuration
-  'CARE_STORAGE_S3_BUCKET': 'austa-care-dev',
-  'CARE_STORAGE_S3_REGION': 'sa-east-1',
-  'CARE_STORAGE_S3_PREFIX': 'care',
-  
-  // Feature flags
-  'CARE_FEATURE_TELEMEDICINE': 'true',
-  'CARE_FEATURE_SYMPTOM_CHECKER': 'true',
-  'CARE_FEATURE_MEDICATION_REMINDER': 'true',
-  'CARE_FEATURE_MEDICATION_REMINDER_PERCENTAGE': '75',
-  'CARE_FEATURE_PROVIDER_RATING': 'false'
-};
-
-/**
- * Mock environment variables for the Plan journey
- */
-export const planJourneyEnvs = {
-  // Core configuration
-  'PLAN_NODE_ENV': 'development',
-  'PLAN_PORT': '3003',
-  'PLAN_API_PREFIX': 'api/v1/plan',
-  'PLAN_DATABASE_URL': 'postgresql://postgres:password@localhost:5432/austa_plan',
-  'PLAN_DATABASE_SSL': 'false',
-  
-  // Plan-specific configuration
-  'PLAN_COVERAGE_CHECK_ENABLED': 'true',
-  'PLAN_COVERAGE_CHECK_TIMEOUT_MS': '5000',
-  'PLAN_COVERAGE_CACHE_TTL': '86400',
-  
-  // Claims configuration
-  'PLAN_CLAIMS_AUTO_PROCESSING_ENABLED': 'true',
-  'PLAN_CLAIMS_PROCESSING_INTERVAL': '15',
-  'PLAN_CLAIMS_MAX_ATTACHMENT_SIZE_MB': '10',
-  'PLAN_CLAIMS_ALLOWED_MIME_TYPES': 'application/pdf,image/jpeg,image/png',
-  
-  // Benefits configuration
-  'PLAN_BENEFITS_REFRESH_INTERVAL_HOURS': '24',
-  'PLAN_BENEFITS_CACHE_TTL': '86400',
-  
-  // Document configuration
-  'PLAN_DOCUMENT_EXPIRY_DAYS': '90',
-  'PLAN_DOCUMENT_MAX_SIZE_MB': '25',
-  
-  // Payment configuration
-  'PLAN_PAYMENT_GATEWAY': 'stripe',
-  'PLAN_PAYMENT_PUBLIC_KEY': 'pk_test_plan',
-  'PLAN_PAYMENT_SECRET_KEY': 'sk_test_plan',
-  'PLAN_PAYMENT_WEBHOOK_SECRET': 'whsec_plan',
-  
-  // Event streaming configuration
-  'PLAN_EVENTS_KAFKA_ENABLED': 'true',
-  'PLAN_EVENTS_KAFKA_BROKERS': 'kafka:9092',
-  'PLAN_EVENTS_TOPIC_PREFIX': 'austa.plan',
-  
-  // Redis configuration
-  'PLAN_REDIS_URL': 'redis://localhost:6379/2',
-  'PLAN_REDIS_TTL': '900',
-  
-  // Storage configuration
-  'PLAN_STORAGE_S3_BUCKET': 'austa-plan-dev',
-  'PLAN_STORAGE_S3_REGION': 'sa-east-1',
-  'PLAN_STORAGE_S3_PREFIX': 'plan',
-  
-  // Feature flags
-  'PLAN_FEATURE_CLAIM_AUTO_PROCESSING': 'true',
-  'PLAN_FEATURE_CLAIM_AUTO_PROCESSING_PERCENTAGE': '25',
-  'PLAN_FEATURE_DIGITAL_ID_CARD': 'true',
-  'PLAN_FEATURE_BENEFIT_COMPARISON': 'true',
-  'PLAN_FEATURE_PAYMENT_INTEGRATION': 'false'
-};
-
-/**
- * Mock environment variables for shared configuration across journeys
- */
-export const sharedJourneyEnvs = {
-  // Core shared configuration
-  'SHARED_NODE_ENV': 'development',
-  'SHARED_LOG_LEVEL': 'info',
-  'SHARED_API_URL': 'http://localhost:4000/graphql',
-  
-  // Authentication configuration
-  'SHARED_JWT_SECRET': 'shared-jwt-secret-key',
-  'SHARED_JWT_EXPIRATION': '3600',
-  'SHARED_REFRESH_TOKEN_EXPIRATION': '604800',
-  
-  // AWS configuration
-  'SHARED_AWS_ACCESS_KEY_ID': 'shared-access-key-id',
-  'SHARED_AWS_SECRET_ACCESS_KEY': 'shared-secret-access-key',
-  'SHARED_AWS_REGION': 'sa-east-1',
-  
-  // Monitoring configuration
-  'SHARED_DATADOG_API_KEY': 'shared-datadog-api-key',
-  'SHARED_DATADOG_APP_KEY': 'shared-datadog-app-key',
-  'SHARED_SENTRY_DSN': 'https://shared-sentry-dsn.ingest.sentry.io/shared',
-  
-  // Rate limiting
-  'SHARED_RATE_LIMIT_WINDOW_MS': '900000',
-  'SHARED_RATE_LIMIT_MAX_REQUESTS': '100',
-  
-  // Feature flags
-  'SHARED_FEATURE_GAMIFICATION': 'true',
-  'SHARED_FEATURE_NOTIFICATIONS': 'true',
-  'SHARED_FEATURE_USER_FEEDBACK': 'false'
-};
-
-/**
- * Test cases for cross-journey inheritance
- */
-export const crossJourneyInheritanceCases = [
-  {
-    description: 'Database URLs with health as primary',
-    variableName: 'DATABASE_URL',
-    shareAcross: [JourneyType.HEALTH, JourneyType.CARE, JourneyType.PLAN],
-    expectedValue: 'postgresql://postgres:password@localhost:5432/austa_health'
+export const basicJourneyEnvCases = {
+  // Health journey test cases
+  health: {
+    // Environment variables to set for testing
+    envVars: {
+      'AUSTA_HEALTH_API_URL': 'https://health-api.austa.com.br',
+      'AUSTA_HEALTH_API_VERSION': 'v1',
+      'AUSTA_HEALTH_MAX_METRICS': '100',
+      'AUSTA_HEALTH_METRICS_ENABLED': 'true',
+      'AUSTA_HEALTH_INSIGHTS_ENABLED': 'true',
+      'AUSTA_HEALTH_WEARABLES_SYNC_INTERVAL': '15',
+    },
+    // Expected values when retrieving these variables
+    expected: {
+      'API_URL': 'https://health-api.austa.com.br',
+      'API_VERSION': 'v1',
+      'MAX_METRICS': '100',
+      'METRICS_ENABLED': 'true',
+      'INSIGHTS_ENABLED': 'true',
+      'WEARABLES_SYNC_INTERVAL': '15',
+    },
+    // Expected boolean values
+    booleans: {
+      'METRICS_ENABLED': true,
+      'INSIGHTS_ENABLED': true,
+      'DEBUG_MODE': false, // Not set, should default to false
+    },
+    // Expected numeric values
+    numbers: {
+      'MAX_METRICS': 100,
+      'WEARABLES_SYNC_INTERVAL': 15,
+      'MAX_GOALS': 0, // Not set, should default to 0
+    }
   },
-  {
-    description: 'Redis URLs with care as primary',
-    variableName: 'REDIS_URL',
-    shareAcross: [JourneyType.CARE, JourneyType.HEALTH, JourneyType.PLAN],
-    expectedValue: 'redis://localhost:6379/1'
+  
+  // Care journey test cases
+  care: {
+    // Environment variables to set for testing
+    envVars: {
+      'AUSTA_CARE_API_URL': 'https://care-api.austa.com.br',
+      'AUSTA_CARE_API_VERSION': 'v2',
+      'AUSTA_CARE_MAX_APPOINTMENTS': '5',
+      'AUSTA_CARE_TELEMEDICINE_ENABLED': 'true',
+      'AUSTA_CARE_PROVIDER_SEARCH_RADIUS': '50',
+      'AUSTA_CARE_APPOINTMENT_REMINDER_HOURS': '24',
+    },
+    // Expected values when retrieving these variables
+    expected: {
+      'API_URL': 'https://care-api.austa.com.br',
+      'API_VERSION': 'v2',
+      'MAX_APPOINTMENTS': '5',
+      'TELEMEDICINE_ENABLED': 'true',
+      'PROVIDER_SEARCH_RADIUS': '50',
+      'APPOINTMENT_REMINDER_HOURS': '24',
+    },
+    // Expected boolean values
+    booleans: {
+      'TELEMEDICINE_ENABLED': true,
+      'SYMPTOM_CHECKER_ENABLED': false, // Not set, should default to false
+    },
+    // Expected numeric values
+    numbers: {
+      'MAX_APPOINTMENTS': 5,
+      'PROVIDER_SEARCH_RADIUS': 50,
+      'APPOINTMENT_REMINDER_HOURS': 24,
+    }
   },
-  {
-    description: 'S3 bucket with plan as primary',
-    variableName: 'STORAGE_S3_BUCKET',
-    shareAcross: [JourneyType.PLAN, JourneyType.CARE, JourneyType.HEALTH],
-    expectedValue: 'austa-plan-dev'
-  },
-  {
-    description: 'Shared JWT secret',
-    variableName: 'JWT_SECRET',
-    shareAcross: [JourneyType.SHARED, JourneyType.HEALTH, JourneyType.CARE, JourneyType.PLAN],
-    expectedValue: 'shared-jwt-secret-key'
-  },
-  {
-    description: 'Non-existent variable with default',
-    variableName: 'NON_EXISTENT_VARIABLE',
-    shareAcross: [JourneyType.HEALTH, JourneyType.CARE, JourneyType.PLAN],
-    defaultValue: 'default-value',
-    expectedValue: 'default-value'
+  
+  // Plan journey test cases
+  plan: {
+    // Environment variables to set for testing
+    envVars: {
+      'AUSTA_PLAN_API_URL': 'https://plan-api.austa.com.br',
+      'AUSTA_PLAN_API_VERSION': 'v1',
+      'AUSTA_PLAN_MAX_CLAIMS': '20',
+      'AUSTA_PLAN_CLAIM_AUTO_PROCESSING': 'true',
+      'AUSTA_PLAN_DOCUMENT_EXPIRY_DAYS': '90',
+      'AUSTA_PLAN_BENEFIT_CATEGORIES': '["medical","dental","vision","pharmacy"]',
+    },
+    // Expected values when retrieving these variables
+    expected: {
+      'API_URL': 'https://plan-api.austa.com.br',
+      'API_VERSION': 'v1',
+      'MAX_CLAIMS': '20',
+      'CLAIM_AUTO_PROCESSING': 'true',
+      'DOCUMENT_EXPIRY_DAYS': '90',
+      'BENEFIT_CATEGORIES': '["medical","dental","vision","pharmacy"]',
+    },
+    // Expected boolean values
+    booleans: {
+      'CLAIM_AUTO_PROCESSING': true,
+      'DIGITAL_ID_CARD': false, // Not set, should default to false
+    },
+    // Expected numeric values
+    numbers: {
+      'MAX_CLAIMS': 20,
+      'DOCUMENT_EXPIRY_DAYS': 90,
+    },
+    // Expected JSON values
+    json: {
+      'BENEFIT_CATEGORIES': ['medical', 'dental', 'vision', 'pharmacy'],
+    }
   }
-];
-
-/**
- * Test cases for journey-specific feature flags
- */
-export const featureFlagTestCases = [
-  {
-    description: 'Health journey with wearable sync enabled',
-    journeyType: JourneyType.HEALTH,
-    featureName: 'WEARABLE_SYNC',
-    expectedEnabled: true,
-    expectedPercentage: undefined
-  },
-  {
-    description: 'Health journey with health insights enabled with percentage rollout',
-    journeyType: JourneyType.HEALTH,
-    featureName: 'HEALTH_INSIGHTS',
-    expectedEnabled: true,
-    expectedPercentage: 50
-  },
-  {
-    description: 'Health journey with advanced metrics disabled',
-    journeyType: JourneyType.HEALTH,
-    featureName: 'ADVANCED_METRICS',
-    expectedEnabled: false,
-    expectedPercentage: undefined
-  },
-  {
-    description: 'Care journey with telemedicine enabled',
-    journeyType: JourneyType.CARE,
-    featureName: 'TELEMEDICINE',
-    expectedEnabled: true,
-    expectedPercentage: undefined
-  },
-  {
-    description: 'Care journey with medication reminder enabled with percentage rollout',
-    journeyType: JourneyType.CARE,
-    featureName: 'MEDICATION_REMINDER',
-    expectedEnabled: true,
-    expectedPercentage: 75
-  },
-  {
-    description: 'Care journey with provider rating disabled',
-    journeyType: JourneyType.CARE,
-    featureName: 'PROVIDER_RATING',
-    expectedEnabled: false,
-    expectedPercentage: undefined
-  },
-  {
-    description: 'Plan journey with claim auto processing enabled with percentage rollout',
-    journeyType: JourneyType.PLAN,
-    featureName: 'CLAIM_AUTO_PROCESSING',
-    expectedEnabled: true,
-    expectedPercentage: 25
-  },
-  {
-    description: 'Plan journey with digital ID card enabled',
-    journeyType: JourneyType.PLAN,
-    featureName: 'DIGITAL_ID_CARD',
-    expectedEnabled: true,
-    expectedPercentage: undefined
-  },
-  {
-    description: 'Plan journey with payment integration disabled',
-    journeyType: JourneyType.PLAN,
-    featureName: 'PAYMENT_INTEGRATION',
-    expectedEnabled: false,
-    expectedPercentage: undefined
-  },
-  {
-    description: 'Shared feature flag for gamification enabled',
-    journeyType: JourneyType.SHARED,
-    featureName: 'GAMIFICATION',
-    expectedEnabled: true,
-    expectedPercentage: undefined
-  },
-  {
-    description: 'Shared feature flag for user feedback disabled',
-    journeyType: JourneyType.SHARED,
-    featureName: 'USER_FEEDBACK',
-    expectedEnabled: false,
-    expectedPercentage: undefined
-  }
-];
-
-/**
- * Test cases for journey-specific service endpoints
- */
-export const serviceEndpointTestCases = [
-  {
-    description: 'Health journey FHIR API URL',
-    journeyType: JourneyType.HEALTH,
-    variableName: 'FHIR_API_URL',
-    expectedValue: 'https://fhir.example.com/health'
-  },
-  {
-    description: 'Care journey symptom checker API URL',
-    journeyType: JourneyType.CARE,
-    variableName: 'SYMPTOM_CHECKER_API_URL',
-    expectedValue: 'https://api.symptoms.example.com'
-  },
-  {
-    description: 'Plan journey with non-existent endpoint',
-    journeyType: JourneyType.PLAN,
-    variableName: 'NON_EXISTENT_ENDPOINT',
-    defaultValue: 'https://default-endpoint.example.com',
-    expectedValue: 'https://default-endpoint.example.com'
-  }
-];
-
-/**
- * Test users for feature flag percentage rollout testing
- */
-export const testUsers = [
-  { id: 'user-1', name: 'Test User 1' },
-  { id: 'user-2', name: 'Test User 2' },
-  { id: 'user-3', name: 'Test User 3' },
-  { id: 'user-4', name: 'Test User 4' },
-  { id: 'user-5', name: 'Test User 5' },
-  { id: 'user-6', name: 'Test User 6' },
-  { id: 'user-7', name: 'Test User 7' },
-  { id: 'user-8', name: 'Test User 8' },
-  { id: 'user-9', name: 'Test User 9' },
-  { id: 'user-10', name: 'Test User 10' }
-];
-
-/**
- * Combined environment variables for testing
- */
-export const combinedEnvs = {
-  ...healthJourneyEnvs,
-  ...careJourneyEnvs,
-  ...planJourneyEnvs,
-  ...sharedJourneyEnvs
 };
 
 /**
- * Helper function to set up test environment variables
- * @param envVars - Environment variables to set
- * @returns Function to restore original environment variables
+ * Shared environment variable test cases
  */
-export const setupTestEnv = (envVars: Record<string, string> = combinedEnvs): () => void => {
-  // Store original environment variables
-  const originalEnv = { ...process.env };
-  
-  // Set test environment variables
-  Object.entries(envVars).forEach(([key, value]) => {
-    process.env[key] = value;
-  });
-  
-  // Return function to restore original environment
-  return () => {
-    // Remove test environment variables
-    Object.keys(envVars).forEach(key => {
-      delete process.env[key];
-    });
+export const sharedEnvCases = {
+  // Environment variables to set for testing
+  envVars: {
+    // Shared variables (no journey prefix)
+    'AUSTA_API_BASE_URL': 'https://api.austa.com.br',
+    'AUSTA_LOG_LEVEL': 'info',
+    'AUSTA_ENABLE_METRICS': 'true',
+    'AUSTA_CACHE_TTL': '300',
+    'AUSTA_DEFAULT_LANGUAGE': 'pt-BR',
+    'AUSTA_ALLOWED_ORIGINS': '["https://app.austa.com.br","https://admin.austa.com.br"]',
     
-    // Restore original environment variables
-    Object.entries(originalEnv).forEach(([key, value]) => {
-      if (value === undefined) {
-        delete process.env[key];
-      } else {
-        process.env[key] = value;
+    // Journey-specific overrides
+    'AUSTA_HEALTH_LOG_LEVEL': 'debug',
+    'AUSTA_CARE_CACHE_TTL': '60',
+    'AUSTA_PLAN_ENABLE_METRICS': 'false',
+  },
+  
+  // Expected values when retrieving shared variables
+  expected: {
+    // For health journey
+    health: {
+      'API_BASE_URL': 'https://api.austa.com.br',
+      'LOG_LEVEL': 'debug', // Overridden
+      'ENABLE_METRICS': 'true',
+      'CACHE_TTL': '300',
+      'DEFAULT_LANGUAGE': 'pt-BR',
+    },
+    
+    // For care journey
+    care: {
+      'API_BASE_URL': 'https://api.austa.com.br',
+      'LOG_LEVEL': 'info',
+      'ENABLE_METRICS': 'true',
+      'CACHE_TTL': '60', // Overridden
+      'DEFAULT_LANGUAGE': 'pt-BR',
+    },
+    
+    // For plan journey
+    plan: {
+      'API_BASE_URL': 'https://api.austa.com.br',
+      'LOG_LEVEL': 'info',
+      'ENABLE_METRICS': 'false', // Overridden
+      'CACHE_TTL': '300',
+      'DEFAULT_LANGUAGE': 'pt-BR',
+    },
+    
+    // For shared context
+    shared: {
+      'API_BASE_URL': 'https://api.austa.com.br',
+      'LOG_LEVEL': 'info',
+      'ENABLE_METRICS': 'true',
+      'CACHE_TTL': '300',
+      'DEFAULT_LANGUAGE': 'pt-BR',
+      'ALLOWED_ORIGINS': '["https://app.austa.com.br","https://admin.austa.com.br"]',
+    }
+  },
+  
+  // Expected JSON values
+  json: {
+    'ALLOWED_ORIGINS': ['https://app.austa.com.br', 'https://admin.austa.com.br'],
+  }
+};
+
+/**
+ * Feature flag test cases
+ */
+export const featureFlagCases = {
+  // Environment variables to set for testing
+  envVars: {
+    // Global feature flags
+    'AUSTA_FEATURE_GAMIFICATION': 'true',
+    'AUSTA_FEATURE_DARK_MODE': 'true',
+    
+    // Journey-specific feature flags
+    'AUSTA_HEALTH_FEATURE_WEARABLE_SYNC': 'true',
+    'AUSTA_HEALTH_FEATURE_HEALTH_INSIGHTS': 'true',
+    'AUSTA_HEALTH_FEATURE_GAMIFICATION': 'false', // Override global flag
+    
+    'AUSTA_CARE_FEATURE_TELEMEDICINE': 'true',
+    'AUSTA_CARE_FEATURE_SYMPTOM_CHECKER': 'true',
+    
+    'AUSTA_PLAN_FEATURE_CLAIM_AUTO_PROCESSING': 'true',
+    'AUSTA_PLAN_FEATURE_DIGITAL_ID_CARD': 'true',
+    'AUSTA_PLAN_FEATURE_DARK_MODE': 'false', // Override global flag
+  },
+  
+  // Expected feature flag values
+  expected: {
+    // For health journey
+    health: {
+      'GAMIFICATION': false, // Overridden
+      'DARK_MODE': true, // From global
+      'WEARABLE_SYNC': true,
+      'HEALTH_INSIGHTS': true,
+      'TELEMEDICINE': false, // Not set for this journey
+    },
+    
+    // For care journey
+    care: {
+      'GAMIFICATION': true, // From global
+      'DARK_MODE': true, // From global
+      'TELEMEDICINE': true,
+      'SYMPTOM_CHECKER': true,
+      'WEARABLE_SYNC': false, // Not set for this journey
+    },
+    
+    // For plan journey
+    plan: {
+      'GAMIFICATION': true, // From global
+      'DARK_MODE': false, // Overridden
+      'CLAIM_AUTO_PROCESSING': true,
+      'DIGITAL_ID_CARD': true,
+      'TELEMEDICINE': false, // Not set for this journey
+    }
+  }
+};
+
+/**
+ * Service endpoint and connection string test cases
+ */
+export const serviceEndpointCases = {
+  // Environment variables to set for testing
+  envVars: {
+    // Database connection strings
+    'AUSTA_DATABASE_URL': 'postgresql://postgres:password@db:5432/austa',
+    'AUSTA_HEALTH_DATABASE_URL': 'postgresql://postgres:password@db:5432/austa_health',
+    'AUSTA_CARE_DATABASE_URL': 'postgresql://postgres:password@db:5432/austa_care',
+    'AUSTA_PLAN_DATABASE_URL': 'postgresql://postgres:password@db:5432/austa_plan',
+    
+    // Redis connection strings
+    'AUSTA_REDIS_URL': 'redis://redis:6379/0',
+    'AUSTA_HEALTH_REDIS_URL': 'redis://redis:6379/1',
+    'AUSTA_CARE_REDIS_URL': 'redis://redis:6379/2',
+    'AUSTA_PLAN_REDIS_URL': 'redis://redis:6379/3',
+    
+    // API endpoints
+    'AUSTA_API_URL': 'https://api.austa.com.br',
+    'AUSTA_HEALTH_API_URL': 'https://health-api.austa.com.br',
+    'AUSTA_CARE_API_URL': 'https://care-api.austa.com.br',
+    'AUSTA_PLAN_API_URL': 'https://plan-api.austa.com.br',
+    
+    // Kafka topics
+    'AUSTA_KAFKA_BROKERS': 'kafka:9092',
+    'AUSTA_HEALTH_KAFKA_TOPIC': 'austa.health.events',
+    'AUSTA_CARE_KAFKA_TOPIC': 'austa.care.events',
+    'AUSTA_PLAN_KAFKA_TOPIC': 'austa.plan.events',
+  },
+  
+  // Expected values when retrieving these variables
+  expected: {
+    // For health journey
+    health: {
+      'DATABASE_URL': 'postgresql://postgres:password@db:5432/austa_health',
+      'REDIS_URL': 'redis://redis:6379/1',
+      'API_URL': 'https://health-api.austa.com.br',
+      'KAFKA_BROKERS': 'kafka:9092', // From shared
+      'KAFKA_TOPIC': 'austa.health.events',
+    },
+    
+    // For care journey
+    care: {
+      'DATABASE_URL': 'postgresql://postgres:password@db:5432/austa_care',
+      'REDIS_URL': 'redis://redis:6379/2',
+      'API_URL': 'https://care-api.austa.com.br',
+      'KAFKA_BROKERS': 'kafka:9092', // From shared
+      'KAFKA_TOPIC': 'austa.care.events',
+    },
+    
+    // For plan journey
+    plan: {
+      'DATABASE_URL': 'postgresql://postgres:password@db:5432/austa_plan',
+      'REDIS_URL': 'redis://redis:6379/3',
+      'API_URL': 'https://plan-api.austa.com.br',
+      'KAFKA_BROKERS': 'kafka:9092', // From shared
+      'KAFKA_TOPIC': 'austa.plan.events',
+    },
+    
+    // For shared context
+    shared: {
+      'DATABASE_URL': 'postgresql://postgres:password@db:5432/austa',
+      'REDIS_URL': 'redis://redis:6379/0',
+      'API_URL': 'https://api.austa.com.br',
+      'KAFKA_BROKERS': 'kafka:9092',
+    }
+  }
+};
+
+/**
+ * Cross-journey inheritance test cases
+ */
+export const crossJourneyInheritanceCases = {
+  // Environment variables to set for testing
+  envVars: {
+    // Shared variables
+    'AUSTA_LOG_LEVEL': 'info',
+    'AUSTA_TIMEOUT_MS': '5000',
+    'AUSTA_MAX_RETRIES': '3',
+    'AUSTA_CACHE_TTL': '300',
+    
+    // Some journeys override shared variables
+    'AUSTA_HEALTH_LOG_LEVEL': 'debug',
+    'AUSTA_CARE_TIMEOUT_MS': '10000',
+    'AUSTA_PLAN_MAX_RETRIES': '5',
+    
+    // Some variables only exist for specific journeys
+    'AUSTA_HEALTH_METRICS_RETENTION_DAYS': '730',
+    'AUSTA_CARE_PROVIDER_SEARCH_RADIUS': '50',
+    'AUSTA_PLAN_DOCUMENT_EXPIRY_DAYS': '90',
+  },
+  
+  // Test cases for getJourneyEnv with shared=true
+  sharedInheritance: {
+    // Variable name, journey, expected value
+    cases: [
+      // Variables that exist for the specific journey
+      { name: 'LOG_LEVEL', journey: JourneyType.HEALTH, expected: 'debug' },
+      { name: 'TIMEOUT_MS', journey: JourneyType.CARE, expected: '10000' },
+      { name: 'MAX_RETRIES', journey: JourneyType.PLAN, expected: '5' },
+      
+      // Variables that fall back to shared
+      { name: 'TIMEOUT_MS', journey: JourneyType.HEALTH, expected: '5000' },
+      { name: 'LOG_LEVEL', journey: JourneyType.CARE, expected: 'info' },
+      { name: 'CACHE_TTL', journey: JourneyType.PLAN, expected: '300' },
+      
+      // Journey-specific variables (no fallback)
+      { name: 'METRICS_RETENTION_DAYS', journey: JourneyType.HEALTH, expected: '730' },
+      { name: 'PROVIDER_SEARCH_RADIUS', journey: JourneyType.CARE, expected: '50' },
+      { name: 'DOCUMENT_EXPIRY_DAYS', journey: JourneyType.PLAN, expected: '90' },
+      
+      // Variables that don't exist anywhere
+      { name: 'NONEXISTENT_VAR', journey: JourneyType.HEALTH, expected: '' },
+      { name: 'ANOTHER_NONEXISTENT', journey: JourneyType.CARE, expected: 'default-value', defaultValue: 'default-value' },
+    ]
+  },
+  
+  // Test cases for getAllJourneyEnvs
+  allEnvsInheritance: {
+    // Expected results for getAllJourneyEnvs with includeShared=true
+    withShared: {
+      // For health journey
+      [JourneyType.HEALTH]: {
+        'LOG_LEVEL': 'debug', // Overridden
+        'TIMEOUT_MS': '5000', // From shared
+        'MAX_RETRIES': '3', // From shared
+        'CACHE_TTL': '300', // From shared
+        'METRICS_RETENTION_DAYS': '730', // Journey-specific
+      },
+      
+      // For care journey
+      [JourneyType.CARE]: {
+        'LOG_LEVEL': 'info', // From shared
+        'TIMEOUT_MS': '10000', // Overridden
+        'MAX_RETRIES': '3', // From shared
+        'CACHE_TTL': '300', // From shared
+        'PROVIDER_SEARCH_RADIUS': '50', // Journey-specific
+      },
+      
+      // For plan journey
+      [JourneyType.PLAN]: {
+        'LOG_LEVEL': 'info', // From shared
+        'TIMEOUT_MS': '5000', // From shared
+        'MAX_RETRIES': '5', // Overridden
+        'CACHE_TTL': '300', // From shared
+        'DOCUMENT_EXPIRY_DAYS': '90', // Journey-specific
       }
-    });
-  };
+    },
+    
+    // Expected results for getAllJourneyEnvs with includeShared=false
+    withoutShared: {
+      // For health journey
+      [JourneyType.HEALTH]: {
+        'LOG_LEVEL': 'debug', // Overridden
+        'METRICS_RETENTION_DAYS': '730', // Journey-specific
+      },
+      
+      // For care journey
+      [JourneyType.CARE]: {
+        'TIMEOUT_MS': '10000', // Overridden
+        'PROVIDER_SEARCH_RADIUS': '50', // Journey-specific
+      },
+      
+      // For plan journey
+      [JourneyType.PLAN]: {
+        'MAX_RETRIES': '5', // Overridden
+        'DOCUMENT_EXPIRY_DAYS': '90', // Journey-specific
+      }
+    }
+  }
+};
+
+/**
+ * Required environment variable test cases
+ */
+export const requiredEnvCases = {
+  // Environment variables to set for testing
+  envVars: {
+    // Set some required variables
+    'AUSTA_HEALTH_DATABASE_URL': 'postgresql://postgres:password@db:5432/austa_health',
+    'AUSTA_CARE_API_KEY': 'care-api-key-12345',
+    'AUSTA_PLAN_S3_BUCKET': 'austa-plan-documents',
+    
+    // Shared variables that might be required
+    'AUSTA_JWT_SECRET': 'super-secret-jwt-key',
+    'AUSTA_API_URL': 'https://api.austa.com.br',
+  },
+  
+  // Test cases for required variables
+  cases: [
+    // Variables that exist and are required
+    { name: 'DATABASE_URL', journey: JourneyType.HEALTH, required: true, shouldThrow: false },
+    { name: 'API_KEY', journey: JourneyType.CARE, required: true, shouldThrow: false },
+    { name: 'S3_BUCKET', journey: JourneyType.PLAN, required: true, shouldThrow: false },
+    { name: 'JWT_SECRET', journey: JourneyType.HEALTH, required: true, shared: true, shouldThrow: false },
+    
+    // Variables that don't exist but are required
+    { name: 'API_KEY', journey: JourneyType.HEALTH, required: true, shouldThrow: true },
+    { name: 'DATABASE_URL', journey: JourneyType.CARE, required: true, shouldThrow: true },
+    { name: 'JWT_SECRET_KEY', journey: JourneyType.PLAN, required: true, shared: true, shouldThrow: true },
+    
+    // Variables that don't exist but have default values
+    { name: 'LOG_LEVEL', journey: JourneyType.HEALTH, required: true, defaultValue: 'info', shouldThrow: false },
+    { name: 'TIMEOUT_MS', journey: JourneyType.CARE, required: true, defaultValue: '5000', shouldThrow: false },
+    { name: 'MAX_RETRIES', journey: JourneyType.PLAN, required: true, defaultValue: '3', shouldThrow: false },
+  ]
 };

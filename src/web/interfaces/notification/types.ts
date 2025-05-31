@@ -1,16 +1,14 @@
 /**
- * Notification Types for AUSTA SuperApp
+ * Core notification type system for the AUSTA SuperApp
  * 
- * This module defines the core notification type system for the AUSTA SuperApp with
- * strongly-typed enums and interfaces. These types provide type safety for notification
- * creation, delivery, display, and management across both web and mobile platforms.
- * 
- * @packageDocumentation
+ * This file defines the fundamental types, enums, and interfaces for the notification system
+ * used across both web and mobile platforms. It provides type safety for notification creation,
+ * delivery, display, and management throughout the application.
  */
 
 /**
- * Defines the different types of notifications that can be sent in the system.
- * Used for categorizing and routing notifications appropriately.
+ * Defines the types of notifications that can be sent in the AUSTA SuperApp
+ * Used for categorizing notifications and determining their visual presentation
  */
 export enum NotificationType {
   /** System-level notifications about the app itself */
@@ -22,28 +20,31 @@ export enum NotificationType {
   /** Notifications about level progression in the gamification system */
   LEVEL_UP = 'level_up',
   
-  /** Appointment reminders from the Care journey */
+  /** Reminders about upcoming appointments in the Care journey */
   APPOINTMENT = 'appointment',
   
-  /** Medication reminders from the Care journey */
+  /** Notifications about medication schedules in the Care journey */
   MEDICATION = 'medication',
   
-  /** Health goal updates from the Health journey */
+  /** Updates about health goals in the Health journey */
   HEALTH_GOAL = 'health_goal',
   
-  /** Health metric alerts from the Health journey */
+  /** Notifications about health metrics in the Health journey */
   HEALTH_METRIC = 'health_metric',
   
-  /** Insurance claim status updates from the Plan journey */
+  /** Updates about insurance claims in the Plan journey */
   CLAIM_STATUS = 'claim_status',
   
-  /** Benefit usage reminders from the Plan journey */
-  BENEFIT_REMINDER = 'benefit_reminder',
+  /** Notifications about benefit usage in the Plan journey */
+  BENEFIT_UPDATE = 'benefit_update',
+  
+  /** Notifications about new features or updates to the app */
+  FEATURE_UPDATE = 'feature_update',
 }
 
 /**
- * Defines the available channels through which notifications can be delivered.
- * Each channel has different capabilities and constraints.
+ * Defines the channels through which notifications can be delivered
+ * Each channel represents a different delivery mechanism with its own capabilities and constraints
  */
 export enum NotificationChannel {
   /** Notifications displayed within the app's notification center */
@@ -52,403 +53,187 @@ export enum NotificationChannel {
   /** Push notifications delivered to the user's device */
   PUSH = 'push',
   
-  /** Notifications delivered via email */
+  /** Notifications sent via email */
   EMAIL = 'email',
   
-  /** Notifications delivered via SMS text message */
+  /** Notifications sent via SMS text message */
   SMS = 'sms',
 }
 
 /**
- * Defines the possible states of a notification in its lifecycle.
+ * Defines the possible states of a notification in its lifecycle
+ * Used to track delivery and user interaction with notifications
  */
 export enum NotificationStatus {
-  /** Notification has been created but not yet dispatched */
+  /** Notification has been created but not yet sent */
   PENDING = 'pending',
   
   /** Notification has been sent to the delivery channel */
   SENT = 'sent',
   
-  /** Confirmation received that notification was delivered */
+  /** Notification has been successfully delivered to the user */
   DELIVERED = 'delivered',
   
-  /** User has viewed or interacted with the notification */
+  /** User has viewed or opened the notification */
   READ = 'read',
   
-  /** Notification delivery failed */
+  /** Notification failed to be delivered */
   FAILED = 'failed',
 }
 
 /**
- * Defines priority levels for notifications to determine delivery urgency.
+ * Defines the priority levels for notifications
+ * Used to determine notification prominence, delivery urgency, and user interruption level
  */
 export enum NotificationPriority {
-  /** Informational notifications with no urgency */
+  /** Informational notifications with minimal urgency */
   LOW = 'low',
   
-  /** Standard notifications with normal delivery timing */
+  /** Standard notifications with moderate urgency */
   MEDIUM = 'medium',
   
-  /** Important notifications that should be delivered promptly */
+  /** Important notifications that should be prominently displayed */
   HIGH = 'high',
   
-  /** Urgent notifications requiring immediate attention */
+  /** Urgent notifications that require immediate attention */
   CRITICAL = 'critical',
 }
 
 /**
- * Base interface for all notification data payloads.
- * Specific notification types extend this with their own data structures.
- */
-export interface NotificationData {
-  /** Unique identifier for the notification data */
-  readonly id: string;
-  
-  /** Timestamp when the notification data was created */
-  readonly createdAt: string;
-}
-
-/**
- * Data specific to achievement notifications.
- */
-export interface AchievementNotificationData extends NotificationData {
-  /** Unique identifier of the achievement */
-  readonly achievementId: string;
-  
-  /** Name of the achievement */
-  readonly achievementName: string;
-  
-  /** Description of the achievement */
-  readonly achievementDescription: string;
-  
-  /** URL to the achievement badge image */
-  readonly badgeImageUrl: string;
-  
-  /** XP points awarded for this achievement */
-  readonly xpAwarded: number;
-}
-
-/**
- * Data specific to level up notifications.
- */
-export interface LevelUpNotificationData extends NotificationData {
-  /** New level the user has reached */
-  readonly newLevel: number;
-  
-  /** Previous level the user was at */
-  readonly previousLevel: number;
-  
-  /** URL to the level badge image */
-  readonly levelBadgeUrl: string;
-  
-  /** New rewards unlocked at this level */
-  readonly unlockedRewards: Array<{
-    readonly id: string;
-    readonly name: string;
-    readonly description: string;
-  }>;
-}
-
-/**
- * Data specific to appointment reminder notifications.
- */
-export interface AppointmentReminderData extends NotificationData {
-  /** Unique identifier of the appointment */
-  readonly appointmentId: string;
-  
-  /** Type of appointment (e.g., 'checkup', 'specialist', 'telemedicine') */
-  readonly appointmentType: string;
-  
-  /** Name of the healthcare provider */
-  readonly providerName: string;
-  
-  /** Scheduled date and time of the appointment in ISO format */
-  readonly scheduledAt: string;
-  
-  /** Location of the appointment (physical address or 'virtual') */
-  readonly location: string;
-  
-  /** Deep link to view appointment details in the app */
-  readonly deepLink: string;
-}
-
-/**
- * Data specific to claim status update notifications.
- */
-export interface ClaimStatusUpdateData extends NotificationData {
-  /** Unique identifier of the claim */
-  readonly claimId: string;
-  
-  /** Type of claim (e.g., 'medical', 'dental', 'vision') */
-  readonly claimType: string;
-  
-  /** Previous status of the claim */
-  readonly previousStatus: string;
-  
-  /** New status of the claim */
-  readonly newStatus: string;
-  
-  /** Amount approved for the claim (if applicable) */
-  readonly approvedAmount?: number;
-  
-  /** Deep link to view claim details in the app */
-  readonly deepLink: string;
-}
-
-/**
- * Union type of all possible notification data types.
- * This enables type narrowing based on notification type.
- */
-export type NotificationDataUnion =
-  | AchievementNotificationData
-  | LevelUpNotificationData
-  | AppointmentReminderData
-  | ClaimStatusUpdateData
-  | NotificationData;
-
-/**
- * Core notification interface representing a notification in the system.
+ * Core notification interface representing a notification in the AUSTA SuperApp
+ * Used as the foundation for all notification-related data structures
  */
 export interface Notification {
   /** Unique identifier for the notification */
   readonly id: string;
   
-  /** ID of the user who will receive this notification */
+  /** ID of the user who received this notification */
   readonly userId: string;
   
-  /** Type of notification */
+  /** Type of notification, determining its category and presentation */
   readonly type: NotificationType;
   
-  /** Notification title/headline */
+  /** Title/headline of the notification */
   readonly title: string;
   
-  /** Notification body content */
+  /** Main content of the notification */
   readonly body: string;
   
-  /** Delivery channel for the notification */
+  /** Channel through which the notification was delivered */
   readonly channel: NotificationChannel;
   
   /** Current status of the notification */
-  readonly status: NotificationStatus;
+  status: NotificationStatus;
   
   /** Priority level of the notification */
   readonly priority: NotificationPriority;
   
-  /** Structured data specific to the notification type */
-  readonly data?: NotificationDataUnion;
+  /** Additional structured data specific to the notification type */
+  readonly data?: Record<string, unknown>;
   
   /** Timestamp when the notification was created */
-  readonly createdAt: string;
+  readonly createdAt: Date;
   
   /** Timestamp when the notification was last updated */
-  readonly updatedAt: string;
-  
-  /** Timestamp when the notification was read (if applicable) */
-  readonly readAt?: string;
+  readonly updatedAt: Date;
 }
 
 /**
- * Interface for notification preferences that determine how users receive notifications.
+ * Type guard to check if a string is a valid NotificationType
+ * @param value - The string value to check
+ * @returns True if the value is a valid NotificationType
  */
-export interface NotificationPreference {
-  /** Unique identifier for the preference */
-  readonly id: string;
-  
-  /** ID of the user these preferences belong to */
-  readonly userId: string;
-  
-  /** Whether all notifications are enabled */
-  readonly enabled: boolean;
-  
-  /** Enabled notification channels */
-  readonly enabledChannels: ReadonlyArray<NotificationChannel>;
-  
-  /** Journey-specific notification preferences */
-  readonly journeyPreferences: JourneyNotificationPreference;
+export function isNotificationType(value: string): value is NotificationType {
+  return Object.values(NotificationType).includes(value as NotificationType);
 }
 
 /**
- * Interface for journey-specific notification preferences.
+ * Type guard to check if a string is a valid NotificationChannel
+ * @param value - The string value to check
+ * @returns True if the value is a valid NotificationChannel
  */
-export interface JourneyNotificationPreference {
-  /** Health journey notification preferences */
-  readonly health: {
-    readonly enabled: boolean;
-    readonly enabledTypes: ReadonlyArray<NotificationType>;
-  };
-  
-  /** Care journey notification preferences */
-  readonly care: {
-    readonly enabled: boolean;
-    readonly enabledTypes: ReadonlyArray<NotificationType>;
-  };
-  
-  /** Plan journey notification preferences */
-  readonly plan: {
-    readonly enabled: boolean;
-    readonly enabledTypes: ReadonlyArray<NotificationType>;
-  };
-  
-  /** Gamification notification preferences */
-  readonly gamification: {
-    readonly enabled: boolean;
-    readonly enabledTypes: ReadonlyArray<NotificationType>;
-  };
+export function isNotificationChannel(value: string): value is NotificationChannel {
+  return Object.values(NotificationChannel).includes(value as NotificationChannel);
 }
 
 /**
- * Interface for sending a notification request.
+ * Type guard to check if a string is a valid NotificationStatus
+ * @param value - The string value to check
+ * @returns True if the value is a valid NotificationStatus
  */
-export interface SendNotificationRequest {
-  /** ID of the user to receive the notification */
-  readonly userId: string;
-  
-  /** Type of notification */
-  readonly type: NotificationType;
-  
-  /** Notification title/headline */
-  readonly title: string;
-  
-  /** Notification body content */
-  readonly body: string;
-  
-  /** Priority level of the notification */
-  readonly priority?: NotificationPriority;
-  
-  /** Preferred delivery channels (respects user preferences) */
-  readonly preferredChannels?: ReadonlyArray<NotificationChannel>;
-  
-  /** Structured data specific to the notification type */
-  readonly data?: NotificationDataUnion;
-  
-  /** ID of the notification template to use (if applicable) */
-  readonly templateId?: string;
-  
-  /** Language code for the notification content */
-  readonly language?: string;
+export function isNotificationStatus(value: string): value is NotificationStatus {
+  return Object.values(NotificationStatus).includes(value as NotificationStatus);
 }
 
 /**
- * Interface for notification templates used for consistent messaging.
+ * Type guard to check if a string is a valid NotificationPriority
+ * @param value - The string value to check
+ * @returns True if the value is a valid NotificationPriority
  */
-export interface NotificationTemplate {
-  /** Unique identifier for the template */
-  readonly id: string;
-  
-  /** Type of notification this template is for */
-  readonly type: NotificationType;
-  
-  /** Template name for administrative purposes */
-  readonly name: string;
-  
-  /** Template title with variable placeholders */
-  readonly titleTemplate: string;
-  
-  /** Template body with variable placeholders */
-  readonly bodyTemplate: string;
-  
-  /** Available languages for this template */
-  readonly availableLanguages: ReadonlyArray<string>;
-  
-  /** Default language if requested language is not available */
-  readonly defaultLanguage: string;
+export function isNotificationPriority(value: string): value is NotificationPriority {
+  return Object.values(NotificationPriority).includes(value as NotificationPriority);
 }
 
 /**
- * Interface for filtering notifications in queries.
+ * Type narrowing function to get a notification by type
+ * @param notification - The notification to narrow
+ * @param type - The specific notification type to check for
+ * @returns The notification with a narrowed type if it matches, or null if it doesn't
  */
-export interface NotificationFilter {
-  /** Filter by notification types */
-  readonly types?: ReadonlyArray<NotificationType>;
-  
-  /** Filter by notification status */
-  readonly status?: NotificationStatus;
-  
-  /** Filter by notification channel */
-  readonly channel?: NotificationChannel;
-  
-  /** Filter by read/unread status */
-  readonly read?: boolean;
-  
-  /** Filter by date range (start) */
-  readonly startDate?: string;
-  
-  /** Filter by date range (end) */
-  readonly endDate?: string;
+export function getNotificationByType<T extends NotificationType>(
+  notification: Notification,
+  type: T
+): (Notification & { type: T }) | null {
+  return notification.type === type
+    ? notification as Notification & { type: T }
+    : null;
 }
 
 /**
- * Interface for notification counts by status.
+ * Creates a notification object with default values for optional properties
+ * @param notification - Partial notification object with required properties
+ * @returns A complete notification object with default values for missing properties
  */
-export interface NotificationCount {
-  /** Total number of notifications */
-  readonly total: number;
+export function createNotification(notification: Omit<Notification, 'status' | 'createdAt' | 'updatedAt'> & 
+  Partial<Pick<Notification, 'status' | 'createdAt' | 'updatedAt'>>): Notification {
+  const now = new Date();
   
-  /** Number of unread notifications */
-  readonly unread: number;
-  
-  /** Counts by notification type */
-  readonly byType: {
-    readonly [key in NotificationType]?: number;
+  return {
+    ...notification,
+    status: notification.status ?? NotificationStatus.PENDING,
+    createdAt: notification.createdAt ?? now,
+    updatedAt: notification.updatedAt ?? now,
   };
 }
 
 /**
- * Type guard to check if a notification is an achievement notification.
- * @param notification The notification to check
- * @returns True if the notification is an achievement notification
+ * Determines if a notification should be delivered through a specific channel
+ * based on its priority and type
+ * 
+ * @param notification - The notification to check
+ * @param channel - The delivery channel to evaluate
+ * @returns True if the notification should be delivered through the specified channel
  */
-export function isAchievementNotification(
-  notification: Notification
-): notification is Notification & { data: AchievementNotificationData } {
-  return (
-    notification.type === NotificationType.ACHIEVEMENT &&
-    notification.data !== undefined &&
-    'achievementId' in notification.data
-  );
-}
-
-/**
- * Type guard to check if a notification is a level up notification.
- * @param notification The notification to check
- * @returns True if the notification is a level up notification
- */
-export function isLevelUpNotification(
-  notification: Notification
-): notification is Notification & { data: LevelUpNotificationData } {
-  return (
-    notification.type === NotificationType.LEVEL_UP &&
-    notification.data !== undefined &&
-    'newLevel' in notification.data
-  );
-}
-
-/**
- * Type guard to check if a notification is an appointment reminder.
- * @param notification The notification to check
- * @returns True if the notification is an appointment reminder
- */
-export function isAppointmentNotification(
-  notification: Notification
-): notification is Notification & { data: AppointmentReminderData } {
-  return (
-    notification.type === NotificationType.APPOINTMENT &&
-    notification.data !== undefined &&
-    'appointmentId' in notification.data
-  );
-}
-
-/**
- * Type guard to check if a notification is a claim status update.
- * @param notification The notification to check
- * @returns True if the notification is a claim status update
- */
-export function isClaimStatusNotification(
-  notification: Notification
-): notification is Notification & { data: ClaimStatusUpdateData } {
-  return (
-    notification.type === NotificationType.CLAIM_STATUS &&
-    notification.data !== undefined &&
-    'claimId' in notification.data
-  );
+export function shouldDeliverThroughChannel(
+  notification: Notification,
+  channel: NotificationChannel
+): boolean {
+  // Critical notifications should be delivered through all channels
+  if (notification.priority === NotificationPriority.CRITICAL) {
+    return true;
+  }
+  
+  // High priority notifications should be delivered through in-app and push
+  if (notification.priority === NotificationPriority.HIGH) {
+    return channel === NotificationChannel.IN_APP || 
+           channel === NotificationChannel.PUSH;
+  }
+  
+  // Medium priority notifications should be delivered through in-app
+  if (notification.priority === NotificationPriority.MEDIUM) {
+    return channel === NotificationChannel.IN_APP;
+  }
+  
+  // Low priority notifications should only be delivered through in-app
+  return channel === NotificationChannel.IN_APP;
 }

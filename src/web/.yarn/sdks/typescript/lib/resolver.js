@@ -1,505 +1,443 @@
 /**
  * @license
- * Copyright (c) 2023-2025 AUSTA SuperApp
+ * Copyright (c) 2023 AUSTA Health.
  * 
- * This file implements a custom TypeScript module resolver that handles path aliases
- * and package resolution for the AUSTA SuperApp monorepo. It translates path aliases
- * defined in tsconfig.json (like @app/auth, @app/shared, @austa/*) to their actual
- * filesystem locations, enabling proper module resolution across packages.
+ * This file is part of the AUSTA SuperApp TypeScript SDK.
+ * It translates path aliases defined in tsconfig.json to actual filesystem locations,
+ * enabling proper module resolution across packages.
  */
 
-'use strict';
+// @ts-check
 
-const fs = require('fs');
+/**
+ * Module resolver that specifically handles path aliases and package resolution for the AUSTA SuperApp monorepo.
+ * 
+ * This file is responsible for:
+ * 1. Translating path aliases (@app/auth, @app/shared, @austa/*) to actual filesystem locations
+ * 2. Supporting the four new packages (@austa/design-system, @design-system/primitives, @austa/interfaces, @austa/journey-context)
+ * 3. Ensuring cross-platform path normalization between web and mobile
+ * 4. Handling project references and composite builds
+ */
+
 const path = require('path');
+const fs = require('fs');
 
-// Cache for parsed tsconfig.json files to avoid repeated parsing
-const tsconfigCache = new Map();
-
-// Cache for resolved paths to improve performance
-const resolvedPathCache = new Map();
-
-// Path alias mappings for the four new packages
-const PACKAGE_MAPPINGS = {
+/**
+ * Maps package names to their filesystem locations in the monorepo.
+ * This is necessary because these packages might not be published to npm yet,
+ * but they need to be resolvable by TypeScript.
+ */
+const packageMappings = {
   '@austa/design-system': 'src/web/design-system',
   '@design-system/primitives': 'src/web/primitives',
   '@austa/interfaces': 'src/web/interfaces',
-  '@austa/journey-context': 'src/web/journey-context'
-};
-
-// Journey-specific path alias mappings
-const JOURNEY_MAPPINGS = {
-  '@app/health': 'src/backend/health-service',
-  '@app/care': 'src/backend/care-service',
-  '@app/plan': 'src/backend/plan-service',
+  '@austa/journey-context': 'src/web/journey-context',
   '@app/auth': 'src/backend/auth-service',
-  '@app/shared': 'src/backend/shared',
-  '@app/gamification': 'src/backend/gamification-engine',
-  '@app/notification': 'src/backend/notification-service',
-  '@app/api-gateway': 'src/backend/api-gateway'
+  '@app/shared': 'src/backend/shared'
 };
 
 /**
- * Finds the monorepo root by traversing up the directory tree
- * looking for the package.json with workspaces defined
- * 
- * @param {string} startDir - Directory to start searching from
- * @returns {string|null} - Path to monorepo root or null if not found
+ * Maps path aliases to their filesystem locations.
+ * These are derived from the tsconfig.json files in the monorepo.
+ */
+const pathAliasMappings = {
+  // Web aliases
+  '@/*': './src/*',
+  'design-system/*': '../design-system/src/*',
+  'shared/*': '../shared/*',
+  
+  // Mobile aliases
+  '@components/*': 'src/components/*',
+  '@screens/*': 'src/screens/*',
+  '@navigation/*': 'src/navigation/*',
+  '@hooks/*': 'src/hooks/*',
+  '@utils/*': 'src/utils/*',
+  '@api/*': 'src/api/*',
+  '@context/*': 'src/context/*',
+  '@assets/*': 'src/assets/*',
+  '@constants/*': 'src/constants/*',
+  '@i18n/*': 'src/i18n/*',
+  
+  // Design system aliases
+  '@tokens/*': 'src/tokens/*',
+  '@themes/*': 'src/themes/*',
+  '@primitives/*': 'src/primitives/*',
+  '@components/*': 'src/components/*',
+  '@gamification/*': 'src/gamification/*',
+  '@health/*': 'src/health/*',
+  '@care/*': 'src/care/*',
+  '@plan/*': 'src/plan/*',
+  '@charts/*': 'src/charts/*'
+};
+
+/**
+ * The root directory of the monorepo, used to resolve package paths.
+ * This is determined by finding the nearest package.json file with workspaces.
  */
 function findMonorepoRoot(startDir) {
   let currentDir = startDir;
   
-  // Traverse up to 10 levels to find monorepo root
-  for (let i = 0; i < 10; i++) {
-    try {
-      const packageJsonPath = path.join(currentDir, 'package.json');
-      if (fs.existsSync(packageJsonPath)) {
+  // Traverse up the directory tree until we find a package.json file
+  while (currentDir !== path.parse(currentDir).root) {
+    const packageJsonPath = path.join(currentDir, 'package.json');
+    if (fs.existsSync(packageJsonPath)) {
+      try {
         const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
-        // Check if this is the monorepo root (has workspaces)
+        // Check if this is the root package.json (has workspaces)
         if (packageJson.workspaces) {
           return currentDir;
         }
+      } catch (e) {
+        // Ignore JSON parse errors and continue searching
       }
-    } catch (error) {
-      // Ignore errors and continue searching
     }
     
     // Move up one directory
-    const parentDir = path.dirname(currentDir);
-    if (parentDir === currentDir) {
-      // We've reached the filesystem root
-      break;
-    }
-    currentDir = parentDir;
+    currentDir = path.dirname(currentDir);
+  }
+  
+  // If we can't find the root, return the current directory as a fallback
+  return process.cwd();
+}
+
+// Cache the monorepo root to avoid recalculating it for every resolution
+let monorepoRoot = null;
+
+/**
+ * Resolves a package name to its filesystem location in the monorepo.
+ * @param {string} packageName - The name of the package to resolve
+ * @returns {string|null} - The filesystem path to the package, or null if not found
+ */
+function resolvePackagePath(packageName) {
+  if (!monorepoRoot) {
+    monorepoRoot = findMonorepoRoot(process.cwd());
+  }
+  
+  const mapping = packageMappings[packageName];
+  if (mapping) {
+    return path.join(monorepoRoot, mapping);
   }
   
   return null;
 }
 
 /**
- * Normalizes a path for cross-platform compatibility
- * 
- * @param {string} filePath - Path to normalize
- * @returns {string} - Normalized path
+ * Normalizes a path to use forward slashes, regardless of platform.
+ * This is important for cross-platform compatibility between web and mobile.
+ * @param {string} filePath - The path to normalize
+ * @returns {string} - The normalized path
  */
 function normalizePath(filePath) {
-  // Convert Windows backslashes to forward slashes for consistency
   return filePath.replace(/\\/g, '/');
 }
 
 /**
- * Finds and parses the nearest tsconfig.json file
- * 
- * @param {string} containingFile - Path of the file containing the import
- * @returns {Object|null} - Parsed tsconfig.json or null if not found
+ * Checks if a path exists in the filesystem.
+ * @param {string} filePath - The path to check
+ * @returns {boolean} - Whether the path exists
  */
-function findAndParseTsconfig(containingFile) {
-  let dir = path.dirname(containingFile);
-  const visited = new Set();
+function pathExists(filePath) {
+  try {
+    return fs.existsSync(filePath);
+  } catch (e) {
+    return false;
+  }
+}
+
+/**
+ * Finds the nearest tsconfig.json file from a given directory.
+ * @param {string} startDir - The directory to start searching from
+ * @returns {string|null} - The path to the nearest tsconfig.json, or null if not found
+ */
+function findNearestTsConfig(startDir) {
+  let currentDir = startDir;
   
-  // Traverse up to 10 levels to find tsconfig.json
-  for (let i = 0; i < 10; i++) {
-    // Avoid infinite loops
-    if (visited.has(dir)) {
-      break;
-    }
-    visited.add(dir);
-    
-    const tsconfigPath = path.join(dir, 'tsconfig.json');
-    
-    // Check cache first
-    if (tsconfigCache.has(tsconfigPath)) {
-      return tsconfigCache.get(tsconfigPath);
-    }
-    
-    if (fs.existsSync(tsconfigPath)) {
-      try {
-        const tsconfig = JSON.parse(fs.readFileSync(tsconfigPath, 'utf8'));
-        tsconfigCache.set(tsconfigPath, tsconfig);
-        return tsconfig;
-      } catch (error) {
-        // Ignore JSON parsing errors and continue searching
-      }
-    }
-    
-    // Also check for tsconfig.build.json which is common in NestJS projects
-    const tsconfigBuildPath = path.join(dir, 'tsconfig.build.json');
-    if (fs.existsSync(tsconfigBuildPath)) {
-      try {
-        const tsconfig = JSON.parse(fs.readFileSync(tsconfigBuildPath, 'utf8'));
-        tsconfigCache.set(tsconfigBuildPath, tsconfig);
-        return tsconfig;
-      } catch (error) {
-        // Ignore JSON parsing errors and continue searching
-      }
+  // Traverse up the directory tree until we find a tsconfig.json file
+  while (currentDir !== path.parse(currentDir).root) {
+    const tsConfigPath = path.join(currentDir, 'tsconfig.json');
+    if (pathExists(tsConfigPath)) {
+      return tsConfigPath;
     }
     
     // Move up one directory
-    const parentDir = path.dirname(dir);
-    if (parentDir === dir) {
-      // We've reached the filesystem root
+    currentDir = path.dirname(currentDir);
+  }
+  
+  return null;
+}
+
+/**
+ * Parses a tsconfig.json file and extracts its path mappings.
+ * @param {string} tsConfigPath - The path to the tsconfig.json file
+ * @returns {Object|null} - The path mappings, or null if not found
+ */
+function getTsConfigPathMappings(tsConfigPath) {
+  try {
+    const tsConfig = JSON.parse(fs.readFileSync(tsConfigPath, 'utf8'));
+    return tsConfig.compilerOptions?.paths || null;
+  } catch (e) {
+    return null;
+  }
+}
+
+/**
+ * Resolves a path alias to a filesystem path.
+ * @param {string} moduleName - The module name to resolve
+ * @param {string} containingFile - The file containing the import
+ * @returns {string|null} - The resolved path, or null if not found
+ */
+function resolvePathAlias(moduleName, containingFile) {
+  // Find the nearest tsconfig.json file
+  const tsConfigPath = findNearestTsConfig(path.dirname(containingFile));
+  if (!tsConfigPath) {
+    return null;
+  }
+  
+  // Get the path mappings from the tsconfig.json file
+  const pathMappings = getTsConfigPathMappings(tsConfigPath);
+  if (!pathMappings) {
+    return null;
+  }
+  
+  // Find the matching path mapping
+  let matchingPattern = null;
+  let matchingSuffix = null;
+  
+  for (const pattern in pathMappings) {
+    // Convert the pattern to a regex
+    const regexPattern = pattern
+      .replace(/\*/g, '(.*)')
+      .replace(/[.+?^${}()|[\]\\]/g, '\\$&');
+    
+    const regex = new RegExp(`^${regexPattern}$`);
+    const match = moduleName.match(regex);
+    
+    if (match) {
+      matchingPattern = pattern;
+      matchingSuffix = match[1] || '';
       break;
     }
-    dir = parentDir;
+  }
+  
+  if (!matchingPattern) {
+    return null;
+  }
+  
+  // Get the target paths for the matching pattern
+  const targetPaths = pathMappings[matchingPattern];
+  if (!targetPaths || !targetPaths.length) {
+    return null;
+  }
+  
+  // Get the directory containing the tsconfig.json file
+  const tsConfigDir = path.dirname(tsConfigPath);
+  
+  // Try each target path until we find one that exists
+  for (const targetPath of targetPaths) {
+    // Replace the wildcard with the matching suffix
+    const resolvedTargetPath = targetPath.replace('*', matchingSuffix);
+    
+    // Resolve the target path relative to the tsconfig.json directory
+    const absolutePath = path.resolve(tsConfigDir, resolvedTargetPath);
+    
+    // Check if the path exists
+    if (pathExists(absolutePath)) {
+      return absolutePath;
+    }
+    
+    // Try with various extensions
+    const extensions = ['.ts', '.tsx', '.d.ts', '.js', '.jsx', '.json'];
+    for (const ext of extensions) {
+      const pathWithExt = `${absolutePath}${ext}`;
+      if (pathExists(pathWithExt)) {
+        return pathWithExt;
+      }
+    }
+    
+    // Try with index files
+    for (const ext of extensions) {
+      const indexPath = path.join(absolutePath, `index${ext}`);
+      if (pathExists(indexPath)) {
+        return indexPath;
+      }
+    }
   }
   
   return null;
 }
 
 /**
- * Extracts path mappings from a tsconfig.json file
- * 
- * @param {Object} tsconfig - Parsed tsconfig.json
- * @returns {Object|null} - Path mappings or null if not found
+ * Resolves a module name to a filesystem path.
+ * @param {string} moduleName - The name of the module to resolve
+ * @param {string} containingFile - The file containing the import
+ * @returns {string|null} - The resolved path, or null if not found
  */
-function extractPathMappings(tsconfig) {
-  if (!tsconfig || !tsconfig.compilerOptions || !tsconfig.compilerOptions.paths) {
-    return null;
-  }
-  
-  return tsconfig.compilerOptions.paths;
-}
-
-/**
- * Resolves a path alias to its actual filesystem location
- * 
- * @param {string} specifier - Import specifier (e.g., @app/auth/users)
- * @param {string} containingFile - Path of the file containing the import
- * @returns {string|null} - Resolved path or null if not handled
- */
-function resolvePathAlias(specifier, containingFile) {
-  // Create a cache key based on the specifier and containing file
-  const cacheKey = `${specifier}:${containingFile}`;
-  
-  // Check cache first
-  if (resolvedPathCache.has(cacheKey)) {
-    return resolvedPathCache.get(cacheKey);
-  }
-  
-  // Find monorepo root
-  const monorepoRoot = findMonorepoRoot(path.dirname(containingFile));
-  if (!monorepoRoot) {
-    return null;
-  }
-  
-  // First, check if this is one of our known package mappings
-  for (const [prefix, packagePath] of Object.entries(PACKAGE_MAPPINGS)) {
-    if (specifier === prefix || specifier.startsWith(`${prefix}/`)) {
-      const subpath = specifier === prefix ? '' : specifier.substring(prefix.length + 1);
-      const resolvedPath = resolvePackageSubpath(prefix, subpath, containingFile);
-      if (resolvedPath) {
-        resolvedPathCache.set(cacheKey, resolvedPath);
-        return resolvedPath;
-      }
-    }
-  }
-  
-  // Then, check if this is one of our known journey mappings
-  for (const [prefix, journeyPath] of Object.entries(JOURNEY_MAPPINGS)) {
-    if (specifier === prefix || specifier.startsWith(`${prefix}/`)) {
-      const subpath = specifier === prefix ? '' : specifier.substring(prefix.length + 1);
-      const fullPath = path.join(monorepoRoot, journeyPath, subpath);
-      
-      // Try with different extensions
-      const extensions = ['.ts', '.tsx', '.js', '.jsx', '.json'];
-      for (const ext of extensions) {
-        const pathWithExt = `${fullPath}${ext}`;
-        if (fs.existsSync(pathWithExt)) {
-          resolvedPathCache.set(cacheKey, pathWithExt);
-          return pathWithExt;
-        }
-      }
-      
-      // Try as a directory with index files
-      for (const ext of extensions) {
-        const indexPath = path.join(fullPath, `index${ext}`);
-        if (fs.existsSync(indexPath)) {
-          resolvedPathCache.set(cacheKey, indexPath);
-          return indexPath;
-        }
-      }
-      
-      // If it's a directory without an index file, return the directory
-      if (fs.existsSync(fullPath) && fs.statSync(fullPath).isDirectory()) {
-        resolvedPathCache.set(cacheKey, fullPath);
-        return fullPath;
-      }
-    }
-  }
-  
-  // Finally, check tsconfig.json for path mappings
-  const tsconfig = findAndParseTsconfig(containingFile);
-  const pathMappings = extractPathMappings(tsconfig);
-  
-  if (pathMappings) {
-    // Get the base directory for path mappings (usually the directory containing tsconfig.json)
-    const baseDir = path.dirname(containingFile);
+function resolveModule(moduleName, containingFile) {
+  // Handle package imports (e.g., @austa/design-system)
+  if (moduleName.startsWith('@')) {
+    // Extract the package name
+    const packageName = moduleName.includes('/')
+      ? moduleName.split('/').slice(0, 2).join('/')
+      : moduleName;
     
-    // Check each path mapping
-    for (const [pattern, destinations] of Object.entries(pathMappings)) {
-      // Convert glob pattern to regex
-      const regexPattern = pattern
-        .replace(/\*/g, '(.*)') // Convert * to capture group
-        .replace(/\?/g, '.') // Convert ? to any character
-        .replace(/\./g, '\\.'); // Escape dots
+    // Check if this is one of our mapped packages
+    if (packageMappings[packageName]) {
+      const packagePath = resolvePackagePath(packageName);
+      if (!packagePath) {
+        return null;
+      }
       
-      const regex = new RegExp(`^${regexPattern}$`);
-      const match = specifier.match(regex);
-      
-      if (match) {
-        // Extract captured groups (if any)
-        const captured = match.slice(1);
+      // Handle imports from the package root (e.g., import { Button } from '@austa/design-system')
+      if (moduleName === packageName) {
+        // Check for different entry points in order of preference
+        const possibleEntries = [
+          path.join(packagePath, 'src', 'index.ts'),
+          path.join(packagePath, 'src', 'index.tsx'),
+          path.join(packagePath, 'src', 'index.js'),
+          path.join(packagePath, 'index.ts'),
+          path.join(packagePath, 'index.tsx'),
+          path.join(packagePath, 'index.js'),
+          path.join(packagePath, 'dist', 'index.js'),
+          path.join(packagePath, 'dist', 'index.esm.js')
+        ];
         
-        // Try each destination
-        for (const destination of destinations) {
-          // Replace wildcards with captured groups
-          let resolvedDestination = destination;
-          captured.forEach((capture, index) => {
-            resolvedDestination = resolvedDestination.replace(`*`, capture);
-          });
-          
-          // Resolve relative to the base directory
-          const fullPath = path.resolve(baseDir, resolvedDestination);
-          
-          // Try with different extensions
-          const extensions = ['.ts', '.tsx', '.js', '.jsx', '.json', ''];
-          for (const ext of extensions) {
-            const pathWithExt = `${fullPath}${ext}`;
-            if (fs.existsSync(pathWithExt)) {
-              resolvedPathCache.set(cacheKey, pathWithExt);
-              return pathWithExt;
-            }
-          }
-          
-          // Try as a directory with index files
-          for (const ext of extensions) {
-            if (ext === '') continue;
-            const indexPath = path.join(fullPath, `index${ext}`);
-            if (fs.existsSync(indexPath)) {
-              resolvedPathCache.set(cacheKey, indexPath);
-              return indexPath;
-            }
+        for (const entry of possibleEntries) {
+          if (pathExists(entry)) {
+            return normalizePath(entry);
           }
         }
       }
-    }
-  }
-  
-  // If we get here, we couldn't resolve the path alias
-  return null;
-}
-
-/**
- * Resolves a subpath within a package
- * 
- * @param {string} packageName - Name of the package
- * @param {string} subpath - Subpath within the package
- * @param {string} containingFile - Path of the file containing the import
- * @returns {string|null} - Resolved path or null if not handled
- */
-function resolvePackageSubpath(packageName, subpath, containingFile) {
-  // Only handle our specific packages
-  if (!PACKAGE_MAPPINGS[packageName]) {
-    return null;
-  }
-  
-  // Find monorepo root
-  const monorepoRoot = findMonorepoRoot(path.dirname(containingFile));
-  if (!monorepoRoot) {
-    return null;
-  }
-  
-  // Resolve to the actual package location
-  const packagePath = path.join(monorepoRoot, PACKAGE_MAPPINGS[packageName]);
-  
-  // Check common source directories
-  const possiblePaths = [
-    path.join(packagePath, subpath), // Direct subpath
-    path.join(packagePath, 'src', subpath), // src/subpath
-    path.join(packagePath, 'dist', subpath), // dist/subpath
-    path.join(packagePath, 'lib', subpath) // lib/subpath
-  ];
-  
-  // Add extensions if not specified
-  if (!subpath.includes('.')) {
-    possiblePaths.push(
-      path.join(packagePath, `${subpath}.ts`),
-      path.join(packagePath, `${subpath}.tsx`),
-      path.join(packagePath, `${subpath}.js`),
-      path.join(packagePath, `${subpath}.jsx`),
-      path.join(packagePath, 'src', `${subpath}.ts`),
-      path.join(packagePath, 'src', `${subpath}.tsx`),
-      path.join(packagePath, 'src', `${subpath}.js`),
-      path.join(packagePath, 'src', `${subpath}.jsx`),
-      path.join(packagePath, 'dist', `${subpath}.js`),
-      path.join(packagePath, 'dist', `${subpath}.d.ts`),
-      path.join(packagePath, 'lib', `${subpath}.js`),
-      path.join(packagePath, 'lib', `${subpath}.d.ts`)
-    );
-  }
-  
-  // Check for index files in directories
-  possiblePaths.push(
-    path.join(packagePath, subpath, 'index.ts'),
-    path.join(packagePath, subpath, 'index.tsx'),
-    path.join(packagePath, subpath, 'index.js'),
-    path.join(packagePath, subpath, 'index.jsx'),
-    path.join(packagePath, 'src', subpath, 'index.ts'),
-    path.join(packagePath, 'src', subpath, 'index.tsx'),
-    path.join(packagePath, 'src', subpath, 'index.js'),
-    path.join(packagePath, 'src', subpath, 'index.jsx'),
-    path.join(packagePath, 'dist', subpath, 'index.js'),
-    path.join(packagePath, 'dist', subpath, 'index.d.ts'),
-    path.join(packagePath, 'lib', subpath, 'index.js'),
-    path.join(packagePath, 'lib', subpath, 'index.d.ts')
-  );
-  
-  // Return the first path that exists
-  for (const possiblePath of possiblePaths) {
-    if (fs.existsSync(possiblePath)) {
-      return possiblePath;
-    }
-  }
-  
-  return null;
-}
-
-/**
- * Handles project references and composite builds
- * 
- * @param {string} specifier - Import specifier
- * @param {string} containingFile - Path of the file containing the import
- * @returns {string|null} - Resolved path or null if not handled
- */
-function resolveProjectReference(specifier, containingFile) {
-  // Find the nearest tsconfig.json
-  const tsconfig = findAndParseTsconfig(containingFile);
-  if (!tsconfig || !tsconfig.references) {
-    return null;
-  }
-  
-  // Get the directory containing the tsconfig.json
-  const tsconfigDir = path.dirname(containingFile);
-  
-  // Check each project reference
-  for (const reference of tsconfig.references) {
-    if (!reference.path) continue;
-    
-    // Resolve the reference path relative to the tsconfig directory
-    const referencePath = path.resolve(tsconfigDir, reference.path);
-    
-    // If it's a directory, look for tsconfig.json
-    let referenceTsconfigPath;
-    if (fs.existsSync(referencePath) && fs.statSync(referencePath).isDirectory()) {
-      referenceTsconfigPath = path.join(referencePath, 'tsconfig.json');
-    } else {
-      // If it's not a directory, assume it's a path to a tsconfig.json file
-      referenceTsconfigPath = referencePath;
-    }
-    
-    // Skip if the tsconfig.json doesn't exist
-    if (!fs.existsSync(referenceTsconfigPath)) {
-      continue;
-    }
-    
-    try {
-      // Parse the referenced tsconfig.json
-      const referenceTsconfig = JSON.parse(fs.readFileSync(referenceTsconfigPath, 'utf8'));
       
-      // Get the outDir from the referenced tsconfig.json
-      const outDir = referenceTsconfig.compilerOptions && referenceTsconfig.compilerOptions.outDir;
-      if (!outDir) {
-        continue;
-      }
-      
-      // Resolve the outDir relative to the referenced tsconfig directory
-      const referenceOutDir = path.resolve(path.dirname(referenceTsconfigPath), outDir);
-      
-      // Try to resolve the specifier in the outDir
-      const possiblePath = path.join(referenceOutDir, specifier);
-      if (fs.existsSync(possiblePath)) {
-        return possiblePath;
-      }
-      
-      // Try with different extensions
-      const extensions = ['.js', '.jsx', '.json', '.d.ts'];
-      for (const ext of extensions) {
-        const pathWithExt = `${possiblePath}${ext}`;
-        if (fs.existsSync(pathWithExt)) {
-          return pathWithExt;
+      // Handle imports from package subpaths (e.g., import { Box } from '@austa/design-system/components')
+      if (moduleName.startsWith(`${packageName}/`)) {
+        const subpath = moduleName.slice(packageName.length + 1);
+        
+        // Check for different possible locations of the subpath
+        const possiblePaths = [
+          path.join(packagePath, 'src', subpath + '.ts'),
+          path.join(packagePath, 'src', subpath + '.tsx'),
+          path.join(packagePath, 'src', subpath + '.js'),
+          path.join(packagePath, 'src', subpath, 'index.ts'),
+          path.join(packagePath, 'src', subpath, 'index.tsx'),
+          path.join(packagePath, 'src', subpath, 'index.js'),
+          path.join(packagePath, subpath + '.ts'),
+          path.join(packagePath, subpath + '.tsx'),
+          path.join(packagePath, subpath + '.js'),
+          path.join(packagePath, subpath, 'index.ts'),
+          path.join(packagePath, subpath, 'index.tsx'),
+          path.join(packagePath, subpath, 'index.js'),
+          path.join(packagePath, 'dist', subpath + '.js'),
+          path.join(packagePath, 'dist', subpath, 'index.js')
+        ];
+        
+        for (const p of possiblePaths) {
+          if (pathExists(p)) {
+            return normalizePath(p);
+          }
         }
       }
-      
-      // Try as a directory with index files
-      for (const ext of extensions) {
-        const indexPath = path.join(possiblePath, `index${ext}`);
-        if (fs.existsSync(indexPath)) {
-          return indexPath;
-        }
-      }
-    } catch (error) {
-      // Ignore JSON parsing errors and continue checking other references
     }
   }
   
-  return null;
+  // Handle path aliases (e.g., @/components/Button)
+  return resolvePathAlias(moduleName, containingFile);
 }
 
 /**
- * Main resolver function that resolves module specifiers to file paths
- * 
- * @param {string} specifier - Import specifier
- * @param {string} containingFile - Path of the file containing the import
- * @returns {string|null} - Resolved path or null if not handled
+ * Creates a TypeScript resolved module object.
+ * @param {string} resolvedPath - The resolved path
+ * @param {boolean} isExternalLibraryImport - Whether this is an external library import
+ * @returns {Object} - The resolved module object
  */
-function resolveModuleSpecifier(specifier, containingFile) {
-  // Skip node built-in modules and relative imports
-  if (specifier.startsWith('.') || specifier.startsWith('/') || !specifier.includes('/')) {
-    return null;
-  }
-  
-  // Normalize paths for cross-platform compatibility
-  const normalizedContainingFile = normalizePath(containingFile);
-  
-  // Try to resolve as a path alias
-  const resolvedPathAlias = resolvePathAlias(specifier, normalizedContainingFile);
-  if (resolvedPathAlias) {
-    return resolvedPathAlias;
-  }
-  
-  // Try to resolve as a project reference
-  const resolvedProjectReference = resolveProjectReference(specifier, normalizedContainingFile);
-  if (resolvedProjectReference) {
-    return resolvedProjectReference;
-  }
-  
-  // Let TypeScript handle other imports
-  return null;
-}
-
-/**
- * Creates a TypeScript module resolver
- * 
- * @param {Object} typescript - The TypeScript module
- * @returns {Function} - Module resolver function
- */
-function createModuleResolver(typescript) {
-  return function(moduleName, containingFile, compilerOptions, host) {
-    // Try our custom resolution first
-    const resolvedPath = resolveModuleSpecifier(moduleName, containingFile);
-    if (resolvedPath) {
-      // Return a resolved module in the format TypeScript expects
-      return {
-        resolvedModule: {
-          resolvedFileName: resolvedPath,
-          isExternalLibraryImport: false
-        }
-      };
+function createResolvedModule(resolvedPath, isExternalLibraryImport = false) {
+  return {
+    resolvedFileName: resolvedPath,
+    isExternalLibraryImport,
+    resolvedModule: {
+      resolvedFileName: resolvedPath,
+      isExternalLibraryImport
     }
-    
-    // Let TypeScript handle other imports
-    return undefined;
   };
 }
 
-module.exports = createModuleResolver;
+/**
+ * The main resolver function that TypeScript will call to resolve modules.
+ * @param {string} moduleName - The name of the module to resolve
+ * @param {string} containingFile - The file containing the import
+ * @returns {Object|undefined} - The resolved module, or undefined if not found
+ */
+function resolveModuleName(moduleName, containingFile) {
+  // Normalize paths for cross-platform compatibility
+  const normalizedContainingFile = normalizePath(containingFile);
+  
+  // Skip relative imports, as TypeScript can handle these natively
+  if (moduleName.startsWith('.') || moduleName.startsWith('/')) {
+    return undefined;
+  }
+  
+  // Resolve the module
+  const resolvedPath = resolveModule(moduleName, normalizedContainingFile);
+  if (!resolvedPath) {
+    return undefined;
+  }
+  
+  // Determine if this is an external library import
+  const isExternalLibraryImport = !resolvedPath.includes(monorepoRoot || '');
+  
+  // Create and return the resolved module object
+  return createResolvedModule(resolvedPath, isExternalLibraryImport);
+}
+
+/**
+ * Handles project references and composite builds.
+ * This function is called by TypeScript to resolve references between projects.
+ * @param {Object} host - The TypeScript compiler host
+ * @param {Array<Object>} references - The project references
+ * @returns {Array<Object>} - The resolved references
+ */
+function resolveProjectReferences(host, references) {
+  if (!references || !references.length) {
+    return [];
+  }
+  
+  return references.map(ref => {
+    // Get the path to the referenced project
+    const projectPath = ref.path;
+    
+    // Resolve the path to the tsconfig.json file
+    const tsConfigPath = path.resolve(projectPath, 'tsconfig.json');
+    
+    // Check if the tsconfig.json file exists
+    if (!pathExists(tsConfigPath)) {
+      return null;
+    }
+    
+    // Parse the tsconfig.json file
+    try {
+      const tsConfig = JSON.parse(fs.readFileSync(tsConfigPath, 'utf8'));
+      
+      // Check if this is a composite project
+      if (!tsConfig.compilerOptions?.composite) {
+        return null;
+      }
+      
+      // Return the resolved reference
+      return {
+        path: normalizePath(tsConfigPath),
+        originalPath: normalizePath(projectPath),
+        prepend: ref.prepend,
+        circular: ref.circular
+      };
+    } catch (e) {
+      return null;
+    }
+  }).filter(Boolean);
+}
+
+/**
+ * The main resolver object that TypeScript will use to resolve modules.
+ */
+module.exports = {
+  resolveModuleName,
+  resolveProjectReferences
+};

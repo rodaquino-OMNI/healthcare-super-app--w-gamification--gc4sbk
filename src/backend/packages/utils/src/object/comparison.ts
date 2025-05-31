@@ -1,369 +1,310 @@
 /**
- * Utility functions for deep object comparison and difference detection.
- * These utilities are crucial for change detection, equality testing, and diffing operations
- * across journey services.
+ * Object comparison utilities for deep equality testing and difference detection.
+ * These utilities are used across journey services to ensure consistent object comparison
+ * logic throughout the application.
  */
 
 /**
  * Type representing the differences between two objects.
- * Each key represents a path to a property that differs, and the value is an object
- * containing the original and new values.
+ * Each key represents a path in dot notation, and the value is an object containing the old and new values.
  */
-export interface ObjectDifferences {
-  [path: string]: {
-    oldValue: any;
-    newValue: any;
-  };
-}
-
-/**
- * Options for controlling the behavior of comparison operations.
- */
-export interface ComparisonOptions {
-  /**
-   * Whether to ignore undefined properties in the comparison.
-   * If true, properties that are undefined in one object but not in the other
-   * will not be considered different.
-   * @default false
-   */
-  ignoreUndefined?: boolean;
-
-  /**
-   * Whether to perform strict equality checks for primitive values.
-   * If true, uses === for comparison; if false, performs type coercion (==).
-   * @default true
-   */
-  strict?: boolean;
-
-  /**
-   * Array of property paths to exclude from comparison.
-   * Paths use dot notation, e.g., ['user.metadata', 'timestamps.created'].
-   * @default []
-   */
-  excludePaths?: string[];
-}
-
-/**
- * Default comparison options.
- */
-const defaultOptions: ComparisonOptions = {
-  ignoreUndefined: false,
-  strict: true,
-  excludePaths: [],
-};
-
-/**
- * Checks if a value is a plain object (not an array, null, or a primitive).
- * 
- * @param value - The value to check
- * @returns True if the value is a plain object, false otherwise
- */
-export const isPlainObject = (value: unknown): value is Record<string, any> => {
-  return (
-    typeof value === 'object' &&
-    value !== null &&
-    !Array.isArray(value) &&
-    Object.prototype.toString.call(value) === '[object Object]'
-  );
-};
-
-/**
- * Checks if a path should be excluded from comparison based on the excludePaths option.
- * 
- * @param path - The current property path
- * @param excludePaths - Array of paths to exclude
- * @returns True if the path should be excluded, false otherwise
- */
-const shouldExcludePath = (path: string, excludePaths: string[] = []): boolean => {
-  if (!excludePaths.length) return false;
-  
-  return excludePaths.some(excludePath => {
-    // Exact match
-    if (path === excludePath) return true;
-    
-    // Path starts with exclude path followed by a dot
-    if (path.startsWith(`${excludePath}.`)) return true;
-    
-    // Exclude path contains wildcards (e.g., 'users.*.metadata')
-    if (excludePath.includes('*')) {
-      const excludeRegex = new RegExp(
-        `^${excludePath.replace(/\./g, '\\.').replace(/\*/g, '[^.]+')}`
-      );
-      return excludeRegex.test(path);
-    }
-    
-    return false;
-  });
-};
+export type ObjectDifferences = Record<string, { oldValue: any; newValue: any }>;
 
 /**
  * Performs a deep comparison between two values to determine if they are equivalent.
+ * Handles primitive types, arrays, dates, and plain objects.
  * 
- * This function handles primitive values, arrays, and objects, performing a recursive
- * comparison for nested structures. It can be configured to ignore undefined properties,
- * use strict or loose equality, and exclude specific paths from comparison.
- * 
- * @param a - First value to compare
- * @param b - Second value to compare
- * @param options - Comparison options
- * @param path - Current property path (used internally for recursion)
- * @returns True if the values are equal according to the specified options, false otherwise
+ * @template T - The type of values being compared
+ * @param {T} value1 - First value to compare
+ * @param {T} value2 - Second value to compare
+ * @returns {boolean} True if the values are deeply equal, false otherwise
  * 
  * @example
- * // Basic comparison
- * isEqual({a: 1, b: 2}, {a: 1, b: 2}); // true
- * 
- * @example
- * // Nested objects
- * isEqual(
- *   {user: {name: 'John', age: 30}},
- *   {user: {name: 'John', age: 30}}
- * ); // true
- * 
- * @example
- * // With options
- * isEqual(
- *   {a: 1, b: undefined},
- *   {a: 1},
- *   {ignoreUndefined: true}
- * ); // true
+ * isEqual({ name: 'John', scores: [1, 2] }, { name: 'John', scores: [1, 2] }); // true
+ * isEqual({ name: 'John', scores: [1, 2] }, { name: 'John', scores: [1, 3] }); // false
  */
-export const isEqual = (
-  a: unknown,
-  b: unknown,
-  options: ComparisonOptions = {},
-  path: string = ''
-): boolean => {
-  const opts = { ...defaultOptions, ...options };
-  
-  // Check if current path should be excluded
-  if (path && shouldExcludePath(path, opts.excludePaths)) {
+export const isEqual = <T>(value1: T, value2: T): boolean => {
+  // Handle simple cases first for performance
+  if (value1 === value2) {
     return true;
   }
   
-  // Handle strict equality for primitives, null, and undefined
-  if (a === b) return true;
-  
-  // If either value is null or undefined, they're not equal (we already checked strict equality)
-  if (a == null || b == null) return false;
-  
-  // Handle non-strict equality if specified
-  if (!opts.strict && a == b) return true;
-  
-  // Handle different types
-  if (typeof a !== typeof b) return false;
-  
-  // Handle dates
-  if (a instanceof Date && b instanceof Date) {
-    return a.getTime() === b.getTime();
+  // If either value is null or undefined, they're not equal (since we already checked ===)
+  if (value1 == null || value2 == null) {
+    return false;
   }
   
-  // Handle arrays
-  if (Array.isArray(a) && Array.isArray(b)) {
-    if (a.length !== b.length) return false;
+  // Get the type of both values
+  const type1 = typeof value1;
+  const type2 = typeof value2;
+  
+  // If types are different, values are not equal
+  if (type1 !== type2) {
+    return false;
+  }
+  
+  // Handle primitive types (already checked === above, so they're not equal)
+  if (type1 !== 'object') {
+    return false;
+  }
+  
+  // Handle Date objects
+  if (value1 instanceof Date && value2 instanceof Date) {
+    return value1.getTime() === value2.getTime();
+  }
+  
+  // Handle RegExp objects
+  if (value1 instanceof RegExp && value2 instanceof RegExp) {
+    return value1.toString() === value2.toString();
+  }
+  
+  // Handle Array objects
+  if (Array.isArray(value1) && Array.isArray(value2)) {
+    if (value1.length !== value2.length) {
+      return false;
+    }
     
-    for (let i = 0; i < a.length; i++) {
-      const itemPath = path ? `${path}[${i}]` : `[${i}]`;
-      if (!isEqual(a[i], b[i], opts, itemPath)) return false;
+    // Compare each element in the arrays
+    for (let i = 0; i < value1.length; i++) {
+      if (!isEqual(value1[i], value2[i])) {
+        return false;
+      }
     }
     
     return true;
   }
   
   // Handle plain objects
-  if (isPlainObject(a) && isPlainObject(b)) {
-    const keysA = Object.keys(a);
-    const keysB = Object.keys(b);
+  if (isPlainObject(value1) && isPlainObject(value2)) {
+    const keys1 = Object.keys(value1);
+    const keys2 = Object.keys(value2);
     
-    // If ignoring undefined, filter out keys with undefined values
-    const filteredKeysA = opts.ignoreUndefined
-      ? keysA.filter(key => a[key] !== undefined)
-      : keysA;
+    // If number of keys is different, objects are not equal
+    if (keys1.length !== keys2.length) {
+      return false;
+    }
     
-    const filteredKeysB = opts.ignoreUndefined
-      ? keysB.filter(key => b[key] !== undefined)
-      : keysB;
-    
-    // Check if the filtered key sets are different
-    if (filteredKeysA.length !== filteredKeysB.length) return false;
-    
-    // Check if all keys in A exist in B
-    if (!filteredKeysA.every(key => filteredKeysB.includes(key))) return false;
-    
-    // Check each property recursively
-    for (const key of filteredKeysA) {
-      const propPath = path ? `${path}.${key}` : key;
-      if (!isEqual(a[key], b[key], opts, propPath)) return false;
+    // Check if all keys in value1 exist in value2 and have equal values
+    for (const key of keys1) {
+      if (!Object.prototype.hasOwnProperty.call(value2, key)) {
+        return false;
+      }
+      
+      if (!isEqual((value1 as any)[key], (value2 as any)[key])) {
+        return false;
+      }
     }
     
     return true;
   }
   
-  // For all other types, they're not equal
+  // If we get here, the values are not equal
   return false;
 };
 
 /**
- * Gets the differences between two objects, returning a map of property paths to
- * their old and new values.
+ * Identifies differences between two objects and returns them as a record of paths and value changes.
  * 
- * This function performs a deep comparison and tracks all differences between the objects.
- * It handles nested structures and can be configured with the same options as isEqual.
- * 
- * @param oldObj - The original object
- * @param newObj - The new object to compare against
- * @param options - Comparison options
- * @returns An object mapping property paths to their differences
+ * @template T - The type of objects being compared
+ * @param {T} oldObj - The original object
+ * @param {T} newObj - The new object to compare against the original
+ * @param {string} [path=''] - The current path (used internally for recursion)
+ * @returns {ObjectDifferences} An object containing the differences, with keys as dot-notation paths
+ * @throws {Error} If either input is not an object
  * 
  * @example
- * // Basic usage
- * const differences = getDifferences(
- *   {name: 'John', age: 30},
- *   {name: 'John', age: 31}
- * );
- * // Result: {'age': {oldValue: 30, newValue: 31}}
- * 
- * @example
- * // Nested objects
- * const differences = getDifferences(
- *   {user: {name: 'John', contact: {email: 'john@example.com'}}},
- *   {user: {name: 'John', contact: {email: 'john.doe@example.com'}}}
- * );
- * // Result: {'user.contact.email': {oldValue: 'john@example.com', newValue: 'john.doe@example.com'}}
+ * const oldUser = { name: 'John', age: 30, address: { city: 'New York', zip: '10001' } };
+ * const newUser = { name: 'John', age: 31, address: { city: 'Boston', zip: '10001' } };
+ * const differences = getDifferences(oldUser, newUser);
+ * // { 
+ * //   'age': { oldValue: 30, newValue: 31 },
+ * //   'address.city': { oldValue: 'New York', newValue: 'Boston' }
+ * // }
  */
-export const getDifferences = (
-  oldObj: Record<string, any>,
-  newObj: Record<string, any>,
-  options: ComparisonOptions = {}
-): ObjectDifferences => {
-  const opts = { ...defaultOptions, ...options };
+export const getDifferences = <T extends object>(oldObj: T, newObj: T, path: string = ''): ObjectDifferences => {
+  if (!isPlainObject(oldObj) || !isPlainObject(newObj)) {
+    throw new Error('Both inputs must be plain objects');
+  }
+  
   const differences: ObjectDifferences = {};
   
-  // Helper function to collect differences recursively
-  const collectDifferences = (
-    oldValue: any,
-    newValue: any,
-    path: string = ''
-  ): void => {
-    // Skip excluded paths
-    if (path && shouldExcludePath(path, opts.excludePaths)) {
-      return;
-    }
-    
-    // If values are equal, no difference to record
-    if (isEqual(oldValue, newValue, opts, path)) {
-      return;
-    }
-    
-    // Handle different types or non-objects
-    if (
-      typeof oldValue !== typeof newValue ||
-      oldValue === null ||
-      newValue === null ||
-      typeof oldValue !== 'object' ||
-      typeof newValue !== 'object' ||
-      Array.isArray(oldValue) !== Array.isArray(newValue)
-    ) {
-      differences[path] = { oldValue, newValue };
-      return;
-    }
-    
-    // Handle arrays
-    if (Array.isArray(oldValue) && Array.isArray(newValue)) {
-      if (oldValue.length !== newValue.length) {
-        differences[path] = { oldValue, newValue };
-        return;
-      }
-      
-      // Check array items
-      for (let i = 0; i < oldValue.length; i++) {
-        const itemPath = path ? `${path}[${i}]` : `[${i}]`;
-        collectDifferences(oldValue[i], newValue[i], itemPath);
-      }
-      
-      return;
-    }
-    
-    // Handle objects
-    if (isPlainObject(oldValue) && isPlainObject(newValue)) {
-      // Get all unique keys from both objects
-      const allKeys = new Set([...Object.keys(oldValue), ...Object.keys(newValue)]);
-      
-      for (const key of allKeys) {
-        // Skip undefined values if ignoreUndefined is true
-        if (
-          opts.ignoreUndefined &&
-          (oldValue[key] === undefined || newValue[key] === undefined)
-        ) {
-          continue;
-        }
-        
-        const propPath = path ? `${path}.${key}` : key;
-        
-        // Handle keys that exist in only one object
-        if (!(key in oldValue)) {
-          differences[propPath] = { oldValue: undefined, newValue: newValue[key] };
-        } else if (!(key in newValue)) {
-          differences[propPath] = { oldValue: oldValue[key], newValue: undefined };
-        } else {
-          // Recursively check nested properties
-          collectDifferences(oldValue[key], newValue[key], propPath);
-        }
-      }
-    }
-  };
+  // Get all keys from both objects
+  const allKeys = new Set([...Object.keys(oldObj), ...Object.keys(newObj)]);
   
-  collectDifferences(oldObj, newObj);
+  for (const key of allKeys) {
+    const oldValue = (oldObj as any)[key];
+    const newValue = (newObj as any)[key];
+    const currentPath = path ? `${path}.${key}` : key;
+    
+    // If key exists in both objects
+    if (Object.prototype.hasOwnProperty.call(oldObj, key) && 
+        Object.prototype.hasOwnProperty.call(newObj, key)) {
+      
+      // If both values are objects, recursively check for differences
+      if (isPlainObject(oldValue) && isPlainObject(newValue)) {
+        const nestedDifferences = getDifferences(oldValue, newValue, currentPath);
+        Object.assign(differences, nestedDifferences);
+      } 
+      // If values are arrays, compare them
+      else if (Array.isArray(oldValue) && Array.isArray(newValue)) {
+        if (!isEqual(oldValue, newValue)) {
+          differences[currentPath] = { oldValue, newValue };
+        }
+      }
+      // For all other types, compare directly
+      else if (!isEqual(oldValue, newValue)) {
+        differences[currentPath] = { oldValue, newValue };
+      }
+    }
+    // If key exists only in the old object
+    else if (Object.prototype.hasOwnProperty.call(oldObj, key)) {
+      differences[currentPath] = { oldValue, newValue: undefined };
+    }
+    // If key exists only in the new object
+    else {
+      differences[currentPath] = { oldValue: undefined, newValue };
+    }
+  }
+  
   return differences;
 };
 
 /**
  * Checks if an object has any differences compared to another object.
- * This is a more efficient version of getDifferences when you only need to know
- * if there are any differences, but don't need the specific differences.
+ * More efficient than getDifferences when you only need to know if there are any differences.
  * 
- * @param oldObj - The original object
- * @param newObj - The new object to compare against
- * @param options - Comparison options
- * @returns True if there are any differences, false otherwise
+ * @template T - The type of objects being compared
+ * @param {T} oldObj - The original object
+ * @param {T} newObj - The new object to compare against the original
+ * @returns {boolean} True if there are any differences, false if the objects are deeply equal
+ * @throws {Error} If either input is not an object
  * 
  * @example
- * // Basic usage
- * const hasDifferences = hasDifferences(
- *   {name: 'John', age: 30},
- *   {name: 'John', age: 31}
- * ); // true
+ * const oldUser = { name: 'John', age: 30 };
+ * const newUser = { name: 'John', age: 31 };
+ * const hasDifferences = hasDifferences(oldUser, newUser); // true
  */
-export const hasDifferences = (
-  oldObj: Record<string, any>,
-  newObj: Record<string, any>,
-  options: ComparisonOptions = {}
-): boolean => {
-  return !isEqual(oldObj, newObj, options);
+export const hasDifferences = <T extends object>(oldObj: T, newObj: T): boolean => {
+  if (!isPlainObject(oldObj) || !isPlainObject(newObj)) {
+    throw new Error('Both inputs must be plain objects');
+  }
+  
+  // Quick check: if the objects are the same instance, no differences
+  if (oldObj === newObj) {
+    return false;
+  }
+  
+  // Quick check: if the objects have different number of keys, they have differences
+  const oldKeys = Object.keys(oldObj);
+  const newKeys = Object.keys(newObj);
+  
+  if (oldKeys.length !== newKeys.length) {
+    return true;
+  }
+  
+  // Check if any key in oldObj has a different value in newObj
+  for (const key of oldKeys) {
+    if (!Object.prototype.hasOwnProperty.call(newObj, key)) {
+      return true;
+    }
+    
+    const oldValue = (oldObj as any)[key];
+    const newValue = (newObj as any)[key];
+    
+    // If both values are objects, recursively check for differences
+    if (isPlainObject(oldValue) && isPlainObject(newValue)) {
+      if (hasDifferences(oldValue, newValue)) {
+        return true;
+      }
+    }
+    // If values are arrays or other types, compare them
+    else if (!isEqual(oldValue, newValue)) {
+      return true;
+    }
+  }
+  
+  // Check if newObj has any keys that oldObj doesn't have
+  for (const key of newKeys) {
+    if (!Object.prototype.hasOwnProperty.call(oldObj, key)) {
+      return true;
+    }
+  }
+  
+  return false;
 };
 
 /**
- * Type guard that checks if two objects are equal.
- * This is useful for narrowing types after a comparison.
+ * Type guard to check if a value is a plain object (not an array, null, or a class instance).
  * 
- * @param a - First value to compare
- * @param b - Second value to compare
- * @param options - Comparison options
- * @returns Type predicate indicating if the objects are equal
+ * @param {any} value - The value to check
+ * @returns {boolean} True if the value is a plain object, false otherwise
  * 
  * @example
- * const obj1 = {id: 1, name: 'Test'};
- * const obj2 = {id: 1, name: 'Test'};
- * 
- * if (objectsAreEqual(obj1, obj2)) {
- *   // TypeScript knows obj1 and obj2 are equal here
- *   console.log('Objects are equal');
- * }
+ * isPlainObject({}); // true
+ * isPlainObject([]); // false
+ * isPlainObject(null); // false
+ * isPlainObject(new Date()); // false
  */
-export function objectsAreEqual<T, U>(
-  a: T,
-  b: U,
-  options: ComparisonOptions = {}
-): b is T & U {
-  return isEqual(a, b, options);
+export const isPlainObject = (value: any): value is Record<string, any> => {
+  if (value === null || value === undefined) {
+    return false;
+  }
+  
+  if (typeof value !== 'object') {
+    return false;
+  }
+  
+  if (Array.isArray(value)) {
+    return false;
+  }
+  
+  // Check if the object is a plain object (created by {} or new Object())
+  const prototype = Object.getPrototypeOf(value);
+  return prototype === null || prototype === Object.prototype;
+};
+
+/**
+ * Checks if an object is a subset of another object (all properties in subset exist in superset with the same values).
+ * 
+ * @template T - The type of the superset object
+ * @template U - The type of the subset object (should be assignable to a partial of T)
+ * @param {T} superset - The object that should contain all properties of the subset
+ * @param {U} subset - The object whose properties should all exist in the superset
+ * @returns {boolean} True if all properties in subset exist in superset with the same values
+ * @throws {Error} If either input is not an object
+ * 
+ * @example
+ * const user = { id: 1, name: 'John', age: 30, email: 'john@example.com' };
+ * const subset = { id: 1, name: 'John' };
+ * isSubset(user, subset); // true
+ */
+export const isSubset = <T extends object, U extends Partial<T>>(superset: T, subset: U): boolean => {
+  if (!isPlainObject(superset) || !isPlainObject(subset)) {
+    throw new Error('Both inputs must be plain objects');
+  }
+  
+  for (const key in subset) {
+    if (Object.prototype.hasOwnProperty.call(subset, key)) {
+      // If the key doesn't exist in the superset, it's not a subset
+      if (!Object.prototype.hasOwnProperty.call(superset, key)) {
+        return false;
+      }
+      
+      const subsetValue = subset[key];
+      const supersetValue = (superset as any)[key];
+      
+      // If both values are objects, recursively check if subsetValue is a subset of supersetValue
+      if (isPlainObject(subsetValue) && isPlainObject(supersetValue)) {
+        if (!isSubset(supersetValue, subsetValue)) {
+          return false;
+        }
+      }
+      // If values are arrays or other types, compare them for equality
+      else if (!isEqual(subsetValue, supersetValue)) {
+        return false;
+      }
+    }
+  }
+  
+  return true;
 };

@@ -1,53 +1,77 @@
 /**
- * @file Health Journey Component Interfaces
- * @description TypeScript interfaces for Health journey-specific UI components in the AUSTA SuperApp.
- * 
- * This file defines the component interfaces for the Health journey, including DeviceCard,
- * GoalCard, HealthChart, and MetricCard. These interfaces inherit and extend core component
- * interfaces while adding Health journey-specific props and behavior.
- * 
- * The interfaces utilize the health data models from the domain types to ensure tight
- * type coupling between data and presentation layers.
- * 
- * @module interfaces/components/health
+ * @file Health Component Types
+ * @description Defines TypeScript interfaces for Health journey-specific UI components in the AUSTA SuperApp.
+ * These interfaces provide strongly-typed props that integrate with Health journey data models.
  */
 
-import { ReactNode } from 'react';
-
-// Import health domain models
-import { 
-  DeviceConnection, 
-  HealthGoal, 
-  HealthMetric, 
-  HealthMetricType,
-  MedicalEvent 
-} from '../health';
-
-// Import base component interfaces
-import { BaseComponentProps } from './primitives.types';
-import { CardProps } from './core.types';
+// Import types from the shared interfaces package
+import { DeviceConnection, HealthGoal, HealthMetric, HealthMetricType, MedicalEvent } from '@austa/interfaces/health';
 
 /**
- * DeviceCard Component Props
- * 
- * Interface for the DeviceCard component that displays health device connection information
- * and status. Extends the base CardProps interface with device-specific properties.
+ * Common props shared across all Health journey components
  */
-export interface DeviceCardProps extends CardProps {
+export interface HealthComponentBaseProps {
+  /**
+   * Optional className for custom styling
+   */
+  className?: string;
+  
+  /**
+   * Optional test ID for testing
+   */
+  testID?: string;
+  
+  /**
+   * Optional theme override for the component
+   */
+  themeOverride?: Record<string, any>;
+}
+
+/**
+ * Props for the DeviceCard component that displays a connected health device.
+ */
+export interface DeviceCardProps extends HealthComponentBaseProps {
   /**
    * The device connection data to display
    */
   device: DeviceConnection;
   
   /**
-   * Optional callback when the sync button is pressed
+   * Optional custom title to override the default
    */
-  onSync?: (deviceId: string) => void;
+  title?: string;
   
   /**
-   * Optional callback when the disconnect button is pressed
+   * Whether to show the last sync information
+   * @default true
    */
-  onDisconnect?: (deviceId: string) => void;
+  showLastSync?: boolean;
+  
+  /**
+   * Whether to show the connection status
+   * @default true
+   */
+  showStatus?: boolean;
+  
+  /**
+   * Optional handler for when the card is clicked
+   */
+  onClick?: () => void;
+  
+  /**
+   * Optional handler for when the sync button is clicked
+   */
+  onSync?: () => void;
+  
+  /**
+   * Optional handler for when the disconnect button is clicked
+   */
+  onDisconnect?: () => void;
+  
+  /**
+   * Optional handler for when the settings button is clicked
+   */
+  onSettings?: () => void;
   
   /**
    * Whether the device is currently syncing
@@ -56,87 +80,90 @@ export interface DeviceCardProps extends CardProps {
   isSyncing?: boolean;
   
   /**
-   * Custom icon to display for the device
-   * If not provided, a default icon based on deviceType will be used
+   * Optional theme variant for the card
+   * @default 'default'
    */
-  deviceIcon?: ReactNode;
+  variant?: 'default' | 'compact' | 'detailed';
   
   /**
-   * Whether to show detailed device information
-   * @default false
+   * Optional icon or image URL for the device
    */
-  showDetails?: boolean;
+  deviceIcon?: string;
 }
 
 /**
- * GoalCard Component Props
- * 
- * Interface for the GoalCard component that displays health goal information
- * and progress. Extends the base CardProps interface with goal-specific properties.
+ * Props for the GoalCard component that displays a health goal.
  */
-export interface GoalCardProps extends CardProps {
+export interface GoalCardProps extends HealthComponentBaseProps {
   /**
    * The health goal data to display
    */
   goal: HealthGoal;
   
   /**
-   * Optional callback when the goal card is pressed
+   * Optional custom title to override the default
    */
-  onPress?: (goalId: string) => void;
+  title?: string;
   
   /**
-   * Optional callback when the edit button is pressed
-   */
-  onEdit?: (goalId: string) => void;
-  
-  /**
-   * Optional callback when the delete button is pressed
-   */
-  onDelete?: (goalId: string) => void;
-  
-  /**
-   * Whether to show the goal progress
+   * Whether to show the progress towards the goal
    * @default true
    */
   showProgress?: boolean;
   
   /**
-   * Custom progress indicator component
-   * If not provided, a default ProgressCircle will be used
-   */
-  progressIndicator?: ReactNode;
-  
-  /**
-   * Whether to show the goal date range
+   * Whether to show the date range for the goal
    * @default true
    */
   showDateRange?: boolean;
   
   /**
-   * Whether the goal is currently being updated
+   * Optional handler for when the card is clicked
+   */
+  onClick?: () => void;
+  
+  /**
+   * Optional handler for when the edit button is clicked
+   */
+  onEdit?: () => void;
+  
+  /**
+   * Optional handler for when the delete button is clicked
+   */
+  onDelete?: () => void;
+  
+  /**
+   * Optional handler for when the share button is clicked
+   */
+  onShare?: () => void;
+  
+  /**
+   * Current progress value towards the goal (0-100)
+   */
+  progressValue?: number;
+  
+  /**
+   * Optional theme variant for the card
+   * @default 'default'
+   */
+  variant?: 'default' | 'compact' | 'detailed' | 'achievement';
+  
+  /**
+   * Whether to show gamification elements (achievements, points)
    * @default false
    */
-  isUpdating?: boolean;
+  showGamification?: boolean;
+  
+  /**
+   * Optional points earned for this goal (for gamification)
+   */
+  pointsEarned?: number;
 }
 
 /**
- * Chart time range options for the HealthChart component
+ * Props for the HealthChart component that displays health metrics over time.
  */
-export type HealthChartTimeRange = 'day' | 'week' | 'month' | 'year' | 'custom';
-
-/**
- * Chart display type options for the HealthChart component
- */
-export type HealthChartType = 'line' | 'bar' | 'radial';
-
-/**
- * HealthChart Component Props
- * 
- * Interface for the HealthChart component that visualizes health metric data
- * over time. Extends the base component props with chart-specific properties.
- */
-export interface HealthChartProps extends BaseComponentProps {
+export interface HealthChartProps extends HealthComponentBaseProps {
   /**
    * The health metric data to display in the chart
    */
@@ -148,26 +175,34 @@ export interface HealthChartProps extends BaseComponentProps {
   metricType: HealthMetricType;
   
   /**
-   * The time range to display in the chart
+   * Optional custom title to override the default
+   */
+  title?: string;
+  
+  /**
+   * Optional custom subtitle
+   */
+  subtitle?: string;
+  
+  /**
+   * Time period to display
    * @default 'week'
    */
-  timeRange?: HealthChartTimeRange;
+  period?: 'day' | 'week' | 'month' | 'year' | 'custom';
   
   /**
-   * The type of chart to display
+   * Custom date range for when period is 'custom'
+   */
+  dateRange?: {
+    startDate: string;
+    endDate: string;
+  };
+  
+  /**
+   * Chart type to display
    * @default 'line'
    */
-  chartType?: HealthChartType;
-  
-  /**
-   * Optional callback when a data point is pressed
-   */
-  onDataPointPress?: (metric: HealthMetric) => void;
-  
-  /**
-   * Optional callback when the time range is changed
-   */
-  onTimeRangeChange?: (range: HealthChartTimeRange) => void;
+  chartType?: 'line' | 'bar' | 'scatter' | 'area';
   
   /**
    * Whether to show the chart legend
@@ -176,174 +211,188 @@ export interface HealthChartProps extends BaseComponentProps {
   showLegend?: boolean;
   
   /**
-   * Whether to show the chart grid lines
+   * Whether to show data points on the chart
    * @default true
    */
-  showGridLines?: boolean;
+  showDataPoints?: boolean;
   
   /**
-   * Whether to animate the chart when data changes
-   * @default true
+   * Whether to show goal reference lines
+   * @default false
    */
-  animate?: boolean;
+  showGoalLines?: boolean;
   
   /**
-   * Custom formatter for the Y-axis labels
+   * Optional goal value to display as reference line
    */
-  yAxisFormatter?: (value: number) => string;
+  goalValue?: number;
   
   /**
-   * Custom formatter for the X-axis labels
+   * Optional handler for when a data point is clicked
    */
-  xAxisFormatter?: (value: string) => string;
+  onDataPointClick?: (metric: HealthMetric) => void;
   
   /**
-   * Whether the chart is currently loading data
+   * Optional handler for when the period selector is changed
+   */
+  onPeriodChange?: (period: 'day' | 'week' | 'month' | 'year' | 'custom') => void;
+  
+  /**
+   * Optional handler for when the chart type is changed
+   */
+  onChartTypeChange?: (type: 'line' | 'bar' | 'scatter' | 'area') => void;
+  
+  /**
+   * Optional handler for when the export button is clicked
+   */
+  onExport?: () => void;
+  
+  /**
+   * Whether the chart is in a loading state
    * @default false
    */
   isLoading?: boolean;
   
   /**
-   * Optional reference line value to display on the chart
-   * (e.g., target goal value or normal range)
+   * Optional error message to display
    */
-  referenceLineValue?: number;
+  error?: string;
   
   /**
-   * Label for the reference line
+   * Optional theme variant for the chart
+   * @default 'default'
    */
-  referenceLineLabel?: string;
+  variant?: 'default' | 'compact' | 'detailed' | 'dashboard';
   
   /**
-   * Whether to show min/max indicators on the chart
-   * @default false
+   * Optional color scheme for the chart
+   */
+  colorScheme?: string[];
+  
+  /**
+   * Whether to show min/max values
+   * @default true
    */
   showMinMax?: boolean;
   
   /**
-   * Whether to show the average value on the chart
-   * @default false
+   * Whether to show average value
+   * @default true
    */
   showAverage?: boolean;
   
   /**
-   * Custom chart height
-   * @default 200
+   * Whether the chart should be responsive
+   * @default true
+   */
+  responsive?: boolean;
+  
+  /**
+   * Fixed height for the chart (in pixels)
    */
   height?: number;
+  
+  /**
+   * Fixed width for the chart (in pixels)
+   */
+  width?: number;
 }
 
 /**
- * MetricCard Component Props
- * 
- * Interface for the MetricCard component that displays a single health metric
- * with its value and trend. Extends the base CardProps interface with metric-specific properties.
+ * Props for the MetricCard component that displays a single health metric.
  */
-export interface MetricCardProps extends CardProps {
+export interface MetricCardProps extends HealthComponentBaseProps {
   /**
    * The health metric data to display
    */
   metric: HealthMetric;
   
   /**
-   * Optional array of historical metrics to show trend
+   * Optional custom title to override the default
    */
-  historicalMetrics?: HealthMetric[];
+  title?: string;
   
   /**
-   * Optional callback when the metric card is pressed
-   */
-  onPress?: (metricId: string) => void;
-  
-  /**
-   * Optional callback when the add button is pressed
-   */
-  onAddReading?: (metricType: HealthMetricType) => void;
-  
-  /**
-   * Whether to show the metric trend
+   * Whether to show the timestamp of the measurement
    * @default true
    */
-  showTrend?: boolean;
+  showTimestamp?: boolean;
   
   /**
-   * Whether to show the metric source
+   * Whether to show the source of the measurement
    * @default false
    */
   showSource?: boolean;
   
   /**
-   * Whether to show a mini chart of historical values
+   * Optional handler for when the card is clicked
+   */
+  onClick?: () => void;
+  
+  /**
+   * Optional handler for when the add measurement button is clicked
+   */
+  onAddMeasurement?: () => void;
+  
+  /**
+   * Optional handler for when the view history button is clicked
+   */
+  onViewHistory?: () => void;
+  
+  /**
+   * Optional handler for when the share button is clicked
+   */
+  onShare?: () => void;
+  
+  /**
+   * Whether to show a trend indicator
+   * @default true
+   */
+  showTrend?: boolean;
+  
+  /**
+   * Optional trend value (positive for increase, negative for decrease)
+   */
+  trendValue?: number;
+  
+  /**
+   * Optional trend period description (e.g., "since yesterday")
+   */
+  trendPeriod?: string;
+  
+  /**
+   * Whether an increasing trend is positive (green) or negative (red)
+   * @default true for steps, false for blood pressure
+   */
+  increasingIsBetter?: boolean;
+  
+  /**
+   * Optional reference range for the metric
+   */
+  referenceRange?: {
+    min: number;
+    max: number;
+  };
+  
+  /**
+   * Optional theme variant for the card
+   * @default 'default'
+   */
+  variant?: 'default' | 'compact' | 'detailed' | 'dashboard';
+  
+  /**
+   * Optional icon or image URL for the metric
+   */
+  metricIcon?: string;
+  
+  /**
+   * Whether to show a mini chart of recent values
    * @default false
    */
   showMiniChart?: boolean;
   
   /**
-   * Custom formatter for the metric value
+   * Recent metric values for the mini chart
    */
-  valueFormatter?: (value: number, unit: string) => string;
-  
-  /**
-   * Whether the metric is currently being updated
-   * @default false
-   */
-  isUpdating?: boolean;
-  
-  /**
-   * Optional reference value for comparison
-   * (e.g., normal range or previous reading)
-   */
-  referenceValue?: number;
-  
-  /**
-   * Label for the reference value
-   */
-  referenceLabel?: string;
-}
-
-/**
- * MedicalEventCard Component Props
- * 
- * Interface for the MedicalEventCard component that displays medical event information.
- * Extends the base CardProps interface with medical event-specific properties.
- */
-export interface MedicalEventCardProps extends CardProps {
-  /**
-   * The medical event data to display
-   */
-  event: MedicalEvent;
-  
-  /**
-   * Optional callback when the event card is pressed
-   */
-  onPress?: (eventId: string) => void;
-  
-  /**
-   * Optional callback when the view documents button is pressed
-   */
-  onViewDocuments?: (documentIds: string[]) => void;
-  
-  /**
-   * Whether to show the event provider
-   * @default true
-   */
-  showProvider?: boolean;
-  
-  /**
-   * Whether to show document count
-   * @default true
-   */
-  showDocumentCount?: boolean;
-  
-  /**
-   * Custom icon to display for the event type
-   * If not provided, a default icon based on event type will be used
-   */
-  eventIcon?: ReactNode;
-  
-  /**
-   * Whether to show the full event description
-   * @default false
-   */
-  showFullDescription?: boolean;
+  recentValues?: HealthMetric[];
 }

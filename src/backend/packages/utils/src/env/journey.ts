@@ -2,13 +2,8 @@
  * Journey-specific environment variable utilities
  * 
  * This module provides utilities for managing environment variables in a journey-specific context,
- * enabling separation and isolation of configuration between different journeys (Health, Care, Plan).
- * It includes functions for prefixing environment variables, managing journey-specific defaults,
- * and implementing feature flags for journey-specific features.
+ * enabling clean separation between journey services while ensuring consistent configuration patterns.
  */
-
-import { MissingEnvironmentVariableError } from './error';
-import { parseBoolean } from './transform';
 
 /**
  * Supported journey types in the AUSTA SuperApp
@@ -17,275 +12,276 @@ export enum JourneyType {
   HEALTH = 'health',
   CARE = 'care',
   PLAN = 'plan',
-  SHARED = 'shared' // For cross-journey shared configuration
+  SHARED = 'shared' // For cross-journey configurations
 }
 
 /**
- * Journey-specific feature flag configuration
+ * Configuration for a journey-specific environment variable
  */
-export interface JourneyFeatureFlag {
-  journeyType: JourneyType;
-  featureName: string;
-  enabled: boolean;
-  rolloutPercentage?: number; // Optional percentage-based rollout (0-100)
-}
-
-/**
- * Configuration for cross-journey sharing
- */
-export interface CrossJourneyConfig {
-  shareAcross: JourneyType[];
-  variableName: string;
+export interface JourneyEnvConfig {
+  /** The journey this configuration belongs to */
+  journey: JourneyType;
+  /** Default value if environment variable is not set */
   defaultValue?: string;
+  /** Whether this configuration is required (throws error if missing) */
+  required?: boolean;
+  /** Whether this configuration is shared across journeys */
+  shared?: boolean;
+  /** Description of what this environment variable controls */
+  description?: string;
 }
 
-// Cache for environment variables to avoid repeated process.env access
-const envCache: Record<string, string | undefined> = {};
-
 /**
- * Clears the environment variable cache
- * Primarily used for testing purposes
+ * Feature flag configuration
  */
-export const clearEnvCache = (): void => {
-  Object.keys(envCache).forEach(key => {
-    delete envCache[key];
-  });
-};
+export interface FeatureFlagConfig extends JourneyEnvConfig {
+  /** Default is false if not specified */
+  defaultValue: string;
+}
 
 /**
- * Generates a journey-specific environment variable name by adding the journey prefix
+ * Error thrown when a required journey environment variable is missing
+ */
+export class MissingJourneyEnvError extends Error {
+  constructor(varName: string, journey: JourneyType) {
+    super(`Required environment variable ${varName} for journey ${journey} is missing`);
+    this.name = 'MissingJourneyEnvError';
+  }
+}
+
+/**
+ * Formats an environment variable name with journey-specific prefix
  * 
- * @param journeyType - The journey type (health, care, plan, shared)
- * @param variableName - The base environment variable name
- * @returns The prefixed environment variable name
+ * @param name - Base name of the environment variable
+ * @param journey - Journey type to prefix with
+ * @returns Journey-prefixed environment variable name
  */
-export const getJourneyEnvName = (journeyType: JourneyType, variableName: string): string => {
-  const prefix = journeyType.toUpperCase();
-  return `${prefix}_${variableName}`;
-};
-
-/**
- * Retrieves a journey-specific environment variable
- * 
- * @param journeyType - The journey type (health, care, plan, shared)
- * @param variableName - The base environment variable name
- * @param defaultValue - Optional default value if the environment variable is not set
- * @returns The value of the environment variable or the default value
- */
-export const getJourneyEnv = (
-  journeyType: JourneyType,
-  variableName: string,
-  defaultValue?: string
-): string | undefined => {
-  const envName = getJourneyEnvName(journeyType, variableName);
-  
-  // Check cache first
-  if (envCache[envName] !== undefined) {
-    return envCache[envName];
+export const formatJourneyEnvName = (name: string, journey: JourneyType): string => {
+  // Shared variables don't get a journey prefix
+  if (journey === JourneyType.SHARED) {
+    return `AUSTA_${name}`;
   }
   
-  // Get from process.env and cache the result
-  const value = process.env[envName] || defaultValue;
-  envCache[envName] = value;
-  
-  return value;
+  return `AUSTA_${journey.toUpperCase()}_${name}`;
 };
 
 /**
- * Retrieves a required journey-specific environment variable
- * Throws an error if the variable is not set and no default is provided
+ * Gets an environment variable with journey-specific context
  * 
- * @param journeyType - The journey type (health, care, plan, shared)
- * @param variableName - The base environment variable name
- * @param defaultValue - Optional default value if the environment variable is not set
- * @returns The value of the environment variable or the default value
- * @throws MissingEnvironmentVariableError if the variable is not set and no default is provided
+ * @param name - Base name of the environment variable
+ * @param config - Journey environment configuration
+ * @returns The environment variable value or default
+ * @throws MissingJourneyEnvError if required and not found
  */
-export const getRequiredJourneyEnv = (
-  journeyType: JourneyType,
-  variableName: string,
-  defaultValue?: string
-): string => {
-  const value = getJourneyEnv(journeyType, variableName, defaultValue);
+export const getJourneyEnv = (name: string, config: JourneyEnvConfig): string => {
+  const { journey, defaultValue, required = false, shared = false } = config;
   
-  if (value === undefined) {
-    const envName = getJourneyEnvName(journeyType, variableName);
-    throw new MissingEnvironmentVariableError(
-      `Required journey-specific environment variable ${envName} is not set`,
-      envName
-    );
+  // Try journey-specific variable first
+  const journeyVarName = formatJourneyEnvName(name, journey);
+  let value = process.env[journeyVarName];
+  
+  // If not found and shared is true, try the shared variable
+  if (!value && shared) {
+    const sharedVarName = formatJourneyEnvName(name, JourneyType.SHARED);
+    value = process.env[sharedVarName];
   }
   
-  return value;
-};
-
-/**
- * Retrieves a journey-specific feature flag
- * Feature flags are boolean environment variables that control feature availability
- * 
- * @param journeyType - The journey type (health, care, plan, shared)
- * @param featureName - The name of the feature
- * @param defaultEnabled - Default enabled state if not specified in environment
- * @returns Feature flag configuration including enabled state and rollout percentage
- */
-export const getJourneyFeatureFlag = (
-  journeyType: JourneyType,
-  featureName: string,
-  defaultEnabled = false
-): JourneyFeatureFlag => {
-  const flagName = `FEATURE_${featureName.toUpperCase()}`;
-  const enabledValue = getJourneyEnv(journeyType, flagName, String(defaultEnabled));
-  const enabled = parseBoolean(enabledValue || String(defaultEnabled));
-  
-  // Check for percentage-based rollout
-  const percentageName = `FEATURE_${featureName.toUpperCase()}_PERCENTAGE`;
-  const percentageValue = getJourneyEnv(journeyType, percentageName);
-  const rolloutPercentage = percentageValue ? parseInt(percentageValue, 10) : undefined;
-  
-  return {
-    journeyType,
-    featureName,
-    enabled,
-    rolloutPercentage: rolloutPercentage !== undefined && !isNaN(rolloutPercentage) ? 
-      Math.min(Math.max(rolloutPercentage, 0), 100) : undefined
-  };
-};
-
-/**
- * Checks if a feature is enabled for a specific journey
- * 
- * @param journeyType - The journey type (health, care, plan, shared)
- * @param featureName - The name of the feature
- * @param defaultEnabled - Default enabled state if not specified in environment
- * @returns True if the feature is enabled, false otherwise
- */
-export const isFeatureEnabled = (
-  journeyType: JourneyType,
-  featureName: string,
-  defaultEnabled = false
-): boolean => {
-  const featureFlag = getJourneyFeatureFlag(journeyType, featureName, defaultEnabled);
-  return featureFlag.enabled;
-};
-
-/**
- * Checks if a feature is enabled for a specific user based on percentage rollout
- * 
- * @param journeyType - The journey type (health, care, plan, shared)
- * @param featureName - The name of the feature
- * @param userId - The user ID to check against percentage rollout
- * @param defaultEnabled - Default enabled state if not specified in environment
- * @returns True if the feature is enabled for this user, false otherwise
- */
-export const isFeatureEnabledForUser = (
-  journeyType: JourneyType,
-  featureName: string,
-  userId: string,
-  defaultEnabled = false
-): boolean => {
-  const featureFlag = getJourneyFeatureFlag(journeyType, featureName, defaultEnabled);
-  
-  // If feature is disabled globally, return false
-  if (!featureFlag.enabled) {
-    return false;
-  }
-  
-  // If no percentage rollout is defined, feature is enabled for all users
-  if (featureFlag.rolloutPercentage === undefined) {
-    return true;
-  }
-  
-  // Determine if user is in the rollout percentage
-  // Use a hash of the user ID to ensure consistent results
-  const hash = hashString(userId + featureName);
-  const userPercentile = hash % 100;
-  
-  return userPercentile < featureFlag.rolloutPercentage;
-};
-
-/**
- * Shares an environment variable across multiple journeys
- * 
- * @param config - Configuration for cross-journey sharing
- * @returns The shared environment variable value or undefined if not set
- */
-export const getSharedJourneyEnv = (config: CrossJourneyConfig): string | undefined => {
-  // First try to get from shared namespace
-  const sharedValue = getJourneyEnv(JourneyType.SHARED, config.variableName, config.defaultValue);
-  if (sharedValue !== undefined) {
-    return sharedValue;
-  }
-  
-  // Then try each journey in the specified order
-  for (const journeyType of config.shareAcross) {
-    const journeyValue = getJourneyEnv(journeyType, config.variableName);
-    if (journeyValue !== undefined) {
-      return journeyValue;
+  // If still not found, use default or throw error if required
+  if (!value) {
+    if (required && defaultValue === undefined) {
+      throw new MissingJourneyEnvError(journeyVarName, journey);
     }
-  }
-  
-  // Return default if provided
-  return config.defaultValue;
-};
-
-/**
- * Retrieves a required shared environment variable across multiple journeys
- * Throws an error if the variable is not set in any of the specified journeys and no default is provided
- * 
- * @param config - Configuration for cross-journey sharing
- * @returns The shared environment variable value
- * @throws MissingEnvironmentVariableError if the variable is not set in any journey and no default is provided
- */
-export const getRequiredSharedJourneyEnv = (config: CrossJourneyConfig): string => {
-  const value = getSharedJourneyEnv(config);
-  
-  if (value === undefined) {
-    throw new MissingEnvironmentVariableError(
-      `Required shared environment variable ${config.variableName} is not set in any journey: ${config.shareAcross.join(', ')}`,
-      config.variableName
-    );
+    return defaultValue !== undefined ? defaultValue : '';
   }
   
   return value;
+};
+
+/**
+ * Gets a boolean environment variable with journey-specific context
+ * 
+ * @param name - Base name of the environment variable
+ * @param config - Journey environment configuration
+ * @returns The environment variable as a boolean
+ */
+export const getJourneyEnvBool = (name: string, config: JourneyEnvConfig): boolean => {
+  const value = getJourneyEnv(name, config);
+  
+  if (!value) return false;
+  
+  return ['true', 'yes', '1', 'on'].includes(value.toLowerCase());
+};
+
+/**
+ * Gets a numeric environment variable with journey-specific context
+ * 
+ * @param name - Base name of the environment variable
+ * @param config - Journey environment configuration
+ * @returns The environment variable as a number
+ */
+export const getJourneyEnvNumber = (name: string, config: JourneyEnvConfig): number => {
+  const value = getJourneyEnv(name, config);
+  
+  if (!value) return 0;
+  
+  const parsed = Number(value);
+  return isNaN(parsed) ? 0 : parsed;
+};
+
+/**
+ * Gets a JSON environment variable with journey-specific context
+ * 
+ * @param name - Base name of the environment variable
+ * @param config - Journey environment configuration
+ * @returns The environment variable parsed as JSON
+ */
+export const getJourneyEnvJson = <T>(name: string, config: JourneyEnvConfig): T | null => {
+  const value = getJourneyEnv(name, config);
+  
+  if (!value) return null;
+  
+  try {
+    return JSON.parse(value) as T;
+  } catch (error) {
+    console.error(`Failed to parse JSON from environment variable ${name}:`, error);
+    return null;
+  }
+};
+
+/**
+ * Checks if a feature flag is enabled for a specific journey
+ * 
+ * @param featureName - Name of the feature flag
+ * @param config - Feature flag configuration
+ * @returns Whether the feature is enabled
+ */
+export const isFeatureEnabled = (featureName: string, config: FeatureFlagConfig): boolean => {
+  // Default to false if not specified
+  const featureConfig: FeatureFlagConfig = {
+    defaultValue: 'false',
+    ...config
+  };
+  
+  return getJourneyEnvBool(`FEATURE_${featureName}`, featureConfig);
 };
 
 /**
  * Gets all environment variables for a specific journey
  * 
- * @param journeyType - The journey type (health, care, plan, shared)
- * @returns Object containing all environment variables for the specified journey
+ * @param journey - Journey type to get variables for
+ * @param includeShared - Whether to include shared variables
+ * @returns Object containing all journey-specific environment variables
  */
-export const getAllJourneyEnvs = (journeyType: JourneyType): Record<string, string> => {
-  const prefix = journeyType.toUpperCase() + '_';
+export const getAllJourneyEnvs = (journey: JourneyType, includeShared = true): Record<string, string> => {
   const result: Record<string, string> = {};
+  const prefix = `AUSTA_${journey.toUpperCase()}_`;
+  const sharedPrefix = 'AUSTA_';
   
-  // Iterate through all environment variables
-  Object.keys(process.env).forEach(key => {
+  // Get all environment variables
+  const allEnvs = process.env;
+  
+  // Add journey-specific variables
+  Object.keys(allEnvs).forEach(key => {
     if (key.startsWith(prefix)) {
-      const value = process.env[key];
-      if (value !== undefined) {
-        // Remove the prefix to get the base variable name
-        const baseKey = key.substring(prefix.length);
-        result[baseKey] = value;
-      }
+      // Remove the prefix to get the base name
+      const baseName = key.substring(prefix.length);
+      result[baseName] = allEnvs[key] || '';
     }
   });
+  
+  // Add shared variables if requested
+  if (includeShared) {
+    Object.keys(allEnvs).forEach(key => {
+      if (key.startsWith(sharedPrefix) && !key.includes('_HEALTH_') && 
+          !key.includes('_CARE_') && !key.includes('_PLAN_')) {
+        // Remove the prefix to get the base name
+        const baseName = key.substring(sharedPrefix.length);
+        // Don't override journey-specific variables
+        if (!result[baseName]) {
+          result[baseName] = allEnvs[key] || '';
+        }
+      }
+    });
+  }
   
   return result;
 };
 
 /**
- * Simple string hash function for consistent percentage-based feature flag rollouts
+ * Creates a journey-specific environment configuration object
  * 
- * @param str - The string to hash
- * @returns A number between 0 and 99
+ * @param journey - Journey type
+ * @param defaultValues - Default values for environment variables
+ * @returns Object with methods to access journey-specific environment variables
  */
-function hashString(str: string): number {
-  let hash = 0;
-  for (let i = 0; i < str.length; i++) {
-    const char = str.charCodeAt(i);
-    hash = ((hash << 5) - hash) + char;
-    hash = hash & hash; // Convert to 32bit integer
-  }
-  return Math.abs(hash) % 100;
-}
+export const createJourneyEnvConfig = (journey: JourneyType, defaultValues: Record<string, string> = {}) => {
+  return {
+    /**
+     * Gets a string environment variable for this journey
+     */
+    getString: (name: string, options: Partial<JourneyEnvConfig> = {}): string => {
+      return getJourneyEnv(name, {
+        journey,
+        defaultValue: defaultValues[name],
+        ...options
+      });
+    },
+    
+    /**
+     * Gets a boolean environment variable for this journey
+     */
+    getBoolean: (name: string, options: Partial<JourneyEnvConfig> = {}): boolean => {
+      return getJourneyEnvBool(name, {
+        journey,
+        defaultValue: defaultValues[name],
+        ...options
+      });
+    },
+    
+    /**
+     * Gets a numeric environment variable for this journey
+     */
+    getNumber: (name: string, options: Partial<JourneyEnvConfig> = {}): number => {
+      return getJourneyEnvNumber(name, {
+        journey,
+        defaultValue: defaultValues[name],
+        ...options
+      });
+    },
+    
+    /**
+     * Gets a JSON environment variable for this journey
+     */
+    getJson: <T>(name: string, options: Partial<JourneyEnvConfig> = {}): T | null => {
+      return getJourneyEnvJson<T>(name, {
+        journey,
+        defaultValue: defaultValues[name],
+        ...options
+      });
+    },
+    
+    /**
+     * Checks if a feature is enabled for this journey
+     */
+    isFeatureEnabled: (featureName: string, options: Partial<FeatureFlagConfig> = {}): boolean => {
+      return isFeatureEnabled(featureName, {
+        journey,
+        defaultValue: 'false',
+        ...options
+      });
+    },
+    
+    /**
+     * Gets all environment variables for this journey
+     */
+    getAll: (includeShared = true): Record<string, string> => {
+      return getAllJourneyEnvs(journey, includeShared);
+    }
+  };
+};
+
+// Pre-configured journey environment helpers
+export const healthEnv = createJourneyEnvConfig(JourneyType.HEALTH);
+export const careEnv = createJourneyEnvConfig(JourneyType.CARE);
+export const planEnv = createJourneyEnvConfig(JourneyType.PLAN);
+export const sharedEnv = createJourneyEnvConfig(JourneyType.SHARED);

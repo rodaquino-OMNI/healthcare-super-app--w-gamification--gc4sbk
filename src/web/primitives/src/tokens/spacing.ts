@@ -8,42 +8,30 @@
  * The spacing system follows an 8-point grid system with additional 
  * values for finer control.
  * 
- * @example Usage with styled-components
- * ```tsx
- * import { spacing } from '@design-system/primitives';
+ * @example
+ * // Import in styled-components
+ * import { spacing, spacingValues } from '@design-system/primitives';
  * 
- * const Card = styled.div`
- *   padding: ${spacing.md};
- *   margin-bottom: ${spacing.lg};
+ * const Container = styled.div`
+ *   margin: ${spacing.md};
+ *   padding: ${spacing.sm} ${spacing.lg};
  * `;
- * ```
  * 
- * @example Usage with React Native
- * ```tsx
+ * @example
+ * // Import in React Native
  * import { spacingValues } from '@design-system/primitives';
  * 
  * const styles = StyleSheet.create({
  *   container: {
- *     padding: spacingValues.md,
- *     marginBottom: spacingValues.lg,
+ *     margin: spacingValues.md,
+ *     padding: spacingValues.sm,
  *   }
  * });
- * ```
- * 
- * @example Usage with compound spacing helpers
- * ```tsx
- * import { inset, squish, stretch } from '@design-system/primitives';
- * 
- * const Card = styled.div`
- *   ${inset.md}; // applies equal padding on all sides
- *   ${squish.sm}; // applies horizontal padding > vertical padding
- * `;
- * ```
  */
 
 /**
  * SpacingToken interface for type-safe spacing values
- * This interface is used by @austa/interfaces for theme typing
+ * This interface is compatible with @austa/interfaces theme types
  */
 export interface SpacingToken {
   readonly xs: number;
@@ -57,10 +45,10 @@ export interface SpacingToken {
 }
 
 /**
- * SpacingTokenWithUnits interface for type-safe spacing values with CSS units
- * This interface is used by @austa/interfaces for theme typing
+ * SpacingTokenString interface for CSS string values
+ * This interface is compatible with @austa/interfaces theme types
  */
-export interface SpacingTokenWithUnits {
+export interface SpacingTokenString {
   readonly xs: string;
   readonly sm: string;
   readonly md: string;
@@ -72,10 +60,10 @@ export interface SpacingTokenWithUnits {
 }
 
 /**
- * SpacingTokenWithNegatives interface for type-safe spacing values with negative values
- * This interface is used by @austa/interfaces for theme typing
+ * NegativeSpacingToken interface for negative margin values
+ * This interface is compatible with @austa/interfaces theme types
  */
-export interface SpacingTokenWithNegatives extends SpacingToken {
+export interface NegativeSpacingToken {
   readonly '-xs': number;
   readonly '-sm': number;
   readonly '-md': number;
@@ -87,10 +75,10 @@ export interface SpacingTokenWithNegatives extends SpacingToken {
 }
 
 /**
- * SpacingTokenWithNegativesAndUnits interface for type-safe spacing values with negative values and CSS units
- * This interface is used by @austa/interfaces for theme typing
+ * NegativeSpacingTokenString interface for negative CSS string values
+ * This interface is compatible with @austa/interfaces theme types
  */
-export interface SpacingTokenWithNegativesAndUnits extends SpacingTokenWithUnits {
+export interface NegativeSpacingTokenString {
   readonly '-xs': string;
   readonly '-sm': string;
   readonly '-md': string;
@@ -102,8 +90,50 @@ export interface SpacingTokenWithNegativesAndUnits extends SpacingTokenWithUnits
 }
 
 /**
+ * CompoundSpacingToken interface for inset, squish, and stretch patterns
+ * This interface is compatible with @austa/interfaces theme types
+ */
+export interface CompoundSpacingToken {
+  readonly inset: {
+    readonly xs: string;
+    readonly sm: string;
+    readonly md: string;
+    readonly lg: string;
+    readonly xl: string;
+  };
+  readonly squish: {
+    readonly xs: string;
+    readonly sm: string;
+    readonly md: string;
+    readonly lg: string;
+    readonly xl: string;
+  };
+  readonly stretch: {
+    readonly xs: string;
+    readonly sm: string;
+    readonly md: string;
+    readonly lg: string;
+    readonly xl: string;
+  };
+}
+
+/**
+ * ResponsiveSpacingMultiplier interface for responsive spacing adjustments
+ * This interface is compatible with @austa/interfaces theme types
+ */
+export interface ResponsiveSpacingMultiplier {
+  readonly xs: number; // Extra small screens (mobile)
+  readonly sm: number; // Small screens (large mobile)
+  readonly md: number; // Medium screens (tablet)
+  readonly lg: number; // Large screens (desktop)
+  readonly xl: number; // Extra large screens (large desktop)
+}
+
+/**
  * Raw numeric spacing values in pixels
  * Used for programmatic calculations and manipulations
+ * 
+ * @type {SpacingToken}
  */
 export const spacingValues: SpacingToken = {
   xs: 4,   // Extra small spacing
@@ -117,26 +147,12 @@ export const spacingValues: SpacingToken = {
 };
 
 /**
- * Raw numeric spacing values with negative values in pixels
- * Used for programmatic calculations and margin adjustments
- */
-export const spacingValuesWithNegatives: SpacingTokenWithNegatives = {
-  ...spacingValues,
-  '-xs': -4,   // Negative extra small spacing
-  '-sm': -8,   // Negative small spacing
-  '-md': -16,  // Negative medium spacing
-  '-lg': -24,  // Negative large spacing
-  '-xl': -32,  // Negative extra large spacing
-  '-2xl': -48, // Negative 2x extra large spacing
-  '-3xl': -64, // Negative 3x extra large spacing
-  '-4xl': -96, // Negative 4x extra large spacing
-};
-
-/**
  * Spacing values with pixel units
  * For direct use in styled-components and CSS
+ * 
+ * @type {SpacingTokenString}
  */
-export const spacing: SpacingTokenWithUnits = {
+export const spacing: SpacingTokenString = {
   xs: '4px',    // Extra small spacing
   sm: '8px',    // Small spacing
   md: '16px',   // Medium spacing
@@ -148,11 +164,29 @@ export const spacing: SpacingTokenWithUnits = {
 };
 
 /**
- * Spacing values with negative pixel units
- * For direct use in styled-components and CSS for negative margins
+ * Negative spacing values in pixels
+ * Used for negative margins and position adjustments
+ * 
+ * @type {NegativeSpacingToken}
  */
-export const spacingWithNegatives: SpacingTokenWithNegativesAndUnits = {
-  ...spacing,
+export const negativeSpacingValues: NegativeSpacingToken = {
+  '-xs': -4,   // Negative extra small spacing
+  '-sm': -8,   // Negative small spacing
+  '-md': -16,  // Negative medium spacing
+  '-lg': -24,  // Negative large spacing
+  '-xl': -32,  // Negative extra large spacing
+  '-2xl': -48, // Negative 2x extra large spacing
+  '-3xl': -64, // Negative 3x extra large spacing
+  '-4xl': -96, // Negative 4x extra large spacing
+};
+
+/**
+ * Negative spacing values with pixel units
+ * For direct use in styled-components and CSS
+ * 
+ * @type {NegativeSpacingTokenString}
+ */
+export const negativeSpacing: NegativeSpacingTokenString = {
   '-xs': '-4px',    // Negative extra small spacing
   '-sm': '-8px',    // Negative small spacing
   '-md': '-16px',   // Negative medium spacing
@@ -164,70 +198,110 @@ export const spacingWithNegatives: SpacingTokenWithNegativesAndUnits = {
 };
 
 /**
- * Responsive spacing multipliers for different viewport sizes
- * Used to adjust spacing based on screen size
- */
-export const spacingMultipliers = {
-  xs: 0.75,  // Extra small screens (mobile)
-  sm: 1,     // Small screens (mobile landscape)
-  md: 1.25,  // Medium screens (tablet)
-  lg: 1.5,   // Large screens (desktop)
-  xl: 2,     // Extra large screens (large desktop)
-};
-
-/**
- * Helper function to calculate responsive spacing
- * @param baseSize - Base spacing value in pixels
- * @param multiplier - Responsive multiplier
- * @returns Calculated spacing value in pixels
- */
-export const getResponsiveSpacing = (baseSize: number, multiplier: number): number => {
-  return Math.round(baseSize * multiplier);
-};
-
-/**
- * Compound spacing helpers for common padding patterns
+ * Responsive spacing multipliers
+ * Used to adjust spacing based on viewport size
  * 
- * inset: Equal padding on all sides
- * squish: Horizontal padding > vertical padding
- * stretch: Vertical padding > horizontal padding
+ * @type {ResponsiveSpacingMultiplier}
  */
-
-/**
- * Inset spacing - equal padding on all sides
- * Useful for containers, cards, and buttons
- */
-export const inset = {
-  xs: `padding: ${spacing.xs};`,
-  sm: `padding: ${spacing.sm};`,
-  md: `padding: ${spacing.md};`,
-  lg: `padding: ${spacing.lg};`,
-  xl: `padding: ${spacing.xl};`,
-  '2xl': `padding: ${spacing['2xl']};`,
-  '3xl': `padding: ${spacing['3xl']};`,
-  '4xl': `padding: ${spacing['4xl']};`,
+export const responsiveSpacingMultiplier: ResponsiveSpacingMultiplier = {
+  xs: 0.75, // Reduce spacing on extra small screens
+  sm: 0.875, // Slightly reduce spacing on small screens
+  md: 1,    // Base spacing for medium screens
+  lg: 1.125, // Slightly increase spacing on large screens
+  xl: 1.25, // Increase spacing on extra large screens
 };
 
 /**
- * Squish spacing - horizontal padding > vertical padding
- * Useful for buttons, tabs, and chips
+ * Compound spacing patterns
+ * Provides predefined spacing combinations for common layout patterns
+ * 
+ * - inset: Equal spacing on all sides (padding)
+ * - squish: More horizontal than vertical spacing (buttons, chips)
+ * - stretch: More vertical than horizontal spacing (stacked elements)
+ * 
+ * @type {CompoundSpacingToken}
  */
-export const squish = {
-  xs: `padding: ${spacing.xs} ${spacing.sm};`,
-  sm: `padding: ${spacing.sm} ${spacing.md};`,
-  md: `padding: ${spacing.md} ${spacing.lg};`,
-  lg: `padding: ${spacing.lg} ${spacing.xl};`,
-  xl: `padding: ${spacing.xl} ${spacing['2xl']};`,
+export const compoundSpacing: CompoundSpacingToken = {
+  // Equal spacing on all sides
+  inset: {
+    xs: `${spacing.xs}`,
+    sm: `${spacing.sm}`,
+    md: `${spacing.md}`,
+    lg: `${spacing.lg}`,
+    xl: `${spacing.xl}`,
+  },
+  // More horizontal spacing than vertical (for buttons, chips, etc.)
+  squish: {
+    xs: `${spacing.xs} ${spacing.sm}`,
+    sm: `${spacing.sm} ${spacing.md}`,
+    md: `${spacing.md} ${spacing.lg}`,
+    lg: `${spacing.lg} ${spacing.xl}`,
+    xl: `${spacing.xl} ${spacing['2xl']}`,
+  },
+  // More vertical spacing than horizontal (for stacked elements)
+  stretch: {
+    xs: `${spacing.sm} ${spacing.xs}`,
+    sm: `${spacing.md} ${spacing.sm}`,
+    md: `${spacing.lg} ${spacing.md}`,
+    lg: `${spacing.xl} ${spacing.lg}`,
+    xl: `${spacing['2xl']} ${spacing.xl}`,
+  },
 };
 
 /**
- * Stretch spacing - vertical padding > horizontal padding
- * Useful for inputs, dropdowns, and menu items
+ * Helper function to apply responsive spacing
+ * Adjusts spacing values based on the current viewport size
+ * 
+ * @param {keyof SpacingToken} size - The base spacing size
+ * @param {keyof ResponsiveSpacingMultiplier} viewport - The viewport size
+ * @returns {number} - The adjusted spacing value
+ * 
+ * @example
+ * // In a responsive component
+ * import { getResponsiveSpacing, spacingValues } from '@design-system/primitives';
+ * 
+ * const responsiveMargin = getResponsiveSpacing('md', 'sm');
+ * // Returns 14 (16 * 0.875) for small viewport
  */
-export const stretch = {
-  xs: `padding: ${spacing.sm} ${spacing.xs};`,
-  sm: `padding: ${spacing.md} ${spacing.sm};`,
-  md: `padding: ${spacing.lg} ${spacing.md};`,
-  lg: `padding: ${spacing.xl} ${spacing.lg};`,
-  xl: `padding: ${spacing['2xl']} ${spacing.xl};`,
+export const getResponsiveSpacing = (
+  size: keyof SpacingToken,
+  viewport: keyof ResponsiveSpacingMultiplier
+): number => {
+  return Math.round(spacingValues[size] * responsiveSpacingMultiplier[viewport]);
+};
+
+/**
+ * Helper function to get spacing value as a number
+ * Useful for calculations and manipulations
+ * 
+ * @param {keyof SpacingToken} size - The spacing size
+ * @returns {number} - The spacing value in pixels
+ * 
+ * @example
+ * // For calculations
+ * import { getSpacing } from '@design-system/primitives';
+ * 
+ * const doubleSpacing = getSpacing('md') * 2; // 32
+ */
+export const getSpacing = (size: keyof SpacingToken): number => {
+  return spacingValues[size];
+};
+
+/**
+ * Helper function to get spacing value as a string with px units
+ * Useful for styled-components and CSS
+ * 
+ * @param {keyof SpacingToken} size - The spacing size
+ * @returns {string} - The spacing value with px units
+ * 
+ * @example
+ * // In styled-components
+ * import { getSpacingString } from '@design-system/primitives';
+ * 
+ * const Container = styled.div`
+ *   margin: ${getSpacingString('md')};
+ * `;
+ */
+export const getSpacingString = (size: keyof SpacingToken): string => {
+  return spacing[size];
 };

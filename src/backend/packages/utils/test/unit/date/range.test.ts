@@ -1,458 +1,329 @@
 /**
- * Tests for date range utilities
+ * Test suite for date range utility functions
  * 
- * This file contains tests for date range generation functions including getDateRange and getDatesBetween,
- * verifying that predefined ranges (today, yesterday, thisWeek, etc.) and custom date ranges work correctly.
- * These functions are essential for reporting, data filtering, and analytics across journey services.
+ * Tests the following functions:
+ * - getDateRange: Returns a date range (startDate, endDate) for predefined range types
+ * - getDatesBetween: Returns an array of dates between a start and end date
+ * - isDateInRange: Checks if a date is within a given range
  */
 
+import { MockDate } from 'mockdate';
 import {
   getDateRange,
   getDatesBetween,
-  isValidDateRange,
-  createCustomDateRange,
-  DateRangeType,
-  InvalidDateRangeError
+  isDateInRange
 } from '../../../src/date/range';
 
 import {
-  startOfDay,
-  endOfDay,
-  startOfWeek,
-  endOfWeek,
-  startOfMonth,
-  endOfMonth,
-  startOfYear,
-  endOfYear,
-  subDays,
-  subMonths,
-  subYears,
-  isSameDay,
-  isEqual
-} from 'date-fns';
+  REFERENCE_DATES,
+  EXPECTED_RANGES,
+  RANGE_TYPE_MAPPING,
+  DATE_RANGE_INCLUSION_TESTS,
+  DATES_BETWEEN_TESTS,
+  JOURNEY_DATE_RANGES,
+  EDGE_CASE_FIXTURES
+} from '../../fixtures/date/range';
 
 describe('Date Range Utilities', () => {
-  // Test fixtures
-  const referenceDate = new Date(2023, 0, 15); // January 15, 2023 (a Sunday)
-  
-  // Mock current date for consistent testing
-  const originalNow = Date.now;
-  
+  // Set up date mocking for deterministic tests
   beforeAll(() => {
-    // Mock Date.now for consistent testing
-    Date.now = jest.fn(() => referenceDate.getTime());
+    // Set the fixed date to our standard reference date
+    MockDate.set(REFERENCE_DATES.STANDARD);
   });
-  
+
   afterAll(() => {
-    // Restore original Date.now
-    Date.now = originalNow;
+    // Reset the date mock after all tests
+    MockDate.reset();
   });
 
   describe('getDateRange', () => {
-    describe('Predefined range types', () => {
-      test('today returns current day range', () => {
-        const range = getDateRange('today', referenceDate);
-        
-        expect(isEqual(range.startDate, startOfDay(referenceDate))).toBe(true);
-        expect(isEqual(range.endDate, endOfDay(referenceDate))).toBe(true);
+    describe('Predefined Range Types', () => {
+      // Test each predefined range type
+      Object.entries(RANGE_TYPE_MAPPING).forEach(([rangeType, expectedRangeKey]) => {
+        it(`should return correct range for ${rangeType}`, () => {
+          const expectedRange = EXPECTED_RANGES[expectedRangeKey];
+          const result = getDateRange(rangeType);
+          
+          expect(result.startDate).toEqual(expectedRange.startDate);
+          expect(result.endDate).toEqual(expectedRange.endDate);
+        });
       });
-      
-      test('yesterday returns previous day range', () => {
-        const range = getDateRange('yesterday', referenceDate);
-        const yesterday = subDays(referenceDate, 1);
-        
-        expect(isEqual(range.startDate, startOfDay(yesterday))).toBe(true);
-        expect(isEqual(range.endDate, endOfDay(yesterday))).toBe(true);
-      });
-      
-      test('thisWeek returns current week range', () => {
-        const range = getDateRange('thisWeek', referenceDate);
-        
-        expect(isEqual(range.startDate, startOfWeek(referenceDate, { weekStartsOn: 0 }))).toBe(true);
-        expect(isEqual(range.endDate, endOfWeek(referenceDate, { weekStartsOn: 0 }))).toBe(true);
-      });
-      
-      test('lastWeek returns previous week range', () => {
-        const range = getDateRange('lastWeek', referenceDate);
-        const lastWeek = subDays(referenceDate, 7);
-        
-        expect(isEqual(range.startDate, startOfWeek(lastWeek, { weekStartsOn: 0 }))).toBe(true);
-        expect(isEqual(range.endDate, endOfWeek(lastWeek, { weekStartsOn: 0 }))).toBe(true);
-      });
-      
-      test('thisMonth returns current month range', () => {
-        const range = getDateRange('thisMonth', referenceDate);
-        
-        expect(isEqual(range.startDate, startOfMonth(referenceDate))).toBe(true);
-        expect(isEqual(range.endDate, endOfMonth(referenceDate))).toBe(true);
-      });
-      
-      test('lastMonth returns previous month range', () => {
-        const range = getDateRange('lastMonth', referenceDate);
-        const lastMonth = subMonths(referenceDate, 1);
-        
-        expect(isEqual(range.startDate, startOfMonth(lastMonth))).toBe(true);
-        expect(isEqual(range.endDate, endOfMonth(lastMonth))).toBe(true);
-      });
-      
-      test('thisYear returns current year range', () => {
-        const range = getDateRange('thisYear', referenceDate);
-        
-        expect(isEqual(range.startDate, startOfYear(referenceDate))).toBe(true);
-        expect(isEqual(range.endDate, endOfYear(referenceDate))).toBe(true);
-      });
-      
-      test('lastYear returns previous year range', () => {
-        const range = getDateRange('lastYear', referenceDate);
-        const lastYear = subYears(referenceDate, 1);
-        
-        expect(isEqual(range.startDate, startOfYear(lastYear))).toBe(true);
-        expect(isEqual(range.endDate, endOfYear(lastYear))).toBe(true);
-      });
-      
-      test('last7Days returns range for last 7 days', () => {
-        const range = getDateRange('last7Days', referenceDate);
-        
-        expect(isEqual(range.startDate, startOfDay(subDays(referenceDate, 6)))).toBe(true);
-        expect(isEqual(range.endDate, endOfDay(referenceDate))).toBe(true);
-      });
-      
-      test('last30Days returns range for last 30 days', () => {
-        const range = getDateRange('last30Days', referenceDate);
-        
-        expect(isEqual(range.startDate, startOfDay(subDays(referenceDate, 29)))).toBe(true);
-        expect(isEqual(range.endDate, endOfDay(referenceDate))).toBe(true);
-      });
-      
-      test('last90Days returns range for last 90 days', () => {
-        const range = getDateRange('last90Days', referenceDate);
-        
-        expect(isEqual(range.startDate, startOfDay(subDays(referenceDate, 89)))).toBe(true);
-        expect(isEqual(range.endDate, endOfDay(referenceDate))).toBe(true);
-      });
-      
-      test('last365Days returns range for last 365 days', () => {
-        const range = getDateRange('last365Days', referenceDate);
-        
-        expect(isEqual(range.startDate, startOfDay(subDays(referenceDate, 364)))).toBe(true);
-        expect(isEqual(range.endDate, endOfDay(referenceDate))).toBe(true);
-      });
-      
-      test('currentQuarter returns range for current quarter', () => {
-        const range = getDateRange('currentQuarter', referenceDate);
-        
-        // January 15, 2023 is in Q1 (Jan-Mar)
-        const quarterStart = new Date(2023, 0, 1); // Jan 1
-        const quarterEnd = new Date(2023, 2, 31); // Mar 31
-        
-        expect(isEqual(range.startDate, startOfDay(quarterStart))).toBe(true);
-        expect(isEqual(range.endDate, endOfDay(quarterEnd))).toBe(true);
-      });
-      
-      test('lastQuarter returns range for previous quarter', () => {
-        const range = getDateRange('lastQuarter', referenceDate);
-        
-        // For January 15, 2023, the last quarter is Q4 of previous year (Oct-Dec 2022)
-        const lastQuarterStart = new Date(2022, 9, 1); // Oct 1, 2022
-        const lastQuarterEnd = new Date(2022, 11, 31); // Dec 31, 2022
-        
-        expect(isEqual(range.startDate, startOfDay(lastQuarterStart))).toBe(true);
-        expect(isEqual(range.endDate, endOfDay(lastQuarterEnd))).toBe(true);
-      });
-      
-      test('ytd returns range from start of year to current date', () => {
-        const range = getDateRange('ytd', referenceDate);
-        
-        expect(isEqual(range.startDate, startOfYear(referenceDate))).toBe(true);
-        expect(isEqual(range.endDate, endOfDay(referenceDate))).toBe(true);
-      });
-      
-      test('custom returns range with reference date as both start and end', () => {
-        const range = getDateRange('custom', referenceDate);
-        
-        expect(isEqual(range.startDate, startOfDay(referenceDate))).toBe(true);
-        expect(isEqual(range.endDate, endOfDay(referenceDate))).toBe(true);
+
+      it('should throw an error for invalid range type', () => {
+        expect(() => getDateRange('invalidRangeType')).toThrow();
       });
     });
-    
-    describe('Different reference dates', () => {
-      test('handles different months correctly', () => {
-        // Test with April 15, 2023
-        const aprilDate = new Date(2023, 3, 15);
-        const range = getDateRange('thisMonth', aprilDate);
+
+    describe('Custom Date Ranges', () => {
+      it('should return correct range for custom start and end dates', () => {
+        const startDate = new Date('2023-01-01T00:00:00Z');
+        const endDate = new Date('2023-01-31T23:59:59.999Z');
         
-        expect(range.startDate.getMonth()).toBe(3); // April (0-indexed)
-        expect(range.endDate.getMonth()).toBe(3); // April (0-indexed)
-        expect(range.startDate.getDate()).toBe(1); // 1st day of month
-        expect(range.endDate.getDate()).toBe(30); // Last day of April
+        const result = getDateRange('custom', { startDate, endDate });
+        
+        expect(result.startDate).toEqual(startDate);
+        expect(result.endDate).toEqual(endDate);
       });
-      
-      test('handles leap years correctly', () => {
-        // Test with February 2024 (leap year)
-        const leapYearDate = new Date(2024, 1, 15); // February 15, 2024
-        const range = getDateRange('thisMonth', leapYearDate);
-        
-        expect(range.startDate.getMonth()).toBe(1); // February (0-indexed)
-        expect(range.endDate.getMonth()).toBe(1); // February (0-indexed)
-        expect(range.startDate.getDate()).toBe(1); // 1st day of month
-        expect(range.endDate.getDate()).toBe(29); // Last day of February in leap year
+
+      it('should throw an error if custom range is requested without dates', () => {
+        expect(() => getDateRange('custom')).toThrow();
       });
-      
-      test('handles year boundaries correctly', () => {
-        // Test with December 31, 2023
-        const yearEndDate = new Date(2023, 11, 31);
-        const range = getDateRange('last7Days', yearEndDate);
+
+      it('should throw an error if end date is before start date', () => {
+        const startDate = new Date('2023-01-31T00:00:00Z');
+        const endDate = new Date('2023-01-01T00:00:00Z');
         
-        // Should include dates from previous year
-        expect(range.startDate.getFullYear()).toBe(2023);
-        expect(range.startDate.getMonth()).toBe(11); // December (0-indexed)
-        expect(range.startDate.getDate()).toBe(25); // December 25
-        
-        expect(range.endDate.getFullYear()).toBe(2023);
-        expect(range.endDate.getMonth()).toBe(11); // December (0-indexed)
-        expect(range.endDate.getDate()).toBe(31); // December 31
+        expect(() => getDateRange('custom', { startDate, endDate })).toThrow();
       });
     });
-    
-    describe('Error handling', () => {
-      test('throws InvalidDateRangeError for invalid range type', () => {
-        expect(() => {
-          getDateRange('invalidRangeType' as DateRangeType);
-        }).toThrow(InvalidDateRangeError);
+
+    describe('Reference Date Parameter', () => {
+      it('should use provided reference date instead of current date', () => {
+        const referenceDate = REFERENCE_DATES.JANUARY;
+        const result = getDateRange('today', null, referenceDate);
+        
+        // Should be January 15, 2023 (00:00:00 to 23:59:59)
+        expect(result.startDate).toEqual(new Date('2023-01-15T00:00:00Z'));
+        expect(result.endDate).toEqual(new Date('2023-01-15T23:59:59.999Z'));
       });
-      
-      test('throws InvalidDateRangeError for null reference date', () => {
-        expect(() => {
-          getDateRange('today', null as unknown as Date);
-        }).toThrow(InvalidDateRangeError);
-      });
-      
-      test('throws InvalidDateRangeError for invalid Date object', () => {
-        expect(() => {
-          getDateRange('today', new Date('invalid'));
-        }).toThrow(InvalidDateRangeError);
+
+      it('should calculate relative ranges from reference date', () => {
+        const referenceDate = REFERENCE_DATES.JANUARY;
+        const result = getDateRange('last7Days', null, referenceDate);
+        
+        // Should be January 9-15, 2023
+        expect(result.startDate).toEqual(new Date('2023-01-09T00:00:00Z'));
+        expect(result.endDate).toEqual(new Date('2023-01-15T23:59:59.999Z'));
       });
     });
   });
 
   describe('getDatesBetween', () => {
-    describe('Valid date ranges', () => {
-      test('returns array of dates between start and end (inclusive)', () => {
-        const startDate = new Date(2023, 0, 1); // January 1, 2023
-        const endDate = new Date(2023, 0, 5); // January 5, 2023
+    DATES_BETWEEN_TESTS.forEach(test => {
+      it(`should return correct dates for ${test.description}`, () => {
+        const result = getDatesBetween(test.startDate, test.endDate);
         
-        const dates = getDatesBetween(startDate, endDate);
-        
-        expect(dates.length).toBe(5); // 5 days including start and end
-        expect(dates[0].getDate()).toBe(1);
-        expect(dates[1].getDate()).toBe(2);
-        expect(dates[2].getDate()).toBe(3);
-        expect(dates[3].getDate()).toBe(4);
-        expect(dates[4].getDate()).toBe(5);
-      });
-      
-      test('returns single date when start and end are the same day', () => {
-        const sameDate = new Date(2023, 0, 15); // January 15, 2023
-        
-        const dates = getDatesBetween(sameDate, sameDate);
-        
-        expect(dates.length).toBe(1);
-        expect(isSameDay(dates[0], sameDate)).toBe(true);
-      });
-      
-      test('handles month boundaries correctly', () => {
-        const startDate = new Date(2023, 0, 30); // January 30, 2023
-        const endDate = new Date(2023, 1, 2); // February 2, 2023
-        
-        const dates = getDatesBetween(startDate, endDate);
-        
-        expect(dates.length).toBe(4); // Jan 30, 31, Feb 1, 2
-        expect(dates[0].getMonth()).toBe(0); // January (0-indexed)
-        expect(dates[0].getDate()).toBe(30);
-        expect(dates[1].getMonth()).toBe(0); // January (0-indexed)
-        expect(dates[1].getDate()).toBe(31);
-        expect(dates[2].getMonth()).toBe(1); // February (0-indexed)
-        expect(dates[2].getDate()).toBe(1);
-        expect(dates[3].getMonth()).toBe(1); // February (0-indexed)
-        expect(dates[3].getDate()).toBe(2);
-      });
-      
-      test('handles year boundaries correctly', () => {
-        const startDate = new Date(2022, 11, 30); // December 30, 2022
-        const endDate = new Date(2023, 0, 2); // January 2, 2023
-        
-        const dates = getDatesBetween(startDate, endDate);
-        
-        expect(dates.length).toBe(4); // Dec 30, 31, Jan 1, 2
-        expect(dates[0].getFullYear()).toBe(2022);
-        expect(dates[0].getMonth()).toBe(11); // December (0-indexed)
-        expect(dates[1].getFullYear()).toBe(2022);
-        expect(dates[1].getMonth()).toBe(11); // December (0-indexed)
-        expect(dates[2].getFullYear()).toBe(2023);
-        expect(dates[2].getMonth()).toBe(0); // January (0-indexed)
-        expect(dates[3].getFullYear()).toBe(2023);
-        expect(dates[3].getMonth()).toBe(0); // January (0-indexed)
-      });
-      
-      test('returns dates with time set to midnight', () => {
-        const startDate = new Date(2023, 0, 1, 10, 30); // January 1, 2023, 10:30 AM
-        const endDate = new Date(2023, 0, 2, 15, 45); // January 2, 2023, 3:45 PM
-        
-        const dates = getDatesBetween(startDate, endDate);
-        
-        expect(dates.length).toBe(2);
-        // Time components should be preserved in the returned dates
-        expect(dates[0].getHours()).toBe(10);
-        expect(dates[0].getMinutes()).toBe(30);
-        expect(dates[1].getHours()).toBe(15);
-        expect(dates[1].getMinutes()).toBe(45);
+        expect(result.length).toBe(test.expectedCount);
+        expect(result[0]).toEqual(test.expectedFirstDate);
+        expect(result[result.length - 1]).toEqual(test.expectedLastDate);
       });
     });
-    
-    describe('Error handling', () => {
-      test('throws InvalidDateRangeError for null start date', () => {
-        expect(() => {
-          getDatesBetween(null as unknown as Date, new Date());
-        }).toThrow(InvalidDateRangeError);
-      });
+
+    it('should return dates with the specified interval', () => {
+      const startDate = new Date('2023-01-01T00:00:00Z');
+      const endDate = new Date('2023-01-31T23:59:59.999Z');
       
-      test('throws InvalidDateRangeError for null end date', () => {
-        expect(() => {
-          getDatesBetween(new Date(), null as unknown as Date);
-        }).toThrow(InvalidDateRangeError);
-      });
+      // Test with 7-day interval
+      const result = getDatesBetween(startDate, endDate, { days: 7 });
       
-      test('throws InvalidDateRangeError for invalid start Date object', () => {
-        expect(() => {
-          getDatesBetween(new Date('invalid'), new Date());
-        }).toThrow(InvalidDateRangeError);
-      });
+      // Should return 5 dates: Jan 1, 8, 15, 22, 29
+      expect(result.length).toBe(5);
+      expect(result[0]).toEqual(new Date('2023-01-01T00:00:00Z'));
+      expect(result[1]).toEqual(new Date('2023-01-08T00:00:00Z'));
+      expect(result[2]).toEqual(new Date('2023-01-15T00:00:00Z'));
+      expect(result[3]).toEqual(new Date('2023-01-22T00:00:00Z'));
+      expect(result[4]).toEqual(new Date('2023-01-29T00:00:00Z'));
+    });
+
+    it('should handle intervals specified in hours', () => {
+      const startDate = new Date('2023-01-01T00:00:00Z');
+      const endDate = new Date('2023-01-01T23:59:59.999Z');
       
-      test('throws InvalidDateRangeError for invalid end Date object', () => {
-        expect(() => {
-          getDatesBetween(new Date(), new Date('invalid'));
-        }).toThrow(InvalidDateRangeError);
-      });
+      // Test with 6-hour interval
+      const result = getDatesBetween(startDate, endDate, { hours: 6 });
       
-      test('throws InvalidDateRangeError when end date is before start date', () => {
-        const startDate = new Date(2023, 0, 15); // January 15, 2023
-        const endDate = new Date(2023, 0, 10); // January 10, 2023 (before start)
-        
-        expect(() => {
-          getDatesBetween(startDate, endDate);
-        }).toThrow(InvalidDateRangeError);
-      });
+      // Should return 4 dates: 00:00, 06:00, 12:00, 18:00
+      expect(result.length).toBe(4);
+      expect(result[0]).toEqual(new Date('2023-01-01T00:00:00Z'));
+      expect(result[1]).toEqual(new Date('2023-01-01T06:00:00Z'));
+      expect(result[2]).toEqual(new Date('2023-01-01T12:00:00Z'));
+      expect(result[3]).toEqual(new Date('2023-01-01T18:00:00Z'));
+    });
+
+    it('should throw an error if end date is before start date', () => {
+      const startDate = new Date('2023-01-31T00:00:00Z');
+      const endDate = new Date('2023-01-01T00:00:00Z');
+      
+      expect(() => getDatesBetween(startDate, endDate)).toThrow();
+    });
+
+    it('should handle a single day (same start and end date)', () => {
+      const startDate = new Date('2023-01-01T00:00:00Z');
+      const endDate = new Date('2023-01-01T23:59:59.999Z');
+      
+      const result = getDatesBetween(startDate, endDate);
+      
+      expect(result.length).toBe(1);
+      expect(result[0]).toEqual(startDate);
     });
   });
 
-  describe('isValidDateRange', () => {
-    test('returns true for valid date range with different dates', () => {
-      const startDate = new Date(2023, 0, 1); // January 1, 2023
-      const endDate = new Date(2023, 0, 15); // January 15, 2023
+  describe('isDateInRange', () => {
+    DATE_RANGE_INCLUSION_TESTS.forEach(test => {
+      it(`should return ${test.expectedResult} when ${test.description}`, () => {
+        const result = isDateInRange(test.date, test.range);
+        expect(result).toBe(test.expectedResult);
+      });
+    });
+
+    it('should respect inclusivity options for range boundaries', () => {
+      const date = new Date('2023-06-01T00:00:00Z');
+      const range = {
+        startDate: new Date('2023-06-01T00:00:00Z'),
+        endDate: new Date('2023-06-30T23:59:59.999Z')
+      };
       
-      expect(isValidDateRange(startDate, endDate)).toBe(true);
-    });
-    
-    test('returns true when start and end dates are the same', () => {
-      const sameDate = new Date(2023, 0, 15); // January 15, 2023
+      // Default behavior (inclusive)
+      expect(isDateInRange(date, range)).toBe(true);
       
-      expect(isValidDateRange(sameDate, sameDate)).toBe(true);
-    });
-    
-    test('returns false when end date is before start date', () => {
-      const startDate = new Date(2023, 0, 15); // January 15, 2023
-      const endDate = new Date(2023, 0, 1); // January 1, 2023 (before start)
+      // Exclusive start date
+      expect(isDateInRange(date, range, { includeStart: false })).toBe(false);
       
-      expect(isValidDateRange(startDate, endDate)).toBe(false);
-    });
-    
-    test('returns false for null start date', () => {
-      expect(isValidDateRange(null as unknown as Date, new Date())).toBe(false);
-    });
-    
-    test('returns false for null end date', () => {
-      expect(isValidDateRange(new Date(), null as unknown as Date)).toBe(false);
-    });
-    
-    test('returns false for invalid start Date object', () => {
-      expect(isValidDateRange(new Date('invalid'), new Date())).toBe(false);
-    });
-    
-    test('returns false for invalid end Date object', () => {
-      expect(isValidDateRange(new Date(), new Date('invalid'))).toBe(false);
+      // Exclusive end date (shouldn't affect this test case)
+      expect(isDateInRange(date, range, { includeEnd: false })).toBe(true);
+      
+      // Both exclusive
+      expect(isDateInRange(date, range, { includeStart: false, includeEnd: false })).toBe(false);
     });
   });
 
-  describe('createCustomDateRange', () => {
-    test('creates custom date range with valid dates', () => {
-      const startDate = new Date(2023, 0, 1); // January 1, 2023
-      const endDate = new Date(2023, 0, 31); // January 31, 2023
+  describe('Edge Cases and Boundary Conditions', () => {
+    it('should handle leap year dates correctly', () => {
+      const leapYearDate = EDGE_CASE_FIXTURES.LEAP_YEAR_DATE;
       
-      const range = createCustomDateRange(startDate, endDate);
+      // Set mock date to leap year date
+      MockDate.set(leapYearDate);
       
-      expect(isEqual(range.startDate, startOfDay(startDate))).toBe(true);
-      expect(isEqual(range.endDate, endOfDay(endDate))).toBe(true);
+      const result = getDateRange('today');
+      
+      expect(result.startDate).toEqual(new Date('2024-02-29T00:00:00Z'));
+      expect(result.endDate).toEqual(new Date('2024-02-29T23:59:59.999Z'));
+      
+      // Reset mock date to standard reference date
+      MockDate.set(REFERENCE_DATES.STANDARD);
     });
-    
-    test('creates custom date range when start and end dates are the same', () => {
-      const sameDate = new Date(2023, 0, 15); // January 15, 2023
+
+    it('should handle daylight saving time transitions correctly', () => {
+      // Test with DST start date
+      MockDate.set(EDGE_CASE_FIXTURES.DST_START);
       
-      const range = createCustomDateRange(sameDate, sameDate);
+      const dstStartResult = getDateRange('today');
       
-      expect(isEqual(range.startDate, startOfDay(sameDate))).toBe(true);
-      expect(isEqual(range.endDate, endOfDay(sameDate))).toBe(true);
+      expect(dstStartResult.startDate).toEqual(new Date('2023-10-15T00:00:00Z'));
+      expect(dstStartResult.endDate).toEqual(new Date('2023-10-15T23:59:59.999Z'));
+      
+      // Test with DST end date
+      MockDate.set(EDGE_CASE_FIXTURES.DST_END);
+      
+      const dstEndResult = getDateRange('today');
+      
+      expect(dstEndResult.startDate).toEqual(new Date('2023-02-26T00:00:00Z'));
+      expect(dstEndResult.endDate).toEqual(new Date('2023-02-26T23:59:59.999Z'));
+      
+      // Reset mock date to standard reference date
+      MockDate.set(REFERENCE_DATES.STANDARD);
     });
-    
-    test('normalizes dates to start of day and end of day', () => {
-      const startDate = new Date(2023, 0, 1, 10, 30); // January 1, 2023, 10:30 AM
-      const endDate = new Date(2023, 0, 31, 15, 45); // January 31, 2023, 3:45 PM
+
+    it('should handle month boundaries correctly', () => {
+      // Test with last day of a 31-day month
+      MockDate.set(EDGE_CASE_FIXTURES.LONG_MONTH_END);
       
-      const range = createCustomDateRange(startDate, endDate);
+      const longMonthResult = getDateRange('thisMonth');
       
-      // Start date should be set to start of day
-      expect(range.startDate.getHours()).toBe(0);
-      expect(range.startDate.getMinutes()).toBe(0);
-      expect(range.startDate.getSeconds()).toBe(0);
-      expect(range.startDate.getMilliseconds()).toBe(0);
+      expect(longMonthResult.startDate).toEqual(new Date('2023-01-01T00:00:00Z'));
+      expect(longMonthResult.endDate).toEqual(new Date('2023-01-31T23:59:59.999Z'));
       
-      // End date should be set to end of day
-      expect(range.endDate.getHours()).toBe(23);
-      expect(range.endDate.getMinutes()).toBe(59);
-      expect(range.endDate.getSeconds()).toBe(59);
-      expect(range.endDate.getMilliseconds()).toBe(999);
+      // Test with last day of a 30-day month
+      MockDate.set(EDGE_CASE_FIXTURES.SHORT_MONTH_END);
+      
+      const shortMonthResult = getDateRange('thisMonth');
+      
+      expect(shortMonthResult.startDate).toEqual(new Date('2023-04-01T00:00:00Z'));
+      expect(shortMonthResult.endDate).toEqual(new Date('2023-04-30T23:59:59.999Z'));
+      
+      // Reset mock date to standard reference date
+      MockDate.set(REFERENCE_DATES.STANDARD);
     });
-    
-    test('throws InvalidDateRangeError when end date is before start date', () => {
-      const startDate = new Date(2023, 0, 15); // January 15, 2023
-      const endDate = new Date(2023, 0, 1); // January 1, 2023 (before start)
+
+    it('should handle year boundaries correctly', () => {
+      // Test with last day of the year
+      MockDate.set(EDGE_CASE_FIXTURES.YEAR_BOUNDARY_START);
       
+      const yearEndResult = getDateRange('thisYear');
+      
+      expect(yearEndResult.startDate).toEqual(new Date('2022-01-01T00:00:00Z'));
+      expect(yearEndResult.endDate).toEqual(new Date('2022-12-31T23:59:59.999Z'));
+      
+      // Test with first day of the year
+      MockDate.set(EDGE_CASE_FIXTURES.YEAR_BOUNDARY_END);
+      
+      const yearStartResult = getDateRange('thisYear');
+      
+      expect(yearStartResult.startDate).toEqual(new Date('2023-01-01T00:00:00Z'));
+      expect(yearStartResult.endDate).toEqual(new Date('2023-12-31T23:59:59.999Z'));
+      
+      // Reset mock date to standard reference date
+      MockDate.set(REFERENCE_DATES.STANDARD);
+    });
+
+    it('should throw an error for invalid date range (end before start)', () => {
       expect(() => {
-        createCustomDateRange(startDate, endDate);
-      }).toThrow(InvalidDateRangeError);
+        isDateInRange(
+          new Date('2023-06-15T12:00:00Z'),
+          EDGE_CASE_FIXTURES.INVALID_RANGE
+        );
+      }).toThrow();
     });
-    
-    test('throws InvalidDateRangeError for null start date', () => {
-      expect(() => {
-        createCustomDateRange(null as unknown as Date, new Date());
-      }).toThrow(InvalidDateRangeError);
+  });
+
+  describe('Journey-Specific Date Ranges', () => {
+    describe('Health Journey', () => {
+      Object.entries(JOURNEY_DATE_RANGES.HEALTH).forEach(([rangeKey, expectedRange]) => {
+        it(`should return correct range for ${rangeKey}`, () => {
+          const result = getDateRange('health', { journeyRangeType: rangeKey });
+          
+          expect(result.startDate).toEqual(expectedRange.startDate);
+          expect(result.endDate).toEqual(expectedRange.endDate);
+        });
+      });
+
+      it('should throw an error for invalid health journey range type', () => {
+        expect(() => getDateRange('health', { journeyRangeType: 'INVALID' })).toThrow();
+      });
     });
-    
-    test('throws InvalidDateRangeError for null end date', () => {
-      expect(() => {
-        createCustomDateRange(new Date(), null as unknown as Date);
-      }).toThrow(InvalidDateRangeError);
+
+    describe('Care Journey', () => {
+      Object.entries(JOURNEY_DATE_RANGES.CARE).forEach(([rangeKey, expectedRange]) => {
+        it(`should return correct range for ${rangeKey}`, () => {
+          const result = getDateRange('care', { journeyRangeType: rangeKey });
+          
+          expect(result.startDate).toEqual(expectedRange.startDate);
+          expect(result.endDate).toEqual(expectedRange.endDate);
+        });
+      });
+
+      it('should throw an error for invalid care journey range type', () => {
+        expect(() => getDateRange('care', { journeyRangeType: 'INVALID' })).toThrow();
+      });
     });
-    
-    test('throws InvalidDateRangeError for invalid start Date object', () => {
-      expect(() => {
-        createCustomDateRange(new Date('invalid'), new Date());
-      }).toThrow(InvalidDateRangeError);
+
+    describe('Plan Journey', () => {
+      Object.entries(JOURNEY_DATE_RANGES.PLAN).forEach(([rangeKey, expectedRange]) => {
+        it(`should return correct range for ${rangeKey}`, () => {
+          const result = getDateRange('plan', { journeyRangeType: rangeKey });
+          
+          expect(result.startDate).toEqual(expectedRange.startDate);
+          expect(result.endDate).toEqual(expectedRange.endDate);
+        });
+      });
+
+      it('should throw an error for invalid plan journey range type', () => {
+        expect(() => getDateRange('plan', { journeyRangeType: 'INVALID' })).toThrow();
+      });
     });
-    
-    test('throws InvalidDateRangeError for invalid end Date object', () => {
-      expect(() => {
-        createCustomDateRange(new Date(), new Date('invalid'));
-      }).toThrow(InvalidDateRangeError);
+
+    it('should throw an error for invalid journey type', () => {
+      expect(() => getDateRange('invalidJourney')).toThrow();
     });
   });
 });

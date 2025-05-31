@@ -1,8 +1,8 @@
 /**
  * @file index.ts
- * @description Barrel file for exporting all authentication-related interfaces from a single entry point.
- * This centralization creates a clean public API for the auth package, enables straightforward imports,
- * and prevents circular dependencies.
+ * @description Barrel file for exporting all authentication-related interfaces.
+ * This file creates a centralized export point for all interfaces in the auth package,
+ * enabling a clean public API and simplified imports for consumers.
  */
 
 // Export service interfaces
@@ -14,8 +14,10 @@ export {
   IPermission,
   IRole,
   IUserRole,
-  PermissionCheck,
-  IRoleAuthorization
+  HealthRole,
+  CareRole,
+  PlanRole,
+  GlobalRole
 } from './role.interface';
 
 // Export token interfaces
@@ -24,7 +26,7 @@ export {
   IToken,
   ITokenResponse,
   IRefreshTokenRequest,
-  ITokenValidationOptions,
+  ITokenVerificationOptions,
   ITokenGenerationOptions
 } from './token.interface';
 
@@ -35,7 +37,8 @@ export {
   IRegisterRequest,
   IMfaVerifyRequest,
   ISocialLoginRequest,
-  ITokenRefreshRequest,
+  IPasswordResetRequest,
+  IPasswordUpdateRequest,
   IAuthSession
 } from './auth.interface';
 
@@ -44,10 +47,8 @@ export {
 export {
   IUser,
   IUserWithRoles,
-  IUserWithPermissions,
-  IUserWithRolesAndPermissions,
   IUserResponse,
-  IUserPublic,
   ICreateUser,
-  IUpdateUser
+  IUpdateUser,
+  IUserCredentials
 } from './user.interface';

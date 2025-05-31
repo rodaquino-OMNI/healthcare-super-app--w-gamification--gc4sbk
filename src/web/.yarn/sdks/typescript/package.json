@@ -1,35 +1,56 @@
 {
+  "//": "This package.json configures the TypeScript SDK for Yarn PnP integration, addressing the TypeScript version inconsistencies and module resolution issues mentioned in the technical specification. It ensures that TypeScript 5.3.3 is used consistently across the monorepo and supports proper path resolution for aliases like @app/auth, @app/shared, and @austa/* packages.",
   "name": "typescript-sdk-yarn-pnp",
-  "version": "5.3.3",
-  "description": "TypeScript SDK for Yarn PnP integration in AUSTA SuperApp",
-  "license": "MIT",
   "private": true,
-  "dependencies": {
-    "typescript": "5.3.3"
-  },
-  "peerDependencies": {
-    "typescript": "5.3.3"
-  },
-  "bin": {
-    "tsc": "./lib/tsc.js",
-    "tsserver": "./lib/tsserver.js"
-  },
+  "version": "1.0.0",
+  "description": "TypeScript SDK for Yarn Plug'n'Play integration with standardized version 5.3.3",
+  "main": "index.js",
+  "license": "MIT",
   "engines": {
-    "node": ">=18.0.0"
+    "node": ">=14.0.0"
   },
-  "languageName": "node",
-  "packageManager": "yarn@1.22.19",
   "repository": {
     "type": "git",
     "url": "https://github.com/austa/superapp.git",
     "directory": "src/web/.yarn/sdks/typescript"
   },
+  "keywords": [
+    "typescript",
+    "yarn",
+    "pnp",
+    "sdk",
+    "austa",
+    "monorepo",
+    "path-resolution"
+  ],
+  "dependencies": {},
+  "peerDependencies": {
+    "typescript": "5.3.3"
+  },
   "resolutions": {
     "typescript": "5.3.3"
   },
-  "pnpify": {
-    "patchedDependencies": {
-      "typescript@5.3.3": true
-    }
+  "packageManager": "yarn@3.6.3",
+  "supportedExtensions": [
+    ".ts",
+    ".tsx",
+    ".d.ts",
+    ".js",
+    ".jsx",
+    ".json"
+  ],
+  "pnpEnableInlining": true,
+  "pnpEnableEsmLoader": true,
+  "pnpIgnorePatterns": [
+    "**/node_modules/**"
+  ],
+  "//pathAliases": "This section documents the path aliases that are supported by this SDK",
+  "pathAliases": {
+    "@app/auth": "src/backend/auth-service",
+    "@app/shared": "src/backend/shared",
+    "@austa/design-system": "src/web/design-system",
+    "@design-system/primitives": "src/web/primitives",
+    "@austa/interfaces": "src/web/interfaces",
+    "@austa/journey-context": "src/web/journey-context"
   }
 }

@@ -1,6 +1,8 @@
-import { Badge } from './Badge';
-import type { BadgeProps } from './Badge';
+/**
+ * @file Badge component barrel file
+ * Exports the Badge component and its types
+ */
 
-export type { BadgeProps };
-export { Badge };
-export default Badge;
+export { default } from './Badge';
+export { Badge } from './Badge';
+export type { BadgeProps } from './Badge';

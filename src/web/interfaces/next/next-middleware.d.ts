@@ -1,331 +1,263 @@
 /**
- * Type definitions for Next.js Edge middleware in the AUSTA SuperApp
+ * Type declarations for Next.js Edge middleware in the AUSTA SuperApp
  * 
- * This file provides TypeScript declarations for middleware functions, configurations,
- * and matchers, ensuring type-safe implementation of security, routing, and performance
- * optimizations across all user journeys.
- *
- * @module @austa/interfaces/next/next-middleware
+ * This file provides type definitions for middleware functions, configurations, and matchers,
+ * ensuring type-safe implementation of security, routing, and performance optimizations
+ * across all user journeys.
  */
 
 import type { NextRequest, NextResponse, NextFetchEvent } from 'next/server';
-import type { JWTPayload } from '../auth/token.types';
 
-/**
- * Journey types supported in the AUSTA SuperApp
- */
-export type JourneyType = 'health' | 'care' | 'plan' | 'home' | 'auth';
-
-/**
- * Extended NextRequest with AUSTA SuperApp specific properties
- */
-export interface AustaNextRequest extends NextRequest {
+// Extend the Next.js middleware types
+declare module 'next/server' {
   /**
-   * Decoded JWT payload if authentication is successful
-   * Will be undefined if no valid token is present
+   * Extended NextRequest interface with AUSTA-specific properties
    */
-  auth?: {
+  interface NextRequest {
     /**
-     * Decoded JWT payload
+     * Journey context information extracted from the request
      */
-    token: JWTPayload;
-    
-    /**
-     * Whether the token is valid and not expired
-     */
-    isAuthenticated: boolean;
-    
-    /**
-     * User ID from the token
-     */
-    userId: string;
-    
-    /**
-     * User roles from the token
-     */
-    roles: string[];
-  };
-  
-  /**
-   * Current journey context
-   */
-  journey?: {
-    /**
-     * Current journey type
-     */
-    type: JourneyType;
-    
-    /**
-     * Whether the current journey requires authentication
-     */
-    requiresAuth: boolean;
-    
-    /**
-     * Required roles for accessing the current journey
-     */
-    requiredRoles?: string[];
-  };
+    journeyContext?: JourneyContext;
+  }
 }
 
 /**
- * Base middleware function type
+ * Authentication token payload structure
  */
-export type AustaMiddleware = (
-  request: AustaNextRequest,
-  event: NextFetchEvent
-) => Promise<NextResponse | Response | undefined | null> | NextResponse | Response | undefined | null;
-
-/**
- * Authentication middleware function type
- */
-export type AuthMiddleware = (
-  request: AustaNextRequest,
-  event: NextFetchEvent
-) => Promise<AustaNextRequest>;
-
-/**
- * Journey-specific middleware function type
- */
-export type JourneyMiddleware = (
-  request: AustaNextRequest,
-  event: NextFetchEvent,
-  journeyType: JourneyType
-) => Promise<NextResponse | Response | undefined | null> | NextResponse | Response | undefined | null;
-
-/**
- * Configuration for middleware matchers
- */
-export interface MiddlewareConfig {
-  /**
-   * Matcher configuration for the middleware
-   * Can be a string, array of strings, or a complex matcher object
-   */
-  matcher: string | string[] | {
-    /**
-     * Path pattern to match
-     */
-    source: string;
-    
-    /**
-     * Optional regular expression for fine-tuning matching
-     */
-    regexp?: string;
-    
-    /**
-     * Whether to ignore locale-based routing in path matching
-     */
-    locale?: boolean;
-  }[];
-  
-  /**
-   * Runtime for the middleware (defaults to 'edge')
-   */
-  runtime?: 'edge' | 'nodejs';
-  
-  /**
-   * Unstable option to allow dynamic code evaluation for specific files
-   */
-  unstable_allowDynamic?: string | string[];
+export interface AuthTokenPayload {
+  /** Unique user identifier */
+  userId: string;
+  /** User's email address */
+  email: string;
+  /** User's display name */
+  name?: string;
+  /** List of user roles */
+  roles: string[];
+  /** List of user permissions */
+  permissions: string[];
+  /** Token issued at timestamp */
+  iat: number;
+  /** Token expiration timestamp */
+  exp: number;
+  /** Token issuer */
+  iss: string;
+  /** Token audience */
+  aud: string;
 }
 
 /**
- * JWT validation options for middleware
+ * Authentication result from middleware validation
+ */
+export interface AuthResult {
+  /** Whether the authentication was successful */
+  isAuthenticated: boolean;
+  /** The decoded token payload if authentication was successful */
+  payload?: AuthTokenPayload;
+  /** Error message if authentication failed */
+  error?: string;
+}
+
+/**
+ * Journey context information
+ */
+export interface JourneyContext {
+  /** The current journey (health, care, plan) */
+  currentJourney: 'health' | 'care' | 'plan' | null;
+  /** Whether the current route is journey-specific */
+  isJourneyRoute: boolean;
+  /** Journey-specific data */
+  data?: Record<string, any>;
+}
+
+/**
+ * Middleware handler function type
+ */
+export type MiddlewareHandler = (
+  request: NextRequest,
+  event: NextFetchEvent
+) => Promise<NextResponse | Response> | NextResponse | Response;
+
+/**
+ * Authentication middleware configuration
+ */
+export interface AuthMiddlewareConfig {
+  /** Whether to enable JWT validation */
+  enableJwtValidation: boolean;
+  /** Public routes that don't require authentication */
+  publicRoutes?: string[];
+  /** Routes that require specific roles */
+  roleProtectedRoutes?: Record<string, string[]>;
+  /** Custom error handling */
+  onAuthError?: (request: NextRequest, error: string) => NextResponse | Response;
+  /** Custom success handling */
+  onAuthSuccess?: (request: NextRequest, payload: AuthTokenPayload) => NextResponse | Response | void;
+  /** JWT validation options */
+  jwtOptions?: JwtValidationOptions;
+}
+
+/**
+ * JWT validation options
  */
 export interface JwtValidationOptions {
-  /**
-   * Secret key for JWT validation
-   * Can be a string or a function that returns a string
-   */
-  secret: string | (() => string | Promise<string>);
-  
-  /**
-   * Cookie name where the JWT token is stored
-   * @default 'austa.token'
-   */
-  cookieName?: string;
-  
-  /**
-   * Whether to secure the cookie
-   * @default true in production, false in development
-   */
-  secureCookie?: boolean;
-  
-  /**
-   * Custom token decode function
-   */
-  decode?: (token: string, secret: string) => Promise<JWTPayload | null>;
+  /** The name of the cookie containing the JWT token */
+  cookieName: string;
+  /** The secret used to verify the JWT token */
+  secret: string;
+  /** The algorithms allowed for JWT verification */
+  algorithms: string[];
+  /** Whether to check token expiration */
+  ignoreExpiration?: boolean;
+  /** Additional validation function */
+  customValidation?: (payload: AuthTokenPayload) => boolean | Promise<boolean>;
 }
 
 /**
- * Authentication middleware options
+ * Health journey middleware configuration
  */
-export interface AuthMiddlewareOptions {
-  /**
-   * JWT validation options
-   */
-  jwt: JwtValidationOptions;
-  
-  /**
-   * Pages configuration for authentication
-   */
-  pages?: {
-    /**
-     * Sign in page URL
-     * @default '/login'
-     */
-    signIn?: string;
-    
-    /**
-     * Error page URL
-     * @default '/error'
-     */
-    error?: string;
-    
-    /**
-     * Unauthorized page URL
-     * @default '/unauthorized'
-     */
-    unauthorized?: string;
-  };
-  
-  /**
-   * Callbacks for authentication middleware
-   */
-  callbacks?: {
-    /**
-     * Callback to determine if a user is authorized
-     */
-    authorized?: (params: { req: AustaNextRequest; token: JWTPayload | null }) => boolean | Promise<boolean>;
-  };
+export interface HealthJourneyMiddlewareConfig {
+  /** Routes specific to the health journey */
+  routes: string[];
+  /** Whether to require device connection for certain routes */
+  requireDeviceConnection?: boolean;
+  /** Routes that require specific health permissions */
+  permissionProtectedRoutes?: Record<string, string[]>;
+  /** Custom handlers for health journey routes */
+  handlers?: Record<string, MiddlewareHandler>;
 }
 
 /**
- * Journey middleware options
+ * Care journey middleware configuration
  */
-export interface JourneyMiddlewareOptions {
-  /**
-   * Journey type
-   */
-  journeyType: JourneyType;
-  
-  /**
-   * Whether the journey requires authentication
-   * @default false
-   */
-  requiresAuth?: boolean;
-  
-  /**
-   * Required roles for accessing the journey
-   */
-  requiredRoles?: string[];
-  
-  /**
-   * Callback to determine if a user can access the journey
-   */
-  canAccess?: (params: { req: AustaNextRequest; token: JWTPayload | null }) => boolean | Promise<boolean>;
+export interface CareJourneyMiddlewareConfig {
+  /** Routes specific to the care journey */
+  routes: string[];
+  /** Whether to enforce appointment validation */
+  validateAppointments?: boolean;
+  /** Routes that require specific care permissions */
+  permissionProtectedRoutes?: Record<string, string[]>;
+  /** Custom handlers for care journey routes */
+  handlers?: Record<string, MiddlewareHandler>;
 }
 
 /**
- * Creates an authentication middleware function
+ * Plan journey middleware configuration
  */
-export type CreateAuthMiddleware = (options: AuthMiddlewareOptions) => AuthMiddleware;
+export interface PlanJourneyMiddlewareConfig {
+  /** Routes specific to the plan journey */
+  routes: string[];
+  /** Whether to validate insurance coverage */
+  validateCoverage?: boolean;
+  /** Routes that require specific plan permissions */
+  permissionProtectedRoutes?: Record<string, string[]>;
+  /** Custom handlers for plan journey routes */
+  handlers?: Record<string, MiddlewareHandler>;
+}
 
 /**
- * Creates a journey-specific middleware function
+ * Combined journey middleware configuration
  */
-export type CreateJourneyMiddleware = (options: JourneyMiddlewareOptions) => JourneyMiddleware;
+export interface JourneyMiddlewareConfig {
+  /** Health journey configuration */
+  health?: HealthJourneyMiddlewareConfig;
+  /** Care journey configuration */
+  care?: CareJourneyMiddlewareConfig;
+  /** Plan journey configuration */
+  plan?: PlanJourneyMiddlewareConfig;
+  /** Cross-journey routes */
+  crossJourneyRoutes?: string[];
+  /** Default journey to redirect to if none specified */
+  defaultJourney?: 'health' | 'care' | 'plan';
+}
 
 /**
- * Combines multiple middleware functions into a single middleware function
+ * Security middleware configuration
  */
-export type CombineMiddleware = (...middlewares: AustaMiddleware[]) => AustaMiddleware;
-
-/**
- * Helper function to create a response with an error
- */
-export type CreateErrorResponse = (params: {
-  status: number;
-  message: string;
-  journey?: JourneyType;
-}) => NextResponse;
-
-/**
- * Helper function to create a redirect response
- */
-export type CreateRedirectResponse = (params: {
-  destination: string;
-  status?: 301 | 302 | 303 | 307 | 308;
-  journey?: JourneyType;
-}) => NextResponse;
-
-/**
- * Helper function to create a success response
- */
-export type CreateSuccessResponse = (params: {
-  status?: number;
-  data?: any;
-  journey?: JourneyType;
-}) => NextResponse;
-
-/**
- * Helper function to validate a JWT token
- */
-export type ValidateJwt = (params: {
-  request: AustaNextRequest;
-  options: JwtValidationOptions;
-}) => Promise<{
-  isValid: boolean;
-  payload: JWTPayload | null;
-  error?: string;
-}>;
-
-/**
- * Helper function to determine the current journey from the request
- */
-export type DetermineJourney = (request: AustaNextRequest) => {
-  journeyType: JourneyType;
-  requiresAuth: boolean;
-  requiredRoles?: string[];
-};
-
-/**
- * Helper function to check if a user has the required roles
- */
-export type HasRequiredRoles = (params: {
-  userRoles: string[];
-  requiredRoles: string[];
-}) => boolean;
-
-/**
- * Helper function to create a middleware that handles CORS
- */
-export type CreateCorsMiddleware = (params: {
-  allowedOrigins: string[];
-  allowedMethods?: string[];
-  allowedHeaders?: string[];
-  exposedHeaders?: string[];
-  maxAge?: number;
-  allowCredentials?: boolean;
-}) => AustaMiddleware;
-
-/**
- * Helper function to create a middleware that handles rate limiting
- */
-export type CreateRateLimitMiddleware = (params: {
-  limit: number;
-  windowMs: number;
-  keyGenerator?: (req: AustaNextRequest) => string;
-  handler?: (req: AustaNextRequest) => NextResponse | Response;
-}) => AustaMiddleware;
-
-/**
- * Helper function to create a middleware that handles security headers
- */
-export type CreateSecurityHeadersMiddleware = (params: {
+export interface SecurityMiddlewareConfig {
+  /** Content Security Policy settings */
   contentSecurityPolicy?: string | boolean;
-  xFrameOptions?: 'DENY' | 'SAMEORIGIN' | boolean;
-  xContentTypeOptions?: 'nosniff' | boolean;
-  referrerPolicy?: string | boolean;
-  permissionsPolicy?: string | boolean;
-  strictTransportSecurity?: string | boolean;
-}) => AustaMiddleware;
+  /** Whether to enable Strict Transport Security */
+  strictTransportSecurity?: boolean | {
+    maxAge: number;
+    includeSubDomains?: boolean;
+    preload?: boolean;
+  };
+  /** X-Frame-Options header value */
+  frameOptions?: 'DENY' | 'SAMEORIGIN' | false;
+  /** Whether to enable XSS protection */
+  xssProtection?: boolean;
+  /** Whether to enable noSniff */
+  noSniff?: boolean;
+  /** Referrer policy */
+  referrerPolicy?: string | false;
+  /** Permissions policy */
+  permissionsPolicy?: Record<string, string[]> | false;
+}
+
+/**
+ * Performance middleware configuration
+ */
+export interface PerformanceMiddlewareConfig {
+  /** Whether to enable caching for static assets */
+  enableStaticCaching?: boolean;
+  /** Cache control directives for different route patterns */
+  cacheControl?: Record<string, string>;
+  /** Whether to enable compression */
+  enableCompression?: boolean;
+  /** Routes to preload */
+  preloadRoutes?: string[];
+  /** Whether to enable early hints */
+  enableEarlyHints?: boolean;
+}
+
+/**
+ * Complete middleware configuration
+ */
+export interface MiddlewareConfig {
+  /** Authentication configuration */
+  auth?: AuthMiddlewareConfig;
+  /** Journey-specific configuration */
+  journeys?: JourneyMiddlewareConfig;
+  /** Security configuration */
+  security?: SecurityMiddlewareConfig;
+  /** Performance configuration */
+  performance?: PerformanceMiddlewareConfig;
+  /** Route matcher patterns */
+  matcher?: string | string[];
+  /** Routes to skip middleware execution */
+  skipMiddleware?: string[];
+}
+
+/**
+ * Creates an authentication middleware handler
+ */
+export type CreateAuthMiddleware = (
+  config: AuthMiddlewareConfig
+) => MiddlewareHandler;
+
+/**
+ * Creates a journey-specific middleware handler
+ */
+export type CreateJourneyMiddleware = (
+  config: JourneyMiddlewareConfig
+) => MiddlewareHandler;
+
+/**
+ * Creates a security middleware handler
+ */
+export type CreateSecurityMiddleware = (
+  config: SecurityMiddlewareConfig
+) => MiddlewareHandler;
+
+/**
+ * Creates a performance middleware handler
+ */
+export type CreatePerformanceMiddleware = (
+  config: PerformanceMiddlewareConfig
+) => MiddlewareHandler;
+
+/**
+ * Creates a complete middleware handler with all configurations
+ */
+export type CreateMiddleware = (
+  config: MiddlewareConfig
+) => MiddlewareHandler;

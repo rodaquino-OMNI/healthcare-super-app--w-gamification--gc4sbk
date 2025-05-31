@@ -1,991 +1,647 @@
 /**
- * @file errors.ts
- * @description Test fixtures for HTTP error scenarios and error objects for testing error handling
- * in HTTP clients and utilities. These fixtures support testing retry mechanisms, backoff strategies,
- * and error classification throughout the HTTP pipeline.
+ * HTTP Error Fixtures for Testing
+ * 
+ * This file provides mock HTTP error scenarios and error objects for testing error handling
+ * in HTTP clients and utilities. It includes network errors, timeout errors, server errors
+ * with different status codes, and malformed response scenarios to ensure robust error
+ * handling throughout the HTTP pipeline.
  */
 
 import { AxiosError, AxiosRequestConfig, AxiosResponse } from 'axios';
 
 /**
- * Interface for HTTP error test cases
+ * HTTP Status Codes Enum
  */
-export interface HttpErrorTestCase {
-  /** Human-readable name of the error scenario */
-  name: string;
-  /** Description of the error scenario */
-  description: string;
-  /** Error object or factory function to create the error */
-  error: Error | AxiosError | (() => Error | AxiosError);
-  /** Expected error classification */
-  classification: 'network' | 'timeout' | 'server' | 'client' | 'parse' | 'unknown';
-  /** Whether this error should be retried */
-  isRetryable: boolean;
-  /** Recommended backoff strategy */
-  backoffStrategy?: 'linear' | 'exponential' | 'fixed' | 'none';
-  /** Maximum retry attempts recommended */
-  maxRetries?: number;
+export enum HttpStatusCode {
+  // 4xx Client Errors
+  BAD_REQUEST = 400,
+  UNAUTHORIZED = 401,
+  PAYMENT_REQUIRED = 402,
+  FORBIDDEN = 403,
+  NOT_FOUND = 404,
+  METHOD_NOT_ALLOWED = 405,
+  NOT_ACCEPTABLE = 406,
+  PROXY_AUTHENTICATION_REQUIRED = 407,
+  REQUEST_TIMEOUT = 408,
+  CONFLICT = 409,
+  GONE = 410,
+  LENGTH_REQUIRED = 411,
+  PRECONDITION_FAILED = 412,
+  PAYLOAD_TOO_LARGE = 413,
+  URI_TOO_LONG = 414,
+  UNSUPPORTED_MEDIA_TYPE = 415,
+  RANGE_NOT_SATISFIABLE = 416,
+  EXPECTATION_FAILED = 417,
+  IM_A_TEAPOT = 418,
+  MISDIRECTED_REQUEST = 421,
+  UNPROCESSABLE_ENTITY = 422,
+  LOCKED = 423,
+  FAILED_DEPENDENCY = 424,
+  TOO_EARLY = 425,
+  UPGRADE_REQUIRED = 426,
+  PRECONDITION_REQUIRED = 428,
+  TOO_MANY_REQUESTS = 429,
+  REQUEST_HEADER_FIELDS_TOO_LARGE = 431,
+  UNAVAILABLE_FOR_LEGAL_REASONS = 451,
+
+  // 5xx Server Errors
+  INTERNAL_SERVER_ERROR = 500,
+  NOT_IMPLEMENTED = 501,
+  BAD_GATEWAY = 502,
+  SERVICE_UNAVAILABLE = 503,
+  GATEWAY_TIMEOUT = 504,
+  HTTP_VERSION_NOT_SUPPORTED = 505,
+  VARIANT_ALSO_NEGOTIATES = 506,
+  INSUFFICIENT_STORAGE = 507,
+  LOOP_DETECTED = 508,
+  NOT_EXTENDED = 510,
+  NETWORK_AUTHENTICATION_REQUIRED = 511
 }
 
 /**
- * Helper function to create an Axios error with response
+ * Error Category Enum
  */
-const createAxiosErrorWithResponse = (
+export enum ErrorCategory {
+  NETWORK = 'network',
+  TIMEOUT = 'timeout',
+  SERVER = 'server',
+  CLIENT = 'client',
+  VALIDATION = 'validation',
+  AUTHENTICATION = 'authentication',
+  AUTHORIZATION = 'authorization',
+  RATE_LIMIT = 'rate_limit',
+  MALFORMED_RESPONSE = 'malformed_response',
+  CORS = 'cors',
+  UNKNOWN = 'unknown'
+}
+
+/**
+ * HTTP Error Response Interface
+ */
+export interface HttpErrorResponse {
+  status: number;
+  statusText: string;
+  data?: any;
+  headers?: Record<string, string>;
+  config?: AxiosRequestConfig;
+}
+
+/**
+ * Network Error Interface
+ */
+export interface NetworkErrorData {
+  code: string;
+  message: string;
+  errno?: string;
+  syscall?: string;
+  hostname?: string;
+  port?: number;
+  stack?: string;
+}
+
+/**
+ * Validation Error Interface
+ */
+export interface ValidationErrorData {
+  message: string;
+  errors: Record<string, string[]>;
+  code?: string;
+  path?: string;
+  value?: any;
+}
+
+/**
+ * Rate Limit Error Interface
+ */
+export interface RateLimitErrorData {
+  message: string;
+  retryAfter: number; // seconds
+  limit: number;
+  remaining: number;
+  reset: number; // timestamp
+}
+
+/**
+ * Factory function to create a mock Axios error
+ */
+export function createAxiosError<T = any, D = any>(
+  message: string,
+  code: string,
+  config: AxiosRequestConfig,
+  request?: any,
+  response?: AxiosResponse<T, D>
+): AxiosError<T, D> {
+  const error = new AxiosError<T, D>(
+    message,
+    code,
+    config,
+    request,
+    response
+  );
+  
+  return error;
+}
+
+/**
+ * Factory function to create a mock HTTP error response
+ */
+export function createHttpErrorResponse(
   status: number,
   statusText: string,
-  data: any,
-  config: Partial<AxiosRequestConfig> = {}
-): AxiosError => {
-  const response: AxiosResponse = {
+  data?: any,
+  headers?: Record<string, string>,
+  config?: AxiosRequestConfig
+): HttpErrorResponse {
+  return {
     status,
     statusText,
     data,
-    headers: {},
-    config: {
-      url: 'https://api.example.com/test',
-      method: 'get',
-      ...config
-    } as AxiosRequestConfig,
+    headers,
+    config
+  };
+}
+
+/**
+ * Factory function to create a network error
+ */
+export function createNetworkError(
+  code: string,
+  message: string,
+  details?: Partial<NetworkErrorData>
+): AxiosError {
+  const config: AxiosRequestConfig = {
+    url: 'https://api.example.com/resource',
+    method: 'GET',
+    headers: { 'Content-Type': 'application/json' }
   };
 
-  const error = new AxiosError(
-    `Request failed with status code ${status}`,
-    'ERR_BAD_RESPONSE',
-    response.config,
-    null,
-    response
-  );
-
-  return error;
-};
-
-/**
- * Helper function to create an Axios error without response (network error)
- */
-const createAxiosNetworkError = (
-  message: string,
-  code: string,
-  config: Partial<AxiosRequestConfig> = {}
-): AxiosError => {
-  const error = new AxiosError(
+  const error = createAxiosError(
     message,
     code,
-    {
-      url: 'https://api.example.com/test',
-      method: 'get',
-      ...config
-    } as AxiosRequestConfig
+    config,
+    { path: '/resource' },
+    undefined
   );
 
+  // Add network-specific properties
+  if (details) {
+    Object.assign(error, details);
+  }
+
   return error;
-};
+}
 
 /**
- * Network-related error test cases
+ * Factory function to create a timeout error
  */
-export const networkErrors: Record<string, HttpErrorTestCase> = {
-  connectionRefused: {
-    name: 'Connection Refused',
-    description: 'Server actively refused the connection',
-    error: createAxiosNetworkError(
-      'connect ECONNREFUSED 127.0.0.1:8080',
-      'ECONNREFUSED',
-    ),
-    classification: 'network',
-    isRetryable: true,
-    backoffStrategy: 'exponential',
-    maxRetries: 3
-  },
-  
-  connectionReset: {
-    name: 'Connection Reset',
-    description: 'Connection was reset by the server or network device',
-    error: createAxiosNetworkError(
-      'socket hang up',
-      'ECONNRESET',
-    ),
-    classification: 'network',
-    isRetryable: true,
-    backoffStrategy: 'exponential',
-    maxRetries: 3
-  },
-  
-  networkUnreachable: {
-    name: 'Network Unreachable',
-    description: 'Network is unreachable or DNS resolution failed',
-    error: createAxiosNetworkError(
-      'getaddrinfo ENOTFOUND api.example.com',
-      'ENOTFOUND',
-    ),
-    classification: 'network',
-    isRetryable: true,
-    backoffStrategy: 'exponential',
-    maxRetries: 5
-  },
-  
-  socketHangUp: {
-    name: 'Socket Hang Up',
-    description: 'Server closed the connection unexpectedly',
-    error: createAxiosNetworkError(
-      'socket hang up',
-      'ECONNABORTED',
-    ),
-    classification: 'network',
-    isRetryable: true,
-    backoffStrategy: 'exponential',
-    maxRetries: 3
-  },
-  
-  networkChanged: {
-    name: 'Network Changed',
-    description: 'Network interface changed during request',
-    error: createAxiosNetworkError(
-      'Network error',
-      'ERR_NETWORK',
-    ),
-    classification: 'network',
-    isRetryable: true,
-    backoffStrategy: 'linear',
-    maxRetries: 3
-  },
-  
-  sslError: {
-    name: 'SSL Certificate Error',
-    description: 'SSL certificate validation failed',
-    error: createAxiosNetworkError(
-      'self signed certificate in certificate chain',
-      'CERT_HAS_EXPIRED',
-    ),
-    classification: 'network',
-    isRetryable: false,
-    backoffStrategy: 'none',
-    maxRetries: 0
-  }
-};
+export function createTimeoutError(
+  timeoutMs: number = 30000,
+  url: string = 'https://api.example.com/resource'
+): AxiosError {
+  const config: AxiosRequestConfig = {
+    url,
+    method: 'GET',
+    timeout: timeoutMs,
+    headers: { 'Content-Type': 'application/json' }
+  };
+
+  return createAxiosError(
+    `timeout of ${timeoutMs}ms exceeded`,
+    'ECONNABORTED',
+    config,
+    { path: new URL(url).pathname },
+    undefined
+  );
+}
 
 /**
- * Timeout-related error test cases
+ * Factory function to create a server error
  */
-export const timeoutErrors: Record<string, HttpErrorTestCase> = {
-  requestTimeout: {
-    name: 'Request Timeout',
-    description: 'Request exceeded the configured timeout',
-    error: createAxiosNetworkError(
-      'timeout of 10000ms exceeded',
-      'ETIMEDOUT',
-      { timeout: 10000 }
-    ),
-    classification: 'timeout',
-    isRetryable: true,
-    backoffStrategy: 'exponential',
-    maxRetries: 3
-  },
-  
-  slowResponse: {
-    name: 'Slow Response',
-    description: 'Server response was too slow and client aborted',
-    error: createAxiosNetworkError(
-      'timeout of 30000ms exceeded',
-      'ECONNABORTED',
-      { timeout: 30000 }
-    ),
-    classification: 'timeout',
-    isRetryable: true,
-    backoffStrategy: 'exponential',
-    maxRetries: 2
-  },
-  
-  readTimeout: {
-    name: 'Read Timeout',
-    description: 'Timeout while reading response data',
-    error: createAxiosNetworkError(
-      'read ETIMEDOUT',
-      'ETIMEDOUT',
-    ),
-    classification: 'timeout',
-    isRetryable: true,
-    backoffStrategy: 'exponential',
-    maxRetries: 3
-  },
-  
-  deadlineExceeded: {
-    name: 'Deadline Exceeded',
-    description: 'Request exceeded the maximum allowed time',
-    error: createAxiosNetworkError(
-      'deadline exceeded',
-      'DEADLINE_EXCEEDED',
-      { timeout: 60000 }
-    ),
-    classification: 'timeout',
-    isRetryable: false, // Business deadline, not retryable
-    backoffStrategy: 'none',
-    maxRetries: 0
-  }
-};
+export function createServerError(
+  status: number = HttpStatusCode.INTERNAL_SERVER_ERROR,
+  message: string = 'Internal Server Error',
+  data?: any
+): AxiosError {
+  const config: AxiosRequestConfig = {
+    url: 'https://api.example.com/resource',
+    method: 'GET',
+    headers: { 'Content-Type': 'application/json' }
+  };
 
-/**
- * Server error (5xx) test cases
- */
-export const serverErrors: Record<string, HttpErrorTestCase> = {
-  internalServerError: {
-    name: 'Internal Server Error',
-    description: 'Generic server error (500)',
-    error: createAxiosErrorWithResponse(
-      500,
-      'Internal Server Error',
-      { message: 'An unexpected error occurred' }
-    ),
-    classification: 'server',
-    isRetryable: true,
-    backoffStrategy: 'exponential',
-    maxRetries: 3
-  },
-  
-  serviceUnavailable: {
-    name: 'Service Unavailable',
-    description: 'Server temporarily unavailable (503)',
-    error: createAxiosErrorWithResponse(
-      503,
-      'Service Unavailable',
-      { message: 'Service is currently unavailable' }
-    ),
-    classification: 'server',
-    isRetryable: true,
-    backoffStrategy: 'exponential',
-    maxRetries: 5
-  },
-  
-  gatewayTimeout: {
-    name: 'Gateway Timeout',
-    description: 'Gateway or proxy timeout (504)',
-    error: createAxiosErrorWithResponse(
-      504,
-      'Gateway Timeout',
-      { message: 'Gateway timeout' }
-    ),
-    classification: 'server',
-    isRetryable: true,
-    backoffStrategy: 'exponential',
-    maxRetries: 3
-  },
-  
-  badGateway: {
-    name: 'Bad Gateway',
-    description: 'Invalid response from upstream server (502)',
-    error: createAxiosErrorWithResponse(
-      502,
-      'Bad Gateway',
-      { message: 'Invalid response from upstream server' }
-    ),
-    classification: 'server',
-    isRetryable: true,
-    backoffStrategy: 'exponential',
-    maxRetries: 3
-  },
-  
-  insufficientStorage: {
-    name: 'Insufficient Storage',
-    description: 'Server has insufficient storage (507)',
-    error: createAxiosErrorWithResponse(
-      507,
-      'Insufficient Storage',
-      { message: 'Insufficient storage to complete the request' }
-    ),
-    classification: 'server',
-    isRetryable: false, // Storage issues unlikely to resolve quickly
-    backoffStrategy: 'none',
-    maxRetries: 0
-  },
-  
-  networkAuthenticationRequired: {
-    name: 'Network Authentication Required',
-    description: 'Network authentication required (511)',
-    error: createAxiosErrorWithResponse(
-      511,
-      'Network Authentication Required',
-      { message: 'Network authentication required' }
-    ),
-    classification: 'server',
-    isRetryable: false, // Authentication issues require user intervention
-    backoffStrategy: 'none',
-    maxRetries: 0
-  },
-  
-  serverWithRetryAfter: {
-    name: 'Server Error With Retry-After',
-    description: 'Server error with Retry-After header',
-    error: createAxiosErrorWithResponse(
-      503,
-      'Service Unavailable',
-      { message: 'Service is currently unavailable' },
-      { headers: { 'Retry-After': '30' } }
-    ),
-    classification: 'server',
-    isRetryable: true,
-    backoffStrategy: 'fixed', // Use the Retry-After header value
-    maxRetries: 3
-  }
-};
-
-/**
- * Client error (4xx) test cases
- */
-export const clientErrors: Record<string, HttpErrorTestCase> = {
-  badRequest: {
-    name: 'Bad Request',
-    description: 'Invalid request syntax or parameters (400)',
-    error: createAxiosErrorWithResponse(
-      400,
-      'Bad Request',
-      { message: 'Invalid request parameters', errors: [{ field: 'email', message: 'Invalid email format' }] }
-    ),
-    classification: 'client',
-    isRetryable: false, // Client errors generally not retryable
-    backoffStrategy: 'none',
-    maxRetries: 0
-  },
-  
-  unauthorized: {
-    name: 'Unauthorized',
-    description: 'Authentication required (401)',
-    error: createAxiosErrorWithResponse(
-      401,
-      'Unauthorized',
-      { message: 'Authentication required' }
-    ),
-    classification: 'client',
-    isRetryable: false,
-    backoffStrategy: 'none',
-    maxRetries: 0
-  },
-  
-  forbidden: {
-    name: 'Forbidden',
-    description: 'Client lacks permission (403)',
-    error: createAxiosErrorWithResponse(
-      403,
-      'Forbidden',
-      { message: 'You do not have permission to access this resource' }
-    ),
-    classification: 'client',
-    isRetryable: false,
-    backoffStrategy: 'none',
-    maxRetries: 0
-  },
-  
-  notFound: {
-    name: 'Not Found',
-    description: 'Resource not found (404)',
-    error: createAxiosErrorWithResponse(
-      404,
-      'Not Found',
-      { message: 'The requested resource was not found' }
-    ),
-    classification: 'client',
-    isRetryable: false,
-    backoffStrategy: 'none',
-    maxRetries: 0
-  },
-  
-  methodNotAllowed: {
-    name: 'Method Not Allowed',
-    description: 'HTTP method not allowed (405)',
-    error: createAxiosErrorWithResponse(
-      405,
-      'Method Not Allowed',
-      { message: 'Method not allowed' },
-      { method: 'POST' }
-    ),
-    classification: 'client',
-    isRetryable: false,
-    backoffStrategy: 'none',
-    maxRetries: 0
-  },
-  
-  conflict: {
-    name: 'Conflict',
-    description: 'Request conflicts with server state (409)',
-    error: createAxiosErrorWithResponse(
-      409,
-      'Conflict',
-      { message: 'Resource already exists', conflictingId: '12345' }
-    ),
-    classification: 'client',
-    isRetryable: false,
-    backoffStrategy: 'none',
-    maxRetries: 0
-  },
-  
-  preconditionFailed: {
-    name: 'Precondition Failed',
-    description: 'Precondition in headers failed (412)',
-    error: createAxiosErrorWithResponse(
-      412,
-      'Precondition Failed',
-      { message: 'Resource has been modified since last request' },
-      { headers: { 'If-Unmodified-Since': 'Wed, 21 Oct 2015 07:28:00 GMT' } }
-    ),
-    classification: 'client',
-    isRetryable: false,
-    backoffStrategy: 'none',
-    maxRetries: 0
-  },
-  
-  tooManyRequests: {
-    name: 'Too Many Requests',
-    description: 'Rate limit exceeded (429)',
-    error: createAxiosErrorWithResponse(
-      429,
-      'Too Many Requests',
-      { message: 'Rate limit exceeded' },
-      { headers: { 'Retry-After': '60' } }
-    ),
-    classification: 'client',
-    isRetryable: true, // Special case: retryable client error
-    backoffStrategy: 'fixed', // Use the Retry-After header value
-    maxRetries: 3
-  },
-  
-  requestHeaderFieldsTooLarge: {
-    name: 'Request Header Fields Too Large',
-    description: 'Request header fields too large (431)',
-    error: createAxiosErrorWithResponse(
-      431,
-      'Request Header Fields Too Large',
-      { message: 'Request header fields too large' }
-    ),
-    classification: 'client',
-    isRetryable: false,
-    backoffStrategy: 'none',
-    maxRetries: 0
-  }
-};
-
-/**
- * Parse error test cases (malformed responses)
- */
-export const parseErrors: Record<string, HttpErrorTestCase> = {
-  invalidJson: {
-    name: 'Invalid JSON',
-    description: 'Response contains invalid JSON',
-    error: () => {
-      const error = new SyntaxError('Unexpected token < in JSON at position 0');
-      (error as any).response = {
-        status: 200,
-        statusText: 'OK',
-        data: '<html><body>Error page instead of JSON</body></html>',
-        headers: { 'content-type': 'application/json' },
-        config: { url: 'https://api.example.com/test', method: 'get' }
-      };
-      return error;
+  const response: AxiosResponse = {
+    data: data || { message, error: true },
+    status,
+    statusText: message,
+    headers: {
+      'content-type': 'application/json',
+      'x-request-id': '12345678-1234-1234-1234-123456789012'
     },
-    classification: 'parse',
-    isRetryable: false,
-    backoffStrategy: 'none',
-    maxRetries: 0
-  },
-  
-  unexpectedContentType: {
-    name: 'Unexpected Content Type',
-    description: 'Response has unexpected content type',
-    error: createAxiosErrorWithResponse(
-      200,
-      'OK',
-      'Plain text instead of JSON',
-      { headers: { 'content-type': 'text/plain' } }
-    ),
-    classification: 'parse',
-    isRetryable: false,
-    backoffStrategy: 'none',
-    maxRetries: 0
-  },
-  
-  incompleteResponse: {
-    name: 'Incomplete Response',
-    description: 'Response was truncated or incomplete',
-    error: () => {
-      const error = new Error('Unexpected end of JSON input');
-      (error as any).response = {
-        status: 200,
-        statusText: 'OK',
-        data: '{"data":{"user":',
-        headers: { 'content-type': 'application/json' },
-        config: { url: 'https://api.example.com/test', method: 'get' }
-      };
-      return error;
-    },
-    classification: 'parse',
-    isRetryable: true, // Might be a transient issue
-    backoffStrategy: 'linear',
-    maxRetries: 2
-  },
-  
-  malformedXml: {
-    name: 'Malformed XML',
-    description: 'Response contains malformed XML',
-    error: () => {
-      const error = new Error('Invalid XML: Unexpected close tag');
-      (error as any).response = {
-        status: 200,
-        statusText: 'OK',
-        data: '<root><item>Value</root>',
-        headers: { 'content-type': 'application/xml' },
-        config: { url: 'https://api.example.com/test', method: 'get' }
-      };
-      return error;
-    },
-    classification: 'parse',
-    isRetryable: false,
-    backoffStrategy: 'none',
-    maxRetries: 0
-  },
-  
-  emptyResponse: {
-    name: 'Empty Response',
-    description: 'Response body is empty when content was expected',
-    error: createAxiosErrorWithResponse(
-      200,
-      'OK',
-      '',
-      { headers: { 'content-type': 'application/json' } }
-    ),
-    classification: 'parse',
-    isRetryable: true, // Might be a transient issue
-    backoffStrategy: 'linear',
-    maxRetries: 2
-  }
-};
+    config,
+    request: {}
+  };
+
+  return createAxiosError(
+    `Request failed with status code ${status}`,
+    'ERR_BAD_RESPONSE',
+    config,
+    { path: '/resource' },
+    response
+  );
+}
 
 /**
- * Miscellaneous error test cases
+ * Factory function to create a client error
  */
-export const miscErrors: Record<string, HttpErrorTestCase> = {
-  canceledRequest: {
-    name: 'Canceled Request',
-    description: 'Request was canceled by the client',
-    error: () => {
-      const error = new AxiosError(
-        'Request canceled',
-        'ERR_CANCELED',
-        { url: 'https://api.example.com/test', method: 'get' } as AxiosRequestConfig
-      );
-      return error;
+export function createClientError(
+  status: number = HttpStatusCode.BAD_REQUEST,
+  message: string = 'Bad Request',
+  data?: any
+): AxiosError {
+  const config: AxiosRequestConfig = {
+    url: 'https://api.example.com/resource',
+    method: 'GET',
+    headers: { 'Content-Type': 'application/json' }
+  };
+
+  const response: AxiosResponse = {
+    data: data || { message, error: true },
+    status,
+    statusText: message,
+    headers: {
+      'content-type': 'application/json',
+      'x-request-id': '12345678-1234-1234-1234-123456789012'
     },
-    classification: 'unknown',
-    isRetryable: false,
-    backoffStrategy: 'none',
-    maxRetries: 0
-  },
-  
-  maxRedirectsExceeded: {
-    name: 'Max Redirects Exceeded',
-    description: 'Maximum number of redirects exceeded',
-    error: createAxiosNetworkError(
-      'Maximum number of redirects exceeded',
-      'ERR_MAX_REDIRECTS',
-      { maxRedirects: 5 }
-    ),
-    classification: 'unknown',
-    isRetryable: false,
-    backoffStrategy: 'none',
-    maxRetries: 0
-  },
-  
-  unsupportedProtocol: {
-    name: 'Unsupported Protocol',
-    description: 'URL protocol is not supported',
-    error: createAxiosNetworkError(
-      'Unsupported protocol ftp:',
-      'ERR_UNSUPPORTED_PROTOCOL',
-      { url: 'ftp://example.com/file.txt' }
-    ),
-    classification: 'unknown',
-    isRetryable: false,
-    backoffStrategy: 'none',
-    maxRetries: 0
-  },
-  
-  abortedRequest: {
-    name: 'Aborted Request',
-    description: 'Request was aborted by the server',
-    error: createAxiosNetworkError(
-      'Request aborted',
-      'ECONNABORTED'
-    ),
-    classification: 'unknown',
-    isRetryable: true,
-    backoffStrategy: 'exponential',
-    maxRetries: 3
-  }
-};
+    config,
+    request: {}
+  };
+
+  return createAxiosError(
+    `Request failed with status code ${status}`,
+    'ERR_BAD_REQUEST',
+    config,
+    { path: '/resource' },
+    response
+  );
+}
 
 /**
- * Journey-specific error test cases
+ * Factory function to create a validation error
  */
-export const journeyErrors: Record<string, HttpErrorTestCase> = {
-  // Health Journey errors
-  healthMetricsUnavailable: {
-    name: 'Health Metrics Unavailable',
-    description: 'Health metrics service is temporarily unavailable',
-    error: createAxiosErrorWithResponse(
-      503,
-      'Service Unavailable',
-      { 
-        message: 'Health metrics service is temporarily unavailable',
-        journeyType: 'health',
-        errorCode: 'HEALTH_METRICS_UNAVAILABLE'
-      }
-    ),
-    classification: 'server',
-    isRetryable: true,
-    backoffStrategy: 'exponential',
-    maxRetries: 3
-  },
-  
-  deviceSyncFailed: {
-    name: 'Device Sync Failed',
-    description: 'Failed to synchronize with health device',
-    error: createAxiosErrorWithResponse(
-      500,
-      'Internal Server Error',
-      { 
-        message: 'Failed to synchronize with health device',
-        journeyType: 'health',
-        errorCode: 'DEVICE_SYNC_FAILED',
-        deviceId: 'fitbit-12345'
-      }
-    ),
-    classification: 'server',
-    isRetryable: true,
-    backoffStrategy: 'exponential',
-    maxRetries: 5
-  },
-  
-  // Care Journey errors
-  appointmentUnavailable: {
-    name: 'Appointment Unavailable',
-    description: 'Requested appointment slot is no longer available',
-    error: createAxiosErrorWithResponse(
-      409,
-      'Conflict',
-      { 
-        message: 'Appointment slot is no longer available',
-        journeyType: 'care',
-        errorCode: 'APPOINTMENT_UNAVAILABLE',
-        appointmentId: 'appt-12345'
-      }
-    ),
-    classification: 'client',
-    isRetryable: false,
-    backoffStrategy: 'none',
-    maxRetries: 0
-  },
-  
-  providerUnavailable: {
-    name: 'Provider Unavailable',
-    description: 'Healthcare provider is temporarily unavailable',
-    error: createAxiosErrorWithResponse(
-      503,
-      'Service Unavailable',
-      { 
-        message: 'Healthcare provider is temporarily unavailable',
-        journeyType: 'care',
-        errorCode: 'PROVIDER_UNAVAILABLE',
-        providerId: 'provider-12345'
-      }
-    ),
-    classification: 'server',
-    isRetryable: true,
-    backoffStrategy: 'exponential',
-    maxRetries: 3
-  },
-  
-  // Plan Journey errors
-  claimValidationFailed: {
-    name: 'Claim Validation Failed',
-    description: 'Insurance claim validation failed',
-    error: createAxiosErrorWithResponse(
-      400,
-      'Bad Request',
-      { 
-        message: 'Insurance claim validation failed',
-        journeyType: 'plan',
-        errorCode: 'CLAIM_VALIDATION_FAILED',
-        claimId: 'claim-12345',
-        validationErrors: [
-          { field: 'serviceDate', message: 'Service date cannot be in the future' },
-          { field: 'amount', message: 'Amount exceeds maximum allowed' }
-        ]
-      }
-    ),
-    classification: 'client',
-    isRetryable: false,
-    backoffStrategy: 'none',
-    maxRetries: 0
-  },
-  
-  insuranceSystemDown: {
-    name: 'Insurance System Down',
-    description: 'External insurance system is currently down',
-    error: createAxiosErrorWithResponse(
-      502,
-      'Bad Gateway',
-      { 
-        message: 'External insurance system is currently down',
-        journeyType: 'plan',
-        errorCode: 'INSURANCE_SYSTEM_DOWN',
-        insuranceProvider: 'ACME Insurance'
-      }
-    ),
-    classification: 'server',
-    isRetryable: true,
-    backoffStrategy: 'exponential',
-    maxRetries: 5
-  }
-};
+export function createValidationError(
+  fields: Record<string, string[]>,
+  message: string = 'Validation failed'
+): AxiosError<ValidationErrorData> {
+  const data: ValidationErrorData = {
+    message,
+    errors: fields
+  };
+
+  const config: AxiosRequestConfig = {
+    url: 'https://api.example.com/resource',
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    data: { /* invalid data that caused validation error */ }
+  };
+
+  const response: AxiosResponse<ValidationErrorData> = {
+    data,
+    status: HttpStatusCode.UNPROCESSABLE_ENTITY,
+    statusText: 'Unprocessable Entity',
+    headers: {
+      'content-type': 'application/json',
+      'x-request-id': '12345678-1234-1234-1234-123456789012'
+    },
+    config,
+    request: {}
+  };
+
+  return createAxiosError<ValidationErrorData>(
+    `Request failed with status code ${HttpStatusCode.UNPROCESSABLE_ENTITY}`,
+    'ERR_BAD_REQUEST',
+    config,
+    { path: '/resource' },
+    response
+  );
+}
 
 /**
- * Circuit breaker test cases
+ * Factory function to create a rate limit error
  */
-export const circuitBreakerErrors: Record<string, HttpErrorTestCase> = {
-  consecutiveFailures: {
-    name: 'Consecutive Failures',
-    description: 'Multiple consecutive failures from the same endpoint',
-    error: createAxiosErrorWithResponse(
-      500,
-      'Internal Server Error',
-      { 
-        message: 'Internal server error',
-        consecutiveFailures: 5
-      }
-    ),
-    classification: 'server',
-    isRetryable: true,
-    backoffStrategy: 'exponential',
-    maxRetries: 3
-  },
+export function createRateLimitError(
+  retryAfter: number = 60,
+  limit: number = 100,
+  remaining: number = 0
+): AxiosError<RateLimitErrorData> {
+  const resetTime = Math.floor(Date.now() / 1000) + retryAfter;
   
-  highErrorRate: {
-    name: 'High Error Rate',
-    description: 'High error rate from service (>50%)',
-    error: createAxiosErrorWithResponse(
-      500,
-      'Internal Server Error',
-      { 
-        message: 'Internal server error',
-        errorRate: 0.75
-      }
-    ),
-    classification: 'server',
-    isRetryable: true,
-    backoffStrategy: 'exponential',
-    maxRetries: 2
-  },
-  
-  degradedService: {
-    name: 'Degraded Service',
-    description: 'Service is responding but in a degraded state',
-    error: createAxiosErrorWithResponse(
-      200,
-      'OK',
-      { 
-        status: 'degraded',
-        message: 'Service is operating in a degraded state',
-        availableFeatures: ['read'],
-        unavailableFeatures: ['write', 'update', 'delete']
-      }
-    ),
-    classification: 'server',
-    isRetryable: false, // Don't retry degraded service responses
-    backoffStrategy: 'none',
-    maxRetries: 0
-  },
-  
-  circuitOpen: {
-    name: 'Circuit Open',
-    description: 'Circuit breaker is open due to previous failures',
-    error: () => {
-      const error = new Error('Circuit breaker is open');
-      error.name = 'CircuitBreakerOpenError';
-      return error;
+  const data: RateLimitErrorData = {
+    message: 'Rate limit exceeded',
+    retryAfter,
+    limit,
+    remaining,
+    reset: resetTime
+  };
+
+  const config: AxiosRequestConfig = {
+    url: 'https://api.example.com/resource',
+    method: 'GET',
+    headers: { 'Content-Type': 'application/json' }
+  };
+
+  const response: AxiosResponse<RateLimitErrorData> = {
+    data,
+    status: HttpStatusCode.TOO_MANY_REQUESTS,
+    statusText: 'Too Many Requests',
+    headers: {
+      'content-type': 'application/json',
+      'x-ratelimit-limit': String(limit),
+      'x-ratelimit-remaining': String(remaining),
+      'x-ratelimit-reset': String(resetTime),
+      'retry-after': String(retryAfter)
     },
-    classification: 'unknown',
-    isRetryable: false, // Circuit is open, don't retry
-    backoffStrategy: 'none',
-    maxRetries: 0
-  },
-  
-  circuitHalfOpen: {
-    name: 'Circuit Half-Open',
-    description: 'Circuit breaker is half-open and testing the service',
-    error: () => {
-      const error = new Error('Circuit breaker is half-open');
-      error.name = 'CircuitBreakerHalfOpenError';
-      return error;
-    },
-    classification: 'unknown',
-    isRetryable: false, // Let the circuit breaker handle this
-    backoffStrategy: 'none',
-    maxRetries: 0
-  }
-};
+    config,
+    request: {}
+  };
+
+  return createAxiosError<RateLimitErrorData>(
+    `Request failed with status code ${HttpStatusCode.TOO_MANY_REQUESTS}`,
+    'ERR_BAD_REQUEST',
+    config,
+    { path: '/resource' },
+    response
+  );
+}
 
 /**
- * Factory functions for generating custom HTTP error test cases
+ * Factory function to create a malformed response error
  */
-export const errorFactories = {
-  /**
-   * Creates a custom server error test case
-   * 
-   * @param status - HTTP status code
-   * @param message - Error message
-   * @param retryable - Whether the error should be retried
-   * @param maxRetries - Maximum retry attempts
-   * @returns HttpErrorTestCase
-   */
-  createServerError: (
-    status: number,
-    message: string,
-    retryable: boolean = true,
-    maxRetries: number = 3
-  ): HttpErrorTestCase => ({
-    name: `Server Error ${status}`,
-    description: `Custom server error with status ${status}`,
-    error: createAxiosErrorWithResponse(
-      status,
-      status === 500 ? 'Internal Server Error' : 'Server Error',
-      { message }
-    ),
-    classification: 'server',
-    isRetryable: retryable,
-    backoffStrategy: retryable ? 'exponential' : 'none',
-    maxRetries: retryable ? maxRetries : 0
+export function createMalformedResponseError(
+  invalidJson: string = '{"data":"incomplete',
+  contentType: string = 'application/json'
+): AxiosError {
+  const config: AxiosRequestConfig = {
+    url: 'https://api.example.com/resource',
+    method: 'GET',
+    headers: { 'Content-Type': 'application/json' }
+  };
+
+  const response: AxiosResponse = {
+    data: invalidJson,
+    status: 200,
+    statusText: 'OK',
+    headers: {
+      'content-type': contentType,
+      'x-request-id': '12345678-1234-1234-1234-123456789012'
+    },
+    config,
+    request: {}
+  };
+
+  return createAxiosError(
+    'Unexpected end of JSON input',
+    'ERR_BAD_RESPONSE',
+    config,
+    { path: '/resource' },
+    response
+  );
+}
+
+/**
+ * Factory function to create a CORS error
+ */
+export function createCorsError(
+  origin: string = 'https://app.example.com',
+  target: string = 'https://api.example.com/resource'
+): AxiosError {
+  const config: AxiosRequestConfig = {
+    url: target,
+    method: 'GET',
+    headers: { 
+      'Content-Type': 'application/json',
+      'Origin': origin
+    }
+  };
+
+  return createAxiosError(
+    'Network Error',
+    'ERR_NETWORK',
+    config,
+    { path: new URL(target).pathname },
+    undefined
+  );
+}
+
+/**
+ * Common error scenarios for testing
+ */
+export const ErrorScenarios = {
+  // Network errors
+  NETWORK_CONNECTION_REFUSED: createNetworkError(
+    'ECONNREFUSED', 
+    'Connection refused',
+    { errno: 'ECONNREFUSED', syscall: 'connect', hostname: 'api.example.com', port: 443 }
+  ),
+  
+  NETWORK_CONNECTION_RESET: createNetworkError(
+    'ECONNRESET', 
+    'Connection reset by peer',
+    { errno: 'ECONNRESET', syscall: 'read' }
+  ),
+  
+  NETWORK_DNS_NOT_FOUND: createNetworkError(
+    'ENOTFOUND', 
+    'getaddrinfo ENOTFOUND api.example.com',
+    { errno: 'ENOTFOUND', syscall: 'getaddrinfo', hostname: 'api.example.com' }
+  ),
+  
+  NETWORK_INTERNET_DISCONNECTED: createNetworkError(
+    'ERR_INTERNET_DISCONNECTED', 
+    'Internet connection lost'
+  ),
+  
+  // Timeout errors
+  TIMEOUT_REQUEST: createTimeoutError(30000),
+  TIMEOUT_LONG_RUNNING: createTimeoutError(120000, 'https://api.example.com/long-running-process'),
+  
+  // Server errors
+  SERVER_INTERNAL_ERROR: createServerError(),
+  SERVER_BAD_GATEWAY: createServerError(HttpStatusCode.BAD_GATEWAY, 'Bad Gateway'),
+  SERVER_SERVICE_UNAVAILABLE: createServerError(
+    HttpStatusCode.SERVICE_UNAVAILABLE, 
+    'Service Unavailable',
+    { message: 'Service temporarily unavailable due to maintenance', retryAfter: 3600 }
+  ),
+  SERVER_GATEWAY_TIMEOUT: createServerError(HttpStatusCode.GATEWAY_TIMEOUT, 'Gateway Timeout'),
+  
+  // Client errors
+  CLIENT_BAD_REQUEST: createClientError(),
+  CLIENT_UNAUTHORIZED: createClientError(HttpStatusCode.UNAUTHORIZED, 'Unauthorized'),
+  CLIENT_FORBIDDEN: createClientError(HttpStatusCode.FORBIDDEN, 'Forbidden'),
+  CLIENT_NOT_FOUND: createClientError(HttpStatusCode.NOT_FOUND, 'Not Found'),
+  CLIENT_METHOD_NOT_ALLOWED: createClientError(HttpStatusCode.METHOD_NOT_ALLOWED, 'Method Not Allowed'),
+  
+  // Validation errors
+  VALIDATION_REQUIRED_FIELDS: createValidationError({
+    'email': ['Email is required'],
+    'password': ['Password is required', 'Password must be at least 8 characters']
   }),
   
-  /**
-   * Creates a custom client error test case
-   * 
-   * @param status - HTTP status code
-   * @param message - Error message
-   * @param retryable - Whether the error should be retried
-   * @returns HttpErrorTestCase
-   */
-  createClientError: (
-    status: number,
-    message: string,
-    retryable: boolean = false
-  ): HttpErrorTestCase => ({
-    name: `Client Error ${status}`,
-    description: `Custom client error with status ${status}`,
-    error: createAxiosErrorWithResponse(
-      status,
-      status === 400 ? 'Bad Request' : 'Client Error',
-      { message }
-    ),
-    classification: 'client',
-    isRetryable: retryable,
-    backoffStrategy: retryable ? 'linear' : 'none',
-    maxRetries: retryable ? 1 : 0
+  VALIDATION_INVALID_FORMAT: createValidationError({
+    'email': ['Invalid email format'],
+    'phone': ['Invalid phone number format']
   }),
   
-  /**
-   * Creates a custom network error test case
-   * 
-   * @param message - Error message
-   * @param code - Error code
-   * @param retryable - Whether the error should be retried
-   * @param maxRetries - Maximum retry attempts
-   * @returns HttpErrorTestCase
-   */
-  createNetworkError: (
-    message: string,
-    code: string,
-    retryable: boolean = true,
-    maxRetries: number = 3
-  ): HttpErrorTestCase => ({
-    name: `Network Error ${code}`,
-    description: `Custom network error with code ${code}`,
-    error: createAxiosNetworkError(message, code),
-    classification: 'network',
-    isRetryable: retryable,
-    backoffStrategy: retryable ? 'exponential' : 'none',
-    maxRetries: retryable ? maxRetries : 0
-  }),
+  // Rate limit errors
+  RATE_LIMIT_EXCEEDED: createRateLimitError(),
+  RATE_LIMIT_LONG_WAIT: createRateLimitError(3600, 1000, 0), // 1 hour wait
   
-  /**
-   * Creates a custom timeout error test case
-   * 
-   * @param message - Error message
-   * @param timeout - Timeout in milliseconds
-   * @param retryable - Whether the error should be retried
-   * @param maxRetries - Maximum retry attempts
-   * @returns HttpErrorTestCase
-   */
-  createTimeoutError: (
-    message: string,
-    timeout: number = 30000,
-    retryable: boolean = true,
-    maxRetries: number = 3
-  ): HttpErrorTestCase => ({
-    name: `Timeout Error ${timeout}ms`,
-    description: `Custom timeout error after ${timeout}ms`,
-    error: createAxiosNetworkError(
-      message,
-      'ETIMEDOUT',
-      { timeout }
-    ),
-    classification: 'timeout',
-    isRetryable: retryable,
-    backoffStrategy: retryable ? 'exponential' : 'none',
-    maxRetries: retryable ? maxRetries : 0
-  }),
+  // Malformed response errors
+  MALFORMED_JSON: createMalformedResponseError(),
+  MALFORMED_CONTENT_TYPE: createMalformedResponseError(
+    '{"data":"complete but wrong content type"}', 
+    'text/plain'
+  ),
   
-  /**
-   * Creates a custom journey-specific error test case
-   * 
-   * @param journeyType - Type of journey ('health', 'care', or 'plan')
-   * @param errorCode - Journey-specific error code
-   * @param message - Error message
-   * @param status - HTTP status code
-   * @param retryable - Whether the error should be retried
-   * @returns HttpErrorTestCase
-   */
-  createJourneyError: (
-    journeyType: 'health' | 'care' | 'plan',
-    errorCode: string,
-    message: string,
-    status: number = 500,
-    retryable: boolean = true
-  ): HttpErrorTestCase => ({
-    name: `${journeyType.charAt(0).toUpperCase() + journeyType.slice(1)} Journey Error`,
-    description: `Custom ${journeyType} journey error with code ${errorCode}`,
-    error: createAxiosErrorWithResponse(
-      status,
-      status >= 500 ? 'Server Error' : 'Client Error',
-      { 
-        message,
-        journeyType,
-        errorCode
-      }
-    ),
-    classification: status >= 500 ? 'server' : 'client',
-    isRetryable: retryable,
-    backoffStrategy: retryable ? 'exponential' : 'none',
-    maxRetries: retryable ? 3 : 0
-  })
+  // CORS errors
+  CORS_ORIGIN_MISMATCH: createCorsError()
 };
 
 /**
- * Groups all error test cases for easy access
+ * Utility function to check if an error is a network error
  */
-export const allErrors = {
-  network: networkErrors,
-  timeout: timeoutErrors,
-  server: serverErrors,
-  client: clientErrors,
-  parse: parseErrors,
-  misc: miscErrors,
-  journey: journeyErrors,
-  circuitBreaker: circuitBreakerErrors,
-  factories: errorFactories
-};
+export function isNetworkError(error: AxiosError): boolean {
+  return !error.response && !!error.request;
+}
+
+/**
+ * Utility function to check if an error is a timeout error
+ */
+export function isTimeoutError(error: AxiosError): boolean {
+  return error.code === 'ECONNABORTED' && error.message.includes('timeout');
+}
+
+/**
+ * Utility function to check if an error is a server error (5xx)
+ */
+export function isServerError(error: AxiosError): boolean {
+  return !!error.response && error.response.status >= 500 && error.response.status < 600;
+}
+
+/**
+ * Utility function to check if an error is a client error (4xx)
+ */
+export function isClientError(error: AxiosError): boolean {
+  return !!error.response && error.response.status >= 400 && error.response.status < 500;
+}
+
+/**
+ * Utility function to check if an error is a validation error
+ */
+export function isValidationError(error: AxiosError): boolean {
+  return (
+    !!error.response &&
+    error.response.status === HttpStatusCode.UNPROCESSABLE_ENTITY &&
+    !!error.response.data &&
+    typeof error.response.data === 'object' &&
+    'errors' in error.response.data
+  );
+}
+
+/**
+ * Utility function to check if an error is a rate limit error
+ */
+export function isRateLimitError(error: AxiosError): boolean {
+  return (
+    !!error.response &&
+    error.response.status === HttpStatusCode.TOO_MANY_REQUESTS &&
+    !!error.response.headers &&
+    ('retry-after' in error.response.headers || 'x-ratelimit-reset' in error.response.headers)
+  );
+}
+
+/**
+ * Utility function to get retry delay from rate limit error
+ */
+export function getRetryDelay(error: AxiosError): number | null {
+  if (!isRateLimitError(error) || !error.response) {
+    return null;
+  }
+  
+  const { headers } = error.response;
+  
+  if ('retry-after' in headers) {
+    const retryAfter = headers['retry-after'];
+    if (typeof retryAfter === 'string') {
+      // Could be seconds or a date
+      if (/^\d+$/.test(retryAfter)) {
+        return parseInt(retryAfter, 10) * 1000; // Convert to ms
+      } else {
+        const date = new Date(retryAfter);
+        return date.getTime() - Date.now();
+      }
+    }
+  }
+  
+  if ('x-ratelimit-reset' in headers) {
+    const resetTime = headers['x-ratelimit-reset'];
+    if (typeof resetTime === 'string') {
+      const resetTimestamp = parseInt(resetTime, 10) * 1000; // Convert to ms
+      return resetTimestamp - Date.now();
+    }
+  }
+  
+  return null;
+}
+
+/**
+ * Utility function to categorize an error
+ */
+export function categorizeError(error: AxiosError): ErrorCategory {
+  if (isNetworkError(error)) {
+    return ErrorCategory.NETWORK;
+  }
+  
+  if (isTimeoutError(error)) {
+    return ErrorCategory.TIMEOUT;
+  }
+  
+  if (isServerError(error)) {
+    return ErrorCategory.SERVER;
+  }
+  
+  if (isRateLimitError(error)) {
+    return ErrorCategory.RATE_LIMIT;
+  }
+  
+  if (isValidationError(error)) {
+    return ErrorCategory.VALIDATION;
+  }
+  
+  if (isClientError(error)) {
+    if (error.response?.status === HttpStatusCode.UNAUTHORIZED) {
+      return ErrorCategory.AUTHENTICATION;
+    }
+    
+    if (error.response?.status === HttpStatusCode.FORBIDDEN) {
+      return ErrorCategory.AUTHORIZATION;
+    }
+    
+    return ErrorCategory.CLIENT;
+  }
+  
+  // Check for malformed response
+  if (error.response && 
+      error.response.status >= 200 && 
+      error.response.status < 300 && 
+      error.message.includes('JSON')) {
+    return ErrorCategory.MALFORMED_RESPONSE;
+  }
+  
+  // CORS errors typically manifest as network errors without response
+  if (!error.response && error.message === 'Network Error' && 
+      error.config?.headers && 'Origin' in error.config.headers) {
+    return ErrorCategory.CORS;
+  }
+  
+  return ErrorCategory.UNKNOWN;
+}
